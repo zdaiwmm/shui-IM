@@ -21,6 +21,28 @@ try {
     window.originalViewportHeight=visualViewport.height;
   });
   await page.clock.runFor(500);
+  assert.equal(await page.locator('#message-input').evaluate(n=>n.getBoundingClientRect().height),44);
+  assert.equal(await page.locator('.chamber-presence-capsule .presence-circuit').count(),1);
+  // The Chamber capsule uses the same real connection/presence facts and
+  // message motion controller as the existing split-heart presentation.
+  const heart=page.locator('.chamber-presence-capsule .presence-circuit');
+  await page.evaluate(()=>{fixture.app.connectionState='connected';fixture.app.rolePresence={creator:true,joiner:false};fixture.app.updatePeerStatus();});
+  assert.equal(await heart.getAttribute('data-phase'),'offline');
+  assert.deepEqual(await heart.evaluate(svg=>[...svg.querySelectorAll('.presence-half')].map(half=>getComputedStyle(half).opacity)),['0.35','1']);
+  assert.equal(await heart.locator('.presence-base').evaluate(n=>getComputedStyle(n).opacity),'1');
+  assert.equal(await heart.locator('.presence-heart').evaluate(n=>getComputedStyle(n).fill),await heart.evaluate(n=>{const test=document.createElement('span');test.style.color='var(--space-heart-red)';n.parentElement.append(test);const color=getComputedStyle(test).color;test.remove();return color;}));
+  await page.evaluate(()=>{fixture.app.rolePresence={creator:true,joiner:true};fixture.app.updatePeerStatus();});
+  assert.equal(await heart.getAttribute('data-phase'),'charging');
+  await page.clock.runFor(4500);
+  assert.equal(await heart.getAttribute('data-phase'),'online');
+  await page.evaluate(()=>fixture.app.presenceCircuit.sent());await page.clock.runFor(32);
+  assert.equal(await heart.getAttribute('data-phase'),'pulsing');
+  assert.notEqual(await heart.locator('[data-half=right]').getAttribute('transform'),'translate(2 0)');
+  await page.evaluate(()=>{fixture.app.connectionState='disconnected';fixture.app.rolePresence=null;fixture.app.updatePeerStatus();});
+  assert.equal(await heart.getAttribute('data-phase'),'unknown');
+  assert.equal(await heart.locator('[data-arc][d]').count(),0);
+  const rails=await page.locator('#message-list').evaluate(list=>{const r=list.getBoundingClientRect(),s=getComputedStyle(list),c=list.querySelector('.chamber-privacy-guide').getBoundingClientRect();return {left:c.left-r.left-parseFloat(s.paddingLeft),right:r.right-parseFloat(s.paddingRight)-c.right};});
+  assert.ok(Math.abs(rails.left)<1&&Math.abs(rails.right)<1,JSON.stringify(rails));
   assert.equal(await page.locator('#message-list > .chamber-privacy-guide').count(),1);
   const before=await page.locator('.chamber-privacy-guide').boundingBox();
   await page.locator('#message-input').focus();
@@ -101,6 +123,9 @@ try {
     (await import('/src/lib/form-input.ts')).mountFormInputs(document.querySelector('#app'));
   });
   const background = await page.locator('.chamber-identity-import').boundingBox();
+  assert.equal(await page.locator('.page-back-footer [type=submit]').evaluate(button=>button.form===document.querySelector('.chamber-identity-import form')),true);
+  const actions=await page.locator('.page-back-footer').evaluate(footer=>{const [a,b]=[...footer.querySelectorAll('button')].map(button=>button.getBoundingClientRect());return {gap:b.top-a.bottom,delta:Math.abs(a.width-b.width),heights:[a.height,b.height]};});
+  assert.ok(Math.abs(actions.gap-8)<1&&actions.delta<1&&actions.heights.every(h=>h>=44),JSON.stringify(actions));
   await page.locator('[name=word0]').click(); await page.clock.runFor(32);
   await page.evaluate(()=>{window.stableEditor=document.querySelector('#form-input-draft');window.editorBlurs=0;stableEditor.addEventListener('blur',()=>editorBlurs++);});
   for (const height of [640,540,480]) {
@@ -128,6 +153,7 @@ try {
     const {session,app}=fixture;session.vault.role='joiner';session.vault.pairingState='joining';session.vault.inviteToken='synthetic-token';session.vault.members[0].joinProof='synthetic-proof';
     session.vault.pendingChamberInvitation={requestId:'synthetic-request',secret:'synthetic-claim',version:1,expiresAt:new Date(Date.now()+30*60_000).toISOString()};
     fixture.fresh(0);app.renderPendingChamberJoin();
+    window.codeSubmissions=[];app.completePendingJoin=async code=>{codeSubmissions.push(code);await new Promise(resolve=>window.releaseCode=resolve);throw new Error('Synthetic wrong code');};
   });await page.clock.runFor(100);
   const codePage=await page.locator('.chamber-join-shell').boundingBox();
   await page.locator('[data-code-digit="0"]').click();await page.clock.runFor(32);
@@ -142,8 +168,15 @@ try {
   }
   assert.deepEqual(await page.locator('.chamber-join-shell').boundingBox(),codePage);
   await page.locator('[data-form-input-done]').click();
-  assert.deepEqual(await page.locator('[data-code-digit]').evaluateAll(nodes=>nodes.map(node=>node.value)),['1','2','3','4']);
+  assert.equal(await page.locator('.chamber-code-card [type=submit]').getAttribute('aria-busy'),'true');
+  assert.equal(await page.locator('.chamber-code-card [type=submit]').isDisabled(),true);
+  assert.deepEqual(await page.evaluate(()=>codeSubmissions),['1234']);
+  await page.locator('.chamber-code-card').evaluate(form=>form.requestSubmit());
+  assert.deepEqual(await page.evaluate(()=>codeSubmissions),['1234']);
   assert.equal(await page.locator('.form-input-overlay').count(),0);
+  await page.evaluate(()=>releaseCode());await page.clock.runFor(50);
+  assert.equal(await page.locator('.chamber-code-card [type=submit]').isDisabled(),false);
+  await page.evaluate(async()=>{(await import('/src/lib/form-input.ts')).cancelFormInput();});
   await page.evaluate(()=>{delete visualViewport.height;visualViewport.dispatchEvent(new Event('resize'));});await page.clock.runFor(700);
   // No-message cards must keep their actual scroll offset during timer/state
   // renders, even though they have no message-id anchor.
@@ -154,6 +187,16 @@ try {
   const readTop=await page.evaluate(()=>window.scrollY);
   await page.evaluate(()=>fixture.app.renderMessages('preserve'));await page.clock.runFor(100);
   assert.equal(await page.evaluate(()=>window.scrollY),readTop);
+  for(const width of [320,390,1440]){
+    await page.setViewportSize({width,height:844});
+    for(const method of ['renderAppearanceSettings','renderReleaseHistory','renderBackupSettings']){
+      await page.evaluate(method=>{fixture.session.vault.personalBinding=method==='renderBackupSettings'?undefined:{identity:{id:'synthetic-ui-root'}};fixture.fresh(0);fixture.app[method]();},method);await page.clock.runFor(100);
+      assert.equal(await page.locator('.chamber-settings-page').count(),1,JSON.stringify({width,method,dom:await page.locator('#app').evaluate(n=>n.innerHTML.slice(0,400)),errors}));
+      const layout=await page.locator('.chamber-settings-page').evaluate(p=>{const b=p.querySelector('.chamber-page-footer button').getBoundingClientRect(),f=p.querySelector('.chamber-page-footer').getBoundingClientRect();return {width:b.width,height:b.height,inside:b.bottom<=innerHeight+1,padding:b.left-f.left,overflow:document.documentElement.scrollWidth>innerWidth+1};});
+      assert.ok(layout.width>0&&layout.height>=44&&layout.inside&&layout.padding===20&&!layout.overflow,JSON.stringify({width,method,layout}));
+      await capture(`settings-${method}-${width}`);
+    }
+  }
   assert.deepEqual(errors,[]);
   console.log('Chamber chat UI: keyboard-following guidance, theme separation, readiness guard, half sheet and cover alignment passed (synthetic component evidence).');
 } finally { await fixture.close(); }

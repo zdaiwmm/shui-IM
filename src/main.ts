@@ -15,6 +15,8 @@ import './desktop.css';
 import './experience.css';
 import './system-chrome.css';
 import './form-input.css';
+import './chamber-refinements.css';
+import { mountSettingsLayout } from './lib/settings-layout';
 import { mountFormInputs } from './lib/form-input';
 import { mountGatewayIntros } from './lib/gateway-intro';
 
@@ -35,6 +37,7 @@ mountSystemChrome();
 mountPortraitOrientation(root);
 mountFormInputs(root);
 mountGatewayIntros(root);
+mountSettingsLayout(root);
 
 const app = new QuietRoomApp(root);
 void app.start();

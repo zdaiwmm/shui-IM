@@ -120,9 +120,15 @@ export type PendingDeviceLink = {
 export type Vault = {
   /** Local record namespace for independently recovered endpoints; never a server room ID. */
   localDataScope?: string;
+  /** Original local preference/draft owner when this browser rotates its device keys. */
+  localPreferenceDeviceId?: string;
   /** Public binding only. The encrypted personal root lives outside all room checkpoints. */
   personalBinding?: import('./personal-device-binding').PersonalDeviceBinding;
-  personalMigration?: { state: 'staged'; binding: import('./personal-device-binding').PersonalDeviceBinding };
+  personalMigration?: { state: 'staged'; binding: import('./personal-device-binding').PersonalDeviceBinding;
+    /** Encrypted inside the source vault; never sent to the service. */
+    stage?: { requestId: string; scopeHash: string; dataScope: string; master: string; digest?: string } };
+  /** Crash-safe source retained until the jointly signed generation is read back. */
+  migrationSource?: Vault;
   personalPeers?: import('./personal-device-binding').PersonalDeviceBinding[];
   /** Durable creator intent. No room services start before server readback. */
   pendingChamberCreate?: true;

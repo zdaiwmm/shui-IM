@@ -11,7 +11,7 @@ import {normalizeGalleryCurationRecords,type GalleryCurationRecord} from './gall
 
 export type ChamberHistoryPayload = { v: 1; kind: 'messages'; roomId: string; ownerId: string;
   afterSeq: number; upperSeq: number; previous: { id: string; digest: string } | null;
-  messages: DecryptedMessage[]; attachments: { blobId: string; index: number; unitId: string }[]; preferences?:string[] } |
+  messages: DecryptedMessage[]; attachments: { blobId: string; index: number; unitId: string }[]; preferences?:string[]; omittedSafe?:number[] } |
   { v: 1; kind: 'attachment'; roomId: string; ownerId: string; blobId: string; index: number; bytes: string } |
   { v:1;kind:'preferences';roomId:string;ownerId:string;hiddenChatMessageIds:string[];galleryHidden:GalleryCurationRecord[] };
 export type ChamberHistoryRecord = { v: 1; roomId: string; ownerId: string; id: string; revision: number;
@@ -45,6 +45,8 @@ export async function verifyChamberHistoryHead(value: ChamberHistoryHead, owner:
 }
 const scope = (roomId: string, ownerId: string, peerId: string, id: string, revision: number) =>
   bytes({ purpose: 'chamber-history-record-v1', roomId, ownerId, peerId, id, revision });
+const messageFields=(p:Extract<ChamberHistoryPayload,{kind:'messages'}>)=>
+  ['afterSeq','attachments','kind','messages','ownerId','previous','roomId','upperSeq','v',...(p.preferences!==undefined?['preferences']:[]),...(p.omittedSafe!==undefined?['omittedSafe']:[])].sort().join(',');
 
 export function validChamberHistoryPayload(payload: ChamberHistoryPayload): boolean {
   try {
@@ -55,17 +57,23 @@ export function validChamberHistoryPayload(payload: ChamberHistoryPayload): bool
     if (payload.kind === 'attachment') return Object.keys(payload).sort().join(',') === 'blobId,bytes,index,kind,ownerId,roomId,v' &&
       /^[0-9a-f-]{36}$/i.test(payload.blobId) && Number.isSafeInteger(payload.index) && payload.index >= 0 && payload.index < 65_536 &&
       typeof payload.bytes === 'string' && /^[A-Za-z0-9_-]{22,2796224}$/.test(payload.bytes);
-    if (payload.kind !== 'messages' || Object.keys(payload).sort().join(',') !== (payload.preferences?'afterSeq,attachments,kind,messages,ownerId,preferences,previous,roomId,upperSeq,v':'afterSeq,attachments,kind,messages,ownerId,previous,roomId,upperSeq,v') ||
+    if (payload.kind !== 'messages' || Object.keys(payload).sort().join(',') !== messageFields(payload) ||
       (payload.preferences!==undefined&&(!Array.isArray(payload.preferences)||payload.preferences.length>20||new Set(payload.preferences).size!==payload.preferences.length||!payload.preferences.every(id=>/^[A-Za-z0-9_-]{43}$/.test(id)))) ||
       !Number.isSafeInteger(payload.afterSeq) || payload.afterSeq < 0 || !Number.isSafeInteger(payload.upperSeq) || payload.upperSeq < payload.afterSeq ||
       !Array.isArray(payload.messages) || payload.messages.length > 100 || !Array.isArray(payload.attachments) || payload.attachments.length > 30_000 ||
       (payload.previous !== null && (!payload.previous || Object.keys(payload.previous).sort().join(',') !== 'digest,id' ||
         !/^[A-Za-z0-9_-]{43}$/.test(payload.previous.id) || !/^[A-Za-z0-9_-]{43}$/.test(payload.previous.digest)))) return false;
+    const omitted=payload.omittedSafe??[];
+    if(!Array.isArray(omitted)||omitted.length>100||omitted.some((seq,i)=>!Number.isSafeInteger(seq)||seq<=payload.afterSeq||seq>payload.upperSeq||i>0&&seq<=omitted[i-1]!))return false;
     let seq = payload.afterSeq;
-    for (const message of payload.messages) if (!message || Object.keys(message).sort().join(',') !== 'acceptedAt,clientMsgId,payload,senderId,seq,status' ||
-      message.seq !== ++seq || !/^[0-9a-f-]{36}$/i.test(message.clientMsgId) || !/^[0-9a-f-]{36}$/i.test(message.senderId) ||
-      !['stored', 'sent', 'delivered', 'pending', 'failed'].includes(message.status) || !Number.isFinite(Date.parse(message.acceptedAt)) || !isMessagePayload(message.payload)) return false;
-    return seq === payload.upperSeq && payload.attachments.every(ref => ref && Object.keys(ref).sort().join(',') === 'blobId,index,unitId' &&
+    for (const message of payload.messages) {
+      if (!message || Object.keys(message).sort().join(',') !== 'acceptedAt,clientMsgId,payload,senderId,seq,status' ||
+        !Number.isSafeInteger(message.seq)||message.seq<=seq || !/^[0-9a-f-]{36}$/i.test(message.clientMsgId) || !/^[0-9a-f-]{36}$/i.test(message.senderId) ||
+        !['stored', 'sent', 'delivered', 'pending', 'failed'].includes(message.status) || !Number.isFinite(Date.parse(message.acceptedAt)) || !isMessagePayload(message.payload)) return false;
+      seq=message.seq;
+    }
+    const coverage=[...payload.messages.map(m=>m.seq),...omitted].sort((a,b)=>a-b);
+    return coverage.length===payload.upperSeq-payload.afterSeq && coverage.every((n,i)=>n===payload.afterSeq+i+1) && payload.attachments.every(ref => ref && Object.keys(ref).sort().join(',') === 'blobId,index,unitId' &&
       /^[0-9a-f-]{36}$/i.test(ref.blobId) && Number.isSafeInteger(ref.index) && ref.index >= 0 && ref.index < 65_536 && /^[A-Za-z0-9_-]{43}$/.test(ref.unitId));
   } catch { return false; }
 }
@@ -75,7 +83,7 @@ export async function sealChamberHistoryRecord(payload: ChamberHistoryPayload, i
   peer: PersonalPublicIdentity, device: PrivateIdentity, binding: PersonalDeviceBinding): Promise<ChamberHistoryRecord> {
   if (payload.v !== 1 || !['messages', 'attachment','preferences'].includes(payload.kind) || payload.ownerId !== binding.identity.id ||
     !/^[A-Za-z0-9_-]{1,128}$/.test(payload.roomId) || !/^[A-Za-z0-9_-]{1,128}$/.test(id) || !Number.isSafeInteger(revision) || revision < 1) throw new Error('历史备份范围不正确');
-  const expected = payload.kind === 'messages' ? (payload.preferences?'afterSeq,attachments,kind,messages,ownerId,preferences,previous,roomId,upperSeq,v':'afterSeq,attachments,kind,messages,ownerId,previous,roomId,upperSeq,v') : payload.kind==='preferences'?'galleryHidden,hiddenChatMessageIds,kind,ownerId,roomId,v':'blobId,bytes,index,kind,ownerId,roomId,v';
+  const expected = payload.kind === 'messages' ? messageFields(payload) : payload.kind==='preferences'?'galleryHidden,hiddenChatMessageIds,kind,ownerId,roomId,v':'blobId,bytes,index,kind,ownerId,roomId,v';
   if (Object.keys(payload).sort().join(',') !== expected) throw new Error('历史备份包含未许可的字段');
   if (!validChamberHistoryPayload(payload)) throw new Error('历史备份的数据记录不正确');
   const raw = bytes(payload), dataKey = crypto.getRandomValues(new Uint8Array(32)), iv = crypto.getRandomValues(new Uint8Array(12));

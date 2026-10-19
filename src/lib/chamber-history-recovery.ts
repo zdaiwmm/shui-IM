@@ -12,6 +12,8 @@ import { importArchivedMessages, saveChamberRecoveredMediaChunk, loadCachedMedia
 import { attachmentVerifier } from './local-history-backup';
 import type { DecryptedMessage, ImageManifest } from './types';
 import {verifyMigratedHistory} from './chamber-migrations';
+import {migrationRecoveryDestination,verifyMigrationStage} from './chamber-migration-stage';
+import {findMissingArchivedMessages} from './vault';
 import {authenticatedMlsCallMembers} from './call-membership';
 
 export type ChamberHistoryRequest = { scope: JointHistoryScope; proof: PersonalProof; signature: string };
@@ -111,6 +113,7 @@ export async function completeChamberHistoryRecovery(session:VaultSession,reques
   signal:AbortSignal,progress:(count:number,total:number)=>void):Promise<number> {
   const {owner,peer,grant}=await verifyRequest(session,request,false);
   if (!same(stored.identity,owner) || !same(request.scope.target,session.vault.identity.publicBundle)) throw new Error('恢复结果只交给申请的本机设备');
+  const destination=await migrationRecoveryDestination(session,request,signal);
   const releases=new Map<string,JointHistoryRelease>();
   for (let after=0;after<request.scope.units.length;after+=100) {
     const rows=await api<Unit[]>(session,`${base(session)}/${request.proof.requestId}?after=${after}`,signal);
@@ -127,11 +130,11 @@ export async function completeChamberHistoryRecovery(session:VaultSession,reques
   const open=async (id:string):Promise<{record:ChamberHistoryRecord;payload:ChamberHistoryPayload}> => {
     signal.throwIfAborted(); const unit=units.get(id), release=releases.get(id);
     if (!unit || !release) throw new Error('历史备份链不完整');
-    const cached=await loadChamberHistoryCipher(session,id);
+    const cached=await loadChamberHistoryCipher(destination,id);
     const record=cached??await api<ChamberHistoryRecord>(session,`/api/rooms/${session.vault.roomId}/chamber-history/${id}`,signal);
     if (record.id !== id || record.revision !== unit.revision || jointHistoryEnvelopeHash(record.keyEnvelope) !== unit.envelopeHash) throw new Error('历史备份分块被替换');
     const payload=await usePersonalIdentity(stored,credential,entropy=>openChamberHistoryRecord(record,owner,peer,request.proof,request.signature,release,entropy,grant,session.vault.identity));
-    if(!cached)await cacheChamberHistoryCipher(session,record,signal);
+    if(!cached)await cacheChamberHistoryCipher(destination,record,signal);
     return {record,payload};
   };
   for (const head of request.scope.heads) {
@@ -142,15 +145,16 @@ export async function completeChamberHistoryRecovery(session:VaultSession,reques
       if (seen.has(next.id)) throw new Error('历史备份链出现重复'); seen.add(next.id);
       const {record,payload}=await open(next.id);
       if (chamberHistoryRecordHash(record) !== next.digest || payload.kind !== 'messages' || payload.upperSeq !== upper || record.keyEnvelope.author?.bundle.deviceId !== head.deviceId) throw new Error('历史备份链或范围不完整');
+      if(payload.omittedSafe?.length&&session.vault.role!=='joiner')throw new Error('保险箱排除范围与历史归属不一致');
       for(const id of payload.preferences??[]) {
         const metadata=(await open(id)).payload;
         if(metadata.kind!=='preferences'||session.vault.role!=='creator'&&metadata.galleryHidden.length)throw new Error('历史备份删除标记的归属不正确');
         if(request.scope.scope!=='gallery') {
-          const preferences=await loadUiPreferences(session),hiddenChatMessageIds=[...new Set([...(preferences.hiddenChatMessageIds??[]),...metadata.hiddenChatMessageIds].map(id=>id.toLowerCase()))];
+          const preferences=await loadUiPreferences(destination),hiddenChatMessageIds=[...new Set([...(preferences.hiddenChatMessageIds??[]),...metadata.hiddenChatMessageIds].map(id=>id.toLowerCase()))];
           if(hiddenChatMessageIds.length>20_000)throw new Error('聊天删除标记超过本版恢复上限，已保留本机已有记录');
-          await saveUiPreferences(session,{...preferences,hiddenChatMessageIds});
+          await saveUiPreferences(destination,{...preferences,hiddenChatMessageIds});
         }
-        if(request.scope.scope!=='chat')await restoreGalleryHidden(session,metadata.galleryHidden,signal);
+        if(request.scope.scope!=='chat')await restoreGalleryHidden(destination,metadata.galleryHidden,signal);
       }
       const chunks=new Map(payload.attachments.map(ref=>[`${ref.blobId}:${ref.index}`,ref.unitId]));
       for (const message of payload.messages) for (const manifest of manifests(message)) {
@@ -165,20 +169,22 @@ export async function completeChamberHistoryRecovery(session:VaultSession,reques
           const raw=fromBase64Url(part.bytes);
           if(pass===0) { await verifier.chunk(index,raw.buffer); if(index===manifest.chunkCount-1) verifier.finish(); }
           else {
-            await saveChamberRecoveredMediaChunk(session,manifest.blobId,index,raw.buffer,signal);
-            const readback=await loadCachedMediaChunk(session,manifest.blobId,index,raw.length);
+            await saveChamberRecoveredMediaChunk(destination,manifest.blobId,index,raw.buffer,signal);
+            const readback=await loadCachedMediaChunk(destination,manifest.blobId,index,raw.length);
             if(!readback||new Uint8Array(readback).some((byte,i)=>byte!==raw[i]))throw new Error('本机容量不足，原文件未能完整回读。已保留经过验证的旧记录，请腾出空间后继续恢复');
           }
         }
       }
-      imported+=await importArchivedMessages(session,payload.messages,request.scope.scope,signal);
+      imported+=await importArchivedMessages(destination,payload.messages,request.scope.scope,signal);
+      if((await findMissingArchivedMessages(destination,payload.messages,request.scope.scope,signal)).length)throw new Error('历史记录未能完整落盘回读');
       progress(++count,request.scope.units.length); upper=payload.afterSeq; next=payload.previous;
       if(count>request.scope.units.length)throw new Error('恢复进度超出已批准范围');
       checkpoint={...checkpoint,current:{headId:head.id,next,upper},count,imported};await saveProgress();
     }
     checkpoint={...checkpoint,doneHeads:[...checkpoint.doneHeads,head.id],current:undefined,count,imported};await saveProgress();
   }
-  await verifyMigratedHistory(session,request,stored,credential,signal);
+  const stagingDigest=destination===session?undefined:await verifyMigrationStage(session,destination,request,signal);
+  await verifyMigratedHistory(session,request,stored,credential,signal,stagingDigest);
   await withVaultMutation(session,async mutation=>{signal.throwIfAborted(); session.vault.pendingChamberHistoryRecovery=undefined;session.vault.chamberHistoryRestoreProgress=undefined; await saveVault(session,mutation);});
   return imported;
 }

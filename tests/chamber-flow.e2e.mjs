@@ -116,7 +116,7 @@ try {
   await a.locator('#copy-chamber-code').click();
   assert.equal(await a.evaluate(()=>navigator.clipboard.readText()),earlyCode);
   assert.equal(await a.locator('#copy-chamber-code').textContent(),'复制');
-  assert.match(await a.locator('#invite-countdown').textContent(),/^\d+:\d{2}$/);
+  assert.match(await a.locator('#invite-countdown').textContent(),/^有效期：\d+:\d{2}$/);
   await capture('inviter-after-claim');
   assert.equal(await a.locator('#chamber-invite-restart').isVisible(), true);
   await a.locator('#chamber-invite-restart').click();
@@ -255,9 +255,7 @@ try {
   assert.deepEqual(await b.locator('.form-input-code-cells > span').allTextContents(),['1','2','3','4']);
   await b.locator('#form-input-draft').press('Backspace');await b.locator('#form-input-draft').press('Backspace');
   assert.equal(await b.locator('#form-input-draft').inputValue(),'12');
-  await b.locator('#form-input-draft').fill(code);await b.locator('[data-form-input-done]').click();
-  await b.locator('.form-input-overlay').waitFor({state:'detached'});
-  assert.deepEqual(await digits.evaluateAll(inputs=>inputs.map(input=>input.value)),code.split(''));
+  await b.locator('#form-input-draft').fill(code);
   assert.deepEqual(await b.locator('.chamber-join-shell').boundingBox(),codeBackground);
   // Lost transport while the inviter is on a settings child must be repaired
   // by the unlocked session, without navigating back to chat to drive it.
@@ -272,7 +270,8 @@ try {
     });
     activationObserver.observe(document.querySelector('#app'),{childList:true});
   });
-  await b.locator('.chamber-code-card [type=submit]').click();
+  await b.locator('[data-form-input-done]').click();
+  await b.locator('.form-input-overlay').waitFor({state:'detached'});
   for (const [index, page] of [a, b].entries()) {
     try { await page.waitForFunction(() => app.session?.vault.mls?.phase === 'active' && !document.querySelector('#message-input')?.disabled); }
     catch (cause) {

@@ -43,7 +43,7 @@ function titleFor(field: Field): string {
   return field.getAttribute('aria-label') || labelled || field.labels?.[0]?.textContent?.trim() || field.placeholder || '输入内容';
 }
 
-/** One ephemeral draft; never submit the owning form or persist editor contents. */
+/** One ephemeral draft. Only an explicitly marked verification code opts into Done submission. */
 export function mountFormInputs(root: HTMLElement): () => void {
   const lifetime = new AbortController();
   const open = (initial: Field) => {
@@ -141,6 +141,7 @@ export function mountFormInputs(root: HTMLElement): () => void {
       releaseWhenClosed();
       if (apply) {
         commitDraft(value); value = '';
+        if(codeGroup?.hasAttribute('data-submit-on-code-done')&&active())original.form?.requestSubmit();
       }
     };
     const complete = () => {

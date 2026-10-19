@@ -24,10 +24,19 @@ export function mountPageBacks(root: HTMLElement): void {
     page.classList.add('page-back-page');
     footer = document.createElement('footer'); footer.className = 'page-back-footer';
     const previousParent = button.parentElement;
+    const actions:HTMLButtonElement[]=[];
+    if(previousParent?.matches('footer,.welcome-actions,.chamber-import-actions')||previousParent===page&&page.classList.contains('gateway')) {
+      let sibling=button.previousElementSibling;
+      while(sibling instanceof HTMLButtonElement&&sibling.matches('.primary-button,.secondary-button,.text-button')) {
+        const form=sibling.form;
+        if(form){form.id ||= `page-form-${crypto.randomUUID()}`;sibling.setAttribute('form',form.id);}
+        actions.unshift(sibling);sibling=sibling.previousElementSibling;
+      }
+    }
     button.classList.add('page-back-button'); button.type = 'button';
     if (!button.hasAttribute('aria-label')) button.setAttribute('aria-label', label);
     button.textContent = '返回';
-    footer.append(button); page.append(footer);
+    footer.append(...actions,button); page.append(footer);
     page.style.setProperty('--page-back-height', `${footer.offsetHeight}px`);
     footers.set(footer, page); resize.observe(footer);
     if (previousParent?.tagName === 'FOOTER' && !previousParent.children.length && !previousParent.textContent?.trim()) previousParent.remove();

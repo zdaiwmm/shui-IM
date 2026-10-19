@@ -13,7 +13,7 @@ type Reference = { blobId: string; index: number; unitId: string };
 export type ChamberBackupState = { v: 1; cursor: number; revision: number; syncedAt?: string; paused?: string;
   metadataHash?:string;
   head?: ChamberHistoryHeadReference;
-  batch?: { afterSeq: number; upperSeq: number; messages: DecryptedMessage[]; chunks: Chunk[]; references: Reference[];
+  batch?: { afterSeq: number; upperSeq: number; messages: DecryptedMessage[]; omittedSafe?:number[]; chunks: Chunk[]; references: Reference[];
     metadata:{hash:string;hiddenChatMessageIds:string[];galleryHidden:GalleryCurationRecord[];units:string[]} };
   pending?: { record: ChamberHistoryRecord; chunk?: Chunk; head?: ChamberHistoryHead; preference?:boolean };
 };
@@ -61,10 +61,14 @@ async function snapshot(session: VaultSession, signal: AbortSignal): Promise<Cha
   let expected = after + 1;
   for (const message of messages) {
     if (message.seq !== expected++) throw new Error('历史备份暂停：部分聊天内容缺失，请先补齐或恢复');
-    if (session.vault.role !== 'creator' && ['gallery-image', 'gallery-file'].includes(message.payload.kind)) throw new Error('历史备份暂停：保险箱归属无法验证');
   }
   const unique = new Map<string, ImageManifest>();
-  messages.forEach(message => manifests(message).forEach(manifest => unique.set(manifest.blobId, manifest)));
+  // A joiner's old MLS cache can include creator-only Safe rows. Preserve only
+  // their sequence coverage; never put Safe manifests or data into its backup.
+  const safe=(message:DecryptedMessage)=>['gallery-image','gallery-file'].includes(message.payload.kind);
+  const visible=session.vault.role==='creator'?messages:messages.filter(message=>!safe(message));
+  const omittedSafe=session.vault.role==='creator'?[]:messages.filter(safe).map(message=>message.seq);
+  visible.forEach(message => manifests(message).forEach(manifest => unique.set(manifest.blobId, manifest)));
   const chunks: Chunk[] = [];
   for (const manifest of unique.values()) {
     const verifier = await attachmentVerifier(manifest);
@@ -79,8 +83,8 @@ async function snapshot(session: VaultSession, signal: AbortSignal): Promise<Cha
     try { verifier.finish(); } catch { throw new Error('历史备份暂停：原文件完整性校验失败'); }
   }
   // Only chat rows and data-key-bearing attachment manifests are serialized; never a Vault.
-  const rows = messages.map(({ seq, clientMsgId, senderId, payload, acceptedAt, status }) => ({ seq, clientMsgId, senderId, payload, acceptedAt, status }));
-  return { afterSeq: after, upperSeq: messages.at(-1)?.seq??after, messages: rows, chunks, references: [],metadata:{hash:metadataHash,hiddenChatMessageIds,galleryHidden,units:[]} };
+  const rows = visible.map(({ seq, clientMsgId, senderId, payload, acceptedAt, status }) => ({ seq, clientMsgId, senderId, payload, acceptedAt, status }));
+  return { afterSeq: after, upperSeq: messages.at(-1)?.seq??after, messages: rows,...(omittedSafe.length?{omittedSafe}:{}), chunks, references: [],metadata:{hash:metadataHash,hiddenChatMessageIds,galleryHidden,units:[]} };
 }
 
 /** Upload at most ten immutable units per foreground pass; pending ciphertext is durable before network I/O. */
@@ -112,7 +116,7 @@ export async function syncChamberHistory(session: VaultSession, signal: AbortSig
           hiddenChatMessageIds:batch.metadata.hiddenChatMessageIds.slice(index*1000,(index+1)*1000),galleryHidden:batch.metadata.galleryHidden.slice(index*1000,(index+1)*1000)};
         else payload = { v: 1, kind: 'messages', roomId: session.vault.roomId, ownerId: binding.identity.id,
           afterSeq: batch.afterSeq, upperSeq: batch.upperSeq, previous: state.head ? { id: state.head.id, digest: state.head.digest } : null,
-          messages: batch.messages, attachments: batch.references,preferences:batch.metadata.units };
+          messages: batch.messages, attachments: batch.references,preferences:batch.metadata.units,...(batch.omittedSafe?{omittedSafe:batch.omittedSafe}:{}) };
         const record = await sealChamberHistoryRecord(payload, randomBase64Url(32), state.revision + 1, peer, session.vault.identity, binding);
         const head = chunk||preference ? undefined : await createChamberHistoryHead(record, batch.afterSeq, batch.upperSeq, session.vault.identity, binding);
         await update(session, signal, next => { next.revision = record.revision; next.pending = { record, ...(chunk ? { chunk } : {}), ...(head ? { head } : {}),...(preference?{preference:true}:{}) }; });

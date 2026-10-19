@@ -23,13 +23,14 @@ export function createChamberMigrations(db,{getMember,roomState,chamberInvitatio
     },
     verify(roomId,deviceId,input) {
       const member=getMember(roomId,deviceId),current=status(roomId),{payload,proof,signature}=input??{},owner=member&&current.bindings[member.role]?.identity;
-      if(!owner || member.status!=='active' || current.activated || Object.keys(payload??{}).sort().join(',')!=='generation,historyRequestId,ownerId,purpose,roomId,scopeHash,targetId,upperSeq,v' ||
-        payload.v!==1 || payload.purpose!=='chamber-migration-verification-v1' || payload.roomId!==roomId || payload.ownerId!==owner.id || payload.targetId!==deviceId || payload.generation!==1 ||
+      if(!owner || member.status!=='active' || current.activated || Object.keys(payload??{}).sort().join(',')!==(payload?.stagingDigest?'generation,historyRequestId,ownerId,purpose,roomId,scopeHash,stagingDigest,targetId,upperSeq,v':'generation,historyRequestId,ownerId,purpose,roomId,scopeHash,targetId,upperSeq,v') ||
+        (payload.stagingDigest!==undefined&&!/^[A-Za-z0-9_-]{43}$/.test(payload.stagingDigest)) || payload.v!==1 || payload.purpose!=='chamber-migration-verification-v1' || payload.roomId!==roomId || payload.ownerId!==owner.id || payload.targetId!==deviceId || payload.generation!==1 ||
         proof?.roomId!==roomId || proof.deviceId!==deviceId || proof.version!==1 || proof.payloadHash!==personalHash(payload) || !verifyPersonalProof(owner,proof,signature))throw new Error('INVALID_BACKUP');
       const request=db.prepare('SELECT * FROM chamber_history_requests WHERE room_id=? AND request_id=?').get(roomId,payload.historyRequestId);
       const restored=request&&JSON.parse(request.request);
       const newDevice=db.prepare("SELECT request FROM chamber_device_requests WHERE room_id=? AND target_id=? AND status='approved'").get(roomId,deviceId);
-      if(!newDevice || !restored || request.target_id!==deviceId || request.owner_id!==owner.id || Date.parse(request.expires_at)<=Date.now() || restored.proof.payloadHash!==payload.scopeHash ||
+      const original=payload.stagingDigest&&/^[A-Za-z0-9_-]{43}$/.test(payload.stagingDigest)&&current.bindings[member.role].bundleHash===personalHash({deviceId:member.deviceId,encryptionKey:member.encryptionKey,signingKey:member.signingKey,mlsKeyPackage:member.mlsKeyPackage});
+      if((!newDevice&&!original) || !restored || request.target_id!==deviceId || request.owner_id!==owner.id || Date.parse(request.expires_at)<=Date.now() || restored.proof.payloadHash!==payload.scopeHash ||
         restored.scope.scope!==(member.role==='creator'?'all':'chat') || payload.upperSeq!==Math.max(...restored.scope.heads.map(h=>h.upperSeq)) ||
         db.prepare('SELECT COUNT(*) AS n FROM chamber_history_releases WHERE request_id=?').get(payload.historyRequestId).n!==restored.scope.units.length ||
         payload.upperSeq<read(roomId).base_seq)throw new Error('BACKUP_NOT_FOUND');

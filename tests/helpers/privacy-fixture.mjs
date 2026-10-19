@@ -19,6 +19,7 @@ export async function privacyFixture(options = {}) {
     const { QuietRoomApp } = await import('/src/app.ts');
     const { createVault } = await import('/src/lib/vault.ts');
     const app = new QuietRoomApp(document.querySelector('#app'));
+    (await import('/src/lib/settings-layout.ts')).mountSettingsLayout(document.querySelector('#app'));
     const own = { deviceId: 'privacy-own', role: 'creator', status: 'active', capabilities: ['voice-message-v1'] };
     const session = await createVault({ v: 1, roomId: 'privacy-fixture', accessToken: 'fixture', role: 'creator', protocol: 'legacy-v1', lastSeq: 0, members: [own], identity: { publicBundle: own } }, 'privacy-fixture-password', 'password');
     app.updateSafetyCode = async () => {}; app.updateBackgroundNotificationControl = async () => {};
