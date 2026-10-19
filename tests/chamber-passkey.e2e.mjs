@@ -40,7 +40,7 @@ try {
   const peerContext=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,userAgent:'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile MicroMessenger/8.0'});
   const peer=await peerContext.newPage();await peer.goto(`http://localhost:${vite.httpServer.address().port}/`);await peer.locator('#create-room').click();await submitPassword(peer,'123456');await peer.locator('#invite-url').waitFor();
   const invitation=await peer.locator('#invite-url').inputValue();
-  await page.goto('about:blank');await page.goto(invitation);await page.locator('#chamber-existing-join').waitFor();
+  await page.goto('about:blank');await page.goto(invitation);await page.locator('#passkey-unlock').click();await page.locator('#chamber-existing-join').waitFor();
   await page.evaluate(()=>{const get=navigator.credentials.get.bind(navigator.credentials);window.joinAssertions=0;navigator.credentials.get=options=>{window.joinAssertions++;return get(options);};});
   await page.locator('#chamber-existing-join').click();await page.locator('.chamber-code-card').waitFor();
   assert.equal(await page.evaluate(()=>window.joinAssertions),1);
@@ -51,7 +51,7 @@ try {
   const legacyContext=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,userAgent:'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile MicroMessenger/8.0'});
   const legacy=await legacyContext.newPage();await legacy.goto(`http://localhost:${vite.httpServer.address().port}/`);await legacy.locator('#create-room').waitFor();
   const legacySlot=await legacy.evaluate(async()=>{const v=await import('/src/lib/vault.ts'),p=await import('/src/lib/password-protection.ts'),c=await import('/src/lib/crypto.ts');const identity=await c.generateIdentity(),credential=await p.deriveNumericPasswordCredential('654321');const own={...identity.publicBundle,role:'creator',status:'active'};const session=await v.createVault({v:3,roomId:crypto.randomUUID(),accessToken:'synthetic-local-only-token',role:'creator',protocol:'legacy-v1',lastSeq:0,members:[own],identity,createdAt:new Date().toISOString()},'','password',credential);delete credential.rootKek;return v.vaultSpaceId(session.stored);});
-  await legacy.goto('about:blank');await legacy.goto(renewed);await legacy.locator('#chamber-existing-join').click();
+  await legacy.goto('about:blank');await legacy.goto(renewed);await submitPassword(legacy,'654321');await legacy.locator('#chamber-existing-join').click();
   await legacy.locator('.numeric-password-page').waitFor();assert.equal(await legacy.locator('.password-create').count(),0);
   await submitPassword(legacy,'654321');await legacy.locator('.chamber-code-card').waitFor();
   assert.equal(await legacy.evaluate(async()=>Boolean(await(await import('/src/lib/vault.ts')).readPersonalIdentity())),true);
