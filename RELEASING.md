@@ -1,5 +1,17 @@
 # Quiet Room 固定发布流程
 
+<a id="release-chamber-local-migration-ui-20261019"></a>
+## 原设备完整迁移与 Chamber 十二项界面修订已发布（2026-10-19 13:37）
+
+- 用户确认双方在各自原设备／原浏览器迁移，保留全部可核验历史、双人确认和完整性校验，并明确直接实施、免流程图；展示完整应用`5acd37b82b51d0a4363ad4d6a9627ebbc684f2bc`、版本`2026.10.19.1`、完整CI、PREFLIGHT_OK和真机／独立安全审阅缺口后，回复「确认，发布生产」。授权绑定本次精确应用，无独立消息permalink；范围与失败历史由[需求V2](docs/requirements/2026-10-19-local-migration-ui/README.md)拥有。
+- [PR #348](https://github.com/zdaiwmm/shui-IM/pull/348)源`7e4f9f407b302e29c55c052a5557ab45303517a4`与上述应用完整文件树一致。真实云端历史经双方根授权解密到独立加密暂存区，记录／投影／原文件持久回读一致后共同切换；保留原聊天、创建者保险箱、草稿和偏好归属，响应丢失回查接续，不要求额外设备验证。普通新增设备历史权限不扩大。十二项排版、验证码、输入／创建、设置与真实在线爱心动效修订一并纳入，长期边界D-070及视觉V1.17。
+- [精确PR完整CI39201969635](https://github.com/zdaiwmm/shui-IM/actions/runs/39201969635) attempt 1和[精确main完整CI39202696922](https://github.com/zdaiwmm/shui-IM/actions/runs/39202696922)最新attempt 3成功：132文件／1049项、全部70浏览器入口、通话及认证TURN UDP／TCP媒体、文档／凭据扫描、依赖审计、双架构构建与Full application verification。main首轮WebKit第二空间新参与者未进入聊天超时，原因未完全定位；原断言本机双引擎与一次云端失败分片复验通过。attempt 2完整汇总成功后，只刷新生产AMD64镜像作业及依赖汇总，取得真实最新attempt 3镜像，不重复浏览器重试、不放宽绑定门禁。一处本机watch网络超时只接续原RunID。
+- 本机最终构建／1049项、双原浏览器迁移、实际组件UI及20场景原生通话通过；本机浏览器为多个开发候选累计69／70入口分段，spaces未定位，初始check:full移动调试超时配套Chromium定向复验通过，不能写作冻结SHA本机整套成功或真机证据。前两轮PR旧爱心断言与旧协议密码夹具失败及保留原帮助返回事件的修正详见同一需求记录。
+- 提前doctor预检39202899446因main CI未通过而停止；最终固定[云预检39204503851](https://github.com/zdaiwmm/shui-IM/actions/runs/39204503851)取得PREFLIGHT_OK。正常production审核后，唯一[云发布39204765546](https://github.com/zdaiwmm/shui-IM/actions/runs/39204765546)于`2026-10-19T05:32:42.484Z`核对DEPLOY_VERIFIED，工作流与应用均为获批SHA，从`b7a90f4708ffaa3c5599f9e98db4851fd28485c2`实际切换一次，批次`20261019T053009Z`；入口云发布249110毫秒。未修改helper或环境保护。
+- linux/amd64镜像`sha256:bfc62b2750f86d8564fa1fd6f5dbbb68380c2ce856479dbd1ac975b407a8cb50`，归档摘要`0aafe1c15c03e0b6260bff8f8d2d65749bc1a0e7eb2f5064e40dac64359131f8`、209969031字节，绑定上述main CI／attempt 3。首次独立回读仅backup starting失败；只读核对实际启动`2026-10-19T05:32:33.797649815Z`及既有五分钟探针／启动期后，只续跑同SHA readback-only，没有再次部署。
+- 独立READBACK_OK于`2026-10-19T05:37:59.954Z`完成，3393毫秒：应用／备份running且healthy，TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物、新WebSocket一致，维护门absent，管理员与通话启用。脱敏授权、CI、预检、发布与两次回读保存在公共Git元数据`quiet-room-deliveries/evidence/chamber-local-migration-ui-20261019/`，位于任务树及其专属Git目录之外。
+- 第二个无部署配置文档树只对账，文档SHA不部署；本批资源依固定门禁核验，缓存／回执／活动或晚于应用的文档资源保留，不处理其他任务。已核对overview、D-070、AGENTS与安全门槛，无新增长期取舍。原生iPhone／iOS27／Safari与独立安全审阅仍未完成，公开高安全声明继续受[安全门槛](PRODUCTION_SECURITY_GATE.md)约束。下方为历史发布快照。
+
 <a id="release-audit-challenge-join-20261019"></a>
 ## 个人根挑战与旧加入重放修复已发布（2026-10-19 08:10）
 

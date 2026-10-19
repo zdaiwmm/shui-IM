@@ -1,9 +1,11 @@
 # Quiet Room 当前状态
 
-## 原设备迁移与十二项界面修订待交付验证（2026-10-19）
+## 原设备完整迁移与十二项界面修订已发布（2026-10-19 13:37）
 
-- [本轮V2](../requirements/2026-10-19-local-migration-ui/README.md)已明确授权直接实施、合并并要求发布；任务起始／实时核验main为`dc7f4fc73ef66b694e350aa0ddd8318d40b3bdad`，规则来源本机main为`15559f36452ea71dd72ae57aeb7f54a0c586e11b`。任务隔离在`codex/chamber-local-migration-ui-20261019`；生产精确SHA尚未确认，不覆盖下方线上事实。
-- 双原浏览器的真实后端迁移及25项专项单测已通过早期候选：独立暂存云端解密、附件完整性、双方批准、原空间历史／偏好／草稿保留及丢失响应接续。正式组件UI已通过320/390/1440布局与交互检查；后续候选完整构建及131文件／1047项单测通过（含28项迁移、历史格式与生命周期专项）。迁移待确认候选另增加自动／手动旧备份保护，最终构建及132文件／1049项通过。本机浏览器分段验证，mobile-debug配套Chromium复验通过、spaces仍未定位；旧密码取消测试按冻结夹具与新版画布行为分离，精确最终CI待记录，不能混作真机或生产验证。
+- 用户确认完整应用`5acd37b82b51d0a4363ad4d6a9627ebbc684f2bc`发布，版本`2026.10.19.1`。[PR #348](https://github.com/zdaiwmm/shui-IM/pull/348)源7e4f9f4与应用完整文件树一致；[需求V2](../requirements/2026-10-19-local-migration-ui/README.md)拥有双方原设备迁移、全部可核验历史／原件保留、双人确认与完整性校验及十二项修订。普通新增设备历史边界保留，长期依据D-070及视觉V1.17。
+- [精确PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39201969635) attempt 1与[精确main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39202696922)最新attempt 3成功，含132文件／1049项、全部70浏览器入口、通话／认证TURN、审计、文档／凭据扫描及双架构构建。main首轮WebKit第二空间加入超时，原断言双引擎及一次云端复验通过；最新轮次只另刷新生产镜像绑定。失败历史与本机累计69／70分段、spaces未定位及初始check:full失败由需求／PR保留，不混作最终本机整套或真机通过。
+- 固定云预检PREFLIGHT_OK后，唯一云发布核对精确DEPLOY_VERIFIED，从b7a90f4实际切换一次；首次独立回读仅备份starting失败，核对实际启动与既有五分钟探针后，只续跑readback-only，于`2026-10-19T05:37:59.954Z`取得READBACK_OK。应用／备份healthy，TURN运行且探针none；SHA／镜像、HTTPS／数据库／存储、产物及新WebSocket一致，维护门absent。完整事实见[本轮发布记录](../../RELEASING.md#release-chamber-local-migration-ui-20261019)。
+- 脱敏证据在公共Git元数据`quiet-room-deliveries/evidence/chamber-local-migration-ui-20261019/`；第二独立文档树仅对账，文档SHA不替代线上应用。资源按固定门禁核验，其他任务保留。原生iPhone／iOS27／Safari及独立安全审阅未完成；下方为历史状态。
 
 ## 个人根挑战与旧加入重放修复已发布（2026-10-19 08:10）
 
