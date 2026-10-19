@@ -229,7 +229,8 @@ try {
   const code = await a.evaluate(() => app.chamberInviteState.code);
   assert.match(code, /^\d{4}$/);
   assert.deepEqual(await a.locator('.chamber-code-display > span').allTextContents(), code.split(''));
-  assert.equal(await a.locator('.chat-header .spaces-entry, .chat-header .presence-circuit').count(), 0);
+  assert.equal(await a.locator('.chat-header .spaces-entry').count(), 0);
+  assert.equal(await a.locator('.chamber-presence-capsule .presence-circuit').count(), 1);
   assert.equal(await a.locator('.chamber-presence-capsule .peer-status').textContent(), '等待加入');
   assert.equal(await a.locator('#open-gallery').count(), 0, 'Pending invitation has no Safe action');
   assert.equal(await a.locator('#message-input').isVisible(), false, 'Pending invitation has a footer hint instead of chat controls');
@@ -361,7 +362,7 @@ try {
   for (const [index, input] of (await c.locator('.chamber-import-grid input').all()).entries()) {
     try { await fillFormInput(c, input, words[index]); } catch { throw new Error('Synthetic mnemonic import did not commit; secret values omitted'); }
   }
-  await c.locator('#personal-import-form [type=submit]').click(); await c.locator('.chamber-restore-space').waitFor();
+  await c.getByRole('button',{name:'验证我的身份',exact:true}).click(); await c.locator('.chamber-restore-space').waitFor();
   await c.locator('.chamber-restore-space').click(); await submitPassword(c, '112233'); await c.locator('#personal-device-check').waitFor();
   const pendingDevice = await c.evaluate(() => app.session.vault.pendingPersonalDevice.proof.requestId);
   await c.reload(); await submitPassword(c, '112233'); await c.locator('#personal-device-check').waitFor();
@@ -429,7 +430,7 @@ try {
     for(const [index,input] of (await page.locator('.chamber-import-grid input').all()).entries()) {
       try{await fillFormInput(page,input,phrase[index]);}catch{throw new Error('Synthetic reopen phrase field did not commit; secret values omitted');}
     }
-    await page.locator('#personal-import-form [type=submit]').click();await page.locator('.chamber-restore-space').click();await submitPassword(page,pin);
+    await page.getByRole('button',{name:'验证我的身份',exact:true}).click();await page.locator('.chamber-restore-space').click();await submitPassword(page,pin);
     await page.locator('#chamber-reopen-check').waitFor();
   }
   for(const page of [a,b])await page.waitForFunction(()=>!document.querySelector('#chamber-reopen-approve')?.disabled);
@@ -450,7 +451,7 @@ try {
   await c.locator('#chamber-reopen-begin').click();await c.locator('.numeric-password-page').waitFor();await submitPassword(c,'112233');
   await c.locator('.chamber-import-grid').waitFor();await c.locator('.password-sheet').waitFor({state:'detached'});
   for(const [index,input] of (await c.locator('.chamber-import-grid input').all()).entries())try{await fillFormInput(c,input,words[index]);}catch{throw new Error('Synthetic later-device phrase input failed; values omitted');}
-  await c.locator('#personal-import-form [type=submit]').click();await c.locator('.chamber-restore-space').click();await submitPassword(c,'112233');await c.locator('#personal-device-check').waitFor();
+  await c.getByRole('button',{name:'验证我的身份',exact:true}).click();await c.locator('.chamber-restore-space').click();await submitPassword(c,'112233');await c.locator('#personal-device-check').waitFor();
   assert.equal(await c.evaluate(()=>app.session.vault.pendingPersonalDevice.proof.version),2);
   await b.locator('[data-personal-approve]').click();await submitPassword(b,'135790');await c.locator('#message-input').waitFor();
   assert.equal(await c.getByText('Synthetic fresh generation',{exact:true}).count(),0);
@@ -478,12 +479,12 @@ try {
   // Another valid identity must not reset this browser's root wrapper.
   const otherWords=await c.evaluate(async()=>{const p=await import('/src/lib/personal-identity.ts');return p.personalMnemonicFromEntropy(new Uint8Array(16).fill(71)).split(' ');});
   for(const [index,input] of (await c.locator('.chamber-import-grid input').all()).entries())try{await fillFormInput(c,input,otherWords[index]);}catch{throw new Error('Synthetic non-owner phrase input failed; values omitted');}
-  otherWords.fill('');await c.locator('#personal-import-form [type=submit]').click();
+  otherWords.fill('');await c.getByRole('button',{name:'验证我的身份',exact:true}).click();
   await c.getByText(/不属于此浏览器保管的身份/).waitFor();
   assert.equal(await c.locator('.numeric-password-page').count(),0);
   assert.equal(await c.evaluate(async()=>JSON.stringify(await(await import('/src/lib/vault.ts')).readPersonalIdentity())),originalIdentity);
   for(const [index,input] of (await c.locator('.chamber-import-grid input').all()).entries())try{await fillFormInput(c,input,words[index]);}catch{throw new Error('Synthetic forgotten-lock phrase input failed; values omitted');}
-  await c.locator('#personal-import-form [type=submit]').click();await c.locator('.numeric-password-page').waitFor();
+  await c.getByRole('button',{name:'验证我的身份',exact:true}).click();await c.locator('.numeric-password-page').waitFor();
   assert.equal(await c.locator('h2').last().textContent(),'设置应用锁');
   await submitPassword(c,'223344');await c.locator('.chamber-restore-space').waitFor();
   const reset=await c.evaluate(async()=>{const v=await import('/src/lib/vault.ts');const stored=await v.readPersonalIdentity();return{identity:stored.identity.id,record:JSON.stringify(stored)};});
