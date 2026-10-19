@@ -16,12 +16,9 @@ export function createChamberLifecycle(db,{getMember,roomState,chamberInvitation
   const roots=roomId=>{const r=chamberInvitations.state(roomId);if(!r?.joinerBinding)throw new Error('ROOM_SEALED');return {creator:r.creatorBinding.identity,joiner:r.joinerBinding.identity};};
   const snapshot=row=>({requestId:row.request_id,version:row.version,expiresAt:row.expires_at,offers:JSON.parse(row.offers),proposal:row.proposal?JSON.parse(row.proposal):null,approvals:JSON.parse(row.approvals),result:row.result?JSON.parse(row.result):null});
   const row=roomId=>db.prepare('SELECT * FROM chamber_reopen WHERE room_id=?').get(roomId);
-  const migration=roomId=>{
-    const r=db.prepare('SELECT * FROM chamber_migrations WHERE room_id=? AND activated=0').get(roomId);
-    return r?{bindings:JSON.parse(r.bindings),verified:JSON.parse(r.verified)}:null;
-  };
-  const allowed=(roomId,s,purpose)=>purpose==='chamber-migration-offer-v1'?!s.closed&&!chamberInvitations.exists(roomId)&&Boolean(migration(roomId)?.verified.creator&&migration(roomId)?.verified.joiner):
-    purpose==='chamber-recovery-offer-v1'?!s.closed&&chamberInvitations.exists(roomId):s.closed&&chamberInvitations.exists(roomId);
+  const validPurpose=purpose=>['chamber-reopen-offer-v1','chamber-recovery-offer-v1'].includes(purpose);
+  const allowed=(roomId,s,purpose)=>validPurpose(purpose)&&chamberInvitations.exists(roomId)&&
+    (purpose==='chamber-recovery-offer-v1'?!s.closed:s.closed);
   const fenced=roomId=> {
     db.prepare('DELETE FROM push_subscriptions WHERE room_id=?').run(roomId);
     db.prepare('DELETE FROM unread_observers WHERE room_id=?').run(roomId);
@@ -35,6 +32,7 @@ export function createChamberLifecycle(db,{getMember,roomState,chamberInvitation
   };
   const authenticatedRow=(roomId,token)=> {
     const r=row(roomId);if(!r || !/^[A-Za-z0-9_-]{43}$/.test(token??''))throw new Error('UNAUTHORIZED');
+    if(!Object.values(JSON.parse(r.offers)).every(offer=>validPurpose(offer.payload?.purpose)))throw new Error('INVALID_BACKUP');
     const hash=createHash('sha256').update(token).digest('base64url');
     if(!Object.values(JSON.parse(r.offers)).some(o=>o.payload.tokenHash===hash))throw new Error('UNAUTHORIZED');
     if(!r.result && Date.parse(r.expires_at)<=Date.now())throw new Error('PERSONAL_PROOF_EXPIRED');
@@ -53,7 +51,7 @@ export function createChamberLifecycle(db,{getMember,roomState,chamberInvitation
       if(proof?.roomId!==roomId || proof.payloadHash!==personalHash({purpose:'chamber-inspect-v1',roomId}))throw new Error('UNAUTHORIZED');
       return personalDirectory.authorize(proof,signature,'read-directory',identity=>{
         if(!Object.values(roots(roomId)).some(root=>root.id===identity.id))throw new Error('UNAUTHORIZED');
-        const r=row(roomId);return {...state(roomId),migration:migration(roomId),pending:r&&!r.result&&Date.parse(r.expires_at)>Date.now()?{requestId:r.request_id,expiresAt:r.expires_at,purpose:Object.values(JSON.parse(r.offers))[0].payload.purpose}:null};
+        const r=row(roomId);return {...state(roomId),pending:r&&!r.result&&Date.parse(r.expires_at)>Date.now()?{requestId:r.request_id,expiresAt:r.expires_at,purpose:Object.values(JSON.parse(r.offers))[0].payload.purpose}:null};
       });
     },
     close(roomId,deviceId,input) {
@@ -77,10 +75,9 @@ export function createChamberLifecycle(db,{getMember,roomState,chamberInvitation
     },
     offer(roomId,input) {
       const {payload,proof,signature}=input??{},s=state(roomId),rootSet=roots(roomId),owner=rootSet[payload?.role];
-      const migrate=payload?.purpose==='chamber-migration-offer-v1';
       if(!allowed(roomId,s,payload?.purpose) || !owner || !fields(input,'payload,proof,signature') ||
         !fields(payload,'binding,bundle,capabilities,deviceName,generation,purpose,requestId,role,roomId,tokenHash,v,version') ||
-        payload.v!==1 || !['chamber-reopen-offer-v1','chamber-migration-offer-v1','chamber-recovery-offer-v1'].includes(payload.purpose) || payload.roomId!==roomId || payload.version!==s.version || payload.generation!==s.generation+1 ||
+        payload.v!==1 || !validPurpose(payload.purpose) || payload.roomId!==roomId || payload.version!==s.version || payload.generation!==s.generation+1 ||
         !/^[0-9a-f-]{36}$/i.test(payload.requestId) || !validatePublicBundle(payload.bundle) || !payload.bundle.mlsKeyPackage ||
         Object.keys(payload.bundle).sort().join(',')!=='deviceId,encryptionKey,mlsKeyPackage,signingKey' || getMember(roomId,payload.bundle.deviceId) ||
         !same(payload.binding.identity,owner) || typeof payload.deviceName!=='string' || payload.deviceName.length<1 || payload.deviceName.length>40 ||
@@ -118,9 +115,8 @@ export function createChamberLifecycle(db,{getMember,roomState,chamberInvitation
     },
     async propose(roomId,token,proposal) {
       const r=authenticatedRow(roomId,token),offers=JSON.parse(r.offers),s=state(roomId);
-      const migrate=offers.creator?.payload.purpose==='chamber-migration-offer-v1';
-      if(!allowed(roomId,s,offers.creator?.payload.purpose) || !roles.every(role=>offers[role]) || !fields(proposal,migrate?'expiresAt,generation,migration,offers,purpose,requestId,roomId,v,version,welcome':'expiresAt,generation,offers,purpose,requestId,roomId,v,version,welcome') ||
-        proposal.v!==1 || proposal.purpose!==offers.creator.payload.purpose.replace('-offer-','-proposal-') || migrate&&!same(proposal.migration,migration(roomId).verified) || proposal.roomId!==roomId || proposal.requestId!==r.request_id ||
+      if(!allowed(roomId,s,offers.creator?.payload.purpose) || !roles.every(role=>offers[role]) || !fields(proposal,'expiresAt,generation,offers,purpose,requestId,roomId,v,version,welcome') ||
+        proposal.v!==1 || proposal.purpose!==offers.creator.payload.purpose.replace('-offer-','-proposal-') || proposal.roomId!==roomId || proposal.requestId!==r.request_id ||
         proposal.version!==r.version || proposal.generation!==s.generation+1 || proposal.expiresAt!==r.expires_at || !same(proposal.offers,offers) ||
         proposal.welcome?.senderId!==offers.creator.payload.bundle.deviceId || proposal.welcome?.recipientId!==offers.joiner.payload.bundle.deviceId ||
         !validateMlsWelcomeShape(proposal.welcome,roomId) || Object.keys(proposal.welcome).sort().join(',')!=='protocol,recipientId,roomId,senderId,signature,v,welcome' ||
@@ -139,30 +135,11 @@ export function createChamberLifecycle(db,{getMember,roomState,chamberInvitation
         proof.version!==r.version || proof.payloadHash!==personalHash(proposal))throw new Error('INVALID_BACKUP');
       return personalDirectory.authorize(proof,signature,'restore-room',identity=> {
         const latest=authenticatedRow(roomId,token),s=state(roomId);
-        const migrate=proposal.purpose==='chamber-migration-proposal-v1';
         if(identity.id!==rootSet[role].id || !allowed(roomId,s,proposal.offers.creator.payload.purpose) || s.version!==r.version || latest.proposal!==r.proposal)throw new Error('UNAUTHORIZED');
         const approvals=JSON.parse(latest.approvals);approvals[role]=input;
         db.prepare('UPDATE chamber_reopen SET approvals=? WHERE room_id=?').run(canonicalStringify(approvals),roomId);
         if(roles.every(role=>approvals[role])) {
           const original=roomState(roomId),now=new Date().toISOString(),eventSeq=original.nextMlsEventSeq+1;
-          if(migrate) {
-            if(!same(proposal.migration,migration(roomId).verified) || roles.some(role=>proposal.migration[role].payload.upperSeq!==original.nextSeq))throw new Error('BACKUP_CONFLICT');
-            for(const role of roles) {
-              const receipt=proposal.migration[role];if(!receipt.payload.stagingDigest)continue;
-              const request=db.prepare('SELECT request,expires_at FROM chamber_history_requests WHERE room_id=? AND request_id=?').get(roomId,receipt.payload.historyRequestId);
-              if(!request||Date.parse(request.expires_at)<=Date.now())throw new Error('BACKUP_CONFLICT');
-              const approved=JSON.parse(request.request).scope.heads;
-              const current=db.prepare('SELECT record FROM chamber_history_heads WHERE room_id=? AND owner_id=?').all(roomId,receipt.payload.ownerId).map(r=>JSON.parse(r.record).head);
-              if(!same([...approved].sort((a,b)=>a.deviceId.localeCompare(b.deviceId)),current.sort((a,b)=>a.deviceId.localeCompare(b.deviceId))))throw new Error('BACKUP_CONFLICT');
-            }
-            const bindings=migration(roomId).bindings;
-            db.prepare('INSERT INTO chamber_rooms(room_id,creator_binding,joiner_binding,consumed) VALUES(?,?,?,1)').run(roomId,canonicalStringify(bindings.creator),canonicalStringify(bindings.joiner));
-            db.prepare('UPDATE chamber_migrations SET activated=1 WHERE room_id=?').run(roomId);
-            // Both roots attested that independent encrypted staging restored every
-            // existing record. Only now retire this room's old private-key
-            // checkpoint/archive capabilities; local copies remain untouched.
-            db.prepare('DELETE FROM recovery_backups WHERE room_id=?').run(roomId);
-          }
           fenced(roomId);
           db.prepare("UPDATE members SET status='revoked',revoked_at=? WHERE room_id=? AND status IN ('active','pending')").run(now,roomId);
           for(const participant of roles) {

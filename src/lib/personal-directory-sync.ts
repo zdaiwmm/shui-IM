@@ -1,3 +1,4 @@
+import { isChamberVault } from './chamber-space';
 import { authorizedFetch, responseError } from './api';
 import { canonicalStringify } from './canonical';
 import { localSpaces } from './spaces';
@@ -16,6 +17,7 @@ const readVersions=new Map<string,number>();
 export const observedPersonalDirectoryVersion=(identityId:string,roomId:string)=>readVersions.get(`${identityId}:${roomId}`)??0;
 export async function syncPersonalDirectory(session: VaultSession, signal: AbortSignal): Promise<void> {
   signal = AbortSignal.any([signal, AbortSignal.timeout(30_000)]);
+  if (!isChamberVault(session.vault)) return;
   const vault = session.vault, own = vault.personalBinding;
   if (!own || vault.pairingState !== 'ready') return;
   const versionKey=`${own.identity.id}:${vault.roomId}`;

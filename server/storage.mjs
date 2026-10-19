@@ -12,7 +12,6 @@ import { createChamberInvitations } from './chamber-invitations.mjs';
 import { createChamberHistory } from './chamber-history.mjs';
 import { createChamberHistoryRecovery } from './chamber-history-recovery.mjs';
 import { createChamberLifecycle } from './chamber-lifecycle.mjs';
-import { createChamberMigrations } from './chamber-migrations.mjs';
 import { createPersonalDirectory } from './personal-directory.mjs';
 import { createPersonalDevices } from './personal-devices.mjs';
 import { verifyPendingDeletion } from '../src/lib/pending-space-proof.mjs';
@@ -348,7 +347,6 @@ export async function createStore({
   const chamberHistory = createChamberHistory(db, { getMember, chamberInvitations });
   const chamberHistoryRecovery = createChamberHistoryRecovery(db, { getMember, chamberInvitations, personalDirectory });
   const chamberLifecycle = createChamberLifecycle(db, { getMember, roomState, chamberInvitations, personalDirectory });
-  const chamberMigrations = createChamberMigrations(db, { getMember, roomState, chamberInvitations, personalDirectory });
   const cloudBackups = createCloudBackups(db, { authenticatedDevice });
   const spaceDirectories = createSpaceDirectories(db, { authenticatedDevice });
   const browserCatalogs = createSpaceDirectories(db, { authenticatedDevice }, true);
@@ -1627,7 +1625,6 @@ export async function createStore({
     chamberHistory,
     chamberHistoryRecovery,
     chamberLifecycle,
-    chamberMigrations,
     consumedChamberInvite(roomId,token) {
       const room=statements.room.get(roomId);
       if(!room?.sealed_at||!validToken(token)||!chamberInvitations.exists(roomId))return false;

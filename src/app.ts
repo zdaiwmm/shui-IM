@@ -1,4 +1,4 @@
-import {assertMigrationSourceCurrent} from './lib/chamber-migration-stage';
+import { isChamberVault } from './lib/chamber-space';
 import { layoutViewport, cancelFormInput } from './lib/form-input';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { toBase64Url } from './lib/base64';
@@ -10,7 +10,6 @@ import { personalMnemonicFromEntropy, personalEntropyFromMnemonic, withPersonalK
 import { readOwnPersonalDirectory, observedPersonalDirectoryVersion } from './lib/personal-directory-sync';
 import { listChamberHistoryRequests, readChamberHistoryRequest, startChamberHistoryRecovery, approveChamberHistoryRecovery, completeChamberHistoryRecovery, type ChamberHistorySummary } from './lib/chamber-history-recovery';
 import { inspectChamber, readChamberLifecycle, closeChamber, verifyChamberClosure, prepareChamberReopen, advanceChamberReopen, approveChamberReopen, cancelChamberReopen, completeChamberReopen, type ChamberLifecycle, type ChamberReopenSnapshot } from './lib/chamber-lifecycle';
-import {bindLegacyChamber,chamberMigrationStatus,adoptLegacyBindings} from './lib/chamber-migrations';
 import type { PersonalDirectoryEntry } from './lib/personal-directory';
 import { preparePersonalDevice, personalDeviceSafetyCode, verifyPersonalDeviceRequest, type PersonalDeviceRequest } from './lib/personal-device-request';
 import { authorizedFetch } from './lib/api';
@@ -736,7 +735,7 @@ export class QuietRoomApp {
       lock: () => this.manualLock(),
     });
     this.desktopWorkspace = new DesktopWorkspace(root, {
-      context: () => this.privacyCovered ? null : this.session && this.runtimeAbort ? { owner: this.session, signal: this.runtimeAbort.signal, sidebar: !this.session.vault.personalBinding }
+      context: () => this.privacyCovered ? null : this.session && this.runtimeAbort ? { owner: this.session, signal: this.runtimeAbort.signal, sidebar: !isChamberVault(this.session.vault) }
         : this.browserProfile && this.browserAccessAbort ? { owner: this.browserProfile, signal: this.browserAccessAbort.signal } : null,
       mount: async (host, signal) => {
         const session = this.session;
@@ -2783,7 +2782,8 @@ export class QuietRoomApp {
   }
 
   private async startBrowserAccessServices(session:VaultSession,signal:AbortSignal):Promise<void> {
-    if (session.vault.personalBinding) { this.startPersonalDeviceServices(session, signal); if(session.vault.personalMigration?.state !== 'staged')return; }
+    if (session.vault.migrationSource) return;
+    if (isChamberVault(session.vault)) { this.startPersonalDeviceServices(session, signal); return; }
     try{
       if(session.browserAccessPrf&&session.stored.unlockMethod==='platform'){
         const profile=await loadBrowserProfile(session.browserAccessPrf,session.stored.platform.credentialId);
@@ -3052,7 +3052,7 @@ export class QuietRoomApp {
             root = await this.personalCredential(stored, active);
             daily = await this.dailyPersonalCredential(stored, root, active, credential);
             const lifecycle = await inspectChamber(entry,stored,root,lifetime.signal);
-            if (lifecycle.closed || lifecycle.migration?.verified.creator && lifecycle.migration.verified.joiner || intent.joint || lifecycle.pending?.purpose==='chamber-recovery-offer-v1') {
+            if (lifecycle.closed || intent.joint || lifecycle.pending?.purpose==='chamber-recovery-offer-v1') {
               const prepared = await prepareChamberReopen(entry,lifecycle,stored,root,this.newDeviceName(),CLIENT_CAPABILITIES,lifetime.signal,Boolean(intent.joint));
               this.releasePersonalCredential(root);root=undefined;
               if(!active())return;
@@ -4155,8 +4155,8 @@ export class QuietRoomApp {
     this.inlineInviteTimer = null;
     this.scheduleIdleLock();
     if (session.vault.pendingChamberCreate) { this.renderPendingChamberCreate(); return; }
-    if (session.vault.pendingChamberReopen) { this.renderChamberReopen(); return; }
-    if (session.vault.personalBinding) {
+    if (isChamberVault(session.vault) && session.vault.pendingChamberReopen) { this.renderChamberReopen(); return; }
+    if (isChamberVault(session.vault)) {
       if (session.vault.chamberLifecycle?.closed) { await this.adoptChamberClosure(session.vault.chamberLifecycle); return; }
       try {
         const lifecycle = await readChamberLifecycle(session,this.runtimeAbort.signal);
@@ -4304,9 +4304,11 @@ export class QuietRoomApp {
       return;
     }
     if (!this.isRuntimeActive(epoch, session)) return;
-    if (location.hash === '#legacy-backup') { this.renderBackupSettings(); this.startAutomaticBackup(); return; }
     const activeRoles = new Set(session.vault.members.filter((member) => member.status !== 'pending' && member.status !== 'revoked').map((member) => member.role));
-    if (activeRoles.size < 2) this.renderChat();
+    // A compatibility backup entry still needs the normal authenticated runtime.
+    // Returning to chat must keep a live connection and a working durable outbox.
+    if (location.hash === '#legacy-backup') this.renderBackupSettings();
+    else if (activeRoles.size < 2) this.renderChat();
     else this.resumeUnlockedPage();
     configureUnread();
     void this.connectSocket().catch(cause => { if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '安全通话身份准备失败，请重新解锁'); });
@@ -4618,7 +4620,7 @@ export class QuietRoomApp {
     );
     if (!ownMember?.joinProof) throw new SecurityViolation('本机待加入凭据不完整');
     const pending = session.vault.pendingChamberInvitation;
-    if (pending && (!code || !session.vault.personalBinding)) throw new Error('请先填写邀请方的四位验证码');
+    if (pending && (!code || !isChamberVault(session.vault))) throw new Error('请先填写邀请方的四位验证码');
     let state:RoomState;
     try{state = await joinRoom(
       session.vault.roomId,
@@ -4735,7 +4737,7 @@ export class QuietRoomApp {
       session.vault.personalPeers?.some(binding => canonicalStringify(binding) === canonicalStringify(state.chamber!.joinerBinding)) &&
       await verifyPersonalDeviceBinding(state.chamber.joinerBinding, memberBundle(originalJoiner))) verifiedOriginalJoiner = true;
     if (!this.isRuntimeActive(epoch, session)) return;
-    if (session.vault.personalBinding) {
+    if (isChamberVault(session.vault)) {
       const chamber = state.chamber;
       const anchor = (binding:PersonalDeviceBinding,role:RoomMember['role']) => state.members.find(m=>m.role===role&&toBase64Url(sha256(new TextEncoder().encode(canonicalStringify(memberBundle(m)))))===binding.bundleHash);
       const rootCreator=chamber&&anchor(chamber.creatorBinding,'creator');
@@ -5113,7 +5115,7 @@ export class QuietRoomApp {
       const activeRoleCount = new Set(state.members.filter((member) => member.status === undefined || member.status === 'active').map((member) => member.role)).size;
       if ((before < 2 && activeRoleCount === 2) || mlsBecameReady) {
         void rememberLocalSpace(session).then(() => publishPreparedCatalog(session, this.runtimeAbort?.signal ?? AbortSignal.timeout(8000))).catch(() => undefined);
-        if (session.vault.personalBinding) this.refreshChamberChatActivation();
+        if (isChamberVault(session.vault)) this.refreshChamberChatActivation();
         else this.renderChat();
         this.showPairingWelcome();
         this.socket?.requestSync(session.vault.lastSeq);
@@ -5523,7 +5525,7 @@ export class QuietRoomApp {
 
   private async pollChamberInvitation(): Promise<void> {
     const session = this.session, epoch = this.runtimeEpoch;
-    if (!session?.vault.personalBinding || session.vault.pendingChamberCreate || session.vault.pendingChamberReopen ||
+    if (!isChamberVault(session?.vault) || session.vault.pendingChamberCreate || session.vault.pendingChamberReopen ||
       session.vault.pendingChamberInvitation || session.vault.pendingPersonalDevice ||
       session.vault.pairingState && session.vault.pairingState !== 'ready' || document.hidden || this.accessFailure ||
       !this.isRuntimeActive(epoch, session) || this.chamberInvitePolling || Date.now() - this.chamberInvitePolledAt < 3000) return;
@@ -5642,7 +5644,7 @@ export class QuietRoomApp {
 
   private async rotateChamberInvitation(): Promise<void> {
     const session = this.session, epoch = this.runtimeEpoch;
-    if (!session?.vault.personalBinding || session.vault.role !== 'creator' || this.peerHasJoined(session) || this.chamberInviteRotating) return;
+    if (!isChamberVault(session?.vault) || session.vault.role !== 'creator' || this.peerHasJoined(session) || this.chamberInviteRotating) return;
     this.chamberInviteRotating = true; this.paintChamberInvitation();
     // Start clipboard permission in the click stack. Safari can await the URL
     // blob while the authenticated, durable rotation completes.
@@ -5689,7 +5691,7 @@ export class QuietRoomApp {
 
   private paintInlineInviteCountdown(): void {
     if (!this.session) return;
-    if (this.session.vault.personalBinding) {
+    if (isChamberVault(this.session.vault)) {
       this.paintChamberInvitation();
       void this.pollChamberInvitation();
       return;
@@ -6138,7 +6140,7 @@ export class QuietRoomApp {
   }
 
   private scheduleWaitingSpaceExpiry(session: VaultSession): void {
-    if (session.vault.personalBinding) return;
+    if (isChamberVault(session.vault)) return;
     if (this.waitingSpaceTimer !== null) window.clearTimeout(this.waitingSpaceTimer);
     this.waitingSpaceTimer = null;
     if (this.peerHasJoined(session)) return;
@@ -6304,17 +6306,15 @@ export class QuietRoomApp {
       onSettingsLeave: scrollTop => { this.settingsReturn = { session, spaces, scrollTop }; },
       removeLabel: space => this.catalogRemovalLabel(space),
       actions: [
-        ...(session.vault.personalBinding ? [{ id: 'chamber-switch-space', label: '切换空间', icon: spaceIcons.spaces, keepOpen: true, run: (showSpaceList: () => void) => { this.settingsReturn = null; showSpaceList(); } }] : []),
+        ...(isChamberVault(session.vault) ? [{ id: 'chamber-switch-space', label: '切换空间', icon: spaceIcons.spaces, keepOpen: true, run: (showSpaceList: () => void) => { this.settingsReturn = null; showSpaceList(); } }] : []),
         { id: 'appearance-settings', label: '主题外观', icon: spaceIcons.appearance, run: forward(() => this.renderAppearanceSettings()) },
         ...(this.desktopBrowser ? [{ id: 'app-access-settings', label: '在应用中打开', icon: spaceIcons.app, run: forward(() => this.renderAppAccess()) }] : []),
         { id: 'manage-devices', label: '设备与新增设备', icon: spaceIcons.device, run: forward(() => this.renderDeviceManager()) },
-        { id: 'backup-settings', label: session.vault.personalBinding?'助记词':'恢复卡', icon: spaceIcons.key, run: forward(() => this.renderRecoveryCenter()) },
-        { id: 'local-history-backup', label: session.vault.personalBinding?'备份与共同恢复':'备份数据', icon: spaceIcons.upload, run: forward(() => session.vault.personalBinding?this.renderBackupSettings():this.renderLocalHistoryBackup('export')) },
-        ...(!session.vault.personalBinding?[{ id: 'local-history-restore', label: '恢复数据', icon: spaceIcons.download, run: forward(() => this.renderLocalHistoryBackup('import')) }]:[]),
-        ...(!session.vault.personalBinding || session.vault.personalMigration?.state === 'staged'
-          ? [{ id: 'chamber-migration-settings', label: '旧空间迁移', icon: spaceIcons.key, run: forward(() => this.renderChamberMigration()) }] : []),
+        { id: 'backup-settings', label: isChamberVault(session.vault)?'助记词':'恢复卡', icon: spaceIcons.key, run: forward(() => this.renderRecoveryCenter()) },
+        { id: 'local-history-backup', label: isChamberVault(session.vault)?'备份与共同恢复':'备份数据', icon: spaceIcons.upload, run: forward(() => isChamberVault(session.vault)?this.renderBackupSettings():this.renderLocalHistoryBackup('export')) },
+        ...(!isChamberVault(session.vault)?[{ id: 'local-history-restore', label: '恢复数据', icon: spaceIcons.download, run: forward(() => this.renderLocalHistoryBackup('import')) }]:[]),
         { id: 'recover-other-space', label: '恢复其他空间', icon: spaceIcons.spaces, run: forward(async () => {
-          if(!session.vault.personalBinding){this.renderJointRecovery(null);return;}
+          if(!isChamberVault(session.vault)){this.renderJointRecovery(null);return;}
           if(!await this.leaveSpace())return;await selectLocalSpace(crypto.randomUUID());this.renderPersonalRestoreProtection();
         }) },
         { id: 'auto-lock-settings', group: '本机', label: '自动锁定', icon: spaceIcons.cover, run: forward(() => this.renderAutoLockSettings()) },
@@ -6329,7 +6329,7 @@ export class QuietRoomApp {
       ],
       select: space => { if (presentation === 'sidebar' && space.roomId === session.vault.roomId && !space.waiting) { if (!this.root.querySelector(':scope > .chat-shell')) { this.settingsReturn = null; this.renderChat(); } return Promise.resolve(); } if (space.roomId === session.vault.roomId && space.waiting) this.inviteListScrollTop = (container ?? this.root).querySelector('.space-drawer-scroll')?.scrollTop ?? 0; return this.switchPrivateSpace(space); },
       create: async () => { if (spaces.length >= 256) throw new Error('本机空间数量已达上限'); this.renderCreate(); },
-      allowCreate:!session.vault.personalBinding,
+      allowCreate:!isChamberVault(session.vault),
       editAvatar: async space => {
         const epoch = this.runtimeEpoch;
         const active = () => !signal.aborted && !this.privacyCovered && this.session === session && this.runtimeEpoch === epoch;
@@ -6376,7 +6376,7 @@ export class QuietRoomApp {
         }
         return fresh;
       },
-      canStylePresence: () => session.vault.role !== 'joiner' || !session.vault.personalBinding ||
+      canStylePresence: () => session.vault.role !== 'joiner' || !isChamberVault(session.vault) ||
         this.peerHasJoined(session) && session.vault.mls?.phase === 'active',
       styleChanged: () => this.applyPresenceStyle(),
       closed: sheet => {
@@ -6410,7 +6410,7 @@ export class QuietRoomApp {
   }
 
   private applyPresenceStyle(): void {
-    const style = this.session?.vault.personalBinding?'chamber':readPresenceStyle();
+    const style = isChamberVault(this.session?.vault)?'chamber':readPresenceStyle();
     const header = this.root.querySelector<HTMLElement>('.chat-header');
     if (!header) return;
     const entry = header.querySelector<HTMLElement>('#open-spaces');
@@ -6458,7 +6458,7 @@ export class QuietRoomApp {
     const cryptoReady = this.session.vault.protocol !== 'mls-rfc9420' || this.session.vault.mls?.phase === 'active';
     this.scheduleWaitingSpaceExpiry(this.session);
     if (this.inlineInviteTimer !== null) window.clearInterval(this.inlineInviteTimer);
-    this.inlineInviteTimer = !this.peerHasJoined(this.session) || this.session.vault.personalBinding && !cryptoReady
+    this.inlineInviteTimer = !this.peerHasJoined(this.session) || isChamberVault(this.session.vault) && !cryptoReady
       ? window.setInterval(() => this.paintInlineInviteCountdown(), 1000) : null;
     this.shieldHintCleanup?.();
     this.shieldHintCleanup = null;
@@ -6474,9 +6474,9 @@ export class QuietRoomApp {
     this.renderedMessageSeq.clear();
     document.body.className = 'app-mode';
     const chatMarkup = `
-      <section class="chat-shell ${this.session.vault.personalBinding && !cryptoReady ? 'chamber-waiting' : ''}">
-        <header class="chat-header ${this.session.vault.personalBinding ? 'chamber-chat-header' : ''}" data-presence-style="${this.session.vault.personalBinding ? 'chamber' : readPresenceStyle()}">
-          ${this.session.vault.personalBinding ? `<div class="peer-summary chamber-presence-capsule" ${this.session.vault.role === 'creator' && cryptoReady && this.peerHasJoined(this.session) ? 'id="open-gallery" role="button" tabindex="0"' : 'role="status"'} aria-live="polite">
+      <section class="chat-shell ${isChamberVault(this.session.vault) && !cryptoReady ? 'chamber-waiting' : ''}">
+        <header class="chat-header ${isChamberVault(this.session.vault) ? 'chamber-chat-header' : ''}" data-presence-style="${isChamberVault(this.session.vault) ? 'chamber' : readPresenceStyle()}">
+          ${isChamberVault(this.session.vault) ? `<div class="peer-summary chamber-presence-capsule" ${this.session.vault.role === 'creator' && cryptoReady && this.peerHasJoined(this.session) ? 'id="open-gallery" role="button" tabindex="0"' : 'role="status"'} aria-live="polite">
             ${presenceCircuitMarkup}<span class="presence-row sr-only" id="peer-presence"><i class="presence-dot" aria-hidden="true"></i></span><strong class="peer-status">等待加入</strong>
             <span id="self-presence" class="sr-only"><strong>同步中</strong></span>
           </div>` : `
@@ -6492,7 +6492,7 @@ export class QuietRoomApp {
           <button class="icon-button chat-settings-entry" id="chat-settings" type="button" aria-label="设置">${spaceIcons.settings}</button>
         </header>
         <div class="system-notices" aria-label="本机安全提醒">
-          ${this.session.vault.personalBinding?'<aside class="pinned-notice" id="chamber-backup-notice" hidden><button type="button" class="pinned-recovery-content" id="chamber-backup-details"><strong>历史备份已暂停</strong><span></span></button></aside>':''}
+          ${isChamberVault(this.session.vault)?'<aside class="pinned-notice" id="chamber-backup-notice" hidden><button type="button" class="pinned-recovery-content" id="chamber-backup-details"><strong>历史备份已暂停</strong><span></span></button></aside>':''}
           ${this.releaseUpdateBannerMarkup()}
           ${this.session.vault.recoveryExperience?.completed === 'recovered' && !this.uiPreferences.historyImportDismissed ? `
             <aside class="pinned-notice" id="history-import-banner">
@@ -6508,13 +6508,13 @@ export class QuietRoomApp {
           ` : ''}
         </div>
         <div class="notice" id="notice" role="status" hidden></div>
-        <section class="message-list" id="message-list" aria-label="聊天消息">${this.session.vault.personalBinding ? `<details class="chamber-privacy-guide" ${(this.session.vault.personalGuide?.mnemonicViewed || this.session.vault.personalGuide?.mnemonicChecked) && this.session.vault.personalGuide.coverRead && this.session.vault.personalGuide.autoLockRead ? '' : 'open'}><summary>三步，熟悉你的隐私保护</summary><ol>
+        <section class="message-list" id="message-list" aria-label="聊天消息">${isChamberVault(this.session.vault) ? `<details class="chamber-privacy-guide" ${(this.session.vault.personalGuide?.mnemonicViewed || this.session.vault.personalGuide?.mnemonicChecked) && this.session.vault.personalGuide.coverRead && this.session.vault.personalGuide.autoLockRead ? '' : 'open'}><summary>三步，熟悉你的隐私保护</summary><ol>
             <li><button type="button" data-personal-guide="mnemonic"><b>01</b><span><strong>助记词</strong><small>${this.session.vault.personalGuide?.mnemonicViewed ? '已查看，请妥善保存' : this.session.vault.personalGuide?.mnemonicChecked ? '已核对助记词' : '换设备时，用它证明是你'}</small></span><span aria-hidden="true">›</span></button></li>
             <li><button type="button" data-personal-guide="cover"><b>02</b><span><strong>入口遮蔽</strong><small>${this.session.vault.recoveryExperience?.coverEnabled ? '已开启' : '了解伪装入口，按需开启'}</small></span><span aria-hidden="true">›</span></button></li>
             <li><button type="button" data-personal-guide="auto-lock"><b>03</b><span><strong>自动锁定</strong><small>了解暂时离开后的保护</small></span><span aria-hidden="true">›</span></button></li>
           </ol></details>` : ''}</section>
         <form class="composer" id="composer" autocomplete="off">
-          ${this.session.vault.personalBinding && !cryptoReady ? `<p class="chamber-waiting-footer" role="status">${this.session.vault.role === 'creator' ? '对方完成验证码确认后，即可开始聊天。' : '验证码已通过，正在建立加密连接。若邀请方已离线或锁定，请等待对方上线并解锁。'}</p>` : ''}
+          ${isChamberVault(this.session.vault) && !cryptoReady ? `<p class="chamber-waiting-footer" role="status">${this.session.vault.role === 'creator' ? '对方完成验证码确认后，即可开始聊天。' : '验证码已通过，正在建立加密连接。若邀请方已离线或锁定，请等待对方上线并解锁。'}</p>` : ''}
           <button class="chat-bottom-control" id="chat-bottom-control" type="button" aria-label="回到最新消息" aria-hidden="true" tabindex="-1"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
           <input id="image-input" type="file" accept="image/*,video/*" multiple ${cryptoReady ? '' : 'disabled'} hidden />
           <input id="camera-input" type="file" accept="image/*,video/*" capture="environment" ${cryptoReady ? '' : 'disabled'} hidden />
@@ -7462,7 +7462,7 @@ export class QuietRoomApp {
       syncChatBubbleGradient(list);
       const settings = header.querySelector<HTMLElement>('#chat-settings');
       const topGap = settings ? Math.max(0, settings.offsetTop) : 14;
-      const topSpace = this.session?.vault.personalBinding && settings ? settings.offsetTop + settings.offsetHeight + topGap + noticesHeight : headerHeight + noticesHeight + 14;
+      const topSpace = isChamberVault(this.session?.vault) && settings ? settings.offsetTop + settings.offsetHeight + topGap + noticesHeight : headerHeight + noticesHeight + 14;
       const measurements = `${headerHeight}:${noticesHeight}:${composerHeight}:${topSpace}`;
       if (measurements === previousMeasurements) return;
       previousMeasurements = measurements;
@@ -7794,7 +7794,7 @@ export class QuietRoomApp {
     const session = this.session;
     const epoch = this.runtimeEpoch;
     if (!session || this.privacyCovered) return;
-    if (session.vault.personalBinding && session.vault.personalMigration?.state !== 'staged') {
+    if (isChamberVault(session.vault)) {
       this.showNotice('在新设备打开 Chamber，选择“找回空间”，设置应用锁并输入自己的助记词，再请对方核对安全码并批准。'); return;
     }
     setBusy(button, true, '正在生成…');
@@ -7850,7 +7850,7 @@ export class QuietRoomApp {
   private async startRepairLink(source: RoomMember, button: HTMLButtonElement): Promise<void> {
     const session = this.session; const epoch = this.runtimeEpoch;
     if (!session || !session.vault.mls) return;
-    if(session.vault.personalBinding&&session.vault.personalMigration?.state!=='staged'){
+    if(isChamberVault(session.vault)){
       this.showNotice('请在需要修复的设备使用本人助记词找回空间，再由对方批准。加入前的历史需双方另行共同恢复。');return;
     }
     setBusy(button, true, '正在生成…');
@@ -8502,7 +8502,7 @@ export class QuietRoomApp {
   private chatBottomScrollTop(): number {
     const chat = this.chatLayoutElements;
     const latest = this.chatLatestTimelineRow();
-    if (!chat?.shell.isConnected || !latest?.isConnected || this.shortChatTimeline() || this.session?.vault.personalBinding && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero')) return 0;
+    if (!chat?.shell.isConnected || !latest?.isConnected || this.shortChatTimeline() || isChamberVault(this.session?.vault) && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero')) return 0;
     const marginBottom = Number.parseFloat(getComputedStyle(latest).marginBottom) || 0;
     // Use the newest timeline row and composer edges, not document extent: the
     // latter can include a short-history minimum height or a stale Safari layout
@@ -8514,7 +8514,7 @@ export class QuietRoomApp {
   private scrollChatToBottom(): void {
     this.chatBottomControl?.cancel();
     this.chatScrollIntent = null;
-    const invitation = Boolean(this.session?.vault.personalBinding && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero'));
+    const invitation = Boolean(isChamberVault(this.session?.vault) && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero'));
     if (this.shortChatTimeline() || invitation) {
       this.chatPinnedToBottom = !invitation; this.chatBottomFollowPending = false;
       this.setChatScrollTop(0); this.updateChatBottomControl(); return;
@@ -8703,7 +8703,7 @@ export class QuietRoomApp {
   private alignChatBottom(): void {
     // A pending invitation is a top-first task, not a message timeline.
     // Queued resize/follow callbacks must not push its heading under chrome.
-    if (this.session?.vault.personalBinding && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero')) {
+    if (isChamberVault(this.session?.vault) && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero')) {
       this.chatBottomFollowPending = false; return;
     }
     if (this.composerHandoff || this.composerHeightMotion || this.nativeKeyboardDismiss) {
@@ -10886,7 +10886,7 @@ export class QuietRoomApp {
 
   private showHiddenAlbumHint(): void {
     const session = this.session;
-    if (session?.vault.personalBinding && (!(session.vault.personalGuide?.mnemonicViewed || session.vault.personalGuide?.mnemonicChecked) || !session.vault.personalGuide.coverRead || !session.vault.personalGuide.autoLockRead)) return;
+    if (isChamberVault(session?.vault) && (!(session.vault.personalGuide?.mnemonicViewed || session.vault.personalGuide?.mnemonicChecked) || !session.vault.personalGuide.coverRead || !session.vault.personalGuide.autoLockRead)) return;
     if (!session || this.privacyCovered || this.activeSurface !== 'chat' || session.vault.role !== 'creator' ||
         session.vault.mls?.phase !== 'active' || this.accessFailure || this.uiPreferences.hiddenAlbumHintDismissed || this.root.querySelector('.hidden-album-hint, [role="dialog"]')) return;
     const entry = this.root.querySelector('#open-gallery'); if (!entry) return;
@@ -11018,7 +11018,7 @@ export class QuietRoomApp {
       title.textContent = '私密空间已经准备好';
       const detail = document.createElement('span');
       detail.textContent = '文字、语音和原图都会在这台设备上加密后再发送。';
-      if (this.session.vault.personalBinding && !this.peerHasJoined(this.session)) {
+      if (isChamberVault(this.session.vault) && !this.peerHasJoined(this.session)) {
         empty.classList.add('chamber-invite-hero');
         const eyebrow = document.createElement('span'); eyebrow.className = 'chamber-eyebrow'; eyebrow.textContent = '你的密室已就绪'; empty.append(eyebrow);
         title.textContent = '邀请一位朋友'; detail.textContent = '发送邀请链接，再通过你们原来的联系方式告知四位验证码。'; detail.hidden = false;
@@ -11028,19 +11028,19 @@ export class QuietRoomApp {
       if (this.session.vault.role === 'creator' && this.session.vault.pairingSecret && !this.peerHasJoined(this.session)) {
         const inviteUrl = makeParticipantInviteUrl({ v: 1, roomId: this.session.vault.roomId, accessToken: this.session.vault.inviteToken ?? this.session.vault.accessToken, pairingSecret: this.session.vault.pairingSecret, creatorFingerprint: this.session.vault.creatorFingerprint });
         const invite = document.createElement('button'); invite.className = 'primary-button'; invite.type = 'button'; invite.id = 'copy-invite'; invite.textContent = '复制邀请，等对方加入';
-        if (this.session.vault.personalBinding) invite.textContent = '复制邀请链接';
+        if (isChamberVault(this.session.vault)) invite.textContent = '复制邀请链接';
         invite.addEventListener('click', () => {
           if (this.chamberInviteRotating) return;
-          if (this.session?.vault.personalBinding && (this.session.vault.pendingInvitationRotation || this.chamberInvitationEnded())) {
+          if (isChamberVault(this.session?.vault) && (this.session.vault.pendingInvitationRotation || this.chamberInvitationEnded())) {
             this.confirmChamberInvitationRestart();
-          } else if (this.session) void this.shareInviteLink(this.participantInviteUrl(this.session), '邀请链接已复制', Boolean(this.session.vault.personalBinding));
+          } else if (this.session) void this.shareInviteLink(this.participantInviteUrl(this.session), '邀请链接已复制', isChamberVault(this.session.vault));
         });
         const link = document.createElement('input'); link.id = 'invite-url'; link.className = 'sr-only'; link.readOnly = true; link.tabIndex = -1; link.setAttribute('aria-label', '邀请链接'); link.value = inviteUrl;
         const status = document.createElement('p'); status.className = 'entry-invite-status';
         status.innerHTML = '<span id="invite-countdown" role="timer" aria-live="off"></span>';
         guidance.append(invite, link);
-        if (!this.session.vault.personalBinding) guidance.append(status);
-        if (this.session.vault.personalBinding) {
+        if (!isChamberVault(this.session.vault)) guidance.append(status);
+        if (isChamberVault(this.session.vault)) {
           const state = document.createElement('div'); state.id = 'chamber-invite-status'; state.className = 'chamber-invite-status'; state.setAttribute('role', 'status');
           const restart = document.createElement('button'); restart.type = 'button'; restart.className = 'text-button'; restart.textContent = '邀请链接被其他人占用？重新发起';
           restart.id = 'chamber-invite-restart'; restart.hidden = true; state.hidden = true; status.hidden = true;
@@ -11050,14 +11050,14 @@ export class QuietRoomApp {
           guidance.append(state, restart);
         }
       }
-      if (!this.session.vault.personalBinding && (this.session.vault.recoveryExperience?.codeSaved !== this.session.vault.backup?.id || !this.session.vault.backup)) {
+      if (!isChamberVault(this.session.vault) && (this.session.vault.recoveryExperience?.codeSaved !== this.session.vault.backup?.id || !this.session.vault.backup)) {
         const save = document.createElement('button'); save.className = 'secondary-button'; save.type = 'button'; save.textContent = '保存恢复卡';
         save.addEventListener('click', () => this.transitionPage('forward', () => this.renderRecoveryCenter())); guidance.append(save);
         const hint = document.createElement('small'); hint.textContent = '换设备或数据丢失时，用恢复卡找回。'; guidance.append(hint);
       }
       empty.append(guidance);
       const mountedInvite = list.querySelector<HTMLElement>(':scope > .chamber-invite-hero');
-      const preserveInvite = Boolean(mountedInvite && this.session.vault.personalBinding && !this.peerHasJoined(this.session));
+      const preserveInvite = Boolean(mountedInvite && isChamberVault(this.session.vault) && !this.peerHasJoined(this.session));
       if (guide && !preserveInvite) list.replaceChildren(...(this.peerHasJoined(this.session) ? [guide, empty] : [empty, guide]));
       this.renderedMessages.clear();
       this.renderedMessageOrder = [];
@@ -11551,7 +11551,7 @@ export class QuietRoomApp {
   }
 
   private async loadVerifiedFile(session: VaultSession, manifest: FileManifest, signal?: AbortSignal, progress?: (ratio: number) => void, audio = false): Promise<Blob> {
-    const eligible = manifest.originalSize <= MEDIA_CACHE_FILE_BYTES || Boolean(session.vault.personalBinding)&&manifest.originalSize<=MAX_IMAGE_BYTES;
+    const eligible = manifest.originalSize <= MEDIA_CACHE_FILE_BYTES || isChamberVault(session.vault)&&manifest.originalSize<=MAX_IMAGE_BYTES;
     let usedCache = false;
     const attempt = (allowCache: boolean) => (audio ? decryptAudioFile : decryptFileAttachment)(manifest, async (blobId, index) => {
       signal?.throwIfAborted();
@@ -12018,81 +12018,6 @@ export class QuietRoomApp {
     });
   }
 
-  private renderChamberMigration():void {
-    const session=this.session,epoch=this.runtimeEpoch;
-    if(!session||this.privacyCovered||!this.runtimeAbort)return;
-    this.setActiveSurface('away');
-    this.gatewayTemplate('逐个迁移当前空间','两人各自在原设备准备自己的身份，完成云端备份的共同恢复与完整性验证，再核对同一安全码切换。全部聊天记录留在原设备，无需新设备。',
-      '<p id="chamber-migration-status" role="status"></p><button class="primary-button" id="chamber-migration-bind">验证应用锁，准备身份并开启自动备份</button><button class="secondary-button" id="chamber-migration-check">检查双方进度</button><button class="secondary-button" id="chamber-migration-history">备份与恢复验证</button><button class="primary-button" id="chamber-migration-finish" disabled>双方验证完成，共同切换</button><button class="text-button" id="chamber-migration-back">返回</button><p class="form-error" role="alert"></p>',false,'plain');
-    const page=this.root.querySelector('.gateway')!,error=page.querySelector<HTMLElement>('.form-error')!,button=page.querySelector<HTMLButtonElement>('#chamber-migration-bind')!,status=page.querySelector('#chamber-migration-status')!,signal=this.runtimeAbort.signal;
-    const active=()=>page.isConnected&&this.isRuntimeActive(epoch,session);let busy=false;
-    const check=async()=>{
-      if(!active()||busy)return;busy=true;
-      try {const result=await chamberMigrationStatus(session,signal);await adoptLegacyBindings(session,result,signal);if(!active())return;
-        status.textContent=result.activated?'此空间已完成迁移。':`已绑定 ${Object.keys(result.bindings).length}/2 位参与者；原设备恢复与历史验证 ${Object.keys(result.verified).length}/2。`;
-        button.disabled=Boolean(result.bindings[session.vault.role]);
-        page.querySelector<HTMLButtonElement>('#chamber-migration-history')!.disabled=!session.vault.personalBinding;
-        page.querySelector<HTMLButtonElement>('#chamber-migration-finish')!.disabled=!result.verified.creator||!result.verified.joiner;
-      }catch(cause){if(active())error.textContent=cause instanceof Error?cause.message:'迁移进度未能读取';}finally{busy=false;}
-    };
-    button.addEventListener('click',()=>void(async()=>{
-      if(busy||!active())return;busy=true;button.disabled=true;error.textContent='';let root:LocalCredentialResult|undefined,daily:LocalCredentialResult|undefined;
-      try {
-        let stored=await readPersonalIdentity();
-        if(stored)root=await this.personalCredential(stored,active);
-        else {
-          if(session.stored.unlockMethod==='password'&&session.stored.v===3) {
-            const kdf=session.stored.kdf;
-            root=await requestPassword(this.root,{title:'验证当前空间的应用锁',context:'验证后才在本机生成并加密保管助记词。旧恢复方式暂时保留。',passwordFormat:session.stored.passwordFormat,signal,isActive:active,
-              verify:async secret=>{await reauthenticateVault(session,secret);return derivePasswordCredential(secret,kdf);}});
-          } else {
-            const verified=await this.confirmDeviceCredential('绑定当前空间的个人身份');daily=cloneDeviceCredential(verified)??undefined;
-            if(!daily)throw new Error('请重新验证本机通行密钥');root=await this.separateRootProtection(daily,active);
-          }
-          stored=await preparePersonalIdentity(root,undefined,daily&&!isPasswordCredential(daily)?daily.record:undefined);signal.throwIfAborted();if(!active())return;await saveNewPersonalIdentity(stored);
-        }
-        const binding=await usePersonalIdentity(stored,root,entropy=>bindPersonalDevice(entropy,session.vault.identity));
-        await bindLegacyChamber(session,binding,signal);
-        await cloudBackupPreference(session,signal,true);
-        if(active())error.textContent='本人身份已加密保管。请先保存助记词；双方绑定并完成备份后，在本设备发起共同恢复，验证全部历史。';
-      }catch(cause){if(active())error.textContent=cause instanceof Error?cause.message:'本人身份尚未绑定';}
-      finally{if(root)this.releasePersonalCredential(root);if(daily)this.releasePersonalCredential(daily);busy=false;if(active())void check();}
-    })());
-    page.querySelector('#chamber-migration-check')!.addEventListener('click',()=>void check());
-    page.querySelector('#chamber-migration-history')!.addEventListener('click',()=>this.renderBackupSettings());
-    page.querySelector('#chamber-migration-finish')!.addEventListener('click',()=>void(async()=>{
-      if(busy||!active())return;busy=true;let credential:LocalCredentialResult|undefined;
-      try {
-        const ensureIdle=async()=>{
-          const writes=await Promise.all([loadOutbox(session),loadPendingReceipts(session),loadUploadPlans(session)]);
-          if(writes.some(rows=>rows.length)||this.mediaUploads.size||this.uploadPlans.length)throw new Error('请先完成待发送消息、附件和送达同步，再切换。草稿会保留。');
-        };
-        const stored=await readPersonalIdentity(session.vault.personalBinding!.identity.id);if(!stored)throw new Error('本机身份缺失');
-        credential=await this.personalCredential(stored,active);
-        await assertMigrationSourceCurrent(session,signal);
-        await ensureIdle();
-        const entry=this.chamberEntry(session),lifecycle=await inspectChamber(entry,stored,credential,signal);
-        const prepared=await prepareChamberReopen(entry,lifecycle,stored,credential,this.newDeviceName(),CLIENT_CAPABILITIES,signal);
-        if(!active()||!await this.leaveSpace())return;
-        await withVaultMutation(session,async mutation=>{
-          const before=session.vault;
-          await assertMigrationSourceCurrent(session,AbortSignal.timeout(30_000));
-          await ensureIdle();
-          session.vault={...before,identity:prepared.identity,accessToken:prepared.accessToken,personalBinding:prepared.binding,
-            localPreferenceDeviceId:before.localPreferenceDeviceId??before.identity.publicBundle.deviceId,
-            migrationSource:structuredClone(before),pendingChamberReopen:prepared.pending,
-            mls:{protocol:'mls-rfc9420',phase:'awaiting-welcome',lastEventSeq:0}};
-          try{await saveVault(session,mutation);}catch(cause){session.vault=before;throw cause;}
-        });
-        this.session=session;await this.openSession();
-      }catch(cause){
-        if(!this.session&&!this.privacyCovered){this.session=session;await this.openSession();this.renderChamberMigration();}
-        const target=this.root.querySelector<HTMLElement>('.form-error');if(target)target.textContent=cause instanceof Error?cause.message:'迁移暂未完成，请重试';
-      }finally{if(credential)this.releasePersonalCredential(credential);busy=false;}
-    })());
-    page.querySelector('#chamber-migration-back')!.addEventListener('click',()=>void this.openSession());void check();
-  }
-
   private chamberEntry(session:VaultSession):PersonalDirectoryEntry {
     const participants:PersonalDirectoryEntry['participants']=[];
     for(const binding of session.vault.personalPeers??[]) {
@@ -12105,7 +12030,7 @@ export class QuietRoomApp {
 
   private async adoptChamberClosure(lifecycle:ChamberLifecycle):Promise<void> {
     const session=this.session;
-    if(!session?.vault.personalBinding || !verifyChamberClosure(lifecycle,this.chamberEntry(session),session.vault.chamberLifecycle?.version??1))throw new SecurityViolation('密室关闭签名或版本无法验证');
+    if(!isChamberVault(session?.vault) || !verifyChamberClosure(lifecycle,this.chamberEntry(session),session.vault.chamberLifecycle?.version??1))throw new SecurityViolation('密室关闭签名或版本无法验证');
     // Fence all runtime work synchronously before any storage await.
     session.vault.chamberLifecycle=lifecycle;
     this.cleanupRuntime(false,true);this.session=session;this.runtimeAbort=new AbortController();this.resetIdleLock();
@@ -12132,7 +12057,7 @@ export class QuietRoomApp {
 
   private renderChamberClose():void {
     const session=this.session,epoch=this.runtimeEpoch;
-    if(!session?.vault.personalBinding || this.privacyCovered || !this.runtimeAbort)return;
+    if(!isChamberVault(session?.vault) || this.privacyCovered || !this.runtimeAbort)return;
     this.setActiveSurface('away');
     this.gatewayTemplate('关闭这间密室','输入本人完整12词助记词确认。关闭后双方停止通信，已经完成的加密备份保留；重新开启必须双方共同确认。',
       `<form id="chamber-close-form"><div class="chamber-import-grid">${Array.from({length:12},(_,i)=>`<label>${i+1}<input type="password" name="word${i}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" required aria-label="第${i+1}个助记词"></label>`).join('')}</div><p class="form-error" role="alert"></p><button class="primary-button" type="submit">验证并关闭密室</button></form><button class="text-button" id="chamber-close-cancel">返回</button>`,false,'plain');
@@ -12161,7 +12086,7 @@ export class QuietRoomApp {
     const session=this.session,pending=session?.vault.pendingChamberReopen,epoch=this.runtimeEpoch;
     if(!session||!pending||this.privacyCovered||!this.runtimeAbort)return;
     this.setActiveSurface('away');
-    this.gatewayTemplate(pending.migration?'共同完成当前空间迁移':pending.offer.payload.purpose==='chamber-recovery-offer-v1'?'共同恢复原密室':'共同恢复已关闭的密室',pending.migration?'双方已在原设备完成独立加密暂存区的云端历史校验。核对同一安全码后分别确认；切换成功后保留全部本机历史，停用旧的在线恢复方式。':'双方分别验证自己的助记词，在30分钟内确认同一个申请。系统会创建全新的聊天密钥并撤销旧设备，历史另行共同恢复。',
+    this.gatewayTemplate(pending.offer.payload.purpose==='chamber-recovery-offer-v1'?'共同恢复原密室':'共同恢复已关闭的密室','双方分别验证自己的助记词，在30分钟内确认同一个申请。系统会创建全新的聊天密钥并撤销旧设备，历史另行共同恢复。',
       '<p>请求编号 <strong id="chamber-reopen-id"></strong></p><strong class="device-safety-code" id="chamber-reopen-safety"></strong><p role="timer" class="chamber-countdown"></p><p id="chamber-reopen-status" role="status">正在提交已加密保存的本机申请…</p><button class="primary-button" id="chamber-reopen-approve" disabled>核对一致，确认共同恢复</button><button class="secondary-button" id="chamber-reopen-check">立即检查</button><button class="secondary-button" id="chamber-reopen-restart" hidden>重新发起共同恢复</button><button class="text-button" id="chamber-reopen-cancel">取消本次申请</button><button class="text-button" id="chamber-reopen-lock">锁定</button><p class="form-error" role="alert"></p>',false,'plain');
     const page=this.root.querySelector('.gateway')!,error=page.querySelector<HTMLElement>('.form-error')!,button=page.querySelector<HTMLButtonElement>('#chamber-reopen-approve')!,status=page.querySelector('#chamber-reopen-status')!;
     page.querySelector('#chamber-reopen-id')!.textContent=pending.offer.payload.requestId.slice(0,8);
@@ -12181,7 +12106,7 @@ export class QuietRoomApp {
         const digest=sha256(new TextEncoder().encode(canonicalStringify(snapshot.proposal))),code=String(new DataView(digest.buffer,digest.byteOffset,digest.byteLength).getUint32(0)%1_000_000).padStart(6,'0');
         page.querySelector('#chamber-reopen-safety')!.textContent=code;
         status.textContent=snapshot.approvals[session.vault.role]?'你已确认，等待另一位参与者确认。':'请通过原联系方式核对双方显示的同一安全码，再确认。';
-      } else status.textContent=pending.migration?'等待另一位参与者在原设备完成历史验证并共同切换。':'等待另一位参与者验证自己的助记词并选择同一密室。';
+      } else status.textContent='等待另一位参与者验证自己的助记词并选择同一密室。';
     };
     const finish=async(next:ChamberReopenSnapshot)=>{await completeChamberReopen(session,next,signal);if(active())await this.openSession();};
     const check=async()=>{
@@ -12207,10 +12132,6 @@ export class QuietRoomApp {
     page.querySelector('#chamber-reopen-check')!.addEventListener('click',()=>void check());page.querySelector('#chamber-reopen-lock')!.addEventListener('click',()=>this.lockNow());
     page.querySelector('#chamber-reopen-restart')!.addEventListener('click',()=>void(async()=>{
       if(!ended)return;
-      if(session.vault.migrationSource){
-        await withVaultMutation(session,async mutation=>{const before=session.vault;session.vault=before.migrationSource!;try{await saveVault(session,mutation);}catch(cause){session.vault=before;throw cause;}});
-        await this.openSession();this.renderChamberMigration();return;
-      }
       if(!await this.leaveSpace())return;await selectLocalSpace(crypto.randomUUID());this.renderPersonalRestoreProtection({joint:pending.offer.payload.purpose==='chamber-recovery-offer-v1'});
     })());
     page.querySelector('#chamber-reopen-cancel')!.addEventListener('click',()=>void(async()=>{
@@ -12227,14 +12148,14 @@ export class QuietRoomApp {
 
   private renderChamberHistorySettings(): void {
     const session=this.session, epoch=this.runtimeEpoch;
-    if (!session?.vault.personalBinding || this.privacyCovered || !this.runtimeAbort) return;
+    if (!isChamberVault(session?.vault) || this.privacyCovered || !this.runtimeAbort) return;
     this.captureChatAnchor(false); this.setActiveSurface('away');
     this.root.innerHTML=`<main class="backup-page"><header class="subpage-header"><button class="icon-button" id="chamber-history-back" aria-label="返回聊天">${icons.back}</button><h1>备份与共同恢复</h1></header><section class="backup-content">
       <p class="backup-intro">默认自动备份聊天历史。密室关闭后保留已完成的备份，供双方以后共同恢复。</p>
       <section class="backup-setting"><div><h2>自动备份</h2><p id="chamber-history-status" data-cloud-status role="status"></p></div><button class="backup-toggle" data-cloud-switch role="switch" aria-label="自动备份聊天历史" aria-checked="false" disabled><span></span></button><button class="secondary-button" id="chamber-history-sync">立即备份</button><button class="text-button" data-cloud-retry hidden>重新读取备份设置</button></section>
       <section class="backup-setting"><div><h2>恢复本人的历史</h2><p>双方分别解锁自己的身份。申请自发起起30分钟内有效，只交给本次申请设备，范围不包含后续新备份。</p>
         <label>恢复范围<select id="chamber-history-scope"><option value="chat">聊天记录</option>${session.vault.role==='creator'?'<option value="gallery">保险箱</option><option value="all">聊天与保险箱</option>':''}</select></label></div><button class="primary-button" id="chamber-history-start">发起共同恢复</button></section>
-      <div id="chamber-history-requests"></div><p class="form-error" role="alert"></p><p class="backup-footnote">仅在解锁且联网时备份。容量不足、内容缺失或损坏会暂停新增备份并提示，已经验证的备份继续保留。恢复历史不会恢复聊天权限。</p><button class="text-button" id="chamber-migration-open" hidden>查看当前空间迁移进度</button><button class="text-button" id="chamber-close-begin">关闭这间密室</button>
+      <div id="chamber-history-requests"></div><p class="form-error" role="alert"></p><p class="backup-footnote">仅在解锁且联网时备份。容量不足、内容缺失或损坏会暂停新增备份并提示，已经验证的备份继续保留。恢复历史不会恢复聊天权限。</p><button class="text-button" id="chamber-close-begin">关闭这间密室</button>
     </section></main>`;
     const page=this.root.querySelector('.backup-page')!, error=page.querySelector<HTMLElement>('.form-error')!, host=page.querySelector('#chamber-history-requests')!;
     const active=()=>page.isConnected && this.isRuntimeActive(epoch,session), signal=this.runtimeAbort.signal;
@@ -12279,8 +12200,6 @@ export class QuietRoomApp {
     const refresh=async()=> { if(!active() || busy) return; try { const rows=await listChamberHistoryRequests(session,signal); if(active()&&!busy) paint(rows); } catch(cause) {if(active())error.textContent=cause instanceof Error?cause.message:'申请列表未能加载';} };
     page.querySelector('#chamber-history-back')!.addEventListener('click',()=>void this.openSession());
     page.querySelector('#chamber-close-begin')!.addEventListener('click',()=>this.renderChamberClose());
-    page.querySelector('#chamber-migration-open')!.addEventListener('click',()=>this.renderChamberMigration());
-    void chamberMigrationStatus(session,signal).then(result=>{if(active()&&!result.activated&&Object.keys(result.bindings).length){page.querySelector<HTMLElement>('#chamber-migration-open')!.hidden=false;page.querySelector<HTMLElement>('#chamber-close-begin')!.hidden=true;}}).catch(()=>undefined);
     page.querySelector<HTMLButtonElement>('#chamber-history-sync')!.addEventListener('click',()=>void this.runAutomaticBackup(true).finally(status));
     page.querySelector<HTMLButtonElement>('#chamber-history-start')!.addEventListener('click',event=>void run(event.currentTarget as HTMLButtonElement,async(stored,credential,bounded)=> {
       const scope=(page.querySelector<HTMLSelectElement>('#chamber-history-scope')!.value) as 'chat'|'gallery'|'all';
@@ -12294,7 +12213,7 @@ export class QuietRoomApp {
     if (!session || this.privacyCovered) return;
     // Consume the compatibility entry once; later returns follow the page flow.
     if (location.hash === '#legacy-backup') history.replaceState(history.state, '', `${location.pathname}${location.search}`);
-    if (session.vault.personalBinding) { this.renderChamberHistorySettings(); return; }
+    if (isChamberVault(session.vault)) { this.renderChamberHistorySettings(); return; }
     this.captureChatAnchor(false);
     this.closeVoiceRecorder();
     this.voicePlayback.stop();
@@ -12326,7 +12245,6 @@ export class QuietRoomApp {
           </section>
         </div>
         <p class="backup-footnote">自动备份仅在页面解锁且联网时运行，锁定后暂停。</p>
-        <button class="secondary-button" id="legacy-chamber-migrate" type="button">为此空间准备助记词恢复</button>
       </section>
     </main>`;
     let historyChanged = false;
@@ -12341,7 +12259,6 @@ export class QuietRoomApp {
     });
     this.root.querySelector('#backup-retry')?.addEventListener('click', () => void this.runAutomaticBackup(true));
     this.root.querySelector('#view-local-recovery')?.addEventListener('click', () => this.verifyLocalRecoveryCode());
-    this.root.querySelector('#legacy-chamber-migrate')?.addEventListener('click',()=>this.renderChamberMigration());
     this.updateBackupStatus();
   }
 
@@ -12958,17 +12875,16 @@ export class QuietRoomApp {
 
   private renderPersonalRecoveryCenter(): void {
     const session = this.session, epoch = this.runtimeEpoch;
-    if (!session?.vault.personalBinding || this.privacyCovered) return;
+    if (!isChamberVault(session?.vault) || this.privacyCovered) return;
     this.setActiveSurface('away'); document.body.className = 'app-mode';
     this.root.innerHTML = `<main class="recovery-flow-page chamber-mnemonic-page" data-authenticated-page>
       <section class="recovery-flow-content">${entryArt()}<h1>身份，由你保管</h1><p class="recovery-flow-lead">12 个英文单词可以找回你的身份，也可导入 MetaMask 等兼容钱包。不要发送给任何人，包括另一位参与者。</p>
       <div class="entry-protection"><strong>先验证应用锁，再查看</strong><p>助记词已加密保存在这台浏览器中。查看后将在一分钟内隐藏，离开或锁定也会立即隐藏。</p></div>
       <p class="field-hint">请在可信、私密的环境下抄写，按编号保存顺序。共同恢复时，双方各自在自己的设备上验证。</p><p class="form-error" role="alert"></p></section>
-      <footer class="recovery-flow-footer"><button class="primary-button" data-personal-show type="button">验证并查看助记词</button>${session.vault.personalMigration?.state==='staged'?'<button class="text-button" data-personal-legacy type="button">迁移尚未完成，查看旧恢复卡</button>':''}<button class="text-button" data-personal-back type="button">返回</button></footer></main>`;
+      <footer class="recovery-flow-footer"><button class="primary-button" data-personal-show type="button">验证并查看助记词</button><button class="text-button" data-personal-back type="button">返回</button></footer></main>`;
     const page = this.root.querySelector('.chamber-mnemonic-page')!;
     const active = () => page.isConnected && this.isRuntimeActive(epoch, session) && !document.hidden;
     page.querySelector('[data-personal-back]')!.addEventListener('click', () => this.transitionPage('backward', () => {if(session.vault.pendingChamberCreate)this.renderPendingChamberCreate();else this.renderChat();}));
-    page.querySelector('[data-personal-legacy]')?.addEventListener('click',()=>this.verifyLocalRecoveryCode());
     const button = page.querySelector<HTMLButtonElement>('[data-personal-show]')!;
     button.addEventListener('click', async () => {
       if (button.disabled || !active()) return; button.disabled = true;
@@ -13012,7 +12928,7 @@ export class QuietRoomApp {
   }
 
   private renderRecoveryCenter(): void {
-    if (this.session?.vault.personalBinding) { this.renderPersonalRecoveryCenter(); return; }
+    if (isChamberVault(this.session?.vault)) { this.renderPersonalRecoveryCenter(); return; }
     const session = this.session; if (!session || this.privacyCovered) return;
     this.setActiveSurface('away');
     document.body.className = 'app-mode';
@@ -15503,7 +15419,7 @@ export class QuietRoomApp {
       row.dataset.state = state;
       const label = row === peerRow ? summary.querySelector<HTMLElement>('.peer-status') : row.querySelector<HTMLElement>('strong');
       if (label) {
-        const text = row === peerRow && this.session?.vault.personalBinding && !paired ? '等待加入' : value === null ? this.connectionState === 'disconnected' ? '连接已断开' : '连接中' : value ? '在线' : row === peerRow ? lastSeenText(this.roleLastSeen[peerRole]) : '离线';
+        const text = row === peerRow && isChamberVault(this.session?.vault) && !paired ? '等待加入' : value === null ? this.connectionState === 'disconnected' ? '连接已断开' : '连接中' : value ? '在线' : row === peerRow ? lastSeenText(this.roleLastSeen[peerRole]) : '离线';
         if (label.textContent !== text) {
           label.textContent = text;
           // Facts change synchronously; only the new label receives feedback.
@@ -15518,8 +15434,8 @@ export class QuietRoomApp {
     const circuit = summary.querySelector<SVGElement>('.presence-circuit');
     if (circuit && this.activeSurface === 'chat' && !this.privacyCovered) {
       if (!this.presenceCircuit) this.presenceCircuit = new PresenceCircuit(circuit);
-      circuit.dataset.compact = String(Boolean(this.session.vault.personalBinding)||readPresenceStyle() === 'heart');
-      circuit.setAttribute('viewBox', this.session.vault.personalBinding||readPresenceStyle() === 'heart' ? '34 -5.52 32 32' : '0 0 100 24');
+      circuit.dataset.compact = String(isChamberVault(this.session.vault)||readPresenceStyle() === 'heart');
+      circuit.setAttribute('viewBox', isChamberVault(this.session.vault)||readPresenceStyle() === 'heart' ? '34 -5.52 32 32' : '0 0 100 24');
       if (snapshotAvailable || this.connectionState !== 'connected') {
         circuit.dataset.self = String(selfOnline === true); circuit.dataset.peer = String(peerOnline === true);
         this.presenceCircuit.update(selfOnline, peerOnline);

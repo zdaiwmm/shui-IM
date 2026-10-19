@@ -21,7 +21,7 @@ export function verifyPersonalProof(identity, proof, signature, now = Date.now()
   try {
     if (!validPersonalIdentity(identity) || !proof || Object.keys(proof).sort().join(',') !== 'action,challenge,deviceId,expiresAt,identityId,payloadHash,purpose,requestId,roomId,v,version' ||
       proof.v !== 1 || proof.purpose !== 'chamber-personal-proof-v1' || proof.identityId !== identity.id ||
-      !['bind-device', 'bind-legacy-room', 'read-directory', 'close-room', 'restore-room', 'restore-history'].includes(proof.action) ||
+      !['bind-device', 'read-directory', 'close-room', 'restore-room', 'restore-history'].includes(proof.action) ||
       ![proof.roomId, proof.deviceId, proof.requestId].every(s => typeof s === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(s)) ||
       !Number.isSafeInteger(proof.version) || proof.version < 1 || ![proof.challenge, proof.payloadHash].every(s => typeof s === 'string' && /^[A-Za-z0-9_-]{43}$/.test(s)) ||
       typeof proof.expiresAt !== 'string' || new Date(proof.expiresAt).toISOString() !== proof.expiresAt ||

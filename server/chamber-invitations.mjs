@@ -11,9 +11,6 @@ export function createChamberInvitations(db) {
     version INTEGER NOT NULL DEFAULT 1, claim_hash TEXT, request_id TEXT,
     expires_at TEXT, ready TEXT, code TEXT, attempts INTEGER NOT NULL DEFAULT 0, consumed INTEGER NOT NULL DEFAULT 0
   );`);
-  db.exec(`CREATE TABLE IF NOT EXISTS chamber_migrations(room_id TEXT PRIMARY KEY REFERENCES rooms(room_id) ON DELETE CASCADE,
-    bindings TEXT NOT NULL DEFAULT '{}',verified TEXT NOT NULL DEFAULT '{}',activated INTEGER NOT NULL DEFAULT 0,base_seq INTEGER NOT NULL DEFAULT 0);`);
-  if(!db.prepare('PRAGMA table_info(chamber_migrations)').all().some(c=>c.name==='base_seq'))db.exec('ALTER TABLE chamber_migrations ADD COLUMN base_seq INTEGER NOT NULL DEFAULT 0');
   const columns = db.prepare('PRAGMA table_info(chamber_rooms)').all();
   if (!columns.some(c => c.name === 'code_revision')) db.exec('ALTER TABLE chamber_rooms ADD COLUMN code_revision INTEGER NOT NULL DEFAULT 1');
   if (!columns.some(c => c.name === 'refresh_id')) db.exec('ALTER TABLE chamber_rooms ADD COLUMN refresh_id TEXT');
@@ -32,12 +29,7 @@ export function createChamberInvitations(db) {
   };
   function state(roomId, creator = false) {
     const r = row(roomId);
-    if (!r) {
-      const migration=db.prepare('SELECT * FROM chamber_migrations WHERE room_id=?').get(roomId);
-      const bindings=migration&&JSON.parse(migration.bindings);
-      if(!bindings?.creator || !bindings?.joiner)return null;
-      return {v:1,creatorBinding:bindings.creator,joinerBinding:bindings.joiner,version:1,requestId:null,expiresAt:null,stage:'joined',migration:'preparing'};
-    }
+    if (!r) return null;
     return { v: 1, creatorBinding: JSON.parse(r.creator_binding), joinerBinding: r.joiner_binding ? JSON.parse(r.joiner_binding) : null,
       version: r.version, requestId: r.request_id, expiresAt: r.expires_at, codeRevision: r.code_revision,
       stage: r.consumed ? 'joined' : r.attempts >= 5 ? 'blocked' : r.expires_at && Date.parse(r.expires_at) <= Date.now() ? 'code-expired' : r.ready ? 'code' : r.claim_hash ? 'preparing' : 'available',

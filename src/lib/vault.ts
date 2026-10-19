@@ -968,29 +968,6 @@ export async function clearLocalBrowserData(session: VaultSession): Promise<void
   });
 }
 
-/** Only the independently generated migration namespace may be discarded.
- * This never removes the original history, preferences or composer checkpoint. */
-export async function discardChamberMigrationStage(session:VaultSession,mutation:VaultMutation):Promise<void> {
-  if(!ownsVaultMutation(session,mutation))throw new Error('迁移暂存区清理没有保险库事务');
-  const source=session.vault.migrationSource??session.vault,scope=source.personalMigration?.stage?.dataScope;
-  if(!scope)return;
-  if(!/^[0-9a-f-]{36}$/i.test(scope)||scope===session.vault.roomId||scope===localDataScope(source)||scope===localDataScope(session.vault))throw new Error('迁移暂存区与原历史范围冲突');
-  const database=await openDatabase();
-  await new Promise<void>((resolve,reject)=>{
-    const stores=['history','galleryHistory','restoredGallery','mediaCacheEntries','mediaChunks','outbox','receiptOutbox','uploads','preferences'];
-    const tx=database.transaction(['vault',...stores],'readwrite');
-    const current=tx.objectStore('vault').get(vaultSpaceId(session.stored));
-    current.onsuccess=()=>{if(!sameStoredVault(current.result,session.stored))tx.abort();};
-    for(const name of stores){
-      const request=tx.objectStore(name).index('roomId').openKeyCursor(IDBKeyRange.only(scope));
-      request.onsuccess=()=>{const cursor=request.result;if(cursor){tx.objectStore(name).delete(cursor.primaryKey);cursor.continue();}};
-    }
-    tx.oncomplete=()=>{database.close();resolve();};
-    tx.onabort=()=>{database.close();reject(tx.error??staleVaultError());};
-    tx.onerror=()=>reject(tx.error);
-  });
-}
-
 export async function downloadVaultDiagnostic(): Promise<void> {
   const value: unknown = await transaction('vault', 'readonly', (store) => store.get(selectedSpace));
   const record = value && typeof value === 'object' ? value as Record<string, unknown> : null;
@@ -1516,7 +1493,7 @@ export async function prepareRecoveryPackage(session: VaultSession): Promise<Pre
 }
 
 async function prepareRecoveryPackageLocked(session: VaultSession, mutation: VaultMutation): Promise<PreparedRecoveryExport> {
-  if(session.vault.personalBinding&&session.vault.personalMigration?.state!=='staged')throw new Error('此空间使用助记词身份恢复，不能导出旧设备私钥恢复包');
+  if(session.vault.migrationSource||session.vault.personalBinding&&session.vault.personalMigration?.state!=='staged')throw new Error('此空间使用助记词身份恢复，不能导出旧设备私钥恢复包');
   if ((session.stored.v !== 2 && session.stored.v !== 3) || (session.stored.unlockMethod !== 'platform' && session.stored.unlockMethod !== 'password')) {
     throw new Error('请先完成设备保险库升级');
   }

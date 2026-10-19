@@ -10,7 +10,7 @@ Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请�
 
 # Quiet Room 项目地图
 
-原设备迁移与十二项界面修订：`src/lib/chamber-migration-stage.ts`管理独立暂存／完整性摘要，`chamber-history.ts`／`chamber-history-record.ts`保留受邀方聊天备份的保险箱排除序号，`chamber-lifecycle.ts`／`server/chamber-lifecycle.mjs`管理双根切换和接续。`settings-layout.ts`、`page-back.ts`与`chamber-refinements.css`统一设置及底部动作。范围见[本轮V2](../requirements/2026-10-19-local-migration-ui/README.md)、D-070与视觉V1.17；专项为迁移／历史格式／生命周期单测及Chamber整链／聊天UI／迁移浏览器入口。
+旧空间迁移已按用户要求撤下：迁移模块与接口删除，`chamber-space.ts`隔离历史未完成绑定，保留旧恢复卡和普通备份。新密室身份、双根历史解密和共同恢复保留。当前范围见[移除需求](../requirements/2026-10-19-remove-legacy-migration/README.md)；回归为`retired-chamber-state.test.ts`、`chamber-lifecycle.test.ts`、`legacy-chamber-retirement.e2e.mjs`及Chamber整链。此前十二项界面修订由`settings-layout.ts`、`page-back.ts`与`chamber-refinements.css`继续维护。
 
 删除附件回收与旧协议重试：`server/storage.mjs`／`server/cloud-backups.mjs`的持久清理队列保留待清文件配额，`src/lib/vault.ts`／`src/app.ts`在发送前准备legacy待发密文。回归为`tests/room-cleanup.test.ts`、`tests/waiting-space-delete.test.ts`及`tests/vault-lifecycle.e2e.mjs`；范围与证据见[审计修复V1](../requirements/2026-10-18-audit-storage-legacy-fixes/README.md)。
 
@@ -78,7 +78,7 @@ CI 镜像与双独立环境：`scripts/ci-image.mjs`、`scripts/deploy-config.mj
 | --- | --- | --- | --- |
 | 产品语义与交互 | `PRODUCT.md`、`README.md` | `src/app.ts`、各 CSS 文件 | `tests/browser.e2e.mjs`、`tests/ui-audit.e2e.mjs`、相关专项浏览器脚本 |
 | Chamber个人助记词、前置应用锁、唯一邀请与独立新设备 | `CHAMBER_IDENTITY.md`、[本轮确认](../requirements/2026-10-16-personal-mnemonic-friends/README.md) | `personal-identity*.ts`、`personal-device*.ts`、`personal-directory*.ts`、`chamber-invitations.ts`及对应`server/*.mjs`、`src/app.ts` | `tests/personal-*.test.ts`、`challenge-join-server.test.ts`、`chamber-invitations.test.ts`、`chamber-passkey.e2e.mjs`、`chamber-flow.e2e.mjs` |
-| 双根历史解密、签名关闭、共同恢复及旧空间切换 | `CHAMBER_IDENTITY.md`、`RECOVERY_BACKUPS.md`、`SECURITY.md` | `src/lib/joint-history-keys.ts`、`chamber-history*.ts`、`chamber-lifecycle.ts`、`chamber-migrations.ts`及对应服务端 | `tests/joint-history-keys.test.ts`、`chamber-history-record.test.ts`、`chamber-lifecycle.test.ts`、`chamber-flow.e2e.mjs`、`chamber-migration.e2e.mjs` |
+| 双根历史解密、签名关闭、共同恢复及旧迁移停用 | `CHAMBER_IDENTITY.md`、`RECOVERY_BACKUPS.md`、`SECURITY.md` | `src/lib/joint-history-keys.ts`、`chamber-history*.ts`、`chamber-lifecycle.ts`及对应服务端 | `tests/joint-history-keys.test.ts`、`chamber-history-record.test.ts`、`chamber-lifecycle.test.ts`、`chamber-flow.e2e.mjs`、`legacy-chamber-retirement.e2e.mjs` |
 | 启动、页面状态、版本更新、Service Worker | `README.md`、`PRODUCT.md`、`RELEASING.md` | `release.json`、`release-history.json`、`src/main.ts`、`src/lib/release-update.ts`、`public/sw.js` | `tests/frontend-lifecycle.e2e.mjs`、`tests/release-update.e2e.mjs`、`tests/release-update.test.ts`、`tests/service-worker.test.ts` |
 | 文字草稿、刷新与提交后清除 | `PRODUCT.md` 的 Conversation Continuity、`SECURITY.md` 的 Device-local text checkpoints | `src/lib/draft-checkpoint.ts`、`src/lib/vault.ts`、`src/app.ts` | `tests/draft-checkpoint.test.ts`、`tests/draft-refresh.e2e.mjs`（Chrome／桌面 WebKit，真实刷新、事务中断、ABA、多标签页与双端 MLS） |
 | 聊天日期、气泡回执、回到最新消息与键盘跟随 | `PRODUCT.md` 的 Message Timeline、`TEST_PLAN.md` | `src/lib/message-date.ts`、`src/lib/chat-bottom-control.ts`、`src/lib/chat-viewport-motion.ts`、`src/lib/chat-keyboard-layout.ts`、`src/app.ts`、`src/chat-layout.css`、`src/styles.css` | `tests/message-timeline.e2e.mjs`、`tests/chat-bottom-control.e2e.mjs`、`tests/chat-list-viewport.e2e.mjs`、`tests/frontend-lifecycle.e2e.mjs`、`tests/chat-viewport-motion.test.ts`、`tests/chat-keyboard-layout.test.ts` |

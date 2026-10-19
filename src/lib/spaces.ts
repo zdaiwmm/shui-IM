@@ -1,3 +1,4 @@
+import { isChamberVault } from './chamber-space';
 import type { MessagePayload } from './types';
 import { isExpressionPayload } from './expression-media';
 import { isVideoFile } from './video-media';
@@ -137,7 +138,7 @@ export async function rememberLocalSpace(session: VaultSession, inheritedCode?: 
     } else if (summary) { entry.preview = summary.preview; entry.previewDeviceId = vault.identity.publicBundle.deviceId; entry.observer = summary.observer; }
 
     entry.waiting = !vault.members.some(m => m.role !== vault.role && (m.status === undefined || m.status === 'active'));
-    entry.chamber = Boolean(vault.personalBinding);
+    entry.chamber = isChamberVault(vault);
     entry.closed = Boolean(vault.chamberLifecycle?.closed);
     if (vault.backup?.syncedAt && !vault.backup.replaces && !vault.recoverySource) entry.code = vault.backup.code;
     if (rename) {
@@ -192,7 +193,8 @@ export async function rememberHistorySources(session: VaultSession, codes: strin
   });
 }
 export async function syncSpaceDirectory(session: VaultSession, signal: AbortSignal): Promise<void> {
-  if (session.vault.personalBinding) { await (await import('./personal-directory-sync')).syncPersonalDirectory(session, signal); if(session.vault.personalMigration?.state !== 'staged')return; }
+  if (session.vault.migrationSource) return;
+  if (isChamberVault(session.vault)) { await (await import('./personal-directory-sync')).syncPersonalDirectory(session, signal); return; }
   await rememberLocalSpace(session);
   const code = session.vault.spaceRecoveryCode!;
   if (!session.vault.backup?.syncedAt || session.vault.backup.replaces || session.vault.recoverySource) return;

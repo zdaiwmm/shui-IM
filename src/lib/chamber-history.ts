@@ -1,3 +1,4 @@
+import { isChamberVault } from './chamber-space';
 import { sha256 } from '@noble/hashes/sha2.js';
 import {canonicalStringify} from './canonical';
 import {galleryCurationKey,normalizeGalleryCurationRecords,type GalleryCurationRecord} from './gallery-curation';
@@ -89,6 +90,7 @@ async function snapshot(session: VaultSession, signal: AbortSignal): Promise<Cha
 
 /** Upload at most ten immutable units per foreground pass; pending ciphertext is durable before network I/O. */
 export async function syncChamberHistory(session: VaultSession, signal: AbortSignal, force: boolean): Promise<void> {
+  if (!isChamberVault(session.vault)) return;
   const binding = session.vault.personalBinding;
   const peer = session.vault.personalPeers?.find(item => item.identity.id !== binding?.identity.id)?.identity;
   if (!binding || !peer || session.vault.pairingState !== 'ready' || session.vault.mls?.phase !== 'active') return;
