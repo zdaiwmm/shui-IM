@@ -13,8 +13,8 @@ export function mountSettingsLayout(root:HTMLElement):()=>void {
     const save=header.querySelector<HTMLButtonElement>('#notification-copy-save');
     if(save){save.classList.add('primary-button');footer.append(save);}
     const existing=page.querySelector<HTMLButtonElement>('.backup-help-return');
-    if(existing){back.remove();existing.className='text-button page-back-button';footer.append(existing);}
-    else {back.className='text-button page-back-button';back.textContent='返回';footer.append(back);}
+    existing?.remove();
+    back.className='text-button page-back-button';back.textContent='返回';footer.append(back);
     page.append(footer);
   };
   const observer=new MutationObserver(discover);observer.observe(root,{childList:true});discover();
