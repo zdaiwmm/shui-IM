@@ -8,6 +8,7 @@ import { startServer } from '../server/index.mjs';
 import { submitPassword } from './helpers/password.mjs';
 import { fillFormInput } from './helpers/form-input.mjs';
 import { auditP1Surface } from './helpers/p1-surface-audit.mjs';
+import { verifyChamberInviteReentry } from './chamber-invite-reentry.e2e.mjs';
 
 const dataDir = await mkdtemp(path.join(tmpdir(), 'chamber-flow-'));
 let backend, vite, browser;
@@ -106,7 +107,7 @@ try {
   await b.goto(invite); await b.locator('#join-unavailable-retry').waitFor();
   await b.locator('#join-unavailable-retry').click(); await b.locator('.numeric-password-page').waitFor();
   // A competing visitor is rejected before a root, device key or password ceremony is created.
-  await c.goto(invite); await c.getByText(/该密室已被其他人进入/).waitFor();
+  await c.goto(invite); await c.getByRole('heading', { name: '此邀请已使用', exact: true }).waitFor();
   assert.equal(await c.locator('.numeric-password-page').count(), 0);
   assert.equal(await c.evaluate(async () => (await (await import('/src/lib/vault.ts')).readPersonalIdentity()) === null), true);
   await a.locator('#copy-chamber-code').waitFor();
@@ -220,7 +221,7 @@ try {
   assert.equal(await a.evaluate(()=>app.chamberInviteState.expiresAt),null);
   await a.unroute('**/chamber-invitation',expiredReply);
   await a.clock.setSystemTime(new Date());
-  await b.goto('about:blank');await b.goto(nextInvite);await b.locator('#chamber-existing-join').click();await submitPassword(b,'135790');await b.locator('.chamber-code-card').waitFor();
+  await b.goto('about:blank');await b.goto(nextInvite);await submitPassword(b,'135790');await b.locator('#chamber-existing-join').click();await submitPassword(b,'135790');await b.locator('.chamber-code-card').waitFor();
   const next=await b.evaluate(() => ({ root: app.session.vault.personalBinding.identity.id, ...app.session.vault.pendingChamberInvitation }));
   assert.equal(next.root,before.root);assert.notEqual(next.requestId,before.requestId);before=next;
   assert.equal(await b.evaluate(async()=>JSON.stringify(await(await import('/src/lib/vault.ts')).readPersonalIdentity())),rootRecord);
@@ -311,6 +312,7 @@ try {
     })));
     throw cause;
   }
+  await verifyChamberInviteReentry(b, nextInvite, '135790');
   await a.evaluate(()=>app.runAutomaticBackup(true));
   await a.locator('#message-input').fill('Synthetic locally hidden history');await a.locator('#composer').evaluate(form=>form.requestSubmit());await b.getByText('Synthetic locally hidden history',{exact:true}).waitFor();
   await a.waitForFunction(()=>[...app.messages.values()].some(m=>m.payload.text==='Synthetic locally hidden history'));
