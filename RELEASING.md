@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+<a id="release-chamber-migration-entry-20261019"></a>
+## 旧空间迁移入口与返回补修已发布（2026-10-19 16:32）
+
+- 用户明确要求直接补齐正常设置入口、修复返回备份页循环并合并发布；展示完整应用`073fe5f25b6fa1af684d9b9deb1a377bfa897b2b`、版本`2026.10.19.2`、完整CI、PREFLIGHT_OK及未验证项后，回复「确认发布」。授权绑定本次精确应用，无独立消息permalink；范围与失败历史由[需求V1](docs/requirements/2026-10-19-chamber-migration-entry/README.md)拥有。
+- [PR #350](https://github.com/zdaiwmm/shui-IM/pull/350)源`265db001f104a435dd314e058cfa217dda611e10`与上述应用完整文件树一致。正常入口为「聊天 → 设置 → 旧空间迁移」，未完成时可继续，成功后收起；兼容备份片段一次消费，返回不循环，桌面关闭设置释放打开标志。沿用原设备、全部可核验历史／附件／草稿／偏好、双方确认及完整性校验，无新增设备验证，不改服务端或密码学协议。
+- [精确PR完整CI39215161679](https://github.com/zdaiwmm/shui-IM/actions/runs/39215161679)与[精确main完整CI39217296436](https://github.com/zdaiwmm/shui-IM/actions/runs/39217296436)均attempt 1成功：132文件／1049项、全部70浏览器入口、通话、依赖审计、文档／凭据扫描、双架构镜像和完整verify。本机构建／1049项、原设备迁移及干净源通话／20种合成弱网通过；首轮check:full在未改的spaces直接渲染夹具遇到runtimeAbort为空，35项通过，唯一一次定向复验通过，34项顺序续跑全部通过。70入口为分段覆盖，不写作本机单次完整命令通过或真机证据。
+- 固定[只读云预检39218143908](https://github.com/zdaiwmm/shui-IM/actions/runs/39218143908)取得PREFLIGHT_OK。正常production审核后，唯一[云发布39222342683](https://github.com/zdaiwmm/shui-IM/actions/runs/39222342683)由固定入口`publish.mjs --cloud --with-readback --environment production --sha 073fe5f25b6fa1af684d9b9deb1a377bfa897b2b`核对DEPLOY_VERIFIED，成功回执时间`2026-10-19T08:27:06.879Z`；从`5acd37b82b51d0a4363ad4d6a9627ebbc684f2bc`实际切换一次，批次`20261019T082414Z`，云发布入口276527毫秒。未修改helper、云权限或访问控制。
+- 生产镜像`sha256:c03749cf163aa2f8df8c0379d03581939cc8b55c8767b83287bf2f70d86b6d9e`，归档摘要`5b7ed688917cb24bf31162991f76e5e2a2636f5defb7f72614a80e6f454c5858`，209968295字节、linux/amd64，绑定上述精确main CI／attempt 1。首次独立回读仅因backup starting失败；只读核对其实际启动为`2026-10-19T08:26:57.403057834Z`，既有探针间隔／启动期均5分钟，等到检查窗口后仅续跑同SHA的readback-only，没有重发。
+- 独立READBACK_OK于`2026-10-19T08:32:24.039Z`完成，3432毫秒：应用／备份running且healthy，TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物及新WebSocket一致，维护门absent。管理员及通话启用；原生iPhone／iOS27／Safari、真实公网弱网与独立安全审阅未由此次回读证明。
+- 脱敏发布／两次回读及备份探针证据保存于公共Git元数据`quiet-room-deliveries/evidence/chamber-migration-entry-return-20261019/`。第二独立、无部署配置的文档树只对账发布事实，文档提交不替代线上应用、不触发再次部署；仅核验本批开发资源，活动或无法证明已进入本次发布的资源按固定门禁保留。
+
 <a id="release-chamber-local-migration-ui-20261019"></a>
 ## 原设备完整迁移与 Chamber 十二项界面修订已发布（2026-10-19 13:37）
 
