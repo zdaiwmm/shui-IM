@@ -1,10 +1,10 @@
-# 聊天与设置十七项修订 V1
+# 聊天与设置修订 V1
 
 ## 身份与当前阶段
 
-- 需求：2026-10-19-mobile-settings-chat-fixes；正式实施与验证中，下一步通过本地门禁、PR及精确main完整CI。
+- 需求：2026-10-19-mobile-settings-chat-fixes；已实施、通过完整验证并发布生产，版本`2026.10.19.5`；独立回读通过，真实iPhone手感待验收。
 - 规则来源／基线：`acbe4e51202cb9523442b94f04187d9817027289`；本机main、origin/main及GitHub main开工时一致。
-- 独占分支：`codex/mobile-settings-chat-fixes-20261019`；目录 `/Users/zhouding/ss-worktrees/mobile-settings-chat-fixes-20261019`，本会话新建。实际HEAD接续时核验。
+- 独占分支：`codex/mobile-settings-chat-fixes-20261019`；目录 `/Users/zhouding/ss-worktrees/mobile-settings-chat-fixes-20261019`，本会话新建；最终源`c92dc6d2a7ad2d7dfebc26f67cc2825112ec34ce`。
 - 确认来源：本会话2026-10-19用户完整问题清单、图片及明确指令「无需制作原型，直接实施，完成后发布生产」。本次免方案／原型／流程图前置复审，授权范围为清单实施、必要验证及既有远端交付；生产仍按精确SHA另行确认。
 
 ## 范围与方案
@@ -32,7 +32,10 @@
 
 ## 验证与交付
 
-- 已执行：构建；原voice-gestures回归；新增实际组件回归的媒体引用、滑动帧渐变、入口删除／创建、遮蔽页尺寸和Chamber设备接口。
-- 进行中：完整门禁、受影响旧导航用例更新、通行密钥／键盘交接／生命周期／双人关闭链路。
-- 证据分别记录：本机自动浏览器属于合成视口，真实iPhone／iOS27／Safari触控和原生键盘尚未验收；PR、CI、精确SHA发布及独立回读尚未完成。
+- 最终干净源`c92dc6d2a7ad2d7dfebc26f67cc2825112ec34ce`由[PR #358](https://github.com/zdaiwmm/shui-IM/pull/358)合并为应用`a639f7bcaa436c21b4efa8ab27a6afa60f5a09c3`，两者完整文件树`00a7ef41e65db82673c181b60377329b8d31a70c`一致。
+- 本机冻结源`delivery:evidence -- run check:full`完整通过131文件／1034项、71／71浏览器入口，1057887毫秒；覆盖通行密钥、键盘交接、生命周期、双人关闭及受影响旧导航。新增实际组件回归另以WebKit通过，通行密钥页最终截图及在线样式预览经过视觉核验。生产依赖审计零漏洞。
+- [精确PR完整CI39252474500](https://github.com/zdaiwmm/shui-IM/actions/runs/39252474500)最新attempt 2及[精确main完整CI39255255231](https://github.com/zdaiwmm/shui-IM/actions/runs/39255255231) attempt 1成功，含71浏览器入口、通话／TURN、审计、凭据扫描及双架构镜像。PR首轮既有新标签页邀请续入20秒超时，仅原样重跑失败作业一次后通过，未改产品代码或断言。
+- 早期浏览器入口数量快照更新为71；退役的新增设备按钮导致旧测试等待，已用测试专用旧协议注册夹具保留实际三设备上限／HTTP409断言，未恢复产品新增设备功能。上述早期失败不改记为最终冻结源通过。首次云预检因精确main CI尚未结束而停止，CI成功后固定预检取得PREFLIGHT_OK，未发生切换。
+- 用户看到完整应用SHA、版本、完整CI／预检及真机缺口后明确回复「确认，发布生产」。唯一正式云发布取得DEPLOY_VERIFIED，首次独立回读仅备份starting；只读核对实际启动及既有5分钟探针后，仅续跑同SHA readback-only，于`2026-10-19T13:14:20.858Z`取得READBACK_OK。完整发布事实由[本轮发布记录](../../../RELEASING.md#release-mobile-settings-chat-fixes-20261019)拥有。
+- 自动浏览器属于合成视口；真实iPhone／iOS27／Safari触控、原生键盘及独立安全审阅未完成，不以WebKit自动化替代。脱敏授权、CI、发布及两次回读证据位于公共Git元数据`quiet-room-deliveries/evidence/mobile-settings-chat-fixes-20261019/`，在任务树及专属Git目录之外。
 - 材料：仅提交源码、测试、需求及必要规范文本；截图在本机临时证据目录，不提交二进制／Base64／依赖和构建产物。

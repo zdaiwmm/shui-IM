@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+<a id="release-mobile-settings-chat-fixes-20261019"></a>
+## 聊天与设置修订已发布（2026-10-19 21:14）
+
+- 用户明确免原型、直接实施；展示完整应用`a639f7bcaa436c21b4efa8ab27a6afa60f5a09c3`、版本`2026.10.19.5`、完整CI／预检及真机缺口后，回复「确认，发布生产」。授权仅绑定本次精确应用，无独立消息permalink；范围、实现、验证及早期失败由[需求V1](docs/requirements/2026-10-19-mobile-settings-chat-fixes/README.md)拥有。
+- [PR #358](https://github.com/zdaiwmm/shui-IM/pull/358)源`c92dc6d2a7ad2d7dfebc26f67cc2825112ec34ce`与上述应用完整文件树`00a7ef41e65db82673c181b60377329b8d31a70c`一致。本机最终干净源完整通过131文件／1034项、71／71浏览器入口（1057887毫秒）；[精确PR完整CI39252474500](https://github.com/zdaiwmm/shui-IM/actions/runs/39252474500)最新attempt 2及[精确main完整CI39255255231](https://github.com/zdaiwmm/shui-IM/actions/runs/39255255231) attempt 1成功，含通话／TURN、审计、凭据扫描及双架构镜像。PR首轮既有邀请续入20秒超时，仅原样重跑失败作业一次后通过。
+- 固定[只读云预检39256519096](https://github.com/zdaiwmm/shui-IM/actions/runs/39256519096)取得PREFLIGHT_OK；更早的39255396615因main CI仍在运行而停止，未切换。唯一[正式云发布39257169305](https://github.com/zdaiwmm/shui-IM/actions/runs/39257169305)由`publish.mjs --cloud --with-readback --environment production --sha a639f7bcaa436c21b4efa8ab27a6afa60f5a09c3`核对DEPLOY_VERIFIED，请求`572e31e4-6d06-45a3-962b-001a10d60df6`只派发一次，从`7d21b371809e69a16f35d6f8930ebcad16809a14`实际切换一次，批次`20261019T130623Z`。回执完成于`2026-10-19T13:09:10.434Z`，外层云发布251616毫秒；工作流来源与应用SHA一致，正常production审核依本次精确用户授权完成，环境保护未修改。
+- linux/amd64镜像`sha256:f0a1d0e7b74bc0a0d7fa4066a3fe8c97232baf8313f0d1880614bb583473f859`，归档摘要`20c6bb3a7b2b02637ebab05910d229c6dbe659c29e985e02e09ccbd403cbee50`、209872942字节，绑定上述main CI／attempt 1。首次独立回读于`2026-10-19T13:09:22.178Z`仅备份starting失败，应用healthy；只读核对备份实际启动`2026-10-19T13:08:58.633579861Z`及既有5分钟探针／启动期后，只续跑同SHA readback-only。辅助元数据查询首次因普通用户无Docker权限被拒，随后使用既有回读sudo通道只读核验，未修改权限。
+- 最终独立回读于`2026-10-19T13:14:17.730Z`开始，3127毫秒后在`2026-10-19T13:14:20.858Z`取得READBACK_OK：应用／备份running且healthy，TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、公开及容器资源摘要、新WebSocket一致，维护门absent，管理员及通话启用。
+- 脱敏授权、CI、预检、发布、两次回读及启动探针证据位于公共Git元数据`quiet-room-deliveries/evidence/mobile-settings-chat-fixes-20261019/`，在任务树及专属Git目录之外。第二个无部署配置文档树`mobile-settings-chat-fixes-release-record-20261019`从获批应用建立，仅对账；文档SHA不替代线上应用。视觉V1.18及overview已同步，无新增长期身份／密码学取舍；AGENTS和安全门槛保持。仅核验本批资源，忽略缓存／专属回执及活动文档树按固定门禁保留。真实iPhone／iOS27／Safari触控、原生键盘及独立安全审阅未完成；下方均为历史生产快照。
+
 <a id="release-chamber-invite-reentry-20261019"></a>
 ## 原邀请续入与首页地址归一已发布（2026-10-19 19:52）
 
