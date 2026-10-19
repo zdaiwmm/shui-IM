@@ -6,11 +6,12 @@
 
 本机构建及131文件／1034项单元通过，Chromium／WebKit专项行为断言通过；WebKit原页面退出未读资源取消诊断单列。完整浏览器及精确PR／CI／合并结果以需求记录关联分支的实际证据为准，不据此宣布上线；原生iPhone／iOS27／Safari未验收。下方生产记录保持其原证据时点。
 
-## 旧空间迁移已移除并合并，尚未发布（2026-10-19）
+## 旧空间迁移已移除并发布（2026-10-19 18:56）
 
 - 用户报告双方仅点第一步后均停在「本机数据需要恢复」，且无法下载诊断；随后明确停止找回并要求删除全部旧空间迁移逻辑。本条为当前需求，替代下方历史迁移入口的使用建议；不能继续指引用户进入迁移。
 - 从已核对实时main `88c2450fe7d937d80900011149b18481aaceed3f`在独立`codex/remove-legacy-chamber-migration-20261019`实施。设置／备份入口、绑定接口、迁移暂存验证、回执与共同切换删除，历史未完成绑定不再启动新版服务；普通旧备份、新密室身份与双人恢复保留，不执行数据清理或找回。
-- 版本`2026.10.19.3`源`a994cf08c829f1cfcc301160165815bd56c75271`经[PR #352](https://github.com/zdaiwmm/shui-IM/pull/352)合并为`24d5a0f5aab6c5ca561cbd6e9f122170c2b8a501`，完整文件树一致。本机`check:full`单次完整通过131文件／1034项及70／70浏览器入口（1041.86秒），[精确PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39231427009) attempt 1及[精确main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39233464616)最新attempt 2完整通过，含通话、认证TURN及双架构镜像。main首轮TURN TCP统计断言失败保留，原断言及代码未改、一次完整复验通过；尚无本次生产确认或发布。
+- 版本`2026.10.19.3`源`a994cf08c829f1cfcc301160165815bd56c75271`经[PR #352](https://github.com/zdaiwmm/shui-IM/pull/352)合并为`24d5a0f5aab6c5ca561cbd6e9f122170c2b8a501`，完整文件树一致。本机`check:full`单次完整通过131文件／1034项及70／70浏览器入口（1041.86秒），[精确PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39231427009) attempt 1及[精确main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39233464616)最新attempt 2完整通过，含通话、认证TURN及双架构镜像。main首轮TURN TCP统计断言失败保留，原断言及代码未改、一次完整复验通过。
+- 用户确认本次精确应用发布；固定只读预检PREFLIGHT_OK后，唯一[云发布39239776319](https://github.com/zdaiwmm/shui-IM/actions/runs/39239776319)取得DEPLOY_VERIFIED，从073fe5f实际切换一次。首次仅备份starting，等待已核实的5分钟探针后只续跑回读；第二次公开产物超时，逐项读取正常后原样回读于`2026-10-19T10:56:18.755Z`取得READBACK_OK。应用／备份healthy，TURN运行且探针none，SHA／镜像、HTTPS／数据库／存储、公开／容器产物与新WebSocket一致，维护门absent。详见[本轮发布记录](../../RELEASING.md#release-remove-legacy-migration-20261019)；文档提交不替代线上应用。
 - [需求V1](../requirements/2026-10-19-remove-legacy-migration/README.md)保存验收及早期失败记录。额外WebKit探针的功能断言走完但锁屏导航未读Fetch错误门禁未通过，未屏蔽错误或改未读代码；原注册全套门禁仍完整通过。原生iPhone及独立安全审阅未完成。真实设备数据状态未知，不保证移除可恢复访问；本轮未清理数据或执行找回。
 
 ## 旧空间迁移入口与返回补修已发布（2026-10-19 16:32）

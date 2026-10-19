@@ -1,6 +1,6 @@
 # 移除全部旧空间迁移 V1
 
-- 阶段：已合并main并通过精确完整CI；本次精确应用提交的生产发布尚未确认或执行。
+- 阶段：本次精确应用已确认并发布生产，独立READBACK_OK；发布事实由RELEASING本轮记录拥有。
 - 规则来源、起始基线：`88c2450fe7d937d80900011149b18481aaceed3f`；开工只读核对本机main、origin/main和GitHub实时main一致。源任务HEAD为`a994cf08c829f1cfcc301160165815bd56c75271`，合并应用为`24d5a0f5aab6c5ca561cbd6e9f122170c2b8a501`，完整文件树一致。
 - 独立分支：`codex/remove-legacy-chamber-migration-20261019`；本机目录`/Users/zhouding/ss-worktrees/remove-legacy-chamber-migration-20261019`。创建时干净。
 
@@ -19,7 +19,7 @@
 | 验收项 | 实现／验证 | 未验证项 |
 | --- | --- | --- |
 | 旧空间和已点第一步的设置／备份页不显示迁移 | 真实后端Chromium合成手机／桌面断言通过 | 原生iPhone |
-| 旧迁移API、挑战、持久申请不能再推进 | 3文件22项定向回归通过 | 实际生产尚未切换 |
+| 旧迁移API、挑战、持久申请不能再推进 | 3文件22项定向回归通过 | 原生iPhone |
 | 已有消息、附件、设备身份、槽位、普通备份和刷新保留 | Chromium合成数据、原件逐字节及原身份／槽位断言通过 | 用户实际数据不访问、不恢复 |
 | 新密室助记词、双人恢复和原件校验保留 | 原有Chamber整链、注册全套及PR完整CI通过 | 独立安全审阅 |
 
@@ -33,8 +33,14 @@
 
 候选版本`2026.10.19.3`由固定release:prepare计划生成／应用；生产依赖审计0项。最终`npm run check:full`单次完整成功：131文件／1034项及全部70浏览器入口，浏览器总1041.86秒。迁移停用入口为默认Chromium，额外WebKit结果仍单列，不与原有其他WebKit回归混淆。
 
-[PR #352](https://github.com/zdaiwmm/shui-IM/pull/352)及[精确PR完整CI39231427009](https://github.com/zdaiwmm/shui-IM/actions/runs/39231427009) attempt 1通过，含通话、依赖审计和双架构镜像；已核对head和可合并状态再匹配源提交合并。干净本机main经固定repo:pull同步到应用提交，两个完整文件树均为`ce5299b8266c04ee663d21eeb0c46ebd0527b079`。[精确main完整CI39233464616](https://github.com/zdaiwmm/shui-IM/actions/runs/39233464616)最新attempt 2完整成功，未用PR CI替代；原TURN断言通过，主线镜像与最新轮次绑定。预检及后续发布由同一批次脱敏回执跟踪。尚无本次DEPLOY_VERIFIED或生产回读，旧版发布确认不授权本次提交。
+[PR #352](https://github.com/zdaiwmm/shui-IM/pull/352)及[精确PR完整CI39231427009](https://github.com/zdaiwmm/shui-IM/actions/runs/39231427009) attempt 1通过，含通话、依赖审计和双架构镜像；已核对head和可合并状态再匹配源提交合并。干净本机main经固定repo:pull同步到应用提交，两个完整文件树均为`ce5299b8266c04ee663d21eeb0c46ebd0527b079`。[精确main完整CI39233464616](https://github.com/zdaiwmm/shui-IM/actions/runs/39233464616)最新attempt 2完整成功，未用PR CI替代；原TURN断言通过，主线镜像与最新轮次绑定。预检及后续发布由同一批次脱敏回执跟踪。随后用户针对本次精确应用确认发布，实际发布与独立回读均成功；旧版发布确认未沿用。
 
 交付对账使用另一个干净文档树`remove-legacy-migration-delivery-docs-20261019`，基线为应用提交；仅更新状态和需求，不更改应用或生产配置。公共Git元数据下`quiet-room-deliveries/evidence/remove-legacy-chamber-migration-20261019/`保存脱敏回执。已取消的找回树及未提交修复独立保留，本批不合入；活动交付资源暂不清理。
 
 精确main首轮attempt 1未通过：普通原生通话套件及认证TURN UDP通过，TCP在已连接及视频轨道检查后，选中relay候选对的收发统计断言未满足。已取得失败作业日志；通话控制器、原断言、TURN实验脚本及配置相对起始基线均无差异，同一完整文件树的PR检查已通过。保留原断言，对同一main提交一次完整attempt 2复验通过，同时刷新验证和镜像的轮次绑定；未改业务或通话代码。本机为macOS，实验脚本限定隔离Linux CI，不绕过该限制运行。首轮失败仍保留，不从PR成功推断main成功。
+
+## 本次生产确认与回读
+
+用户在完整应用SHA／版本、验证与缺口展示后明确「确认，发布 2026.10.19.3 到生产。」。固定预检39235541353取得PREFLIGHT_OK，唯一云发布39239776319核对DEPLOY_VERIFIED；应用仍固定24d5a0f，工作流来源及后续文档提交不替代应用。首次独立回读仅备份启动中，核对实际启动和5分钟探针后等待；第二次静态文件阶段约10秒超时，逐项读取正常，再原样同SHA readback-only于`2026-10-19T10:56:18.755Z`成功。全程只切换一次，不清理或找回真实用户数据；不宣称原设备故障已恢复。
+
+[本轮发布记录](../../../RELEASING.md#release-remove-legacy-migration-20261019)保存镜像、轮次、时间及三次回读事实。发布后对账在独立无部署配置的`codex/remove-legacy-migration-release-record-20261019`进行，基线为核实的main fe26f4f；仅更新既有三份文档。脱敏证据继续保存在上述公共Git元数据；本批资源按固定入口核验，当前文档树、缓存／回执及未进入应用的文档资源保留，已取消且未提交的找回现场不纳入清理。原生iPhone、额外WebKit完整门禁、独立安全审阅和真实数据状态仍未验证。
