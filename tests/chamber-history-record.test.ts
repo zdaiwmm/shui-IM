@@ -4,7 +4,7 @@ import { bindPersonalDevice } from '../src/lib/personal-device-binding';
 import { withPersonalKeys, signPersonalProof, type PersonalProof } from '../src/lib/personal-identity';
 import { randomBase64Url } from '../src/lib/base64';
 import { jointHistoryEnvelopeHash, releaseJointHistoryLayer, prepareJointHistoryScope, jointHistoryScopeHash, type JointHistoryScope } from '../src/lib/joint-history-keys';
-import { sealChamberHistoryRecord, openChamberHistoryRecord, chamberHistoryRecordHash } from '../src/lib/chamber-history-record';
+import { sealChamberHistoryRecord, openChamberHistoryRecord, chamberHistoryRecordHash,validChamberHistoryPayload } from '../src/lib/chamber-history-record';
 import { verifyChamberHistoryRecord } from '../server/personal-protocol.mjs';
 
 const ownerEntropy = new Uint8Array(16).fill(1), peerEntropy = new Uint8Array(16).fill(2);
@@ -21,6 +21,14 @@ async function fixture() {
 }
 
 describe('data-only Chamber history format', () => {
+  it('accounts for excluded Safe sequences without serializing their content or allowing unaccounted gaps',async()=>{
+    const f=await fixture(),message={seq:2,clientMsgId:crypto.randomUUID(),senderId:f.device.publicBundle.deviceId,acceptedAt:new Date().toISOString(),status:'stored' as const,payload:{v:1 as const,kind:'text' as const,text:'Synthetic chat',sentAt:new Date().toISOString()}};
+    const payload={...f.payload,upperSeq:3,messages:[message],omittedSafe:[1,3]};
+    expect(validChamberHistoryPayload(payload)).toBe(true);
+    await expect(sealChamberHistoryRecord(payload,randomBase64Url(32),2,f.peer,f.device,f.binding)).resolves.toBeDefined();
+    for(const omittedSafe of [[1],[1,1,3],[1,2,3],[3,1],[0,1,3],[1,4],[1,2.5,3]])expect(validChamberHistoryPayload({...payload,omittedSafe})).toBe(false);
+    expect(validChamberHistoryPayload({...payload,omittedSafe:[1,3],messages:[message,message]})).toBe(false);
+  });
   it('automatically seals using device authorization and still requires both personal roots for cloud decryption', async () => {
     const f = await fixture();
     expect(await verifyChamberHistoryRecord(f.record, f.binding.identity, f.peer, f.device.publicBundle)).toBe(true);

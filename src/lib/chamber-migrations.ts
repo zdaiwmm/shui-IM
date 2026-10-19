@@ -9,7 +9,7 @@ import {personalChallenge} from './personal-directory-sync';
 import {saveVault,withVaultMutation,type VaultSession} from './vault';
 import type {LocalCredentialResult} from './password-protection';
 import type {ChamberHistoryRequest} from './chamber-history-recovery';
-export type ChamberMigrationVerification={payload:{v:1;purpose:'chamber-migration-verification-v1';roomId:string;ownerId:string;targetId:string;generation:number;historyRequestId:string;scopeHash:string;upperSeq:number};proof:PersonalProof;signature:string};
+export type ChamberMigrationVerification={payload:{v:1;purpose:'chamber-migration-verification-v1';roomId:string;ownerId:string;targetId:string;generation:number;historyRequestId:string;scopeHash:string;upperSeq:number;stagingDigest?:string};proof:PersonalProof;signature:string};
 export type ChamberMigrationStatus={bindings:Partial<Record<'creator'|'joiner',PersonalDeviceBinding>>;verified:Partial<Record<'creator'|'joiner',ChamberMigrationVerification>>;activated:boolean};
 const hash=(value:unknown)=>toBase64Url(sha256(new TextEncoder().encode(canonicalStringify(value))));
 export async function chamberMigrationStatus(session:VaultSession,signal:AbortSignal,body?:unknown):Promise<ChamberMigrationStatus> {
@@ -32,11 +32,11 @@ export async function adoptLegacyBindings(session:VaultSession,status:ChamberMig
   }
   await withVaultMutation(session,async mutation=>{signal.throwIfAborted();session.vault.personalBinding=session.vault.personalMigration!.binding;session.vault.personalPeers=[status.bindings.creator!,status.bindings.joiner!];await saveVault(session,mutation);});
 }
-export async function verifyMigratedHistory(session:VaultSession,request:ChamberHistoryRequest,stored:StoredPersonalIdentity,credential:LocalCredentialResult,signal:AbortSignal):Promise<void> {
+export async function verifyMigratedHistory(session:VaultSession,request:ChamberHistoryRequest,stored:StoredPersonalIdentity,credential:LocalCredentialResult,signal:AbortSignal,stagingDigest?:string):Promise<void> {
   const current=await chamberMigrationStatus(session,signal);
-  if(current.activated || !current.bindings.creator || !current.bindings.joiner || session.vault.personalMigration || request.scope.scope!==(session.vault.role==='creator'?'all':'chat'))return;
+  if(current.activated || !current.bindings.creator || !current.bindings.joiner || session.vault.personalMigration&&!stagingDigest || request.scope.scope!==(session.vault.role==='creator'?'all':'chat'))return;
   const payload={v:1,purpose:'chamber-migration-verification-v1',roomId:session.vault.roomId,ownerId:stored.identity.id,targetId:session.vault.identity.publicBundle.deviceId,
-    generation:request.scope.generation,historyRequestId:request.proof.requestId,scopeHash:request.proof.payloadHash,upperSeq:Math.max(...request.scope.heads.map(h=>h.upperSeq))};
+    generation:request.scope.generation,historyRequestId:request.proof.requestId,scopeHash:request.proof.payloadHash,upperSeq:Math.max(...request.scope.heads.map(h=>h.upperSeq)),...(stagingDigest?{stagingDigest}:{})};
   const proof=await personalChallenge(stored.identity.id,{action:'bind-legacy-room',roomId:session.vault.roomId,deviceId:payload.targetId,version:1,payloadHash:hash(payload)},signal);
   const signature=await usePersonalIdentity(stored,credential,entropy=>signPersonalProof(entropy,proof));
   await chamberMigrationStatus(session,signal,{action:'verify',input:{payload,proof,signature}});

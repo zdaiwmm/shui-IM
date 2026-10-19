@@ -1,5 +1,11 @@
 # Quiet Room Design System
 
+## Chamber original-device migration and shared settings, 2026-10-19
+
+The [confirmed V2](docs/requirements/2026-10-19-local-migration-ui/README.md) follows [mobile visual standard V1.17](docs/design/mobile-visual-standard.md). Invitation/privacy cards share the message timeline's outer rails. Empty composer height is 44px and real multiline content grows to the existing 88px cap. Four code cells use 2rem/700; their timer is 13px/500 in the legend's right side, accent colored and prefixed “有效期：”. The landing headline stays on one line at default text sizes and reflows when enlarged.
+
+Settings pages share a 520px content limit, 20px sides, 26px heading, R12 surfaces and a scrollable body. Adjacent bottom actions share width, 44px minimum height, 14px type and an 8px gap; the existing Back owner keeps the original handlers. Floating status/settings surfaces gain a weak ink border and shadow. Chamber's compact heart uses existing factual presence, visibility and reduced-motion behavior, without an idle heartbeat.
+
 ## Chamber mobile correction, 2026-10-18
 
 The [confirmed nine-item V1](docs/requirements/2026-10-18-chamber-mobile-refinements/README.md) retains P1 tokens. Page Back uses the Auto-lock footer: full available width within 520px, 20px sides, 44px minimum target, R12, neutral surface/ink and bottom max(16px, safe area). Existing page actions are moved with their business handlers and accessible destination intact. The measured footer height reserves page content and floating-gallery controls, including enlarged text. Numeric verification says “输入密码”; loading/errors retain a stable prompt region.

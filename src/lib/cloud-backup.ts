@@ -134,6 +134,7 @@ async function update<T>(session: VaultSession, signal: AbortSignal, change: (st
 }
 
 function checkpoint(vault: Vault): Vault {
+  if (vault.migrationSource) throw new Error('迁移切换申请只保存在本机，不能生成旧身份恢复包');
   if (vault.personalBinding && vault.personalMigration?.state !== 'staged') throw new Error('个人助记词空间不能使用旧身份备份格式');
   const value = structuredClone(vault);
   delete value.backup;
@@ -292,6 +293,9 @@ async function backfillArchiveInventory(session: VaultSession, signal: AbortSign
 }
 
 export async function syncCloudBackup(session: VaultSession, signal: AbortSignal, { force = true }: CloudBackupSyncOptions = {}): Promise<void> {
+  // A pending cutover holds the original private state only for local resume.
+  // Neither its new identity nor the nested source belongs in an old checkpoint.
+  if (session.vault.migrationSource) return;
   if (session.vault.personalBinding) {
     const policy = await cloudBackupPreference(session, signal);
     if (policy.enabled) await (await import('./chamber-history')).syncChamberHistory(session, signal, force);

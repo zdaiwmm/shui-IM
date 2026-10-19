@@ -10,6 +10,16 @@ export function installLegacyApp(app) {
     // Frozen pre-Chamber enrollment fixture. These suites exercise retained QR3/QR4
     // protocol journeys and the still-used profile editor; new production creation
     // (without a profile step) is covered by both Chamber browser suites.
+    app.preparePasswordProtection=async(active,firstCreate=false)=>{
+      const v=await import('/src/lib/vault.ts'),p=await import('/src/lib/password-protection.ts'),ui=await import('/src/lib/password-dialog.ts');
+      await v.assertPasswordProtectionEnvironment();if(!active())throw new DOMException('设置已结束','AbortError');
+      // The old enrollment waits on a cancellable remote create before it has a
+      // vault. It must release numeric verification after obtaining the proof.
+      // Chamber instead durably stages its intent and retains that canvas.
+      return ui.requestPassword(app.root,{create:true,title:'设置应用锁',showBrowserHint:firstCreate,
+        context:'应用锁用于这台浏览器的日常解锁，与手机锁屏密码不同。',isActive:active,
+        signal:app.runtimeAbort?.signal,verify:p.deriveNumericPasswordCredential});
+    };
     app.renderCreate=(initialProfile)=>{
       if(app.spaceCreationAbort||app.privacyCovered)return;
       const lifetime=new AbortController();app.spaceCreationAbort=lifetime;

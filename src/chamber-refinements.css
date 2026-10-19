@@ -1,0 +1,66 @@
+/* Chamber V1.17: shared timeline rails, calm status chrome and settings pages. */
+#app .message-list > :is(.chamber-invite-hero,.chamber-privacy-guide) {
+  box-sizing:border-box; width:100%; max-width:none; align-self:stretch; margin-inline:0;
+}
+#app .chamber-code-fields legend { display:flex; justify-content:space-between; align-items:baseline; gap:12px; width:100%; padding:0; }
+#app :is(.chamber-code-fields [role=timer],.chamber-code-heading [role=timer]) { color:var(--accent); font-size:.8125rem; font-weight:500; font-variant-numeric:tabular-nums; white-space:nowrap; }
+#app :is(.chamber-code-digits input,.form-input-code-cells > span,.chamber-code-display > span) { font-size:2rem; font-weight:700; }
+#app .gateway-welcome .gateway-heading h1 { font-size:clamp(1.125rem,5.5vw,1.625rem); line-height:1.3; white-space:normal; text-wrap:pretty; }
+#app .gateway-welcome .welcome-copy { gap:4px; margin-top:16px; }
+#app .gateway-welcome .welcome-copy p { margin:0; font-size:.875rem; line-height:1.6; color:var(--ink-muted); }
+#app .chamber-chat-header :is(.chamber-presence-capsule,.chat-settings-entry)::before {
+  border:1px solid color-mix(in srgb,var(--ink) 12%,var(--paper));
+  box-shadow:0 2px 6px color-mix(in srgb,var(--ink) 8%,transparent);
+}
+#app .chamber-presence-capsule .presence-circuit { width:28px; height:28px; aspect-ratio:1; flex:none; margin:0; overflow:visible; --circuit-heart:var(--space-heart-red); }
+#app .chamber-presence-capsule .presence-wires { visibility:hidden; }
+#app .chamber-presence-capsule .presence-base { opacity:1; }
+#app .chamber-presence-capsule .presence-heart { fill:var(--space-heart-red); }
+#app .chamber-presence-capsule .presence-half { display:block; opacity:.35; }
+#app .chamber-presence-capsule .presence-whole { display:none; }
+#app .chamber-presence-capsule .presence-circuit[data-self=true] [data-half=right],
+#app .chamber-presence-capsule .presence-circuit[data-peer=true] [data-half=left] { opacity:1; }
+#app .chamber-presence-capsule .presence-circuit[data-phase=online] .presence-heart { animation:none; }
+
+#app :is(.welcome-actions,.chamber-import-actions,.privacy-page-footer,.recovery-flow-footer,.chamber-page-footer) {
+  gap:8px;
+}
+#app .page-back-footer { display:grid; gap:8px; }
+#app .page-back-footer > :is(.primary-button,.secondary-button,.text-button) { box-sizing:border-box; width:100%; min-width:0; min-height:44px; height:auto; max-height:none; margin:0; padding:10px 12px; border-radius:12px; font-size:.875rem; line-height:1.5; }
+#app :is(.welcome-actions,.chamber-import-actions,.privacy-page-footer,.recovery-flow-footer,.chamber-page-footer) > :is(.primary-button,.secondary-button,.text-button) {
+  box-sizing:border-box; width:100%; min-width:0; height:auto; min-height:44px; margin:0;
+  padding:10px 12px; border-radius:12px; font-size:.875rem; line-height:1.5;
+}
+#app .gateway > :is(.primary-button,.secondary-button,.text-button) { width:100%; min-height:44px; margin-block:0; font-size:.875rem; padding:10px 12px; }
+#app .gateway > :is(.primary-button,.secondary-button,.text-button) + :is(.primary-button,.secondary-button,.text-button) { margin-top:8px; }
+#app .chamber-settings-page { display:flex; flex-direction:column; min-height:0; height:100%; overflow:hidden; background:var(--paper); }
+#app .chamber-settings-page.page-back-page { padding-bottom:0 !important; }
+#app .chamber-settings-page > .chamber-page-footer { position:static; translate:none; }
+#app .chamber-settings-page > .subpage-header {
+  display:flex; align-items:center; justify-content:space-between; flex:none; gap:12px;
+  box-sizing:border-box; width:min(100%,520px); min-height:0; margin:0 auto;
+  padding:max(32px,calc(env(safe-area-inset-top) + 20px)) 20px 0; border:0; background:var(--paper); text-align:left;
+}
+#app .chamber-settings-page > .subpage-header > div { flex:1; min-width:0; }
+#app .chamber-settings-page > .subpage-header > span:empty { display:none; }
+#app .chamber-settings-page .subpage-header h1 { margin:0; font-size:1.625rem; font-weight:600; line-height:1.25; text-align:left; }
+#app .chamber-settings-page .subpage-header p { font-size:.875rem; font-weight:400; line-height:1.6; margin:8px 0 0; color:var(--ink-muted); }
+#app .chamber-settings-page > :is(.device-content,.backup-content) {
+  box-sizing:border-box; flex:1; width:min(100%,520px); min-height:0; margin:0 auto;
+  padding:20px; overflow:auto; overscroll-behavior:contain;
+}
+#app .chamber-settings-page :is(.backup-setting,.backup-option,.device-card,.preference-options,.notification-setting,.notification-space,.release-history-content > section) {
+  border:0; border-radius:12px; background:var(--surface); box-shadow:none; padding:16px; margin:0 0 12px;
+}
+#app .chamber-settings-page :is(h2,legend) { font-size:.875rem; font-weight:500; line-height:1.5; }
+#app .chamber-settings-page :is(.backup-intro,.backup-hub-intro,.preference-intro) { margin:0 0 24px; font-size:.875rem; line-height:1.6; color:var(--ink-muted); }
+#app .chamber-settings-page :is(.backup-setting,.backup-option,.device-card,.release-history-content > section) p { font-size:.8125rem; line-height:1.6; color:var(--ink-muted); }
+#app .chamber-settings-page .preference-choice { min-height:44px; padding:10px 0; background:transparent; border-radius:0; }
+#app .chamber-page-footer { box-sizing:border-box; display:grid; flex:none; width:min(100%,520px); margin:0 auto; padding:8px 20px max(16px,env(safe-area-inset-bottom)); background:var(--paper); }
+#app :is(.privacy-page-footer,.recovery-flow-footer,.chamber-page-footer) > .text-button,
+#app .welcome-actions > .text-button { background:var(--surface); color:var(--ink); font-weight:500; }
+#app .chamber-settings-page .notification-copy-preview { box-sizing:border-box; width:min(100%,520px); margin:0 auto; padding:20px 20px 0; }
+@media(forced-colors:active) {
+  #app .chamber-chat-header :is(.chamber-presence-capsule,.chat-settings-entry)::before { border:1px solid ButtonText; box-shadow:none; }
+  #app :is(.chamber-page-footer,.privacy-page-footer,.recovery-flow-footer,.welcome-actions) > button { border:1px solid ButtonText; }
+}

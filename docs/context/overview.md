@@ -10,6 +10,8 @@ Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请�
 
 # Quiet Room 项目地图
 
+原设备迁移与十二项界面修订：`src/lib/chamber-migration-stage.ts`管理独立暂存／完整性摘要，`chamber-history.ts`／`chamber-history-record.ts`保留受邀方聊天备份的保险箱排除序号，`chamber-lifecycle.ts`／`server/chamber-lifecycle.mjs`管理双根切换和接续。`settings-layout.ts`、`page-back.ts`与`chamber-refinements.css`统一设置及底部动作。范围见[本轮V2](../requirements/2026-10-19-local-migration-ui/README.md)、D-070与视觉V1.17；专项为迁移／历史格式／生命周期单测及Chamber整链／聊天UI／迁移浏览器入口。
+
 删除附件回收与旧协议重试：`server/storage.mjs`／`server/cloud-backups.mjs`的持久清理队列保留待清文件配额，`src/lib/vault.ts`／`src/app.ts`在发送前准备legacy待发密文。回归为`tests/room-cleanup.test.ts`、`tests/waiting-space-delete.test.ts`及`tests/vault-lifecycle.e2e.mjs`；范围与证据见[审计修复V1](../requirements/2026-10-18-audit-storage-legacy-fixes/README.md)。
 
 空间／语音十四项：`app.ts` 原参与者MLS启动／密文队列与导航，`browser-access.ts`目录等待状态、`platform-vault.ts`新保护WebView策略及`voice-recorder.ts`选区文件／冻结重试；实组件回归`tests/mobile-space-voice.e2e.mjs`／`voice-gestures.e2e.mjs`，范围与授权见[需求记录](../requirements/2026-10-15-mobile-space-voice/README.md)。

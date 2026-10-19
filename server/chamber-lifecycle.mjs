@@ -147,10 +147,18 @@ export function createChamberLifecycle(db,{getMember,roomState,chamberInvitation
           const original=roomState(roomId),now=new Date().toISOString(),eventSeq=original.nextMlsEventSeq+1;
           if(migrate) {
             if(!same(proposal.migration,migration(roomId).verified) || roles.some(role=>proposal.migration[role].payload.upperSeq!==original.nextSeq))throw new Error('BACKUP_CONFLICT');
+            for(const role of roles) {
+              const receipt=proposal.migration[role];if(!receipt.payload.stagingDigest)continue;
+              const request=db.prepare('SELECT request,expires_at FROM chamber_history_requests WHERE room_id=? AND request_id=?').get(roomId,receipt.payload.historyRequestId);
+              if(!request||Date.parse(request.expires_at)<=Date.now())throw new Error('BACKUP_CONFLICT');
+              const approved=JSON.parse(request.request).scope.heads;
+              const current=db.prepare('SELECT record FROM chamber_history_heads WHERE room_id=? AND owner_id=?').all(roomId,receipt.payload.ownerId).map(r=>JSON.parse(r.record).head);
+              if(!same([...approved].sort((a,b)=>a.deviceId.localeCompare(b.deviceId)),current.sort((a,b)=>a.deviceId.localeCompare(b.deviceId))))throw new Error('BACKUP_CONFLICT');
+            }
             const bindings=migration(roomId).bindings;
             db.prepare('INSERT INTO chamber_rooms(room_id,creator_binding,joiner_binding,consumed) VALUES(?,?,?,1)').run(roomId,canonicalStringify(bindings.creator),canonicalStringify(bindings.joiner));
             db.prepare('UPDATE chamber_migrations SET activated=1 WHERE room_id=?').run(roomId);
-            // Both roots attested that independent devices restored every
+            // Both roots attested that independent encrypted staging restored every
             // existing record. Only now retire this room's old private-key
             // checkpoint/archive capabilities; local copies remain untouched.
             db.prepare('DELETE FROM recovery_backups WHERE room_id=?').run(roomId);

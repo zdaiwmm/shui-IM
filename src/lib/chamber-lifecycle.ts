@@ -1,3 +1,4 @@
+import {assertMigrationSourceCurrent} from './chamber-migration-stage';
 import { canonicalStringify } from './canonical';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { randomBase64Url, toBase64Url } from './base64';
@@ -10,7 +11,7 @@ import { generateIdentity } from './crypto';
 import { personalChallenge } from './personal-directory-sync';
 import type { PersonalDirectoryEntry } from './personal-directory';
 import { createCreatorMlsState, prepareCreatorWelcome, joinMlsGroup, verifyEcdsa } from './mls';
-import { saveVault, withVaultMutation, type VaultSession } from './vault';
+import { saveVault, withVaultMutation, discardChamberMigrationStage,type VaultSession } from './vault';
 import type { PublicBundle, RoomMember, MlsWelcomeEnvelope, MlsVaultState } from './types';
 import type {ChamberMigrationStatus,ChamberMigrationVerification} from './chamber-migrations';
 
@@ -42,7 +43,7 @@ const rootFor=(entry:PersonalDirectoryEntry,role:Role)=>entry.participants.find(
 function verifyMigration(entry:PersonalDirectoryEntry,verified:Partial<Record<Role,ChamberMigrationVerification>>):verified is Record<Role,ChamberMigrationVerification> {
   try{return roles.every(role=>{
     const receipt=verified[role];if(!receipt)return false;const {payload,proof,signature}=receipt,root=rootFor(entry,role);
-    return Object.keys(payload).sort().join(',')==='generation,historyRequestId,ownerId,purpose,roomId,scopeHash,targetId,upperSeq,v' && payload.v===1 &&
+    return Object.keys(payload).sort().join(',')===(payload.stagingDigest?'generation,historyRequestId,ownerId,purpose,roomId,scopeHash,stagingDigest,targetId,upperSeq,v':'generation,historyRequestId,ownerId,purpose,roomId,scopeHash,targetId,upperSeq,v') && (!payload.stagingDigest||/^[A-Za-z0-9_-]{43}$/.test(payload.stagingDigest)) && payload.v===1 &&
       payload.purpose==='chamber-migration-verification-v1'&&payload.roomId===entry.roomId&&payload.ownerId===root.id&&payload.generation===1&&
       Number.isSafeInteger(payload.upperSeq)&&payload.upperSeq>=0&&/^[0-9a-f-]{36}$/i.test(payload.targetId)&&/^[0-9a-f-]{36}$/i.test(payload.historyRequestId)&&/^[A-Za-z0-9_-]{43}$/.test(payload.scopeHash)&&
       proof.action==='bind-legacy-room'&&proof.roomId===entry.roomId&&proof.deviceId===payload.targetId&&proof.version===1&&proof.payloadHash===hash(payload)&&
@@ -155,6 +156,7 @@ export async function advanceChamberReopen(session:VaultSession,signal:AbortSign
 export async function approveChamberReopen(session:VaultSession,snapshot:ChamberReopenSnapshot,stored:StoredPersonalIdentity,credential:LocalCredentialResult,signal:AbortSignal) {
   const pending=session.vault.pendingChamberReopen;if(!pending?.mls || !snapshot.proposal)throw new Error('请等待双方准备聊天密钥');
   await verifyChamberReopen(pending,snapshot);
+  if(session.vault.migrationSource)await assertMigrationSourceCurrent(session,signal);
   const proof=await personalChallenge(stored.identity.id,{action:'restore-room',roomId:session.vault.roomId,deviceId:session.vault.identity.publicBundle.deviceId,
     version:snapshot.version,payloadHash:hash(snapshot.proposal)},signal);
   const signature=await usePersonalIdentity(stored,credential,entropy=>signPersonalProof(entropy,proof));
@@ -170,9 +172,10 @@ export async function completeChamberReopen(session:VaultSession,snapshot:Chambe
   for(const role of roles) {const target=state.members.find(m=>m.deviceId===snapshot.offers[role]!.payload.bundle.deviceId);if(!target || target.status!=='active'||target.role!==role)throw new Error('共同恢复设备回读不一致');}
   await withVaultMutation(session,async mutation=> {
     signal.throwIfAborted();const before=session.vault;
+    if(before.migrationSource)await discardChamberMigrationStage(session,mutation);
     session.vault={...before,members:state.members,mls:{...pending.mls!,pendingWelcome:undefined,lastEventSeq:snapshot.result!.eventSeq},pairingState:'ready',
       lastSeq:snapshot.result!.nextSeq,lastReceiptSeq:snapshot.result!.nextReceiptSeq,historyUnavailableBeforeSeq:snapshot.result!.nextSeq,
-      chamberLifecycle:state.chamberLifecycle??undefined,pendingChamberReopen:undefined,pendingChamberClose:undefined,chamberBackup:undefined,pendingChamberHistoryRecovery:undefined,chamberHistoryRestoreProgress:undefined};
+      chamberLifecycle:state.chamberLifecycle??undefined,pendingChamberReopen:undefined,pendingChamberClose:undefined,migrationSource:undefined,personalMigration:undefined,chamberBackup:undefined,pendingChamberHistoryRecovery:undefined,chamberHistoryRestoreProgress:undefined};
     session.vault.identity.mlsPrivatePackage=undefined;
     try {await saveVault(session,mutation);}catch(cause){session.vault=before;throw cause;}
   });

@@ -1,5 +1,11 @@
 # Product
 
+## Original-device Chamber migration and UI corrections, 2026-10-19
+
+The [confirmed V2](docs/requirements/2026-10-19-local-migration-ui/README.md) lets both original browsers verify jointly opened cloud history in an empty, independently encrypted local staging namespace. Both original roots then confirm the same fresh-generation proposal. Original history, creator Safe, encrypted local preferences and composer checkpoints retain their original ownership when device keys rotate. Missing originals, stale source projections, changed backup heads, uncompleted sends or an incomplete joint approval block cutover. A lost response resumes the same durable request, including final receipt lookup after expiry; only authoritative cancellation/expiry permits a return to the old session.
+
+Invitation code Done/Enter directly submits the current valid code with one loading action. Timers read “有效期：xx:xx”; empty composers start at 44px. Timeline cards use the message rails, settings adopt Chamber surfaces and shared bottom actions, and the floating capsule uses actual presence with the existing split-heart/electric feedback. The exact requested cover recommendation and twelve acceptance items are owned by V2; native iPhone verification remains separate.
+
 ## Confirmed Chamber mobile corrections, 2026-10-18
 
 The [nine-item V1](docs/requirements/2026-10-18-chamber-mobile-refinements/README.md) keeps successful numeric daily verification opaque until the target page replaces it. Verification headings say “输入密码” without repeating the six-digit instruction. Short timelines align at the top; card-only refreshes preserve the actual reading offset. The first card has the same clearance below Settings as Settings has above it within the visible page.
