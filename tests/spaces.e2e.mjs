@@ -129,6 +129,7 @@ try {
   await page.locator('.space-close').click(); await page.locator('#chat-settings').click(); await page.locator('#presence-style-setting').click();
   if (process.env.QUIET_ROOM_SPACE_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.QUIET_ROOM_SPACE_SCREENSHOTS, 'style-light.png') });
   await page.locator('[data-style=heart]').click();
+  await page.locator('.space-back').click();await page.locator('.space-close').click();
   await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
   assert.equal(await page.locator('#space-style-done').count(), 0);
 

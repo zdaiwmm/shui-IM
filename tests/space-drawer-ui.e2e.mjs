@@ -61,6 +61,8 @@ try {
     await page.evaluate(()=>mount(12,true));
     await page.locator('#presence-style-setting').click();
     await page.locator('[data-style=capsule]').focus(); await page.locator('[data-style=capsule]').press('ArrowRight');
+    assert.equal(await page.locator('[data-style=heart]').evaluate(n=>document.activeElement===n),true);
+    await page.locator('.space-back').click();await page.locator('.space-close').click();
     await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
     assert.equal(await page.evaluate(()=>window.style),'heart', 'style applies before closing');
     assert.equal(await page.locator('#space-style-done').count(),0);

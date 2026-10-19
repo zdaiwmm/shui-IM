@@ -1,3 +1,4 @@
+import { captureLegacyDeviceManager, requestLegacyDeviceLink } from './helpers/legacy-device-enrollment.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -362,10 +363,11 @@ try {
   await creator.keyboard.press('Escape');
   await creator.locator('.message-text-selection').waitFor({ state: 'detached' });
   await menu();
+  await captureLegacyDeviceManager(creator);
   await creator.locator('#manage-devices').click();
   await creator.locator('.device-card').first().waitFor();
   await capture('devices', ['mobile', 'small', 'landscape', 'dark', 'large']);
-  await creator.getByRole('button', { name: '添加设备', exact: true }).click();
+  await requestLegacyDeviceLink(creator);
   await creator.locator('.device-link-panel').waitFor();
   await capture('device-link', ['mobile', 'small', 'landscape', 'dark', 'large']);
   await creator.locator('.device-link-sheet [data-close]').click();

@@ -1,5 +1,5 @@
 import { mountDialog } from './dialog';
-import { fitViewport, spaceIcons } from './space-drawer';
+import { fitViewport } from './space-drawer';
 import { normalizePasskeyName, passkeyNamingSupported, signalPasskeyName, isPlatformVaultCancellation, type PlatformCredentialResult } from './platform-vault';
 import { readPasskeyName, writePasskeyName, type VaultSession } from './vault';
 
@@ -19,10 +19,10 @@ export async function openPasskeyManagement(root: HTMLElement, options: {
   requireEntry();
   const lifetime = new AbortController(), signal = AbortSignal.any([options.signal, lifetime.signal]);
   const page = document.createElement('section');
-  page.className = 'passkey-manager'; page.setAttribute('role', 'dialog'); page.setAttribute('aria-modal', 'true'); page.setAttribute('aria-label', '通行密钥管理');
+  page.className = 'passkey-manager chamber-settings-page'; page.setAttribute('role', 'dialog'); page.setAttribute('aria-modal', 'true'); page.setAttribute('aria-label', '通行密钥管理');
   const supported = passkeyNamingSupported() && Boolean(userId);
   const blocked = !supported ? (!userId ? '未能取得这把密钥的用户标识，暂时无法改名。' : '当前浏览器不支持修改系统通行密钥名称，请升级浏览器后再试。') : '';
-  page.innerHTML = `<div class="passkey-body"><div class="passkey-mark" aria-hidden="true">${spaceIcons.key}</div><p class="field-hint">当前通行密钥名称</p><h2 id="passkey-current-name">${escape(name ?? '尚未设置名称')}</h2><span class="passkey-current">当前使用</span><div class="passkey-purpose"><strong>一把通行密钥，访问多个空间</strong><p>从已解锁空间继续创建时，会复用这把通行密钥。</p><p>修改名称不会更换密钥，也不会影响空间和聊天记录。</p></div><div class="passkey-bottom"><p class="form-error" role="status" id="passkey-feedback">${escape(blocked)}</p><button class="primary-button" id="passkey-rename" ${supported ? '' : 'disabled'}>修改通行密钥名称</button><button class="text-button" id="passkey-back" type="button">返回</button></div></div>`;
+  page.innerHTML = `<header class="subpage-header"><h1>通行密钥名称</h1></header><main class="device-content"><p class="preference-intro">设置一个容易辨认的名称，方便在系统中找到这把通行密钥。</p><section class="passkey-name-summary"><span class="field-hint">当前名称</span><h2 id="passkey-current-name">${escape(name ?? '尚未设置名称')}</h2></section><p class="preference-note">修改名称不会影响密室和聊天记录。</p><p class="form-error" role="status" id="passkey-feedback">${escape(blocked)}</p></main><footer class="chamber-page-footer"><button class="primary-button" id="passkey-rename" ${supported ? '' : 'disabled'}>修改名称</button><button class="text-button page-back-button" id="passkey-back" type="button">返回</button></footer>`;
   root.append(page);
   const manager = mountDialog(page, { signal, isActive: () => !signal.aborted, onClose: () => lifetime.abort() });
   page.querySelector('#passkey-back')!.addEventListener('click', () => manager.close({ animate: false }));

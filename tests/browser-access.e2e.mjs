@@ -243,7 +243,7 @@ try {
     for(const file of ['/src/backup.css','/src/recovery-experience.css','/src/auth-recovery.css','/src/spaces.css','/src/design-system.css'])await import(file);
   });
   await old.page.locator('#chat-settings').click();
-  for(const [entry,back] of [['local-history-backup','#local-backup-back'],['local-history-restore','#local-backup-back'],['backup-settings','#recovery-center-back'],['release-history','#release-history-back'],['manage-devices','#device-back'],['recover-other-space','#joint-code-close'],['cover-practice-menu','.practice-hotspot']]) {
+  for(const [entry,back] of [['local-history-backup','#local-backup-back'],['local-history-restore','#local-backup-back'],['backup-settings','#recovery-center-back'],['release-history','#release-history-back'],['manage-devices','#device-back'],['cover-practice-menu','#cover-settings-back']]) {
     await old.page.locator(`#${entry}`).click();
     await old.page.locator(back).waitFor();
     if(entry==='backup-settings') {
@@ -267,7 +267,7 @@ try {
       await old.page.locator('.backup-privacy-panel [data-cancel]').click();
     }
     if(process.argv[2]&&entry==='backup-settings')await old.page.screenshot({path:`${process.argv[2]}/recovery-intro.png`});
-    if(entry==='cover-practice-menu')await deferCoverPractice(old.page);else await old.page.locator(back).click();
+    await old.page.locator(back).click();
     await old.page.locator('.space-drawer-overlay[aria-label="设置"]').waitFor();
     assert.ok(await old.page.locator('.space-drawer-overlay').evaluate(el=>el.classList.contains('is-restored')&&getComputedStyle(el).transitionDuration==='0s'));
   }

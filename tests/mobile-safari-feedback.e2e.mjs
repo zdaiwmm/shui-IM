@@ -309,16 +309,7 @@ try {
       app.mountPrivateSpaceDrawer(session,[{roomId:session.vault.roomId,name:'合成设置空间'}],app.runtimeAbort.signal,'chat',0);
     });
     await page.locator('#cover-practice-menu').click();
-    const confirmationHit=await page.locator('#keep-cover-enabled').evaluate(button=>{
-      const r=button.getBoundingClientRect(),dialog=button.closest('#disable-cover-dialog'),settings=document.querySelector('.is-settings-sheet');
-      return {hit:Boolean(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('#disable-cover-dialog')),
-        above:Number(getComputedStyle(dialog).zIndex)>Number(getComputedStyle(settings).zIndex)};
-    });
-    assert.deepEqual(confirmationHit,{hit:true,above:true},'The disable-cover confirmation must paint and own its hit target above Settings');
-    await page.locator('#keep-cover-enabled').click();
-    await page.locator('#disable-cover-dialog').waitFor({state:'detached'});
-    assert.equal(await page.evaluate(()=>fixture.session.vault.recoveryExperience.coverEnabled),true);
-    await page.locator('#cover-practice-menu').click();
+    assert.equal(await page.locator('#cover-enabled').getAttribute('aria-checked'),'true');
     await page.evaluate(()=>{
       const original=IDBDatabase.prototype.transaction;window.restoreTransactions=()=>{IDBDatabase.prototype.transaction=original;};
       IDBDatabase.prototype.transaction=function(names,mode,...rest){
@@ -326,21 +317,17 @@ try {
         return original.call(this,names,mode,...rest);
       };
     });
-    await page.locator('#disable-cover-anyway').click();
-    await page.locator('#disable-cover-dialog .form-error:not([hidden])').waitFor();
+    await page.locator('#cover-enabled').click();
+    await page.waitForFunction(()=>document.querySelector('.cover-settings-page .form-error').textContent.includes('未保存'));
     assert.equal(await page.evaluate(()=>fixture.session.vault.recoveryExperience.coverEnabled),true,'Failed persistence retains the previous preference');
     await page.evaluate(()=>restoreTransactions());
-    const settingIdentity=await page.evaluate(()=>{
-      window.originalSettings=document.querySelector('.is-settings-sheet');
-      const scroll=originalSettings.querySelector('.space-drawer-scroll');scroll.scrollTop=120;return scroll.scrollTop;
-    });
-    await page.locator('#disable-cover-anyway').click();
-    await page.locator('#disable-cover-dialog').waitFor({state:'detached'});
-    assert.deepEqual(await page.evaluate(()=>({enabled:fixture.session.vault.recoveryExperience.coverEnabled,
-      same:originalSettings===document.querySelector('.is-settings-sheet'),scroll:originalSettings.querySelector('.space-drawer-scroll').scrollTop,
-      label:document.querySelector('#cover-practice-menu .space-setting-label').textContent})),
-      {enabled:false,same:true,scroll:settingIdentity,label:'体验或开启遮蔽'});
-    for(const [entry,back] of [['appearance-settings','appearance-back'],['auto-lock-settings','auto-lock-back'],['release-history','release-history-back'],['recover-other-space','joint-code-close']]) {
+    await page.locator('#cover-enabled').click();
+    await page.waitForFunction(()=>document.querySelector('#cover-enabled').getAttribute('aria-checked')==='false');
+    await page.locator('#cover-settings-back').click();
+    await page.locator('.is-settings-sheet.is-restored').waitFor();
+    const settingIdentity=await page.locator('.space-drawer-scroll').evaluate(scroll=>{scroll.scrollTop=120;return scroll.scrollTop;});
+    assert.equal(await page.locator('#cover-practice-menu .space-setting-label').textContent(),'入口遮蔽页');
+    for(const [entry,back] of [['appearance-settings','appearance-back'],['auto-lock-settings','auto-lock-back'],['release-history','release-history-back']]) {
       await page.locator(`#${entry}`).click();
       await page.locator(`#${back}`).waitFor();
       await page.evaluate(async()=>{await Promise.all(document.querySelector('#app').getAnimations({subtree:true}).map(animation=>animation.finished.catch(()=>{})));});

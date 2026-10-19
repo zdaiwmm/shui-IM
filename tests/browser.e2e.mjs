@@ -1,3 +1,4 @@
+import { captureLegacyDeviceManager, requestLegacyDeviceLink } from './helpers/legacy-device-enrollment.mjs';
 import {openRecoveryCard} from './fixtures/open-recovery.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import {legacyCreationPlugin,installLegacyCreationFixture} from './fixtures/legacy-create.mjs';
@@ -1490,6 +1491,7 @@ try {
   // chain. The first linked device opens the startup hash; the second pastes a
   // newly generated URL. Neither route may fall into the sealed one-time
   // participant invitation path after another device has already joined.
+  await captureLegacyDeviceManager(recovery);
   const linkedContexts = [];
   const addCreatorDevice = async (route) => {
     if (await recovery.locator('.chat-shell').count()) {
@@ -1507,7 +1509,8 @@ try {
     const activeSection = recovery.locator('.device-section').filter({ has: recovery.getByRole('heading', { name: '你的设备', exact: true }) });
     await activeSection.waitFor();
     const activeBefore = await activeSection.locator('.device-card').count();
-    await recovery.getByRole('button', { name: '添加设备', exact: true }).click();
+    invariant(await recovery.getByRole('button', { name: '添加设备', exact: true }).count() === 0, 'Device management must not expose enrollment');
+    await requestLegacyDeviceLink(recovery);
     const deviceUrl = await recovery.locator('.device-link-sheet input[aria-label="设备链接"]').inputValue();
     invariant(deviceUrl.includes('#device='), `${route}: generated link did not use the device discriminator`);
 
@@ -1549,7 +1552,10 @@ try {
   };
   await addCreatorDevice('startup');
   await addCreatorDevice('paste');
-  invariant(await recovery.getByRole('button', { name: '添加设备', exact: true }).isDisabled(), 'A third linked creator device did not enforce the 3-device limit');
+  const limitResponse = recovery.waitForResponse(response => response.url().endsWith('/device-links') && response.request().method() === 'POST');
+  await requestLegacyDeviceLink(recovery);
+  const limited = await limitResponse;
+  invariant(limited.status() === 409 && (await limited.json()).code === 'DEVICE_LIMIT', 'Server must enforce the 3-device limit without an enrollment button');
 
   // A repair invitation must stop at an explicit authorization step on the
   // initiator. The replacement device can claim the link, but it must not be

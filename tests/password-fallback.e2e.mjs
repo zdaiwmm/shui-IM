@@ -1,3 +1,4 @@
+import { requestLegacyDeviceLink } from './helpers/legacy-device-enrollment.mjs';
 import { deferCoverPractice } from './helpers/cover-practice.mjs';
 import { legacyCreationPlugin } from './fixtures/legacy-create.mjs';
 import { submitPassword as password } from './helpers/password.mjs';
@@ -264,7 +265,7 @@ try {
   await a.evaluate(() => app.renderDeviceManager());
   for (const repair of [false, true]) {
     if (repair) await a.locator('.peer-device-section').getByRole('button', { name: '修复此设备', exact: true }).first().click();
-    else await a.getByRole('button', { name: '添加设备', exact: true }).click();
+    else await requestLegacyDeviceLink(a);
     const link = await a.locator('.device-link-sheet input[aria-label="设备链接"]').inputValue();
     const extraContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     await extraContext.addInitScript(() => { delete window.PublicKeyCredential; });

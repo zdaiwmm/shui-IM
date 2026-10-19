@@ -248,15 +248,10 @@ try {
   });
   if (!await page.locator('.space-drawer-overlay[aria-label="设置"]').count()) await page.locator('#chat-settings').click();
   await page.locator('#cover-practice-menu').click();
-  await page.locator('#disable-cover-anyway').waitFor();
-  assert.equal(await page.locator('#keep-cover-enabled').textContent(), '保持开启');
-  assert.equal(await page.locator('#disable-cover-anyway').textContent(), '关闭自动遮蔽');
-  await page.locator('#keep-cover-enabled').click();
-  await page.locator('#disable-cover-dialog').waitFor({ state: 'detached' });
-  if (!await page.locator('.space-drawer-overlay[aria-label="设置"]').count()) await page.locator('#chat-settings').click();
-  await page.locator('#cover-practice-menu').click();
-  await page.locator('#disable-cover-anyway').click();
-  await page.getByText('关闭成功').waitFor();
+  await page.locator('#cover-enabled').waitFor();
+  assert.equal(await page.locator('#cover-enabled').getAttribute('aria-checked'), 'true');
+  await page.locator('#cover-enabled').click();
+  await page.waitForFunction(() => document.querySelector('#cover-enabled').getAttribute('aria-checked') === 'false');
   assert.equal(await page.evaluate(() => localStorage.getItem('quiet-room:cover-enabled')), '0');
   const brandedCover = await page.evaluate(() => {
     const app = window.fixtureApp;
