@@ -1,5 +1,12 @@
 # Quiet Room 当前状态
 
+## 聊天与设置修订已发布，真机待验收（2026-10-19 21:14）
+
+- 用户明确免原型、直接实施，随后确认完整应用`a639f7bcaa436c21b4efa8ab27a6afa60f5a09c3`（`2026.10.19.5`）发布。图片回复占位、随滚动渐变、设备状态、通行密钥名称页、遮蔽子页及设置导航、在线样式、浅色可见性、表情切换、隐藏图模糊、语音裁剪与引导文案由[需求V1](../requirements/2026-10-19-mobile-settings-chat-fixes/README.md)拥有，视觉V1.18。
+- [PR #358](https://github.com/zdaiwmm/shui-IM/pull/358)源c92dc6d与应用完整文件树一致。本机最终干净源完整通过131文件／1034项及71／71浏览器入口，[精确PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39252474500)最新attempt 2和[精确main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39255255231) attempt 1成功，含通话／TURN、审计与双架构镜像。PR首轮邀请续入超时仅原样重跑一次，早期数量快照／旧新增设备测试夹具及预检等待CI的失败保留在需求记录。
+- 固定云预检取得PREFLIGHT_OK，唯一[正式云发布39257169305](https://github.com/zdaiwmm/shui-IM/actions/runs/39257169305)核对精确DEPLOY_VERIFIED，从7d21b37切换一次。首次独立回读仅备份starting；核对实际启动及既有5分钟探针后，只续跑同SHA回读，于`2026-10-19T13:14:20.858Z`取得READBACK_OK。应用／备份healthy，TURN运行且探针none；SHA／镜像、HTTPS／数据库／存储、公开及容器资源、新WebSocket一致，维护门absent。完整事实由[本轮发布记录](../../RELEASING.md#release-mobile-settings-chat-fixes-20261019)拥有。
+- 脱敏证据保存于公共Git元数据`quiet-room-deliveries/evidence/mobile-settings-chat-fixes-20261019/`；第二个无部署配置文档树只对账，文档SHA不替代线上应用。本批资源依固定清理门禁核验，不处理其他任务；缓存／专属回执及活动文档资源按规则保留。真实iPhone／iOS27／Safari触控、原生键盘和独立安全审阅未完成，下方状态保持其历史证据时点。
+
 ## 原邀请续入与首页地址归一已发布（2026-10-19 19:52）
 
 - 用户确认[需求V1](../requirements/2026-10-19-chamber-invite-reentry/README.md)，免本次原型／流程图，授权直接实施、测试及合并；准备完整CI及只读预检后，明确确认`7d21b371809e69a16f35d6f8930ebcad16809a14`（`2026.10.19.4`）发布。已有保险库先正常解锁，按加密目录定位原密室／续接原占位，原地将URL替换为同源`/`并清除查询与片段，保留history.state，无刷新和新增历史；设备、历史与恢复授权不扩大，长期契约见D-072。
