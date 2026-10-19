@@ -3353,7 +3353,7 @@ export class QuietRoomApp {
     this.root.querySelector('.gateway-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderFirstRun(null)));
   }
 
-  private renderJoin(invite: Invite): void {
+  private renderJoin(invite: Invite, existingProtection?: StoredVault): void {
     const epoch = this.runtimeEpoch;
     history.replaceState(history.state, '', '/');
     this.gatewayTemplate('正在检查邀请', '确认此邀请仍可加入后，再准备你的身份。', '<p role="status">正在确认邀请状态…</p>', false, 'plain');
@@ -3383,7 +3383,7 @@ export class QuietRoomApp {
       const claim = await chamberInvitation(invite.roomId, invite.accessToken, { action: 'claim', secret }, AbortSignal.timeout(15_000));
       if (!active()) return;
       if (!claim.requestId || !claim.expiresAt) throw new Error('邀请状态不完整，请联系邀请方重新发起');
-      this.renderJoinProtection(invite, { secret, requestId: claim.requestId, version: claim.version, expiresAt: claim.expiresAt, codeRevision: claim.codeRevision });
+      this.renderJoinProtection(invite, { secret, requestId: claim.requestId, version: claim.version, expiresAt: claim.expiresAt, codeRevision: claim.codeRevision }, false, existingProtection);
     })().catch(cause => {
       if (!active()) return;
       if (cause instanceof ApiError && cause.code === 'INVITATION_CLAIMED') {
@@ -3394,16 +3394,16 @@ export class QuietRoomApp {
       }
       this.gatewayTemplate('此邀请暂时无法加入', '请联系邀请方重新发起邀请', '<button class="primary-button" id="join-unavailable-retry" type="button">重新检查邀请</button><button class="text-button" id="join-unavailable-back" type="button">返回</button>', false, 'plain');
       if (cause instanceof Error) this.root.querySelector('.gateway-heading p')!.textContent = cause.message;
-      this.root.querySelector('#join-unavailable-retry')?.addEventListener('click', () => this.renderJoin(invite));
+      this.root.querySelector('#join-unavailable-retry')?.addEventListener('click', () => this.renderJoin(invite, existingProtection));
       this.root.querySelector('#join-unavailable-back')?.addEventListener('click', () => this.renderFirstRun(null));
     });
   }
 
-  private renderJoinProtection(invite: Invite, claim?: NonNullable<Vault['pendingChamberInvitation']>,checkedIdentity=false): void {
+  private renderJoinProtection(invite: Invite, claim?: NonNullable<Vault['pendingChamberInvitation']>,checkedIdentity=false, existingProtection?: StoredVault): void {
     if(claim&&!checkedIdentity) {
       this.gatewayTemplate('正在读取本机身份','已有身份会继续使用。','',false,'plain');const page=this.root.querySelector('.gateway'),epoch=this.runtimeEpoch;
       void readPersonalIdentity().then(stored=>{if(!page?.isConnected||this.runtimeEpoch!==epoch||this.privacyCovered)return;
-        if(!stored){void readStoredVault().then(local => {
+        if(!stored){void (existingProtection ? Promise.resolve(existingProtection) : readStoredVault()).then(local => {
           if (!page?.isConnected || this.runtimeEpoch !== epoch || this.privacyCovered) return;
           if (local?.v === 3 && local.unlockMethod !== 'recovery') this.renderExistingVaultChamberJoin(invite, claim, local);
           else this.renderJoinProtection(invite,claim,true);
@@ -6034,6 +6034,7 @@ export class QuietRoomApp {
 
   private async beginNewSpace(invitation?: Exclude<ReturnType<typeof classifyInviteHash>, { kind: 'invalid' }>): Promise<void> {
     if (this.session && (await localSpaces(this.session)).length >= 256) throw new Error('本机空间数量已达上限');
+    const existingProtection = this.session?.stored;
     const code = this.session?.vault.spaceRecoveryCode;
     const previous = this.session ? vaultSpaceId(this.session.stored) : currentSpaceId();
     if (!await this.leaveSpace()) return;
@@ -6044,7 +6045,8 @@ export class QuietRoomApp {
     this.scheduleIdleLock();
     if (invitation?.kind === 'device') this.renderJoinDevice(invitation.invite);
     else if (invitation?.kind === 'repair') this.renderJoinRepair(invitation.invite);
-    else this.renderFirstRun(invitation?.kind === 'participant' ? invitation.invite : null);
+    else if (invitation?.kind === 'participant') this.renderJoin(invitation.invite, existingProtection);
+    else this.renderFirstRun(null);
   }
 
   private async rememberSpacePreview(session: VaultSession, signal: AbortSignal): Promise<void> {
