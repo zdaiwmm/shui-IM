@@ -172,7 +172,7 @@ const removable = Boolean(options.remove && space.waiting && !space.accessState)
     const groups = [
       ['appearance-settings', 'presence-style-setting', 'notification-settings', 'app-access-settings'],
       ['auto-lock-settings', 'manage-devices', 'passkey-management', 'cover-practice-menu'],
-      ['backup-settings', 'local-history-backup', 'local-history-restore', 'recover-other-space'],
+      ['backup-settings', 'local-history-backup', 'local-history-restore', 'chamber-migration-settings', 'recover-other-space'],
       ['release-history'],
     ];
     const presence = `<button class="space-setting" id="presence-style-setting" ${options.canStylePresence?.() === false ? 'disabled' : ''}><span class="space-setting-icon" data-setting="presence-style-setting" aria-hidden="true">${heart}</span><span class="space-setting-label">在线状态样式</span><small class="space-setting-value">${options.canStylePresence?.() === false ? '加入密室后可设置' : readPresenceStyle() === 'heart' ? '心动按钮' : '在线胶囊'}</small>${arrow}</button>`;

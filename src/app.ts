@@ -6311,6 +6311,8 @@ export class QuietRoomApp {
         { id: 'backup-settings', label: session.vault.personalBinding?'助记词':'恢复卡', icon: spaceIcons.key, run: forward(() => this.renderRecoveryCenter()) },
         { id: 'local-history-backup', label: session.vault.personalBinding?'备份与共同恢复':'备份数据', icon: spaceIcons.upload, run: forward(() => session.vault.personalBinding?this.renderBackupSettings():this.renderLocalHistoryBackup('export')) },
         ...(!session.vault.personalBinding?[{ id: 'local-history-restore', label: '恢复数据', icon: spaceIcons.download, run: forward(() => this.renderLocalHistoryBackup('import')) }]:[]),
+        ...(!session.vault.personalBinding || session.vault.personalMigration?.state === 'staged'
+          ? [{ id: 'chamber-migration-settings', label: '旧空间迁移', icon: spaceIcons.key, run: forward(() => this.renderChamberMigration()) }] : []),
         { id: 'recover-other-space', label: '恢复其他空间', icon: spaceIcons.spaces, run: forward(async () => {
           if(!session.vault.personalBinding){this.renderJointRecovery(null);return;}
           if(!await this.leaveSpace())return;await selectLocalSpace(crypto.randomUUID());this.renderPersonalRestoreProtection();
@@ -6379,7 +6381,7 @@ export class QuietRoomApp {
       styleChanged: () => this.applyPresenceStyle(),
       closed: sheet => {
         if (presentation === 'sidebar') { this.desktopWorkspace.collapse(); return; }
-        if (presentation === 'settings') { this.settingsReturn = null; this.renderChat(); return; }
+        if (presentation === 'settings') { this.spaceDrawerOpen = false; this.settingsReturn = null; this.renderChat(); return; }
         if (!sheet.isConnected) {
           // A route replacement still releases the old dialog's resources,
           // but its detached owner must not navigate over the new page.
@@ -12290,6 +12292,8 @@ export class QuietRoomApp {
   private renderBackupSettings(): void {
     const session = this.session;
     if (!session || this.privacyCovered) return;
+    // Consume the compatibility entry once; later returns follow the page flow.
+    if (location.hash === '#legacy-backup') history.replaceState(history.state, '', `${location.pathname}${location.search}`);
     if (session.vault.personalBinding) { this.renderChamberHistorySettings(); return; }
     this.captureChatAnchor(false);
     this.closeVoiceRecorder();
@@ -12333,7 +12337,6 @@ export class QuietRoomApp {
     this.root.querySelector('#backup-back')?.addEventListener('click', () => {
       cancelRestore();
       this.runtimeAbort?.signal.removeEventListener('abort', cancelRestore);
-      if (location.hash === '#legacy-backup') history.replaceState(null, '', `${location.pathname}${location.search}`);
       this.transitionPage('backward', () => { if (historyChanged) void this.openSession(); else this.renderChat(); });
     });
     this.root.querySelector('#backup-retry')?.addEventListener('click', () => void this.runAutomaticBackup(true));
