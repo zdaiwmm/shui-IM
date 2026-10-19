@@ -735,15 +735,6 @@ export async function startServer(options = {}) {
         return;
       }
 
-      const migrationMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/chamber-migration$`));
-      if(migrationMatch) {
-        const roomId=migrationMatch[1],member=requireActiveDevice(request,roomId);
-        if(!allowRequest(request,`chamber-migration:${roomId}`,60)){json(request,response,429,{code:'RATE_LIMITED',error:'请稍后重试'});return;}
-        if(request.method==='GET')json(request,response,200,store.chamberMigrations.status(roomId));
-        else if(request.method==='POST') {const body=await readJson(request);json(request,response,200,body.action==='bind'?await store.chamberMigrations.bind(roomId,member.deviceId,body.binding):body.action==='verify'?store.chamberMigrations.verify(roomId,member.deviceId,body.input):(()=>{throw new Error('INVALID_JSON');})());}
-        else throw new Error('INVALID_JSON');return;
-      }
-
       const lifecycleMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/chamber-lifecycle$`));
       if (lifecycleMatch) {
         const roomId=lifecycleMatch[1],token=bearerToken(request);

@@ -9,13 +9,13 @@ import { canonicalStringify } from './canonical';
 const encode = (value: string) => new TextEncoder().encode(value);
 const domain = 'chamber-personal-identity-v1';
 export type PersonalPublicIdentity = { v: 1; id: string; signingKey: string; recoveryKey: string; directoryKey: string };
-export type PersonalProofAction = 'bind-device' | 'bind-legacy-room' | 'read-directory' | 'close-room' | 'restore-room' | 'restore-history';
+export type PersonalProofAction = 'bind-device' | 'read-directory' | 'close-room' | 'restore-room' | 'restore-history';
 export type PersonalProof = {
   v: 1; purpose: 'chamber-personal-proof-v1'; action: PersonalProofAction;
   identityId: string; roomId: string; deviceId: string; requestId: string;
   version: number; challenge: string; expiresAt: string; payloadHash: string;
 };
-const actions = new Set<PersonalProofAction>(['bind-device', 'bind-legacy-room', 'read-directory', 'close-room', 'restore-room', 'restore-history']);
+const actions = new Set<PersonalProofAction>(['bind-device', 'read-directory', 'close-room', 'restore-room', 'restore-history']);
 
 /** Never use the app-lock password as a BIP39 passphrase. */
 export function normalizePersonalMnemonic(input: string): string {

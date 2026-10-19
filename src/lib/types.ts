@@ -124,10 +124,11 @@ export type Vault = {
   localPreferenceDeviceId?: string;
   /** Public binding only. The encrypted personal root lives outside all room checkpoints. */
   personalBinding?: import('./personal-device-binding').PersonalDeviceBinding;
+  /** Retired metadata: preserve existing encrypted records; never advance or export it. */
   personalMigration?: { state: 'staged'; binding: import('./personal-device-binding').PersonalDeviceBinding;
     /** Encrypted inside the source vault; never sent to the service. */
     stage?: { requestId: string; scopeHash: string; dataScope: string; master: string; digest?: string } };
-  /** Crash-safe source retained until the jointly signed generation is read back. */
+  /** Retired local source: retained without automatic restore, deletion or upload. */
   migrationSource?: Vault;
   personalPeers?: import('./personal-device-binding').PersonalDeviceBinding[];
   /** Durable creator intent. No room services start before server readback. */

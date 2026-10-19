@@ -1,12 +1,12 @@
 # Product
 
-## Legacy migration entry and return correction, 2026-10-19
+## Legacy room migration retired, 2026-10-19
 
-The [confirmed entry correction](docs/requirements/2026-10-19-chamber-migration-entry/README.md) exposes “旧空间迁移” in normal Settings for legacy rooms and unfinished staged migrations. It remains available after personal identity binding, and disappears only after completed cutover; newly created Chamber rooms do not offer it. Compatibility backup links are consumed once on authenticated entry, preserving the remaining URL and navigation state so ordinary Back actions return normally. Users never need to edit an address. Original history preservation, both root approvals and complete cloud/local integrity verification retain the existing migration contract.
+The [confirmed retirement](docs/requirements/2026-10-19-remove-legacy-migration/README.md) removes old-room migration entry points, binding, verification receipts, staging and joint cutover from the client and service. Stored incomplete bindings do not activate Chamber services. Existing encrypted records, rooms and attachments are retained without automatic restore or deletion. Legacy rooms keep their ordinary recovery-card and backup flows; new and already converted Chamber rooms keep mnemonic recovery and joint history integrity checks. Compatibility backup links still return normally.
 
 ## Original-device Chamber migration and UI corrections, 2026-10-19
 
-The [confirmed V2](docs/requirements/2026-10-19-local-migration-ui/README.md) lets both original browsers verify jointly opened cloud history in an empty, independently encrypted local staging namespace. Both original roots then confirm the same fresh-generation proposal. Original history, creator Safe, encrypted local preferences and composer checkpoints retain their original ownership when device keys rotate. Missing originals, stale source projections, changed backup heads, uncompleted sends or an incomplete joint approval block cutover. A lost response resumes the same durable request, including final receipt lookup after expiry; only authoritative cancellation/expiry permits a return to the old session.
+The original-device migration portion of the [earlier V2](docs/requirements/2026-10-19-local-migration-ui/README.md) is superseded by retirement above. Its unrelated interface corrections remain in effect.
 
 Invitation code Done/Enter directly submits the current valid code with one loading action. Timers read “有效期：xx:xx”; empty composers start at 44px. Timeline cards use the message rails, settings adopt Chamber surfaces and shared bottom actions, and the floating capsule uses actual presence with the existing split-heart/electric feedback. The exact requested cover recommendation and twelve acceptance items are owned by V2; native iPhone verification remains separate.
 

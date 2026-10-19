@@ -264,7 +264,7 @@ security-audit requirements.
   `X-Forwarded-For` address for its own rate-limit buckets; untrusted forwarding
   headers are ignored.
 - Treat a client release compromise as a key-compromise incident. Stop serving the release, preserve forensic artifacts, notify users out of band, and require creation of new rooms from a clean signed release.
-- Legacy rooms use the original static-recipient envelope and do not gain forward secrecy automatically. The explicit Chamber migration requires both original devices to verify jointly restored history in independent encrypted staging, then approve the same signed MLS cutover; see `CHAMBER_IDENTITY.md`.
+- Legacy rooms use the original static-recipient envelope and do not gain forward secrecy automatically. Legacy-room migration has been retired. Existing rooms, encrypted records and recovery capabilities are retained; no automatic conversion or deletion runs. See `CHAMBER_IDENTITY.md`.
 
 See [PRODUCTION_SECURITY_GATE.md](./PRODUCTION_SECURITY_GATE.md) for the conditions that must be met before marketing or operating the service as high-security.
 

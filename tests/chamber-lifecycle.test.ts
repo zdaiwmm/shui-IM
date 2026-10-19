@@ -28,9 +28,9 @@ async function fixture(){
     const proof=store.personalDirectory.challenge(root.id,{action,roomId:room.roomId,deviceId,version,payloadHash:personalHash(payload)});return {proof,signature:await signPersonalProof(roots[role],proof)};}
   const closePayload={v:1,purpose:'chamber-close-v1',roomId:room.roomId,version:1,generation:1,closed:true};
   const closeInput={payload:closePayload,...await signed('creator','close-room',creator.publicBundle.deviceId,1,closePayload)};
-  async function offer(role:'creator'|'joiner',requestId=crypto.randomUUID(),recovery=false,migrate=false){
+  async function offer(role:'creator'|'joiner',requestId=crypto.randomUUID(),recovery=false){
     const identity=await generateIdentity(),binding=await bindPersonalDevice(roots[role],identity),token=randomBase64Url(32);
-    const payload={v:1 as const,purpose:migrate?'chamber-migration-offer-v1' as const:recovery?'chamber-recovery-offer-v1' as const:'chamber-reopen-offer-v1' as const,roomId:room.roomId,role,requestId,version:recovery||migrate?1:2,generation:2,bundle:identity.publicBundle,binding,
+    const payload={v:1 as const,purpose:recovery?'chamber-recovery-offer-v1' as const:'chamber-reopen-offer-v1' as const,roomId:room.roomId,role,requestId,version:recovery?1:2,generation:2,bundle:identity.publicBundle,binding,
       tokenHash:toBase64Url(sha256(new TextEncoder().encode(token))),deviceName:role,capabilities:[]};
     const input={payload,...await signed(role,'restore-room',identity.publicBundle.deviceId,payload.version,payload)} as ChamberReopenOffer;
     return {identity,binding,token,input};
@@ -38,38 +38,43 @@ async function fixture(){
   return {store,dataDir,room,creator,joiner,a,b,aToken,bToken,entries,signed,closeInput,offer};
 }
 describe('signed close and two-original-root reopen',()=>{
-  it.each(['changed-head','expired-scope','new-message'])('keeps original tokens and generation intact when %s invalidates the final migration approval',async scenario=>{
+  it('rejects retired migration offers and persisted cutovers without changing existing rooms or tokens',async()=>{
     const f=await fixture(),db=new DatabaseSync(path.join(f.dataDir,'quiet-room.sqlite'));
-    try{
+    try {
+      const a=await f.offer('creator',crypto.randomUUID(),true);
+      const payload={...a.input.payload,purpose:'chamber-migration-offer-v1'};
+      const retired={payload,...await f.signed('creator','restore-room',payload.bundle.deviceId,1,payload)};
+      expect(()=>f.store.chamberLifecycle.offer(f.room.roomId,retired)).toThrow('INVALID_BACKUP');
+      db.prepare('INSERT INTO chamber_reopen(room_id,request_id,version,expires_at,offers,proposal) VALUES(?,?,?,?,?,?)').run(
+        f.room.roomId,payload.requestId,1,retired.proof.expiresAt,JSON.stringify({creator:retired}),JSON.stringify({purpose:'chamber-migration-proposal-v1'}));
+      const before=db.prepare('SELECT * FROM chamber_reopen WHERE room_id=?').get(f.room.roomId);
+      expect(()=>f.store.chamberLifecycle.status(f.room.roomId,a.token)).toThrow('INVALID_BACKUP');
+      await expect(f.store.chamberLifecycle.propose(f.room.roomId,a.token,{})).rejects.toThrow('INVALID_BACKUP');
+      expect(()=>f.store.chamberLifecycle.approve(f.room.roomId,a.token,{})).toThrow('INVALID_BACKUP');
+      expect(()=>f.store.chamberLifecycle.cancel(f.room.roomId,a.token,{})).toThrow('INVALID_BACKUP');
+      expect(db.prepare('SELECT * FROM chamber_reopen WHERE room_id=?').get(f.room.roomId)).toEqual(before);
+      expect(f.store.chamberLifecycle.state(f.room.roomId)).toMatchObject({generation:1,version:1,closed:false});
+      expect(f.store.authenticatedDevice(f.room.roomId,f.aToken)?.deviceId).toBe(f.creator.publicBundle.deviceId);
+      expect(f.store.authenticatedDevice(f.room.roomId,f.bToken)?.deviceId).toBe(f.joiner.publicBundle.deviceId);
+      expect(f.store.authenticatedDevice(f.room.roomId,a.token)).toBeNull();
+    } finally {db.close();f.store.close();}
+  });
+  it('does not adopt stored staged bindings or delete their persisted rows on restart',async()=>{
+    const f=await fixture(),db=new DatabaseSync(path.join(f.dataDir,'quiet-room.sqlite'));
+    let reopened;
+    try {
+      db.exec("CREATE TABLE chamber_migrations(room_id TEXT PRIMARY KEY,bindings TEXT,verified TEXT,activated INTEGER,base_seq INTEGER)");
+      const bindings=JSON.stringify({creator:f.a,joiner:f.b});
+      db.prepare("INSERT INTO chamber_migrations VALUES(?,?,'{}',0,0)").run(f.room.roomId,bindings);
       db.prepare('DELETE FROM chamber_rooms WHERE room_id=?').run(f.room.roomId);
-      const verified:any={};
-      for(const role of ['creator','joiner'] as const){
-        const binding=role==='creator'?f.a:f.b,device=role==='creator'?f.creator:f.joiner,requestId=crypto.randomUUID();
-        const head={deviceId:device.publicBundle.deviceId,id:randomBase64Url(32),digest:randomBase64Url(32),revision:1,afterSeq:0,upperSeq:0};
-        const scopeHash=randomBase64Url(32),payload={v:1,purpose:'chamber-migration-verification-v1',roomId:f.room.roomId,ownerId:binding.identity.id,targetId:head.deviceId,generation:1,historyRequestId:requestId,scopeHash,upperSeq:0,stagingDigest:randomBase64Url(32)};
-        verified[role]={payload,...await f.signed(role,'bind-legacy-room',head.deviceId,1,payload)};
-        db.prepare('INSERT INTO chamber_history_requests VALUES(?,?,?,?,?,?,?)').run(f.room.roomId,requestId,binding.identity.id,(role==='creator'?f.b:f.a).identity.id,head.deviceId,new Date(Date.now()+25*60_000).toISOString(),JSON.stringify({scope:{heads:[head]}}));
-        db.prepare('INSERT INTO chamber_history_heads VALUES(?,?,?,?,?)').run(f.room.roomId,binding.identity.id,head.deviceId,1,JSON.stringify({head}));
-      }
-      db.prepare('INSERT INTO chamber_migrations(room_id,bindings,verified,base_seq) VALUES(?,?,?,0)').run(f.room.roomId,JSON.stringify({creator:f.a,joiner:f.b}),JSON.stringify(verified));
-      const a=await f.offer('creator',crypto.randomUUID(),false,true);let snapshot=await f.store.chamberLifecycle.offer(f.room.roomId,a.input);
-      const b=await f.offer('joiner',snapshot.requestId,false,true);snapshot=await f.store.chamberLifecycle.offer(f.room.roomId,b.input);
-      const members:RoomMember[]=[{...a.identity.publicBundle,role:'creator',status:'active',joinProof:null},{...b.identity.publicBundle,role:'joiner',status:'active',joinProof:null}];
-      const vault:Vault={v:3,roomId:f.room.roomId,role:'creator',identity:a.identity,accessToken:a.token,pairingSecret:'',creatorFingerprint:f.entries.creator.creatorFingerprint,members,lastSeq:0,createdAt:new Date().toISOString(),protocol:'mls-rfc9420',mls:await createCreatorMlsState(f.room.roomId,a.identity,members)};
-      vault.mls=await prepareCreatorWelcome(vault);
-      const proposal:ChamberReopenProposal={v:1,purpose:'chamber-migration-proposal-v1',roomId:f.room.roomId,requestId:snapshot.requestId,version:1,generation:2,expiresAt:snapshot.expiresAt,migration:verified,offers:{creator:a.input,joiner:b.input},welcome:vault.mls.pendingWelcome!};
-      await f.store.chamberLifecycle.propose(f.room.roomId,a.token,proposal);
-      f.store.chamberLifecycle.approve(f.room.roomId,a.token,await f.signed('creator','restore-room',a.identity.publicBundle.deviceId,1,proposal));
-      if(scenario==='changed-head')db.prepare('UPDATE chamber_history_heads SET record=? WHERE device_id=?').run(JSON.stringify({head:{deviceId:f.creator.publicBundle.deviceId,revision:2}}),f.creator.publicBundle.deviceId);
-      if(scenario==='expired-scope')db.prepare('UPDATE chamber_history_requests SET expires_at=?').run(new Date(Date.now()-1).toISOString());
-      if(scenario==='new-message')db.prepare('UPDATE rooms SET next_seq=1 WHERE room_id=?').run(f.room.roomId);
-      const approval=await f.signed('joiner','restore-room',b.identity.publicBundle.deviceId,1,proposal);
-      expect(()=>f.store.chamberLifecycle.approve(f.room.roomId,b.token,approval)).toThrow('BACKUP_CONFLICT');
-      expect(f.store.chamberLifecycle.state(f.room.roomId)).toMatchObject({generation:1,version:1});
-      expect(f.store.authenticatedDevice(f.room.roomId,f.aToken)).not.toBeNull();expect(f.store.authenticatedDevice(f.room.roomId,f.bToken)).not.toBeNull();
-      expect(f.store.authenticatedDevice(f.room.roomId,a.token)).toBeNull();expect(f.store.chamberLifecycle.status(f.room.roomId,b.token).approvals.joiner).toBeUndefined();
-      expect(db.prepare('SELECT activated FROM chamber_migrations').get()?.activated).toBe(0);
-    }finally{db.close();f.store.close();}
+      expect(f.store.chamberInvitations.state(f.room.roomId)).toBeNull();
+      expect(()=>f.store.personalDirectory.challenge(f.a.identity.id,{action:'bind-legacy-room',roomId:f.room.roomId,deviceId:f.creator.publicBundle.deviceId,version:1,payloadHash:randomBase64Url(32)})).toThrow('INVALID_JSON');
+      f.store.close();reopened=await createStore({dataDir:f.dataDir});
+      expect(reopened.chamberInvitations.state(f.room.roomId)).toBeNull();
+      expect(db.prepare('SELECT bindings FROM chamber_migrations WHERE room_id=?').get(f.room.roomId)?.bindings).toBe(bindings);
+      expect(reopened.authenticatedDevice(f.room.roomId,f.aToken)?.deviceId).toBe(f.creator.publicBundle.deviceId);
+      expect(reopened.authenticatedDevice(f.room.roomId,f.bToken)?.deviceId).toBe(f.joiner.publicBundle.deviceId);
+    } finally {db.close();if(reopened)reopened.close();else f.store.close();}
   });
   it('revokes both participants atomically, retains the room and accepts only the exact retry receipt',async()=>{
     const f=await fixture();try{

@@ -34,7 +34,7 @@ export function createPersonalDirectory(db, { getMember, chamberInvitations }) {
   function challenge(identityId, input) {
     if (!identity(identityId)) throw new Error('PERSONAL_IDENTITY_NOT_FOUND');
     if (!input || Object.keys(input).sort().join(',') !== 'action,deviceId,payloadHash,roomId,version' ||
-      !['bind-device', 'bind-legacy-room', 'read-directory', 'close-room', 'restore-room', 'restore-history'].includes(input.action) ||
+      !['bind-device', 'read-directory', 'close-room', 'restore-room', 'restore-history'].includes(input.action) ||
       ![input.roomId, input.deviceId].every(s => typeof s === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(s)) ||
       !Number.isSafeInteger(input.version) || input.version < 1 || !/^[A-Za-z0-9_-]{43}$/.test(input.payloadHash)) throw new Error('INVALID_JSON');
     const now = new Date().toISOString();

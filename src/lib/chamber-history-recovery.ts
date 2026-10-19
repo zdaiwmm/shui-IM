@@ -1,3 +1,4 @@
+import { isChamberVault } from './chamber-space';
 import { canonicalStringify } from './canonical';
 import { authorizedFetch } from './api';
 import { fromBase64Url } from './base64';
@@ -11,8 +12,6 @@ import { chamberHistoryRecordHash, openChamberHistoryRecord, type ChamberHistory
 import { importArchivedMessages, saveChamberRecoveredMediaChunk, loadCachedMediaChunk, cacheChamberHistoryCipher, loadChamberHistoryCipher, loadUiPreferences, saveUiPreferences, restoreGalleryHidden, saveVault, withVaultMutation, saveChamberRecoveryManifest, readChamberRecoveryManifest, type VaultSession } from './vault';
 import { attachmentVerifier } from './local-history-backup';
 import type { DecryptedMessage, ImageManifest } from './types';
-import {verifyMigratedHistory} from './chamber-migrations';
-import {migrationRecoveryDestination,verifyMigrationStage} from './chamber-migration-stage';
 import {findMissingArchivedMessages} from './vault';
 import {authenticatedMlsCallMembers} from './call-membership';
 
@@ -30,6 +29,7 @@ async function api<T>(session:VaultSession,path:string,signal:AbortSignal,body?:
 export const listChamberHistoryRequests = (session:VaultSession,signal:AbortSignal) => api<ChamberHistorySummary[]>(session,base(session),signal);
 export const readChamberHistoryRequest = (session:VaultSession,id:string,signal:AbortSignal) => api<ChamberHistoryRequest>(session,`${base(session)}/${id}?manifest=1`,signal);
 function participants(session:VaultSession) {
+  if (!isChamberVault(session.vault)) throw new Error('此空间使用原有备份与恢复方式');
   const owner = session.vault.personalBinding?.identity, peer = session.vault.personalPeers?.find(p=>p.identity.id !== owner?.id)?.identity;
   if (!owner || !peer) throw new Error('双方身份尚未确认'); return {owner,peer};
 }
@@ -113,7 +113,7 @@ export async function completeChamberHistoryRecovery(session:VaultSession,reques
   signal:AbortSignal,progress:(count:number,total:number)=>void):Promise<number> {
   const {owner,peer,grant}=await verifyRequest(session,request,false);
   if (!same(stored.identity,owner) || !same(request.scope.target,session.vault.identity.publicBundle)) throw new Error('恢复结果只交给申请的本机设备');
-  const destination=await migrationRecoveryDestination(session,request,signal);
+  const destination=session;
   const releases=new Map<string,JointHistoryRelease>();
   for (let after=0;after<request.scope.units.length;after+=100) {
     const rows=await api<Unit[]>(session,`${base(session)}/${request.proof.requestId}?after=${after}`,signal);
@@ -183,8 +183,6 @@ export async function completeChamberHistoryRecovery(session:VaultSession,reques
     }
     checkpoint={...checkpoint,doneHeads:[...checkpoint.doneHeads,head.id],current:undefined,count,imported};await saveProgress();
   }
-  const stagingDigest=destination===session?undefined:await verifyMigrationStage(session,destination,request,signal);
-  await verifyMigratedHistory(session,request,stored,credential,signal,stagingDigest);
   await withVaultMutation(session,async mutation=>{signal.throwIfAborted(); session.vault.pendingChamberHistoryRecovery=undefined;session.vault.chamberHistoryRestoreProgress=undefined; await saveVault(session,mutation);});
   return imported;
 }

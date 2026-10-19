@@ -1,4 +1,3 @@
-import {assertMigrationSourceCurrent} from './chamber-migration-stage';
 import { canonicalStringify } from './canonical';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { randomBase64Url, toBase64Url } from './base64';
@@ -11,9 +10,8 @@ import { generateIdentity } from './crypto';
 import { personalChallenge } from './personal-directory-sync';
 import type { PersonalDirectoryEntry } from './personal-directory';
 import { createCreatorMlsState, prepareCreatorWelcome, joinMlsGroup, verifyEcdsa } from './mls';
-import { saveVault, withVaultMutation, discardChamberMigrationStage,type VaultSession } from './vault';
+import { saveVault, withVaultMutation, type VaultSession } from './vault';
 import type { PublicBundle, RoomMember, MlsWelcomeEnvelope, MlsVaultState } from './types';
-import type {ChamberMigrationStatus,ChamberMigrationVerification} from './chamber-migrations';
 
 const hash=(x:unknown)=>toBase64Url(sha256(new TextEncoder().encode(canonicalStringify(x))));
 const same=(a:unknown,b:unknown)=>canonicalStringify(a)===canonicalStringify(b);
@@ -21,17 +19,16 @@ type Role='creator'|'joiner'; const roles:Role[]=['creator','joiner'];
 type Signed<T>={payload:T;proof:PersonalProof;signature:string};
 export type ChamberClosePayload={v:1;purpose:'chamber-close-v1';roomId:string;version:number;generation:number;closed:true};
 export type ChamberLifecycle={version:number;generation:number;closed:boolean;receipt:Signed<ChamberClosePayload>|{proposal:ChamberReopenProposal;approvals:Record<Role,{proof:PersonalProof;signature:string}>}|null;
-  migration?:Pick<ChamberMigrationStatus,'bindings'|'verified'>|null;pending?:{requestId:string;expiresAt:string;purpose?:string}|null};
-export type ChamberReopenPayload={v:1;purpose:'chamber-reopen-offer-v1'|'chamber-migration-offer-v1'|'chamber-recovery-offer-v1';roomId:string;requestId:string;role:Role;version:number;generation:number;
+  pending?:{requestId:string;expiresAt:string;purpose?:string}|null};
+export type ChamberReopenPayload={v:1;purpose:'chamber-reopen-offer-v1'|'chamber-recovery-offer-v1';roomId:string;requestId:string;role:Role;version:number;generation:number;
   bundle:PublicBundle;binding:PersonalDeviceBinding;tokenHash:string;deviceName:string;capabilities:string[]};
 export type ChamberReopenOffer=Signed<ChamberReopenPayload>;
-export type ChamberReopenProposal={v:1;purpose:'chamber-reopen-proposal-v1'|'chamber-migration-proposal-v1'|'chamber-recovery-proposal-v1';roomId:string;requestId:string;version:number;generation:number;expiresAt:string;
-  migration?:Record<Role,ChamberMigrationVerification>;
+export type ChamberReopenProposal={v:1;purpose:'chamber-reopen-proposal-v1'|'chamber-recovery-proposal-v1';roomId:string;requestId:string;version:number;generation:number;expiresAt:string;
   offers:Record<Role,ChamberReopenOffer>;welcome:MlsWelcomeEnvelope};
 export type ChamberReopenSnapshot={requestId:string;version:number;expiresAt:string;offers:Partial<Record<Role,ChamberReopenOffer>>;
   proposal:ChamberReopenProposal|null;approvals:Partial<Record<Role,{proof:PersonalProof;signature:string}>>;
   result:{eventSeq:number;nextSeq:number;nextReceiptSeq:number;completedAt:string;generation:number;version:number}|null};
-export type PendingChamberReopen={entry:PersonalDirectoryEntry;offer:ChamberReopenOffer;migration?:Record<Role,ChamberMigrationVerification>;proposal?:ChamberReopenProposal;mls?:MlsVaultState;approved?:boolean;cancelled?:true};
+export type PendingChamberReopen={entry:PersonalDirectoryEntry;offer:ChamberReopenOffer;proposal?:ChamberReopenProposal;mls?:MlsVaultState;approved?:boolean;cancelled?:true};
 
 async function api<T>(roomId:string,token:string|undefined,action:string|undefined,signal:AbortSignal,input?:unknown):Promise<T> {
   const url=`/api/rooms/${roomId}/chamber-lifecycle`,options:RequestInit={signal:AbortSignal.any([signal,AbortSignal.timeout(30_000)]),cache:'no-store',
@@ -40,16 +37,6 @@ async function api<T>(roomId:string,token:string|undefined,action:string|undefin
   if(!response.ok)throw await responseError(response);return response.json();
 }
 const rootFor=(entry:PersonalDirectoryEntry,role:Role)=>entry.participants.find(p=>p.role===role)!.binding.identity;
-function verifyMigration(entry:PersonalDirectoryEntry,verified:Partial<Record<Role,ChamberMigrationVerification>>):verified is Record<Role,ChamberMigrationVerification> {
-  try{return roles.every(role=>{
-    const receipt=verified[role];if(!receipt)return false;const {payload,proof,signature}=receipt,root=rootFor(entry,role);
-    return Object.keys(payload).sort().join(',')===(payload.stagingDigest?'generation,historyRequestId,ownerId,purpose,roomId,scopeHash,stagingDigest,targetId,upperSeq,v':'generation,historyRequestId,ownerId,purpose,roomId,scopeHash,targetId,upperSeq,v') && (!payload.stagingDigest||/^[A-Za-z0-9_-]{43}$/.test(payload.stagingDigest)) && payload.v===1 &&
-      payload.purpose==='chamber-migration-verification-v1'&&payload.roomId===entry.roomId&&payload.ownerId===root.id&&payload.generation===1&&
-      Number.isSafeInteger(payload.upperSeq)&&payload.upperSeq>=0&&/^[0-9a-f-]{36}$/i.test(payload.targetId)&&/^[0-9a-f-]{36}$/i.test(payload.historyRequestId)&&/^[A-Za-z0-9_-]{43}$/.test(payload.scopeHash)&&
-      proof.action==='bind-legacy-room'&&proof.roomId===entry.roomId&&proof.deviceId===payload.targetId&&proof.version===1&&proof.payloadHash===hash(payload)&&
-      verifyPersonalProof(root,proof,signature,Date.parse(proof.expiresAt)-1);
-  });}catch{return false;}
-}
 /** Receipts remain verifiable after the one-time authorization deadline. Their
  * signed version is checked against the locally pinned lifecycle before use. */
 export function verifyChamberClosure(value:ChamberLifecycle,entry:PersonalDirectoryEntry,minimumVersion=1):boolean {
@@ -83,16 +70,15 @@ export async function closeChamber(session:VaultSession,stored:StoredPersonalIde
 }
 export async function prepareChamberReopen(entry:PersonalDirectoryEntry,lifecycle:ChamberLifecycle,stored:StoredPersonalIdentity,credential:LocalCredentialResult,
   deviceName:string,capabilities:string[],signal:AbortSignal,joint=false) {
-  const migrate=!lifecycle.closed && !!lifecycle.migration && verifyMigration(entry,lifecycle.migration.verified);
-  const recover=!lifecycle.closed&&!lifecycle.migration&&(joint||lifecycle.pending?.purpose==='chamber-recovery-offer-v1');
-  if((!migrate&&!recover&&!verifyChamberClosure(lifecycle,entry)) || !same(rootFor(entry,entry.role),stored.identity))throw new Error('此密室的状态或本人恢复验证不正确');
+  const recover=!lifecycle.closed&&(joint||lifecycle.pending?.purpose==='chamber-recovery-offer-v1');
+  if((!recover&&!verifyChamberClosure(lifecycle,entry)) || !same(rootFor(entry,entry.role),stored.identity))throw new Error('此密室的状态或本人恢复验证不正确');
   const identity=await generateIdentity();signal.throwIfAborted();
   const binding=await usePersonalIdentity(stored,credential,entropy=>bindPersonalDevice(entropy,identity)),accessToken=randomBase64Url(32);
-  const payload:ChamberReopenPayload={v:1,purpose:migrate?'chamber-migration-offer-v1':recover?'chamber-recovery-offer-v1':'chamber-reopen-offer-v1',roomId:entry.roomId,requestId:lifecycle.pending?.requestId??crypto.randomUUID(),role:entry.role,
+  const payload:ChamberReopenPayload={v:1,purpose:recover?'chamber-recovery-offer-v1':'chamber-reopen-offer-v1',roomId:entry.roomId,requestId:lifecycle.pending?.requestId??crypto.randomUUID(),role:entry.role,
     version:lifecycle.version,generation:lifecycle.generation+1,bundle:identity.publicBundle,binding,tokenHash:toBase64Url(sha256(new TextEncoder().encode(accessToken))),deviceName,capabilities};
   const proof=await personalChallenge(stored.identity.id,{action:'restore-room',roomId:entry.roomId,deviceId:identity.publicBundle.deviceId,version:payload.version,payloadHash:hash(payload)},signal);
   const signature=await usePersonalIdentity(stored,credential,entropy=>signPersonalProof(entropy,proof));
-  return {identity,binding,accessToken,pending:{entry,offer:{payload,proof,signature},...(migrate?{migration:lifecycle.migration!.verified as Record<Role,ChamberMigrationVerification>}:{})} as PendingChamberReopen};
+  return {identity,binding,accessToken,pending:{entry,offer:{payload,proof,signature}} as PendingChamberReopen};
 }
 function members(snapshot:ChamberReopenSnapshot):RoomMember[] {
   return roles.map(role=>{const p=snapshot.offers[role]!.payload;return {...p.bundle,role,status:'active',joinProof:null,addedBy:null,
@@ -100,6 +86,7 @@ function members(snapshot:ChamberReopenSnapshot):RoomMember[] {
 }
 export async function verifyChamberReopen(pending:PendingChamberReopen,snapshot:ChamberReopenSnapshot):Promise<void> {
   const own=pending.offer,entry=pending.entry;
+  if(!['chamber-reopen-offer-v1','chamber-recovery-offer-v1'].includes(own.payload.purpose))throw new Error('此申请类型已停用');
   if(snapshot.requestId!==own.payload.requestId || snapshot.version!==own.payload.version || !same(snapshot.offers[entry.role],own) ||
     !Number.isFinite(Date.parse(snapshot.expiresAt)) || Date.parse(snapshot.expiresAt)>Date.parse(own.proof.expiresAt))throw new Error('共同恢复申请发生变化');
   for(const role of roles) {
@@ -112,7 +99,6 @@ export async function verifyChamberReopen(pending:PendingChamberReopen,snapshot:
   if(snapshot.proposal) {
     const p=snapshot.proposal;
     if(p.v!==1 || p.purpose!==own.payload.purpose.replace('-offer-','-proposal-') ||
-      (pending.migration&&(!p.migration||!same(p.migration,pending.migration)||!verifyMigration(entry,p.migration))) ||
       p.roomId!==entry.roomId || p.requestId!==snapshot.requestId || p.version!==snapshot.version ||
       p.generation!==own.payload.generation || p.expiresAt!==snapshot.expiresAt || !same(p.offers,snapshot.offers) || !roles.every(role=>snapshot.offers[role]) ||
       p.welcome.senderId!==p.offers.creator.payload.bundle.deviceId || p.welcome.recipientId!==p.offers.joiner.payload.bundle.deviceId ||
@@ -129,6 +115,7 @@ export async function verifyChamberReopen(pending:PendingChamberReopen,snapshot:
 }
 export async function advanceChamberReopen(session:VaultSession,signal:AbortSignal):Promise<ChamberReopenSnapshot> {
   const pending=session.vault.pendingChamberReopen;if(!pending)throw new Error('本机共同恢复状态缺失');
+  if(!['chamber-reopen-offer-v1','chamber-recovery-offer-v1'].includes(pending.offer.payload.purpose))throw new Error('此申请类型已停用');
   if(pending.cancelled)throw new Error('本次共同恢复已取消，请重新发起');
   let snapshot:ChamberReopenSnapshot;
   try {snapshot=await api(session.vault.roomId,session.vault.accessToken,'status',signal);} catch {
@@ -140,7 +127,6 @@ export async function advanceChamberReopen(session:VaultSession,signal:AbortSign
       if(!pending.proposal) {
         const fresh={...session.vault,members:members(snapshot),mls:await createCreatorMlsState(session.vault.roomId,session.vault.identity,members(snapshot))};
         const mls=await prepareCreatorWelcome(fresh),proposal:ChamberReopenProposal={v:1,purpose:pending.offer.payload.purpose.replace('-offer-','-proposal-') as ChamberReopenProposal['purpose'],roomId:session.vault.roomId,
-          ...(pending.migration?{migration:pending.migration}:{}),
           requestId:snapshot.requestId,version:snapshot.version,generation:pending.offer.payload.generation,expiresAt:snapshot.expiresAt,offers:snapshot.offers as Record<Role,ChamberReopenOffer>,welcome:mls.pendingWelcome!};
         await withVaultMutation(session,async mutation=>{signal.throwIfAborted();pending.proposal=proposal;pending.mls=mls;await saveVault(session,mutation);});
       }
@@ -156,7 +142,6 @@ export async function advanceChamberReopen(session:VaultSession,signal:AbortSign
 export async function approveChamberReopen(session:VaultSession,snapshot:ChamberReopenSnapshot,stored:StoredPersonalIdentity,credential:LocalCredentialResult,signal:AbortSignal) {
   const pending=session.vault.pendingChamberReopen;if(!pending?.mls || !snapshot.proposal)throw new Error('请等待双方准备聊天密钥');
   await verifyChamberReopen(pending,snapshot);
-  if(session.vault.migrationSource)await assertMigrationSourceCurrent(session,signal);
   const proof=await personalChallenge(stored.identity.id,{action:'restore-room',roomId:session.vault.roomId,deviceId:session.vault.identity.publicBundle.deviceId,
     version:snapshot.version,payloadHash:hash(snapshot.proposal)},signal);
   const signature=await usePersonalIdentity(stored,credential,entropy=>signPersonalProof(entropy,proof));
@@ -172,10 +157,9 @@ export async function completeChamberReopen(session:VaultSession,snapshot:Chambe
   for(const role of roles) {const target=state.members.find(m=>m.deviceId===snapshot.offers[role]!.payload.bundle.deviceId);if(!target || target.status!=='active'||target.role!==role)throw new Error('共同恢复设备回读不一致');}
   await withVaultMutation(session,async mutation=> {
     signal.throwIfAborted();const before=session.vault;
-    if(before.migrationSource)await discardChamberMigrationStage(session,mutation);
     session.vault={...before,members:state.members,mls:{...pending.mls!,pendingWelcome:undefined,lastEventSeq:snapshot.result!.eventSeq},pairingState:'ready',
       lastSeq:snapshot.result!.nextSeq,lastReceiptSeq:snapshot.result!.nextReceiptSeq,historyUnavailableBeforeSeq:snapshot.result!.nextSeq,
-      chamberLifecycle:state.chamberLifecycle??undefined,pendingChamberReopen:undefined,pendingChamberClose:undefined,migrationSource:undefined,personalMigration:undefined,chamberBackup:undefined,pendingChamberHistoryRecovery:undefined,chamberHistoryRestoreProgress:undefined};
+      chamberLifecycle:state.chamberLifecycle??undefined,pendingChamberReopen:undefined,pendingChamberClose:undefined,chamberBackup:undefined,pendingChamberHistoryRecovery:undefined,chamberHistoryRestoreProgress:undefined};
     session.vault.identity.mlsPrivatePackage=undefined;
     try {await saveVault(session,mutation);}catch(cause){session.vault=before;throw cause;}
   });
