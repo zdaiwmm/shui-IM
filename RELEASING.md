@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+<a id="release-remove-legacy-migration-20261019"></a>
+## 旧空间迁移已移除并发布（2026-10-19 18:56）
+
+- 用户明确取消找回并要求移除全部旧空间迁移；展示完整应用`24d5a0f5aab6c5ca561cbd6e9f122170c2b8a501`、版本`2026.10.19.3`、完整CI、只读预检及验证缺口后，回复「确认，发布 2026.10.19.3 到生产。」。授权绑定本次精确应用，无独立消息permalink；范围与失败历史由[需求V1](docs/requirements/2026-10-19-remove-legacy-migration/README.md)拥有。下方旧迁移入口记录仅作历史，不能继续指引用户迁移。
+- [PR #352](https://github.com/zdaiwmm/shui-IM/pull/352)源`a994cf08c829f1cfcc301160165815bd56c75271`与上述应用完整文件树`ce5299b8266c04ee663d21eeb0c46ebd0527b079`一致。设置／备份入口、绑定接口、迁移暂存验证、回执与共同切换移除，历史未完成绑定不再启动新版服务；普通旧备份、新密室身份、双人恢复与附件校验保留。未执行用户数据清理或找回，不保证撤下功能可恢复原设备访问。
+- 本机`check:full`单次完整通过131文件／1034项和70／70浏览器入口（1041.86秒）；[精确PR完整CI39231427009](https://github.com/zdaiwmm/shui-IM/actions/runs/39231427009) attempt 1与[精确main完整CI39233464616](https://github.com/zdaiwmm/shui-IM/actions/runs/39233464616)最新attempt 2成功，含通话、认证TURN、审计、双架构镜像及Full application verification。main首轮TURN TCP统计断言失败保留，原代码／断言未改，一次完整复验通过；额外WebKit未读Fetch错误门禁未通过，不与注册全套或真机证据混淆。
+- 固定[只读云预检39235541353](https://github.com/zdaiwmm/shui-IM/actions/runs/39235541353)取得PREFLIGHT_OK。正常production审核后，唯一[云发布39239776319](https://github.com/zdaiwmm/shui-IM/actions/runs/39239776319)由`publish.mjs --cloud --with-readback --environment production --sha 24d5a0f5aab6c5ca561cbd6e9f122170c2b8a501`核对DEPLOY_VERIFIED，回执完成于`2026-10-19T10:50:37.300Z`。请求`efeefb28-a217-493b-ade0-3a9a80c594aa`只派发一次，从`073fe5f25b6fa1af684d9b9deb1a377bfa897b2b`实际切换一次，批次`20261019T104710Z`，入口云发布308608毫秒。工作流来源`fe26f4f07dbc3acb1fb904b35bbb2942c0e36b25`仅比应用多已合并对账文档，未改发该SHA、helper或环境保护。
+- linux/amd64镜像`sha256:ffbab9803b3e473f4e1b770b050dde58af21ce759e0a59810e603b0e70bd35ec`，归档摘要`9621cd0ba357474973d6eefd41c4122cab41e38d5574e35aefd9bc726711c224`、209957502字节，绑定上述main CI／attempt 2。首次独立回读仅backup starting失败；只读核对实际启动`2026-10-19T10:50:24.106421211Z`、既有5分钟探针／启动期后只续跑同SHA回读。第二次容器均健康、HTTPS健康通过，公开产物阶段约10秒超时；直接逐个读取首页、sw及四个版本资源均200，再原样续跑回读成功，未重发或放宽超时／断言。
+- 独立READBACK_OK于`2026-10-19T10:56:18.755Z`完成，3291毫秒：应用／备份running且healthy，TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物及新WebSocket一致，维护门absent，管理员及通话启用。本次未读取真实消息、附件或备份内容。
+- 脱敏授权、CI、预检、发布和三次回读证据位于公共Git元数据`quiet-room-deliveries/evidence/remove-legacy-chamber-migration-20261019/`，在任务树及其专属Git目录之外。第二个无部署配置的文档树`remove-legacy-migration-release-record-20261019`从核实main fe26f4f建立，仅对账，不再次发布文档SHA。核对overview、D-071、AGENTS与安全门槛，无新增长期取舍；仅核验本批资源，活动、缓存／回执、晚于应用的文档资源及已取消的未提交找回现场依固定门禁保留，不处理其他任务。原生iPhone／iOS27／Safari、额外WebKit完整门禁与独立安全审阅未完成。
+
 <a id="release-chamber-migration-entry-20261019"></a>
 ## 旧空间迁移入口与返回补修已发布（2026-10-19 16:32）
 
