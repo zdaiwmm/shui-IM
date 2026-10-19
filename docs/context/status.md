@@ -1,10 +1,11 @@
 # Quiet Room 当前状态
 
-## 原邀请续入与首页地址归一（2026-10-19，未发布）
+## 原邀请续入与首页地址归一已发布（2026-10-19 19:52）
 
-用户确认[需求V1](../requirements/2026-10-19-chamber-invite-reentry/README.md)，免本次原型／流程图，授权直接实施、测试及合并；无生产发布授权。已有保险库先正常解锁，按加密目录定位原密室／续接原占位，原地将当前URL替换为同源`/`并清除查询与片段，保留history.state，无刷新和新增历史；设备、历史与恢复授权不扩大，长期契约见D-072。
-
-本机构建及131文件／1034项单元通过，Chromium／WebKit专项行为断言通过；WebKit原页面退出未读资源取消诊断单列。完整浏览器及精确PR／CI／合并结果以需求记录关联分支的实际证据为准，不据此宣布上线；原生iPhone／iOS27／Safari未验收。下方生产记录保持其原证据时点。
+- 用户确认[需求V1](../requirements/2026-10-19-chamber-invite-reentry/README.md)，免本次原型／流程图，授权直接实施、测试及合并；准备完整CI及只读预检后，明确确认`7d21b371809e69a16f35d6f8930ebcad16809a14`（`2026.10.19.4`）发布。已有保险库先正常解锁，按加密目录定位原密室／续接原占位，原地将URL替换为同源`/`并清除查询与片段，保留history.state，无刷新和新增历史；设备、历史与恢复授权不扩大，长期契约见D-072。
+- 实现由[PR #354](https://github.com/zdaiwmm/shui-IM/pull/354)合并，版本说明由[PR #356](https://github.com/zdaiwmm/shui-IM/pull/356)合并；本机构建／1034项及完整70项浏览器入口通过，精确[main完整CI39243198868](https://github.com/zdaiwmm/shui-IM/actions/runs/39243198868)最新attempt 3成功，含70入口、通话、审计及双架构镜像。main首轮新标签页续入20秒超时，本机完整Chamber复核与一次完整云端复验通过；中途失败分片重跑为匹配最新attempt镜像而主动取消，未放宽断言。
+- 固定只读云预检取得PREFLIGHT_OK，唯一[正式云发布39246479625](https://github.com/zdaiwmm/shui-IM/actions/runs/39246479625)核对精确DEPLOY_VERIFIED，从`24d5a0f5aab6c5ca561cbd6e9f122170c2b8a501`切换一次。用户精确授权后，由当前已配置审核账号通过GitHub正常接口完成本次production审核，环境保护未修改。首次独立回读仅备份starting；核对实际启动与既有5分钟探针后只续跑回读，于`2026-10-19T11:52:03.011Z`启动并在3251毫秒取得READBACK_OK。应用／备份healthy，TURN运行且探针none，SHA／镜像、HTTPS／数据库／存储、公开／容器产物及WebSocket一致，维护门absent。详见[本轮发布记录](../../RELEASING.md#release-chamber-invite-reentry-20261019)。
+- 脱敏授权、CI、发布及两次回读证据保存在公共Git元数据`quiet-room-deliveries/evidence/chamber-invite-reentry-20261019/`；第二独立文档树仅对账，文档提交不替代线上应用。WebKit页面退出未读资源取消诊断单列，原生iPhone／iOS27／Safari和独立安全审阅未完成；下方生产记录保持其历史证据时点。
 
 ## 旧空间迁移已移除并发布（2026-10-19 18:56）
 

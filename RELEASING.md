@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+<a id="release-chamber-invite-reentry-20261019"></a>
+## 原邀请续入与首页地址归一已发布（2026-10-19 19:52）
+
+- 向用户展示完整CI、PREFLIGHT_OK与验证缺口后，用户明确确认`7d21b371809e69a16f35d6f8930ebcad16809a14`（`2026.10.19.4`）发布到生产。授权仅绑定本次精确应用，无独立消息permalink；范围和失败历史由[需求V1](docs/requirements/2026-10-19-chamber-invite-reentry/README.md)拥有。同浏览器原受邀方解锁原保险库、复用原设备和历史，续接未完成加入任务，并以history.replaceState无刷新地整理为首页`/`；无本机凭据的旧邀请不新增访问授权。
+- 实现源`02b9c73d0e5e544b6c661b25b0600a5574a0b1b0`由[PR #354](https://github.com/zdaiwmm/shui-IM/pull/354)合并；版本源`5eee40792cb80864a2390c7480f6693047e7975f`由[PR #356](https://github.com/zdaiwmm/shui-IM/pull/356)合并为本次应用，版本源与应用完整文件树一致。发布包仅补版本元数据及记录，运行代码与最终实现一致。
+- 最终实现本机构建／131文件1034项与完整70浏览器入口通过；发布包本机check及Chamber定向复核通过，精确[发布PR完整CI39242244680](https://github.com/zdaiwmm/shui-IM/actions/runs/39242244680) attempt 1与[main完整CI39243198868](https://github.com/zdaiwmm/shui-IM/actions/runs/39243198868)最新attempt 3成功，含70入口、通话、依赖审计、凭据扫描、双架构镜像和Full application verification。main首轮新标签页续入20秒超时，失败分片重跑为匹配最新attempt镜像而主动取消，原代码／断言不变的一次完整复验通过；watch API超时仅接续原run。
+- 固定[只读云预检39245305548](https://github.com/zdaiwmm/shui-IM/actions/runs/39245305548)取得PREFLIGHT_OK；用户精确确认后，唯一[正式云发布39246479625](https://github.com/zdaiwmm/shui-IM/actions/runs/39246479625)由publish.mjs --cloud --with-readback核对DEPLOY_VERIFIED。请求`e5a59bab-b3a0-4d25-9653-b6b0cb50d119`只派发一次，从`24d5a0f5aab6c5ca561cbd6e9f122170c2b8a501`实际切换一次，批次`20261019T114417Z`，外层云发布344279毫秒（含环境审核等待）。审核通过当前配置的required reviewer账号依本次精确用户授权正常完成，未修改环境保护、helper或云权限。
+- linux/amd64镜像`sha256:078c891254d0e01b6808e6f7a4718b427b386e292215bfb60afb6c5f75f4ab36`，归档摘要`2c167f553208c73072bfc7cf5ac3402460eba97376a469005e510c426bf96e8a`、209960377字节，绑定上述main CI／attempt 3。首次独立回读仅备份starting，应用healthy；只读核对备份实际启动`2026-10-19T11:46:44.289496213Z`及既有5分钟探针／启动期后，仅续跑同SHA readback-only，未重发或放宽健康门禁。
+- 独立回读于`2026-10-19T11:52:03.011Z`开始并在3251毫秒取得READBACK_OK：应用／备份running且healthy，TURN运行且探针none；SHA／镜像、HTTPS／数据库／存储、公开与容器资源及新WebSocket一致，维护门absent。管理员及通话启用，未读取真实消息、附件或备份内容。
+- 脱敏授权、CI、预检、发布、两次回读和备份探针证据位于公共Git元数据`quiet-room-deliveries/evidence/chamber-invite-reentry-20261019/`，在任务树及专属Git目录之外。第二个无部署配置的文档工作树`chamber-invite-reentry-release-record-20261019`从获批应用建立，仅对账；文档提交不替代线上应用。核对D-072、overview、AGENTS与安全门槛，无新增长期取舍；本批资源依既有清理门禁核验，活动、缓存／回执及晚于应用的文档资源按规则保留。WebKit页面退出资源取消诊断单列；原生iPhone／iOS27／Safari和独立安全审阅未完成。
+
 <a id="release-remove-legacy-migration-20261019"></a>
 ## 旧空间迁移已移除并发布（2026-10-19 18:56）
 

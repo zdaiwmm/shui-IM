@@ -2,9 +2,9 @@
 
 ## 身份、确认与授权
 
-- 当前阶段：实现已通过PR #354合并，应用合并提交为`fc1eb47b2ffee4e87817963a1c46c85944a28591`；现准备`2026.10.19.4`发布版本，尚未切换生产。
+- 当前阶段：实现经PR #354合并，PR #356补齐版本；`2026.10.19.4`已发布为`7d21b371809e69a16f35d6f8930ebcad16809a14`，固定发布回执与独立生产回读通过。发布后记录由独立文档PR对账，文档SHA不替代线上应用。
 - 2026-10-19用户认可本会话方案并明确「就按这个方案直接实施，不用再出原型和流程图，完成后测试并合并」。本次免原型／流程图；会话消息未提供独立定位。例外仅限本需求，不改变长期流程。
-- 用户随后要求「发布生产」，授权本次版本准备及交付；生产切换仍待最终完整main SHA、完整CI与预检就绪后逐次确认，不把准备授权写成精确SHA确认。
+- 用户随后要求「发布生产」，授权版本准备及交付；完整main CI及只读预检就绪后，明确回复「确认，将 7d21b371809e69a16f35d6f8930ebcad16809a14（2026.10.19.4）发布到生产。」。授权仅绑定本次精确应用，无独立消息permalink。
 - 规则来源与起始基线：`fe26f4f07dbc3acb1fb904b35bbb2942c0e36b25`，开工时本机main、origin/main与GitHub实时main一致。
 - 独占工作树：`/Users/zhouding/ss-worktrees/chamber-invite-reentry-20261019`；分支`codex/chamber-invite-reentry-20261019`，跨电脑接续需重新核验。
 - 发布准备另用独占工作树`/Users/zhouding/ss-worktrees/chamber-invite-reentry-release-20261019`、分支`codex/chamber-invite-reentry-release-20261019`；基线与规则来源为`15013ca1c98d134e6e3f15e5de5b8c11fa5a9422`，开工时本机main、origin/main与GitHub一致，较应用合并仅增加上一版本发布记录。
@@ -34,3 +34,11 @@
 - 远端证据：使用分支`codex/chamber-invite-reentry-20261019`的关联PR、精确head检查及最终mergeCommit核验；不以本机测试推断CI或合并成功。原生iPhone／iOS27／Safari及独立安全审阅未验证；桌面引擎模拟不能替代真机。
 - 最终实现`02b9c73d0e5e544b6c661b25b0600a5574a0b1b0`的本地构建／1034项单元与完整70项浏览器入口均通过；[PR #354](https://github.com/zdaiwmm/shui-IM/pull/354)精确head的完整[CI 39238729471](https://github.com/zdaiwmm/shui-IM/actions/runs/39238729471) attempt 2通过。attempt 1的相册返回定位断言失败，读取失败原因后只续跑失败任务并通过，未修改该产品或测试。发布版本的精确main CI与预检单独核验，不复用PR CI作为发布门禁。
 - 提交前检查差异归属、文本体积、敏感材料、二进制／依赖／产物误纳入；只保存合成测试及必要源码和文档。
+
+## 发布验证与对账
+
+- 发布包源`5eee40792cb80864a2390c7480f6693047e7975f`经[PR #356](https://github.com/zdaiwmm/shui-IM/pull/356)合并为上述应用SHA；仅版本元数据和记录区别于最终实现，运行代码一致。发布包本机`npm run check`通过131文件／1034项，文档检查通过；精确发布PR[CI39242244680](https://github.com/zdaiwmm/shui-IM/actions/runs/39242244680) attempt 1完整通过。
+- 精确main[CI39243198868](https://github.com/zdaiwmm/shui-IM/actions/runs/39243198868)最新attempt 3完整成功，含全部70浏览器入口、通话、生产依赖审计、凭据扫描、双架构镜像和Full application verification。attempt 1中Chamber主流程的新标签页续入等待20秒超时，本机完整Chamber定向复核通过；attempt 2失败分片重跑于1分18秒主动取消，以完整attempt 3重新生成匹配镜像。原断言和超时未改，一次完整复验通过；本机watch API超时仅接续原run，不触发额外CI。
+- 固定[只读预检39245305548](https://github.com/zdaiwmm/shui-IM/actions/runs/39245305548)取得PREFLIGHT_OK。精确SHA确认后只提交一个[正式发布39246479625](https://github.com/zdaiwmm/shui-IM/actions/runs/39246479625)，正常production审核由当前配置审核账号依本次用户授权完成，未修改或绕过环境保护；固定入口核对DEPLOY_VERIFIED。
+- 首次独立回读仅备份starting，应用健康；核对实际备份启动`2026-10-19T11:46:44.289496213Z`、现有5分钟探针及启动期后，仅续跑同SHA的readback-only，于`2026-10-19T11:52:03.011Z`启动并在3251毫秒取得READBACK_OK。线上SHA、镜像、容器、公开／容器资源、HTTPS／数据库／存储和WebSocket一致，维护门absent；应用与备份healthy，TURN运行但探针none。
+- 完整发布事实见[本轮发布记录](../../../RELEASING.md#release-chamber-invite-reentry-20261019)。脱敏证据在公共Git元数据`quiet-room-deliveries/evidence/chamber-invite-reentry-20261019/`，独立文档工作树`chamber-invite-reentry-release-record-20261019`仅对账；本批资源依固定清理门禁逐项核验。真机与独立安全审阅缺口保持，不从上线回读推断。
