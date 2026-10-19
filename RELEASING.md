@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+<a id="release-audit-challenge-join-20261019"></a>
+## 个人根挑战与旧加入重放修复已发布（2026-10-19 08:10）
+
+- 用户在获知两项复现与修复、完整应用`b7a90f4708ffaa3c5599f9e98db4851fd28485c2`、版本`2026.10.18.5`、精确main完整CI、PREFLIGHT_OK及本机/真机缺口后回复「确认，发布生产」，授权此精确提交，无独立消息permalink。[需求V1](docs/requirements/2026-10-19-audit-challenge-join-fixes/README.md)拥有IM-SHUI-003/004的前提、最小修复与失败历史；未证明消息明文泄露或已撤销设备重新获得权限。
+- [PR #346](https://github.com/zdaiwmm/shui-IM/pull/346)源`253c313002fe883d5f594e3e31aec896b684915c`与应用完整文件树一致。匿名挑战签发不占他人持久额度，专用持久HMAC认证签发，根签名/事务一次消费及升级前挑战兼容保留；旧join重试校验原设备凭据、active及恢复fencing。[PR完整CI39176736736](https://github.com/zdaiwmm/shui-IM/actions/runs/39176736736)和[精确main完整CI39178072775](https://github.com/zdaiwmm/shui-IM/actions/runs/39178072775)均attempt 1成功：130文件/1028项、70浏览器入口、通话/TURN、依赖审计、文档/凭据扫描、双架构镜像及Full application verification。
+- 本机定向9文件/41项通过；完整构建及1018项通过，10项既有备份传输被主机93%已用/严格80%容量门禁阻断。69/70浏览器入口分段通过，原合成视口/输入高度动画用例两次超时原因未定位，云端同用例通过；移动调试首次本机Chrome超时后，固定Playwright原断言复验通过。未改无关产品或断言规避，不写成本机全量或真机通过。
+- 固定[云预检39178586083](https://github.com/zdaiwmm/shui-IM/actions/runs/39178586083)取得PREFLIGHT_OK。正常production审核后，唯一[云发布39178883752](https://github.com/zdaiwmm/shui-IM/actions/runs/39178883752)核对DEPLOY_VERIFIED于`2026-10-19T00:05:01.133Z`，工作流与应用均为获批SHA，从`618aa5c2e3e59b4bb669949c021d4d0f47dcb635`实际切换一次；批次`20261019T000231Z`。未修改helper或环境保护。
+- linux/amd64镜像`sha256:6624d80439bd706eb2f7e0c3d3d097678c6cabc440dce1465e8dde38b0035316`，归档摘要`ff37c2b520c7cbb8334d899b6abee2ec31f8d970036e13eafd72c976bdb20170`、209963453字节，绑定上述精确main CI/attempt 1。首次独立回读仅backup starting失败；只读核对实际启动`2026-10-19T00:04:49.054158389Z`及既有5分钟探针/启动期后，只续跑同SHA readback-only。
+- 独立READBACK_OK于`2026-10-19T00:10:18.475Z`（北京时间08:10）完成，3251毫秒：应用/备份running且healthy，TURN运行且探针none；SHA/镜像、HTTPS/数据库/存储、公开与容器产物及新WebSocket一致，维护门absent，管理员与通话启用。脱敏授权、CI、预检、发布及两次回读证据保存于公共Git元数据`quiet-room-deliveries/evidence/audit-challenge-join-fixes-20261019/delivery.json`。
+- 第二个无部署配置文档树只对账，文档SHA不发布；本批资源按固定门禁收尾，不处理其他任务。代码批已更新安全契约和测试入口，本轮治理核对overview/decisions/AGENTS/安全门槛，无新增长期产品取舍。原生iPhone/iOS27/Safari与独立安全审阅未完成，公开高安全声明继续受[安全门槛](PRODUCTION_SECURITY_GATE.md)约束。
+
 <a id="release-audit-storage-legacy-20261019"></a>
 ## 附件回收与旧协议重试修复已发布（2026-10-19 01:06）
 
