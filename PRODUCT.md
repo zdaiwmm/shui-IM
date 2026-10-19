@@ -1,5 +1,9 @@
 # Product
 
+## Legacy migration entry and return correction, 2026-10-19
+
+The [confirmed entry correction](docs/requirements/2026-10-19-chamber-migration-entry/README.md) exposes “旧空间迁移” in normal Settings for legacy rooms and unfinished staged migrations. It remains available after personal identity binding, and disappears only after completed cutover; newly created Chamber rooms do not offer it. Compatibility backup links are consumed once on authenticated entry, preserving the remaining URL and navigation state so ordinary Back actions return normally. Users never need to edit an address. Original history preservation, both root approvals and complete cloud/local integrity verification retain the existing migration contract.
+
 ## Original-device Chamber migration and UI corrections, 2026-10-19
 
 The [confirmed V2](docs/requirements/2026-10-19-local-migration-ui/README.md) lets both original browsers verify jointly opened cloud history in an empty, independently encrypted local staging namespace. Both original roots then confirm the same fresh-generation proposal. Original history, creator Safe, encrypted local preferences and composer checkpoints retain their original ownership when device keys rotate. Missing originals, stale source projections, changed backup heads, uncompleted sends or an incomplete joint approval block cutover. A lost response resumes the same durable request, including final receipt lookup after expiry; only authoritative cancellation/expiry permits a return to the old session.

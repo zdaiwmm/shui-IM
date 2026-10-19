@@ -13,8 +13,36 @@ try {
     server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${backend.port}`,'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});await vite.listen();
   browser=await chromium.launch(process.env.CI?{}:process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{channel:'chrome'});
   const url=`http://127.0.0.1:${vite.httpServer.address().port}/`,errors=[],pages=[];
-  for(let i=0;i<2;i++){const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0'});const page=await context.newPage();page.setDefaultTimeout(25_000);page.on('pageerror',e=>errors.push(e.message));await page.goto(url);pages.push(page);}
+  for(let i=0;i<2;i++){const context=await browser.newContext(i===0?{viewport:{width:390,height:844},isMobile:true,deviceScaleFactor:3,hasTouch:true,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0'}:{viewport:{width:1440,height:900}});const page=await context.newPage();page.setDefaultTimeout(25_000);page.on('pageerror',e=>errors.push(e.message));await page.goto(url);pages.push(page);}
   const [a,b]=pages;
+  const openMigration=async page=>{
+    await page.locator('#chat-settings').click();
+    try {
+      await page.locator('.space-settings-list').waitFor();
+      await page.getByRole('button',{name:'旧空间迁移',exact:true}).click();
+    } catch(cause) {
+      console.error('Synthetic migration navigation state',await page.evaluate(()=>({
+        role:app.session?.vault.role,bound:Boolean(app.session?.vault.personalBinding),migration:app.session?.vault.personalMigration?.state,
+        covered:app.privacyCovered,drawer:app.spaceDrawerOpen,surface:app.activeSurface,
+        settings:Boolean(document.querySelector('.space-settings-list')),closing:document.querySelectorAll('.space-drawer-overlay.is-closing').length,
+        entry:Boolean(document.querySelector('#chamber-migration-settings')),entryInert:Boolean(document.querySelector('#chamber-migration-settings')?.closest('[inert]')),
+      })));
+      throw cause;
+    }
+    await page.locator('#chamber-migration-bind').waitFor();
+  };
+  const closeSettings=async page=>{
+    const desktop=page.locator('.desktop-settings-page');
+    if(await desktop.count())await desktop.locator('.space-back').click();
+    else await page.locator('.space-close').click();
+    await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
+    await page.locator('#message-input').waitFor();
+  };
+  const returnToChat=async page=>{
+    await page.locator('#chamber-migration-back').click();
+    await page.locator('.space-settings-list').waitFor();
+    await closeSettings(page);
+  };
   // Synthetic pre-migration room, with the real old password vault and MLS.
   const bVault=await a.evaluate(async()=>{
     const v=await import('/src/lib/vault.ts'),api=await import('/src/lib/api.ts'),crypto=await import('/src/lib/crypto.ts'),base=await import('/src/lib/base64.ts'),m=await import('/src/lib/mls.ts'),p=await import('/src/lib/password-protection.ts');
@@ -28,11 +56,29 @@ try {
   await b.evaluate(async vault=>{const v=await import('/src/lib/vault.ts'),p=await import('/src/lib/password-protection.ts');await v.createVault(vault,'','platform',await p.deriveNumericPasswordCredential('135790'),()=>true);},bVault);
   for(const [page,pin] of [[a,'246810'],[b,'135790']]){await page.reload();await submitPassword(page,pin);await page.locator('#message-input').waitFor();}
   await a.locator('#message-input').fill('Synthetic legacy history retained');await a.locator('#composer').evaluate(f=>f.requestSubmit());await b.getByText('Synthetic legacy history retained',{exact:true}).waitFor();
+  // Enter the old link through a real unlock, then return without editing URLs.
+  await a.locator('#message-input').fill('Synthetic navigation draft');
+  await a.goto(`${url}?migration-entry=synthetic#legacy-backup`);await submitPassword(a,'246810');
+  await a.locator('#legacy-chamber-migrate').waitFor();
+  assert.equal(new URL(a.url()).hash,'');assert.equal(new URL(a.url()).search,'?migration-entry=synthetic');
+  await a.locator('#backup-back').click();await a.locator('#message-input').waitFor();
+  assert.equal(await a.locator('#message-input').inputValue(),'Synthetic navigation draft');
+  await a.getByText('Synthetic legacy history retained',{exact:true}).waitFor();await a.locator('#message-input').fill('');
+  // A link opened while already unlocked also loses its route ownership.
+  await b.evaluate(()=>{location.hash='legacy-backup';});await b.locator('#legacy-chamber-migrate').waitFor();
+  assert.equal(new URL(b.url()).hash,'');
+  await b.locator('#legacy-chamber-migrate').click();await b.locator('#chamber-migration-back').click();await b.locator('#message-input').waitFor();
   await a.evaluate(()=>app.runAutomaticBackup(true));const oldCode=await a.evaluate(()=>app.session.vault.backup.code);
-  for(const [page,pin] of [[a,'246810'],[b,'135790']]){await page.evaluate(()=>app.renderBackupSettings());await page.locator('#legacy-chamber-migrate').click();await page.locator('#chamber-migration-bind').click();await submitPassword(page,pin);await page.getByText(/本人身份已加密保管/).waitFor();}
+  for(const [page,pin] of [[a,'246810'],[b,'135790']]){await openMigration(page);await page.locator('#chamber-migration-bind').click();await submitPassword(page,pin);await page.getByText(/本人身份已加密保管/).waitFor();}
   await a.locator('#chamber-migration-check').click();await a.waitForFunction(()=>Boolean(app.session.vault.personalBinding));
   const original=await Promise.all([a,b].map(page=>page.evaluate(()=>({slot:app.session.stored.spaceId??'current',device:app.session.vault.identity.publicBundle.deviceId,scope:app.session.vault.localDataScope??app.session.vault.roomId}))));
-  for(const page of [a,b]){await page.locator('#chamber-migration-back').click();await page.locator('#message-input').waitFor();}
+  for(const page of [a,b]){
+    await returnToChat(page);await openMigration(page);
+    await page.locator('#chamber-migration-check').waitFor();await returnToChat(page);
+    // The same compatibility link must also return after root binding.
+    await page.evaluate(()=>{location.hash='legacy-backup';});await page.locator('#chamber-history-back').waitFor();
+    assert.equal(new URL(page.url()).hash,'');await page.locator('#chamber-history-back').click();await page.locator('#message-input').waitFor();
+  }
   await a.evaluate(async()=>{await app.processImageFiles([new File([new Uint8Array(8193).map((_,i)=>i%251)],'synthetic-original.txt',{type:'text/plain'})]);});
   await b.getByText('synthetic-original.txt',{exact:true}).first().waitFor();
   await a.waitForFunction(()=>app.session.vault.lastSeq>=2&&app.outbox.size===0&&!app.imageBatchUploading);
@@ -108,6 +154,11 @@ try {
   }
   for(const [page,pin] of [[a,'246810'],[b,'135790']]){await page.reload();await submitPassword(page,pin);await page.locator('#message-input').waitFor();}
   for(const [index,page] of [a,b].entries())assert.equal(await page.locator('#message-input').inputValue(),`Synthetic preserved draft ${index}`);
+  for(const page of [a,b]){
+    await page.locator('#chat-settings').click();await page.locator('.space-settings-list').waitFor();
+    assert.equal(await page.locator('#chamber-migration-settings').count(),0,'Completed spaces no longer offer legacy migration');
+    await closeSettings(page);
+  }
   assert.equal(dropped,true);
   assert.equal(await a.evaluate(async code=>{try{await(await import('/src/lib/cloud-backup.ts')).fetchRecoveryBundle(code,new AbortController().signal);return false;}catch{return true;}},oldCode),true);
   await a.locator('#message-input').fill('Synthetic migrated fresh generation');await a.locator('#composer').evaluate(f=>f.requestSubmit());await b.getByText('Synthetic migrated fresh generation',{exact:true}).waitFor();

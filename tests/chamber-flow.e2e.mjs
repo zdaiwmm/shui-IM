@@ -291,6 +291,7 @@ try {
   assert.equal(await a.locator('.auto-lock-page').count(), 1, 'Activation must retain the settings page');
   await a.locator('#auto-lock-back').click();
   await a.locator('.space-settings-list').waitFor();
+  assert.equal(await a.locator('#chamber-migration-settings').count(),0,'New Chamber rooms do not offer legacy migration');
   await a.locator('.space-close').click();
   await a.locator('.space-drawer-overlay').waitFor({state:'detached'});
   await a.waitForFunction(()=>document.querySelector('.chat-shell') && !document.querySelector('.chat-shell').inert);
