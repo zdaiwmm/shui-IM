@@ -54,14 +54,15 @@ try {
         app.rememberSpacePreview = async () => {}; app.refreshOtherSpacePreviews = async () => {}; app.updatePeerStatus = () => {};
         document.querySelector('#app').innerHTML = '<section class="chat-shell"><button id="open-spaces">空间</button></section>';
         await app.openPrivateSpaces(() => true,0,true);
-      } else {
+      }
+      {
         const { DeviceNotifications } = await import('/src/lib/device-notifications.ts'); const { mountNotificationSettings } = await import('/src/lib/notification-settings.ts');
         window.abort = new AbortController(); const spaces = [{ roomId: aVault.roomId, name: '林间' }, { roomId: bVault.roomId, name: '海边' }];
         document.querySelector('#app').innerHTML = '<section class="device-shell notification-page"><header class="subpage-header device-header"><div><h1>通知</h1></div></header><main class="device-content notification-content"></main></section>';
         mountNotificationSettings(document.querySelector('main'), new DeviceNotifications(spaces, async (id, _verify, action) => action(id === aVault.roomId ? aVault : bVault), abort.signal), { systemSurface: operation => operation() });
       }
     }, engine.name());
-    if (engine === chromium) {  await page.locator('#notification-settings').click(); }
+    assert.equal(await page.locator('#notification-settings').count(),0);
     const master = page.locator('#notification-master');
     await page.waitForFunction(() => document.querySelector('#notification-status')?.textContent === '本机支持通知');
     assert.equal(await page.evaluate(() => prompts), 0);
@@ -113,20 +114,10 @@ try {
     assert.equal(await master.isDisabled(), true);
     await page.evaluate(() => { Object.defineProperty(navigator, 'userAgent', { configurable: true, value: originalUserAgent }); });
     await page.locator('.notification-refresh').click(); await page.waitForFunction(() => !document.querySelector('#notification-master').disabled);
-    if (engine === chromium) {
-      // Exercise the actual app entry, shared transition and return path.
-      await page.locator('#notification-copy-entry').click();
-      await page.waitForFunction(() => !document.querySelector('#notification-copy-title')?.disabled);
-      await page.locator('#notification-copy-title').fill('本机提醒');
-      await page.locator('#notification-copy-save').click();
-      await page.waitForFunction(() => document.querySelector('.notification-copy-feedback')?.textContent === '已保存');
-      await page.locator('#notification-copy-back').click();
-      await page.waitForFunction(() => document.querySelector('[data-notification-copy-summary]')?.textContent.includes('本机提醒'));
-    }
     // A late native permission result cannot enable notifications after the runtime ends.
     await page.evaluate(() => { deferPermission = true; }); await master.click();
     await page.waitForFunction(() => !!window.releasePermission);
-    await page.evaluate(mode => { mode === 'chromium' ? app.runtimeAbort.abort() : abort.abort(); releasePermission(); }, engine.name());
+    await page.evaluate(mode => { abort.abort(); releasePermission(); }, engine.name());
     await page.waitForTimeout(100);
     assert.equal(await page.evaluate(() => np.readNotificationPolicy().enabled), false);
     assert.equal(await page.evaluate(async () => (await (await caches.open(np.NOTIFICATION_POLICY_CACHE)).match(np.NOTIFICATION_POLICY_URL)).text()), 'off');

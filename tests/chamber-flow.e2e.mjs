@@ -419,7 +419,7 @@ try {
     const stored=await v.readPersonalIdentity(),credential=await v.unlockPersonalIdentityPassword(stored,'135790');
     try{return await p.usePersonalIdentity(stored,credential,entropy=>m.personalMnemonicFromEntropy(entropy).split(' '));}finally{delete credential.rootKek;}
   });
-  await a.evaluate(()=>app.renderBackupSettings());await a.locator('#chamber-close-begin').click();
+  await a.locator('#chat-settings').click();await a.locator('#chamber-close').click();
   for(const [index,input] of (await a.locator('#chamber-close-form input').all()).entries()) {
     try{await fillFormInput(a,input,words[index]);}catch{throw new Error('Synthetic close confirmation field did not commit; secret values omitted');}
   }

@@ -10,6 +10,7 @@ const evidence=process.env.QUIET_ROOM_UI_EVIDENCE;
 const capture=async name=>{if(evidence){await mkdir(evidence,{recursive:true});await page.screenshot({path:`${evidence}/${name}.png`});}};
 try {
   await page.evaluate(()=>{
+    localStorage.setItem('quiet-room:presence-style','heart');
     const {session,app}=fixture;
     session.vault.personalBinding={identity:{id:'synthetic-ui-root'}};
     session.vault.members.push({deviceId:'synthetic-peer',role:'joiner',status:'active'});

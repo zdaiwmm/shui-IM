@@ -18,13 +18,13 @@ export async function auditUiDetails(page, out) {
     welcome: '.gateway-intro', create: '.gateway', profile: '.space-profile-page', invite: '#paste-form',
     corrupt: '.corrupt-vault-panel', recoveryUnlock: '#recovery-code-form',
     migration: '.gateway', binding: '.gateway', appearance: '.appearance-page',
-    autoLock: '.auto-lock-page', notificationCopy: '.notification-copy-page',
+    autoLock: '.auto-lock-page', coverSettings: '.cover-settings-page',
     backupExport: '[data-local-backup-view="export"]', backupImport: '[data-local-backup-view="import"]',
     backupCode: '.backup-code-page', recovery: '.recovery-flow-page',
     joint: '#joint-open-code', jointCode: '.joint-code-sheet', historyCode: '.history-restore-panel',
     help: '.backup-help-page', history: '.release-history-content', practice: '.cover-practice-page',
     entrance: '.recovery-flow-page', tools: '.chat-tools', info: '.message-info-panel',
-    menu: '.message-action-list', coverConfirm: '.cover-disable-panel',
+    menu: '.message-action-list',
     passwordCreate: '.password-create', passwordReturn: '.password-return', passwordOperation: '.password-operation-sheet',
     settings: '.space-drawer', presenceStyle: '.space-style-options', access: '.browser-access-modal',
     backupPrivacy: '.backup-privacy-panel', spaceInvite: '.entry-chat-guidance',
@@ -52,7 +52,7 @@ export async function auditUiDetails(page, out) {
           saveAvatar:async()=>{},picker:operation=>operation()});
         root.querySelector('#choose-art').click();return;
       }
-      const simple={welcome:'renderFirstRun',invite:'renderPasteInvite',corrupt:'renderCorruptVault',recoveryUnlock:'renderRecoveryUnlock',migration:'renderPlatformMigration',binding:'renderRecoveredVaultBinding',appearance:'renderAppearanceSettings',autoLock:'renderAutoLockSettings',notificationCopy:'renderNotificationCopy',recovery:'renderRecoveryCenter',joint:'renderJointRecovery',help:'renderFeatureHelp',history:'renderReleaseHistory',practice:'renderCoverPractice',entrance:'renderEntranceCard'};
+      const simple={welcome:'renderFirstRun',invite:'renderPasteInvite',corrupt:'renderCorruptVault',recoveryUnlock:'renderRecoveryUnlock',migration:'renderPlatformMigration',binding:'renderRecoveredVaultBinding',appearance:'renderAppearanceSettings',autoLock:'renderAutoLockSettings',coverSettings:'renderCoverSettings',recovery:'renderRecoveryCenter',joint:'renderJointRecovery',help:'renderFeatureHelp',history:'renderReleaseHistory',practice:'renderCoverPractice',entrance:'renderEntranceCard'};
       if(simple[name]) { app[simple[name]](); return; }
       if(name==='backupExport'||name==='backupImport'||name==='historyCode') {
         app.renderLocalHistoryBackup(name==='backupExport'?'export':'import');
@@ -81,7 +81,6 @@ export async function auditUiDetails(page, out) {
         app.messages.clear();
         try { app.renderChat(); } finally { Object.assign(session.vault,previous); }
       }
-      if(name==='coverConfirm')app.confirmDisableCover();
       if(name.startsWith('password')) {
         const {requestPassword}=await import('/src/lib/password-dialog.ts');
         void requestPassword(root,{create:name==='passwordCreate',presentation:name==='passwordReturn'?'page':'sheet',title:'验证空间访问',context:'验证后继续本次操作。',spaceName:'两个人的空间',operation:'导出聊天备份',signal,isActive:()=>true,verify:async()=>{throw Error('合成验证失败')}}).catch(()=>{});

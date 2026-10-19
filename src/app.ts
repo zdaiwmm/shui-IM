@@ -201,9 +201,7 @@ import {
   createRepairRequest,
   verifyRecoveryMembershipChain,
 } from './lib/mls';
-import { mountNotificationCopy } from './lib/notification-copy-ui';
-import { DeviceNotifications, reconcileSpaceNotifications } from './lib/device-notifications';
-import { mountNotificationSettings } from './lib/notification-settings';
+import { reconcileSpaceNotifications } from './lib/device-notifications';
 import './notifications.css';
 import {
   createPlatformCredential,
@@ -673,7 +671,7 @@ export class QuietRoomApp {
   private uiPreferencesHydrated = false;
   private composerCheckpoint: DraftCheckpoint | null = null;
   private shieldHintCleanup: (() => void) | null = null;
-  private unlockResume: 'chat' | 'recovery-center' | 'cover-practice' | 'local-backup' | 'local-backup-import' | 'gallery' | 'devices' | 'help' | 'release-history' | 'notifications' | 'notification-copy' | 'auto-lock' | 'appearance' | 'app-access' | null = null;
+  private unlockResume: 'chat' | 'recovery-center' | 'cover-practice' | 'local-backup' | 'local-backup-import' | 'gallery' | 'devices' | 'help' | 'release-history' | 'cover-settings' | 'auto-lock' | 'appearance' | 'app-access' | null = null;
   private restoreChatAnchorOnNextRender = true;
   private galleryScrollTop: Record<GalleryTab, number> = { images: 0, files: 0 };
   private galleryMode: 'safe' | 'favorites' = 'safe';
@@ -5768,7 +5766,7 @@ export class QuietRoomApp {
 
   private openMemePicker(): void {
     const previousRowTop = this.root.querySelector('.composer-row')?.getBoundingClientRect().top;
-    this.closeChatTools(true, true);
+    this.closeChatTools(false, false);
     const session = this.session;
     const epoch = this.runtimeEpoch;
     const host = this.root.querySelector<HTMLElement>('#composer');
@@ -5928,8 +5926,7 @@ export class QuietRoomApp {
       : root.querySelector('.app-access-page') ? 'app-access'
       : root.querySelector('.cover-practice-page') ? 'cover-practice'
       : root.querySelector('.gallery-shell') ? 'gallery'
-      : root.querySelector('.notification-copy-page') ? 'notification-copy'
-      : root.querySelector('.notification-page') ? 'notifications'
+      : root.querySelector('.cover-settings-page') ? 'cover-settings'
       : root.querySelector('.release-history-page') ? 'release-history'
       : root.querySelector('#help-back') ? 'help'
       : root.querySelector('.device-shell') ? 'devices'
@@ -5948,8 +5945,7 @@ export class QuietRoomApp {
     else if (resume === 'devices') void this.renderDeviceManager();
     else if (resume === 'help') this.renderFeatureHelp();
     else if (resume === 'release-history') this.renderReleaseHistory();
-    else if (resume === 'notifications') void this.renderNotificationSettings();
-    else if (resume === 'notification-copy') this.renderNotificationCopy();
+    else if (resume === 'cover-settings') this.renderCoverSettings();
     else if (resume === 'auto-lock') this.renderAutoLockSettings();
     else if (resume === 'appearance') this.renderAppearanceSettings();
     else if (resume === 'app-access') this.renderAppAccess();
@@ -6330,27 +6326,23 @@ export class QuietRoomApp {
         ...(isChamberVault(session.vault) ? [{ id: 'chamber-switch-space', label: '切换空间', icon: spaceIcons.spaces, keepOpen: true, run: (showSpaceList: () => void) => { this.settingsReturn = null; showSpaceList(); } }] : []),
         { id: 'appearance-settings', label: '主题外观', icon: spaceIcons.appearance, run: forward(() => this.renderAppearanceSettings()) },
         ...(this.desktopBrowser ? [{ id: 'app-access-settings', label: '在应用中打开', icon: spaceIcons.app, run: forward(() => this.renderAppAccess()) }] : []),
-        { id: 'manage-devices', label: '设备与新增设备', icon: spaceIcons.device, run: forward(() => this.renderDeviceManager()) },
+        { id: 'manage-devices', label: '设备管理', icon: spaceIcons.device, run: forward(() => this.renderDeviceManager()) },
         { id: 'backup-settings', label: isChamberVault(session.vault)?'助记词':'恢复卡', icon: spaceIcons.key, run: forward(() => this.renderRecoveryCenter()) },
         { id: 'local-history-backup', label: isChamberVault(session.vault)?'备份与共同恢复':'备份数据', icon: spaceIcons.upload, run: forward(() => isChamberVault(session.vault)?this.renderBackupSettings():this.renderLocalHistoryBackup('export')) },
         ...(!isChamberVault(session.vault)?[{ id: 'local-history-restore', label: '恢复数据', icon: spaceIcons.download, run: forward(() => this.renderLocalHistoryBackup('import')) }]:[]),
-        { id: 'recover-other-space', label: '恢复其他空间', icon: spaceIcons.spaces, run: forward(async () => {
-          if(!isChamberVault(session.vault)){this.renderJointRecovery(null);return;}
-          if(!await this.leaveSpace())return;await selectLocalSpace(crypto.randomUUID());this.renderPersonalRestoreProtection();
-        }) },
         { id: 'auto-lock-settings', group: '本机', label: '自动锁定', icon: spaceIcons.cover, run: forward(() => this.renderAutoLockSettings()) },
-        { id: 'notification-settings', group: '本机', label: '通知管理', icon: spaceIcons.bell, run: forward(() => this.renderNotificationSettings()) },
-        { id: 'passkey-management', group: '本机', label: '通行密钥管理', icon: spaceIcons.key, keepOpen: true, run: () => {
+        ...(session.stored.unlockMethod === 'password' ? [] : [{ id: 'passkey-management', group: '本机' as const, label: '通行密钥管理', icon: spaceIcons.key, keepOpen: true, run: () => {
           const credential = this.deviceCredential;
           if (!credential) return Promise.reject(new Error('请先完成通行密钥绑定'));
           return openPasskeyManagement(this.root, { session, credential, signal, prepareKeyboard: (input, event) => { this.prepareKeyboardOpening(input, event); }, verify: verificationSignal => this.withDeviceVerification(() => verifyPasskeyDetails(credential, verificationSignal), true), onRenamed: () => this.showNotice('修改成功') });
-        } },
-        { id: 'cover-practice-menu', group: '本机', label: session.vault.recoveryExperience?.coverEnabled ? '关闭自动遮蔽' : '体验或开启遮蔽', icon: spaceIcons.cover, keepOpen: () => Boolean(session.vault.recoveryExperience?.coverEnabled), run: () => session.vault.recoveryExperience?.coverEnabled ? this.confirmDisableCover() : this.renderCoverPractice() },
+        } }]),
+        { id: 'cover-practice-menu', group: '本机', label: '入口遮蔽页', icon: spaceIcons.cover, run: forward(() => this.renderCoverSettings()) },
+        ...(isChamberVault(session.vault) ? [{ id: 'chamber-close', label: '关闭这间密室', icon: icons.close, run: forward(() => this.renderChamberClose()) }] : []),
         { id: 'release-history', group: '关于', label: '更新记录', icon: spaceIcons.history, run: forward(() => this.renderReleaseHistory()) },
       ],
       select: space => { if (presentation === 'sidebar' && space.roomId === session.vault.roomId && !space.waiting) { if (!this.root.querySelector(':scope > .chat-shell')) { this.settingsReturn = null; this.renderChat(); } return Promise.resolve(); } if (space.roomId === session.vault.roomId && space.waiting) this.inviteListScrollTop = (container ?? this.root).querySelector('.space-drawer-scroll')?.scrollTop ?? 0; return this.switchPrivateSpace(space); },
       create: async () => { if (spaces.length >= 256) throw new Error('本机空间数量已达上限'); this.renderCreate(); },
-      allowCreate:!isChamberVault(session.vault),
+      allowCreate:true,
       editAvatar: async space => {
         const epoch = this.runtimeEpoch;
         const active = () => !signal.aborted && !this.privacyCovered && this.session === session && this.runtimeEpoch === epoch;
@@ -6431,7 +6423,7 @@ export class QuietRoomApp {
   }
 
   private applyPresenceStyle(): void {
-    const style = isChamberVault(this.session?.vault)?'chamber':readPresenceStyle();
+    const style = readPresenceStyle();
     const header = this.root.querySelector<HTMLElement>('.chat-header');
     if (!header) return;
     const entry = header.querySelector<HTMLElement>('#open-spaces');
@@ -6444,8 +6436,8 @@ export class QuietRoomApp {
     header.dataset.presenceStyle = style;
     const circuit = header.querySelector<SVGElement>('.presence-circuit');
     if (circuit) {
-      circuit.dataset.compact = String(style === 'heart'||style === 'chamber');
-      circuit.setAttribute('viewBox', style === 'heart'||style === 'chamber' ? '34 -5.52 32 32' : '0 0 100 24');
+      circuit.dataset.compact = String(style === 'heart');
+      circuit.setAttribute('viewBox', style === 'heart' ? '34 -5.52 32 32' : '0 0 100 24');
     }
   }
 
@@ -6496,10 +6488,9 @@ export class QuietRoomApp {
     document.body.className = 'app-mode';
     const chatMarkup = `
       <section class="chat-shell ${isChamberVault(this.session.vault) && !cryptoReady ? 'chamber-waiting' : ''}">
-        <header class="chat-header ${isChamberVault(this.session.vault) ? 'chamber-chat-header' : ''}" data-presence-style="${isChamberVault(this.session.vault) ? 'chamber' : readPresenceStyle()}">
+        <header class="chat-header ${isChamberVault(this.session.vault) ? 'chamber-chat-header' : ''}" data-presence-style="${readPresenceStyle()}">
           ${isChamberVault(this.session.vault) ? `<div class="peer-summary chamber-presence-capsule" ${this.session.vault.role === 'creator' && cryptoReady && this.peerHasJoined(this.session) ? 'id="open-gallery" role="button" tabindex="0"' : 'role="status"'} aria-live="polite">
-            ${presenceCircuitMarkup}<span class="presence-row sr-only" id="peer-presence"><i class="presence-dot" aria-hidden="true"></i></span><strong class="peer-status">等待加入</strong>
-            <span id="self-presence" class="sr-only"><strong>同步中</strong></span>
+            <div class="presence-heading"><span class="presence-row" id="peer-presence"><span>TA</span><i class="presence-dot" aria-hidden="true"></i></span>${presenceCircuitMarkup}<span class="presence-row" id="self-presence"><i class="presence-dot" aria-hidden="true"></i><span>我</span><strong class="sr-only">同步中</strong></span></div><strong class="peer-status">等待加入</strong>
           </div>` : `
           <button class="icon-button spaces-entry" id="open-spaces" type="button" aria-label="私密空间列表">${spaceAvatarMarkup(this.currentSpaceAvatar, this.currentSpaceName)}</button>
           <div class="peer-summary" ${this.session.vault.role === 'creator' ? 'id="open-gallery" role="button" tabindex="0"' : 'role="status"'} aria-live="polite">
@@ -6530,7 +6521,7 @@ export class QuietRoomApp {
         </div>
         <div class="notice" id="notice" role="status" hidden></div>
         <section class="message-list" id="message-list" aria-label="聊天消息">${isChamberVault(this.session.vault) ? `<details class="chamber-privacy-guide" ${(this.session.vault.personalGuide?.mnemonicViewed || this.session.vault.personalGuide?.mnemonicChecked) && this.session.vault.personalGuide.coverRead && this.session.vault.personalGuide.autoLockRead ? '' : 'open'}><summary>三步，熟悉你的隐私保护</summary><ol>
-            <li><button type="button" data-personal-guide="mnemonic"><b>01</b><span><strong>助记词</strong><small>${this.session.vault.personalGuide?.mnemonicViewed ? '已查看，请妥善保存' : this.session.vault.personalGuide?.mnemonicChecked ? '已核对助记词' : '换设备时，用它证明是你'}</small></span><span aria-hidden="true">›</span></button></li>
+            <li><button type="button" data-personal-guide="mnemonic"><b>01</b><span><strong>助记词</strong><small>${this.session.vault.personalGuide?.mnemonicViewed ? '已查看，请妥善保存' : this.session.vault.personalGuide?.mnemonicChecked ? '已核对助记词' : '密室进不去时，用它找回并恢复记录'}</small></span><span aria-hidden="true">›</span></button></li>
             <li><button type="button" data-personal-guide="cover"><b>02</b><span><strong>入口遮蔽</strong><small>${this.session.vault.recoveryExperience?.coverEnabled ? '已开启' : '了解伪装入口，按需开启'}</small></span><span aria-hidden="true">›</span></button></li>
             <li><button type="button" data-personal-guide="auto-lock"><b>03</b><span><strong>自动锁定</strong><small>了解暂时离开后的保护</small></span><span aria-hidden="true">›</span></button></li>
           </ol></details>` : ''}</section>
@@ -7565,17 +7556,17 @@ export class QuietRoomApp {
     const session = this.session;
     if (!session || this.privacyCovered) return;
     if (!this.setActiveSurface('away')) return;
-    const existingPage = this.root.querySelector<HTMLElement>(':scope > .device-shell');
+    const existingPage = this.root.querySelector<HTMLElement>(':scope > .device-shell:has(#device-back)');
     if (!existingPage) this.root.innerHTML = `
       <section class="device-shell">
         <header class="subpage-header device-header">
           <button class="icon-button" id="device-back" type="button" aria-label="返回聊天">${icons.back}</button>
-          <div><h1>设备管理</h1><p>独立密钥 · 新设备只看新消息</p></div>
+          <div><h1>设备管理</h1></div>
           <button class="icon-button" id="refresh-devices" type="button" aria-label="刷新设备状态">↻</button>
         </header>
         <div class="notice device-notice" id="notice" role="status" hidden></div>
         <main class="device-content">
-          <aside class="device-security-note">${createElement(Info).outerHTML}<span>添加时可填写便于辨认的设备名称。新设备只看加入后的消息；移除后不再接收新消息。</span></aside>
+          <aside class="device-security-note">${createElement(Info).outerHTML}<span>查看双方已授权的设备。移除设备后，它将无法接收新消息。</span></aside>
           <div class="device-loading">正在验证设备状态…</div>
         </main>
       </section>
@@ -7627,7 +7618,9 @@ export class QuietRoomApp {
     const refresh = devicePage.querySelector<HTMLButtonElement>('#refresh-devices')!;
     setBusy(refresh, true);
     try {
-      const result = await listDeviceLinks(session.vault.roomId, session.vault.accessToken);
+      const result = isChamberVault(session.vault)
+        ? { state: await getRoomState(session.vault.roomId, session.vault.accessToken, this.runtimeAbort?.signal), links: [] }
+        : await listDeviceLinks(session.vault.roomId, session.vault.accessToken);
       if (!current()) return;
       await this.applyRoomStateQueued(result.state);
       if (!current()) return;
@@ -7640,9 +7633,6 @@ export class QuietRoomApp {
       const ownId = session.vault.identity.publicBundle.deviceId;
       const active = session.vault.members.filter((member) => member.status === undefined || member.status === 'active');
       const ownDevices = active.filter((member) => member.role === session.vault.role);
-      const ownReservedDevices = session.vault.members.filter((member) =>
-        member.role === session.vault.role && member.status !== 'revoked',
-      );
       const peerDevices = active.filter((member) => member.role !== session.vault.role);
       const pendingClaims = result.links
         .filter((link) => link.claimedDeviceId && !link.usedAt)
@@ -7665,13 +7655,7 @@ export class QuietRoomApp {
       toolbar.className = 'device-toolbar';
       const heading = document.createElement('div');
       heading.innerHTML = `<strong>你的设备</strong><span>${ownDevices.length} / 3 台</span>`;
-      const add = document.createElement('button');
-      add.type = 'button';
-      add.className = 'primary-button compact-button';
-      add.textContent = '添加设备';
-      add.disabled = ownReservedDevices.length >= 3 || session.vault.protocol !== 'mls-rfc9420';
-      add.addEventListener('click', () => void this.startDeviceLink(add));
-      toolbar.append(heading, add);
+      toolbar.append(heading);
       content.append(toolbar);
 
       if (pendingClaims.length > 0) {
@@ -7745,7 +7729,7 @@ export class QuietRoomApp {
       peerSection.innerHTML = `<h2>对方设备 <span>${peerDevices.length} 台</span></h2>`;
       for (const member of peerDevices) {
         const card = this.deviceCard(member, false);
-        if (member.status !== 'revoked') {
+        if (!isChamberVault(session.vault) && member.status !== 'revoked') {
           const repair = document.createElement('button');
           repair.type = 'button'; repair.className = 'secondary-button compact-button'; repair.textContent = '修复此设备';
           repair.addEventListener('click', () => void this.startRepairLink(member, repair));
@@ -8237,6 +8221,7 @@ export class QuietRoomApp {
       this.chatScrollFrame = null;
       const list = this.chatLayoutElements?.list;
       if (!list?.isConnected || this.privacyCovered || this.activeSurface !== 'chat') return;
+      syncChatBubbleGradient(list);
       const documentMoved = Math.abs(this.chatScrollTop - this.chatLastScrollY) > 1;
       this.chatLastScrollY = this.chatScrollTop;
       const actions = this.root.querySelector<HTMLElement>('.message-actions:not(.is-closing)');
@@ -8816,17 +8801,6 @@ export class QuietRoomApp {
     return this.queueUiPreferencesSave();
   }
 
-  private renderNotificationCopy(): void {
-    const session = this.session, epoch = this.runtimeEpoch, runtimeSignal = this.runtimeAbort?.signal;
-    if (!session || !runtimeSignal || this.privacyCovered || !this.setActiveSurface('away')) return;
-    const pageAbort = new AbortController();
-    const signal = AbortSignal.any([runtimeSignal, pageAbort.signal]);
-    mountNotificationCopy(this.root, { signal, backIcon: icons.back,
-      isActive: () => this.isRuntimeActive(epoch, session) && !this.privacyCovered,
-      onBack: () => { pageAbort.abort('navigation'); this.transitionPage('backward', () => void this.renderNotificationSettings()); },
-    });
-  }
-
   private renderAutoLockSettings(): void {
     if (this.privacyCovered || (!this.session && !this.browserProfile && !this.idleDeadline) || this.expireIdleSession()) return;
     this.setActiveSurface('away');
@@ -8975,42 +8949,6 @@ export class QuietRoomApp {
       });
     };
     paint(); this.appAccess.subscribe(paint, signal);
-  }
-
-  private async renderNotificationSettings(): Promise<void> {
-    const session = this.session, epoch = this.runtimeEpoch, runtimeSignal = this.runtimeAbort?.signal;
-    if (!session || !runtimeSignal || this.privacyCovered || !this.setActiveSurface('away')) return;
-    const pageAbort = new AbortController();
-    const signal = AbortSignal.any([runtimeSignal, pageAbort.signal]);
-    this.root.innerHTML = `<section class="device-shell notification-page"><header class="subpage-header device-header"><button class="icon-button" id="notifications-back" type="button" aria-label="返回设置">${icons.back}</button><div><h1>通知</h1></div><span></span></header><main class="device-content notification-content"><p>正在读取本机空间…</p></main></section>`;
-    const page = this.root.querySelector<HTMLElement>('.notification-content')!;
-    this.root.querySelector('#notifications-back')!.addEventListener('click', () => {
-      pageAbort.abort(); this.transitionPage('backward', () => this.renderChat());
-    }, { signal });
-    const active = () => this.isRuntimeActive(epoch, session) && !signal.aborted && page.isConnected;
-    try {
-      const spaces = await localSpaces(session);
-      this.applyCatalogToSpaces(spaces);
-      if (this.browserProfile) for (const item of accessPrivateSpaces(this.browserProfile.profile)) if (!spaces.some(space => space.roomId === item.roomId)) spaces.push(item);
-      if (!active()) return;
-      const manager = new DeviceNotifications(spaces.map(space => ({ roomId: space.roomId, name: space.name,
-        ...(!space.localId || space.accessState ? { unavailable: '完成本机空间访问后即可设置' } : {}) })), async (roomId, verify, action) => {
-        signal.throwIfAborted();
-        if (!active()) throw new DOMException('通知操作已失效', 'AbortError');
-        const space = spaces.find(item => item.roomId === roomId);
-        if (!space?.localId || space.accessState) throw new Error('请先完成此空间的本机访问');
-        let opened: VaultSession | null = null;
-        try {
-          const target = roomId === session.vault.roomId ? session : (opened = await unlockLocalSpaceForManagement(space.localId, this.deviceCredential,
-            record => verify ? this.withDeviceVerification(() => unlockPlatformCredential(record, signal), true) : Promise.reject(new Error('开启时需要验证本机访问')),
-            verify ? (passwordVerify, passwordFormat) => requestPassword(this.root, { passwordFormat, title: '验证空间访问', context: '验证后即可在这里管理此空间的通知。', spaceName: space.name, operation: '管理本机通知', signal, isActive: active, verify: passwordVerify }) : undefined));
-          signal.throwIfAborted();
-          if (!active() || target.vault.roomId !== roomId) throw new DOMException('通知操作已失效', 'AbortError');
-          return await action(target.vault);
-        } finally { if (opened) releaseDeviceCredential(opened); }
-      }, signal);
-      mountNotificationSettings(page, manager, { systemSurface: operation => this.withSystemSurface(operation), openCopy: () => { pageAbort.abort(); this.transitionPage('forward', () => this.renderNotificationCopy()); } });
-    } catch (error) { if (active()) page.textContent = error instanceof Error ? error.message : '本机通知设置未能读取，请重试'; }
   }
 
   private async handleSendText(event: Event): Promise<void> {
@@ -12086,7 +12024,7 @@ export class QuietRoomApp {
     const active=()=>page.isConnected&&this.isRuntimeActive(epoch,session);
     const clear=()=>{cancelFormInput();form.querySelectorAll<HTMLInputElement>('input').forEach(input=>{input.value='';});};
     document.addEventListener('visibilitychange',()=>{if(document.hidden)clear();},{signal:this.runtimeAbort.signal});
-    page.querySelector('#chamber-close-cancel')!.addEventListener('click',()=>{clear();this.renderChamberHistorySettings();});
+    page.querySelector('#chamber-close-cancel')!.addEventListener('click',()=>{clear();this.transitionPage('backward',()=>this.renderChat());});
     form.addEventListener('submit',event=>{
       event.preventDefault();if(button.disabled||!active())return;
       const phrase=Array.from(form.querySelectorAll<HTMLInputElement>('input'),input=>input.value).join(' ');clear();button.disabled=true;error.textContent='';
@@ -12176,7 +12114,7 @@ export class QuietRoomApp {
       <section class="backup-setting"><div><h2>自动备份</h2><p id="chamber-history-status" data-cloud-status role="status"></p></div><button class="backup-toggle" data-cloud-switch role="switch" aria-label="自动备份聊天历史" aria-checked="false" disabled><span></span></button><button class="secondary-button" id="chamber-history-sync">立即备份</button><button class="text-button" data-cloud-retry hidden>重新读取备份设置</button></section>
       <section class="backup-setting"><div><h2>恢复本人的历史</h2><p>双方分别解锁自己的身份。申请自发起起30分钟内有效，只交给本次申请设备，范围不包含后续新备份。</p>
         <label>恢复范围<select id="chamber-history-scope"><option value="chat">聊天记录</option>${session.vault.role==='creator'?'<option value="gallery">保险箱</option><option value="all">聊天与保险箱</option>':''}</select></label></div><button class="primary-button" id="chamber-history-start">发起共同恢复</button></section>
-      <div id="chamber-history-requests"></div><p class="form-error" role="alert"></p><p class="backup-footnote">仅在解锁且联网时备份。容量不足、内容缺失或损坏会暂停新增备份并提示，已经验证的备份继续保留。恢复历史不会恢复聊天权限。</p><button class="text-button" id="chamber-close-begin">关闭这间密室</button>
+      <div id="chamber-history-requests"></div><p class="form-error" role="alert"></p><p class="backup-footnote">仅在解锁且联网时备份。容量不足、内容缺失或损坏会暂停新增备份并提示，已经验证的备份继续保留。恢复历史不会恢复聊天权限。</p>
     </section></main>`;
     const page=this.root.querySelector('.backup-page')!, error=page.querySelector<HTMLElement>('.form-error')!, host=page.querySelector('#chamber-history-requests')!;
     const active=()=>page.isConnected && this.isRuntimeActive(epoch,session), signal=this.runtimeAbort.signal;
@@ -12220,7 +12158,6 @@ export class QuietRoomApp {
     };
     const refresh=async()=> { if(!active() || busy) return; try { const rows=await listChamberHistoryRequests(session,signal); if(active()&&!busy) paint(rows); } catch(cause) {if(active())error.textContent=cause instanceof Error?cause.message:'申请列表未能加载';} };
     page.querySelector('#chamber-history-back')!.addEventListener('click',()=>void this.openSession());
-    page.querySelector('#chamber-close-begin')!.addEventListener('click',()=>this.renderChamberClose());
     page.querySelector<HTMLButtonElement>('#chamber-history-sync')!.addEventListener('click',()=>void this.runAutomaticBackup(true).finally(status));
     page.querySelector<HTMLButtonElement>('#chamber-history-start')!.addEventListener('click',event=>void run(event.currentTarget as HTMLButtonElement,async(stored,credential,bounded)=> {
       const scope=(page.querySelector<HTMLSelectElement>('#chamber-history-scope')!.value) as 'chat'|'gallery'|'all';
@@ -12424,57 +12361,44 @@ export class QuietRoomApp {
     this.showHiddenAlbumHint();
   }
 
-  private confirmDisableCover(): void {
-    const session = this.session;
-    if (!session || this.privacyCovered) return;
-    this.root.querySelector('.more-menu')?.removeAttribute('open');
-    if (this.root.querySelector('#disable-cover-dialog')) return;
-    const dialog = document.createElement('div');
-    dialog.className = 'confirm-overlay';
-    dialog.id = 'disable-cover-dialog';
-    dialog.setAttribute('role', 'dialog');
-    dialog.setAttribute('aria-modal', 'true');
-    dialog.setAttribute('aria-label', '关闭遮蔽层');
-    dialog.innerHTML = `<div class="confirm-dialog cover-disable-panel simple-confirm"><button class="icon-button cover-disable-close" type="button" aria-label="关闭">${icons.close}</button>
-      <h2>关闭自动遮蔽？</h2><p>关闭后，将不再使用伪装遮蔽层。离开页面或锁定后的验证规则保持不变。</p>
-      <div class="cover-disable-path">${createElement(Settings).outerHTML}<span>空间 → 设置 → 自动遮蔽</span></div>
-      <div class="simple-confirm-actions"><button class="primary-button" id="keep-cover-enabled" type="button">保持开启</button>
-      <button class="secondary-button" id="disable-cover-anyway" type="button">关闭自动遮蔽</button></div><p class="form-error" role="alert" hidden></p></div>`;
-    this.root.append(dialog);
+  private renderCoverSettings(): void {
+    const session = this.session, epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered || !this.runtimeAbort) return;
+    this.setActiveSurface('away');
+    document.body.className = 'app-mode';
+    const enabled = Boolean(session.vault.recoveryExperience?.coverEnabled);
+    this.root.innerHTML = `<section class="device-shell cover-settings-page chamber-settings-page">
+      <header class="subpage-header"><h1>入口遮蔽页</h1></header>
+      <main class="device-content"><p class="preference-intro">为密室入口选择一个普通网页外观。</p>
+        <section class="privacy-setting"><div class="privacy-control-row"><div><h2>使用入口遮蔽页</h2><p>锁定后，先显示所选的遮蔽页</p></div><button type="button" class="backup-toggle" id="cover-enabled" role="switch" aria-label="使用入口遮蔽页" aria-checked="${enabled}"><span></span></button></div></section>
+        <h2 class="cover-list-heading">遮蔽页样式</h2><div class="cover-style-list" role="radiogroup" aria-label="遮蔽页样式">
+          <button type="button" class="cover-style-option" role="radio" aria-checked="true" aria-label="遮蔽层，已选择"><span class="cover-style-thumbnail" aria-hidden="true"><span>无法打开网页</span><i></i><small>长按色块</small></span><span class="cover-style-caption"><strong>遮蔽层</strong><span class="cover-style-check" aria-hidden="true">✓</span></span></button>
+        </div><p class="preference-note">长按遮蔽页上的色块进入验证。遮蔽页只隐藏入口，不代替应用锁。</p><p class="form-error" role="alert"></p>
+      </main><footer class="chamber-page-footer"><button type="button" class="text-button page-back-button" id="cover-settings-back">返回</button></footer></section>`;
+    const page = this.root.querySelector<HTMLElement>('.cover-settings-page')!;
+    const toggle = page.querySelector<HTMLButtonElement>('#cover-enabled')!;
+    const active = () => page.isConnected && this.isRuntimeActive(epoch, session);
     let saving = false;
-    const origin = this.root.querySelector<HTMLButtonElement>('#cover-practice-menu');
-    mountDialog(dialog, { isActive: () => !this.privacyCovered && this.session === session, signal: this.runtimeAbort?.signal,
-      returnFocus: origin, beforeClose: () => !saving });
-    dialog.querySelector('#keep-cover-enabled')!.addEventListener('click', () => closeDialog(dialog));
-    dialog.querySelector('.cover-disable-close')!.addEventListener('click', () => closeDialog(dialog));
-    dialog.querySelector('#disable-cover-anyway')!.addEventListener('click', () => {
-      if (saving || this.privacyCovered || this.session !== session) return;
-      saving = true;
-      const error = dialog.querySelector<HTMLElement>('.form-error')!;
-      error.hidden = true; error.textContent = '';
-      dialog.querySelectorAll<HTMLButtonElement>('button').forEach(button => { button.disabled = true; });
+    toggle.addEventListener('click', () => {
+      if (saving || !active()) return;
+      saving = true; toggle.disabled = true;
+      const error = page.querySelector<HTMLElement>('.form-error')!; error.textContent = '';
+      const nextEnabled = toggle.getAttribute('aria-checked') !== 'true';
       void withVaultMutation(session, async mutation => {
+        if (!active()) throw new DOMException('页面已关闭', 'AbortError');
         const previous = session.vault.recoveryExperience;
-        const next = { ...previous, coverEnabled: false };
+        const next = { ...previous, coverEnabled: nextEnabled };
         session.vault.recoveryExperience = next;
         try { await saveVault(session, mutation); }
         catch (cause) { if (session.vault.recoveryExperience === next) session.vault.recoveryExperience = previous; throw cause; }
       }).then(() => {
-        if (this.privacyCovered || this.session !== session || !dialog.isConnected) return;
-        try { localStorage.setItem('quiet-room:cover-enabled', '0'); } catch { /* The saved vault remains authoritative. */ }
-        const label = origin?.querySelector('.space-setting-label');
-        if (label) label.textContent = '体验或开启遮蔽';
-        saving = false;
-        closeDialog(dialog);
-        this.showNotice('关闭成功');
-      }).catch(() => {
-        if (this.privacyCovered || this.session !== session || !dialog.isConnected) return;
-        error.hidden = false; error.textContent = '设置未保存，请重试';
-      }).finally(() => {
-        saving = false;
-        dialog.querySelectorAll<HTMLButtonElement>('button').forEach(button => { button.disabled = false; });
-      });
+        if (!active()) return;
+        try { localStorage.setItem('quiet-room:cover-enabled', nextEnabled ? '1' : '0'); } catch { /* The saved vault remains authoritative. */ }
+        toggle.setAttribute('aria-checked', String(nextEnabled));
+      }).catch(() => { if (active()) error.textContent = '设置未保存，请重试'; })
+        .finally(() => { saving = false; if (active()) toggle.disabled = false; });
     });
+    page.querySelector('#cover-settings-back')!.addEventListener('click', () => this.transitionPage('backward', () => this.renderChat()));
   }
 
   private jointUnavailableSlot: string | null = null;
@@ -13009,7 +12933,7 @@ export class QuietRoomApp {
       dialog.setAttribute('role', 'dialog');
       dialog.setAttribute('aria-modal', 'true');
       dialog.setAttribute('aria-label', '恭喜，你已经会用了');
-      dialog.innerHTML = `<div class="confirm-dialog simple-confirm"><h2>恭喜，你已经会用了</h2><p>为你提高您的隐私安全，建议开启遮蔽层，避免页面信息泄漏。</p><p class="field-hint">以后可在「空间 → 设置 → 关闭自动遮蔽」中关闭。设备锁定后仍需验证。</p><div class="simple-confirm-actions"><button class="text-button" id="skip-cover">暂不开启</button><button class="primary-button" id="enable-cover">开启自动遮蔽</button></div></div>`;
+      dialog.innerHTML = `<div class="confirm-dialog simple-confirm"><h2>恭喜，你已经会用了</h2><p>为你提高您的隐私安全，建议开启遮蔽层，避免页面信息泄漏。</p><p class="field-hint">以后可在「设置 → 入口遮蔽页」中关闭。设备锁定后仍需验证。</p><div class="simple-confirm-actions"><button class="text-button" id="skip-cover">暂不开启</button><button class="primary-button" id="enable-cover">开启自动遮蔽</button></div></div>`;
       this.root.append(dialog);
       mountDialog(dialog, { isActive: () => !this.privacyCovered && this.session === session, signal: this.runtimeAbort?.signal });
       dialog.querySelector('#enable-cover')!.addEventListener('click', () => void save(true));
@@ -13464,6 +13388,12 @@ export class QuietRoomApp {
     const autoHide = button.dataset.expressionAutoHide === 'true';
     const explicitExpressionVisibility = button.dataset.expressionAutoHide !== undefined;
     const revealed = !this.privacyCovered && (expression && explicitExpressionVisibility ? (!autoHide || this.chatRevealedAssets.has(key)) : this.chatRevealedAssets.has(key));
+    // Reassert the verified Gaussian source on every conceal. WebKit can
+    // retire the old background layer after a reveal or a reused preview.
+    if (!revealed && button.dataset.blobId) {
+      const concealed = this.imageCache.get(button.dataset.blobId)?.concealedUrl;
+      if (concealed) this.setChatImagePreviewSource(button, concealed);
+    }
     button.dataset.revealed = String(revealed);
     button.setAttribute('aria-label', (revealed ? button.dataset.openLabel : button.dataset.revealLabel)!);
   }

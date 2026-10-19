@@ -742,11 +742,14 @@ export class MemePicker {
   private async local() {
     this.restoringPosition = false;
     this.clear(); this.panel.dataset.view = 'local'; const generation = this.generation;
+    const immediateEmoji = this.kind === 'emoji' && !this.favoriteView;
+    if (immediateEmoji) { this.shortcuts(); this.query = ''; this.emojiOffset = 0; this.renderEmoji(); }
     try {
       const [favorites, packs] = await Promise.all([this.options.list(), this.options.packs()]);
       if (!this.active() || generation !== this.generation) return;
-      this.favorites = favorites; this.packs = packs; this.clear(); this.shortcuts();
-      if (this.kind === 'emoji' && !this.favoriteView) { this.query = ''; this.emojiOffset = 0; this.renderEmoji(); await this.restoreView(); return; }
+      this.favorites = favorites; this.packs = packs;
+      if (immediateEmoji) { this.shortcuts(); await this.restoreView(); return; }
+      this.clear(); this.shortcuts();
       this.renderLocalItems();
       const localGeneration = this.generation;
       if (!this.favoriteView && this.kind === 'gifs') {
@@ -870,7 +873,7 @@ export class MemePicker {
         const img = document.createElement('img'); img.alt = ''; img.draggable = false; img.dataset.avatarEmoji = item.id;
         // 128px originals must not be stretched beyond physical pixel density.
         img.style.maxWidth = `${128 / Math.max(1, devicePixelRatio)}px`;
-        img.src = `/space-avatars/${item.id}-still.webp`; tile.append(img); fluent.append(tile);
+        img.loading = 'lazy'; img.decoding = 'async'; img.src = `/space-avatars/${item.id}-still.webp`; tile.append(img); fluent.append(tile);
         tile.addEventListener('pointerdown', event => event.preventDefault());
         tile.addEventListener('click', () => void this.perform({ id:item.id, title:item.label, localAsset:`/space-avatars/${item.id}.webp` }, 'send'));
       }

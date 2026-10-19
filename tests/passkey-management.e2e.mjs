@@ -14,7 +14,7 @@ try {
   const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal', hasResidentKey: true, hasUserVerification: true, hasPrf: true, automaticPresenceSimulation: true, isUserVerified: true } });
   await page.goto(`http://localhost:${vite.httpServer.address().port}/__passkeys`);
   await page.evaluate(async () => {
-    await import('/src/styles.css'); await import('/src/spaces.css');
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     window.v = await import('/src/lib/vault.ts'); window.pk = await import('/src/lib/platform-vault.ts');
     const { generateIdentity } = await import('/src/lib/crypto.ts');
     const identity = await generateIdentity();
@@ -46,6 +46,10 @@ try {
   await page.locator('#passkey-management').click();
   await page.locator('#passkey-rename').waitFor();
   assert.equal(await page.evaluate(() => getCount), 2);
+  await page.waitForFunction(()=>getComputedStyle(document.querySelector('.passkey-manager')).opacity==='1');
+  const actions=await page.locator('.passkey-manager .chamber-page-footer').evaluate(n=>{const [a,b]=[...n.children].map(c=>c.getBoundingClientRect());return {gap:b.top-a.bottom,width:Math.abs(a.width-b.width),min:Math.min(a.height,b.height),bottom:b.bottom};});
+  assert.ok(actions.gap===8&&actions.width<1&&actions.min>=44&&actions.bottom<=852,JSON.stringify(actions));
+  if (process.env.PASSKEY_SCREENSHOTS) { await mkdir(process.env.PASSKEY_SCREENSHOTS,{recursive:true});await page.screenshot({path:path.join(process.env.PASSKEY_SCREENSHOTS,'passkey-manager.png')}); }
   await page.locator('#passkey-rename').click();
   assert.equal(await page.locator('#passkey-name').evaluate(e => document.activeElement === e), true);
   for (const [width, height, colorScheme] of [[393, 852, 'light'], [320, 450, 'light'], [393, 520, 'dark']]) {

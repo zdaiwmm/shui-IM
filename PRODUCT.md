@@ -1,5 +1,9 @@
 # Product
 
+## 2026-10-19 聊天与设置修订
+
+[本轮V1](docs/requirements/2026-10-19-mobile-settings-chat-fixes/README.md)由用户明确免原型直接实施。设置撤下通知管理、恢复其他空间与新增设备，首页恢复及空间列表新建保留；关闭密室是独立危险入口。数字密码不显示通行密钥管理，密钥页只管理名称。「入口遮蔽页」子页管理开关和样式，目前仅有遮蔽层。在线胶囊与心动按钮均适用Chamber，显示既有真实在线事实。引导助记词用途为「密室进不去时，用它找回并恢复记录」。历史、身份、设备和恢复授权沿用原契约。
+
 ## Participant invitation reentry, 2026-10-19
 
 The [confirmed V1](docs/requirements/2026-10-19-chamber-invite-reentry/README.md) routes an existing browser through its normal local unlock before consuming a participant invitation. The encrypted local directory selects an existing room; an unfinished Chamber join resumes its encrypted original claim rather than claiming again. A matched room must retain its original creator fingerprint. Once the participant entry is handed off, the current history entry becomes the same-origin root `/`, with no query or fragment, document reload, extra history entry or redirect notice; existing history state is preserved. An already-used invitation alone cannot enroll a new browser; identity recovery and existing device approval remain separate. Device, repair and recovery links retain their own routing.

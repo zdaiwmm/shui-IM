@@ -1,5 +1,9 @@
 # Quiet Room Design System
 
+## 2026-10-19 聊天与设置精修
+
+[本轮V1](docs/requirements/2026-10-19-mobile-settings-chat-fixes/README.md)沿用移动视觉V1.18。名称管理、遮蔽页和在线样式使用既有P1页面、R12控件、520px轨道、20px边距；动作最小44px、间隔8px。在线样式预览复用实际SVG，子页无重复关闭；浅色返回和表情选中态具有明确边界。引用不侵占媒体尺寸，滚动渐变逐帧跟随；工具与表情直接交接、Emoji不等待本机收藏读取。语音边界与选区共用实时坐标，Gaussian保持既有强度。真实触控与键盘证据单列。
+
 ## Chamber original-device migration and shared settings, 2026-10-19
 
 The [confirmed V2](docs/requirements/2026-10-19-local-migration-ui/README.md) follows [mobile visual standard V1.17](docs/design/mobile-visual-standard.md). Invitation/privacy cards share the message timeline's outer rails. Empty composer height is 44px and real multiline content grows to the existing 88px cap. Four code cells use 2rem/700; their timer is 13px/500 in the legend's right side, accent colored and prefixed “有效期：”. The landing headline stays on one line at default text sizes and reflows when enlarged.

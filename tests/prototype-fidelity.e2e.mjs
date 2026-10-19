@@ -36,7 +36,7 @@ try {
   app.renderChat();app.availableReleaseId='synthetic-update';app.renderReleaseUpdateBanner();
  });await shot(page,'F03-update-entry');
  await page.evaluate(()=>app.showMessageInfo([...app.messages.values()][1]));await shot(page,'F05-message-information-sample');await page.locator('[data-info-done]').click();await page.locator('.message-info-sheet').waitFor({state:'detached'});
- await page.evaluate(()=>app.confirmDisableCover());await shot(page,'F08-disable-confirm'); await page.locator('.cover-disable-close').click(); await page.locator('#disable-cover-dialog').waitFor({state:'detached'});
+ await page.evaluate(()=>app.renderCoverSettings());await shot(page,'F08-cover-settings');await page.locator('#cover-settings-back').click();
  for(const theme of ['light','dark']) {
   await page.emulateMedia({colorScheme:theme});
   for(const width of [320,390,768,1440]) {

@@ -1,3 +1,4 @@
+import { presenceCircuitMarkup } from './presence-circuit';
 import { layoutViewport } from './form-input';
 import { animatePageReplacement } from './motion';
 import { mountDialog } from './dialog';
@@ -78,7 +79,7 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
     const leading = !embedded && (listing || title === '设置') ? '<span class="space-header-spacer"></span>'
       : back ? `<button class="icon-button space-back" aria-label="返回">${createElement(ArrowLeft).outerHTML}</button>`
       : `<button class="icon-button space-close" aria-label="${options.presentation === 'sidebar' ? '收起空间侧栏' : '返回聊天'}">${options.presentation === 'sidebar' ? createElement(PanelLeftClose).outerHTML : createElement(ArrowLeft).outerHTML}</button>`;
-    const trailing = listing && embedded ? `<div class="space-header-actions"><button class="icon-button" id="space-settings" aria-label="设置">${spaceIcons.settings}</button></div>`
+    const trailing = back && title !== '设置' ? '<span class="space-header-spacer"></span>' : listing && embedded ? `<div class="space-header-actions"><button class="icon-button" id="space-settings" aria-label="设置">${spaceIcons.settings}</button></div>`
       : `<button class="icon-button space-close" aria-label="关闭">${closeIcon}</button>`;
     sheet.innerHTML = `<section class="space-drawer"><header class="space-drawer-header">${leading}<h2>${title}</h2>${trailing}</header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${footer ? `<footer class="space-drawer-footer">${footer}</footer>` : ''}</section>`;
 
@@ -151,22 +152,21 @@ const removable = Boolean(options.remove && space.waiting && !space.accessState)
   function styles() {
     if (signal.aborted || options.canStylePresence?.() === false) return;
     const value = readPresenceStyle();
-    page('在线状态样式', `<p class="space-description">选择聊天页顶部的显示方式。</p><div class="space-style-options" role="radiogroup" aria-label="在线状态样式">${(['capsule','heart'] as const).map(s => `<button class="space-style-choice" role="radio" tabindex="${s === value ? 0 : -1}" aria-checked="${s === value}" data-style="${s}"><span class="space-style-preview ${s}" aria-hidden="true">${s === 'capsule' ? `<span>TA</span>${heart}<span>我</span>` : heart}</span><span class="space-style-copy"><strong>${s === 'capsule' ? '在线胶囊' : '心动按钮'}</strong><small>${s === 'capsule' ? '居中显示双方状态 · 默认样式' : '红色爱心，显示在聊天页右上角'}</small></span><i class="space-radio" aria-hidden="true">${check}</i></button>`).join('')}</div><div class="space-presence-note"><p>左半颗代表对方，右半颗代表你。</p><p>在线状态不代表消息已读。</p></div>`, '', settings);
+    page('在线状态样式', `<p class="space-description">选择聊天页顶部的显示方式。</p><div class="space-style-options" role="radiogroup" aria-label="在线状态样式">${(['capsule','heart'] as const).map(s => `<button class="space-style-choice" role="radio" tabindex="${s === value ? 0 : -1}" aria-checked="${s === value}" data-style="${s}"><span class="space-style-preview ${s}" aria-hidden="true">${s === 'capsule' ? `<span>TA</span>${presenceCircuitMarkup.replace('data-phase="unknown"','data-phase="online" data-self="true" data-peer="true"')}<span>我</span>` : presenceCircuitMarkup.replace('viewBox="0 0 100 24"', 'viewBox="34 -5.52 32 32"').replace('data-phase="unknown"','data-phase="online" data-self="true" data-peer="true" data-compact="true"')}</span><span class="space-style-copy"><strong>${s === 'capsule' ? '在线胶囊' : '心动按钮'}</strong><small>${s === 'capsule' ? '双方状态与连接动效' : '简洁爱心，显示在聊天页右上角'}</small></span><i class="space-radio" aria-hidden="true">${check}</i></button>`).join('')}</div><div class="space-presence-note"><p>左半颗代表对方，右半颗代表你。</p><p>在线状态不代表消息已读。</p></div>`, '', settings);
     const choose = (button: HTMLButtonElement) => {
       if (signal.aborted) return;
       if (options.canStylePresence?.() === false) { sheet.querySelector('.form-error')!.textContent = '加入密室后可设置'; return; }
       try { writePresenceStyle(button.dataset.style as PresenceStyle); options.styleChanged(readPresenceStyle()); }
       catch { sheet.querySelector('.form-error')!.textContent = '浏览器未能保存设置，请重试'; return; }
       sheet.querySelectorAll<HTMLButtonElement>('[data-style]').forEach(b => { b.setAttribute('aria-checked',String(b === button)); b.tabIndex = b === button ? 0 : -1; });
-      close();
     };
     sheet.querySelectorAll<HTMLButtonElement>('[data-style]').forEach(button => {
       button.addEventListener('click', () => choose(button));
-      button.addEventListener('keydown', e => { if (['ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Home','End'].includes(e.key)) { e.preventDefault(); const buttons = [...sheet.querySelectorAll<HTMLButtonElement>('[data-style]')]; const next = e.key === 'Home' ? buttons[0]! : e.key === 'End' ? buttons.at(-1)! : buttons.find(b => b !== button)!; choose(next); } });
+      button.addEventListener('keydown', e => { if (['ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Home','End'].includes(e.key)) { e.preventDefault(); const buttons = [...sheet.querySelectorAll<HTMLButtonElement>('[data-style]')]; const next = e.key === 'Home' ? buttons[0]! : e.key === 'End' ? buttons.at(-1)! : buttons.find(b => b !== button)!; choose(next); next.focus(); } });
     });
   }
   function settings() {
-    const setting = (a: Action) => `<button class="space-setting" id="${a.id}"><span class="space-setting-icon" data-setting="${a.id}" aria-hidden="true">${a.icon}</span><span class="space-setting-label">${escape(a.label)}</span>${arrow}</button>`;
+    const setting = (a: Action) => `<button class="space-setting ${a.id === 'chamber-close' ? 'is-danger' : ''}" id="${a.id}"><span class="space-setting-icon" data-setting="${a.id}" aria-hidden="true">${a.icon}</span><span class="space-setting-label">${escape(a.label)}</span>${arrow}</button>`;
     const order = ['appearance-settings', 'auto-lock-settings', 'app-access-settings', 'notification-settings', 'manage-devices', 'passkey-management', 'backup-settings', 'local-history-backup', 'local-history-restore', 'recover-other-space', 'cover-practice-menu', 'release-history'];
     const actions = [...options.actions].sort((a, b) => (order.indexOf(a.id) < 0 ? 99 : order.indexOf(a.id)) - (order.indexOf(b.id) < 0 ? 99 : order.indexOf(b.id)));
     const groups = [
@@ -174,6 +174,7 @@ const removable = Boolean(options.remove && space.waiting && !space.accessState)
       ['auto-lock-settings', 'manage-devices', 'passkey-management', 'cover-practice-menu'],
       ['backup-settings', 'local-history-backup', 'local-history-restore', 'recover-other-space'],
       ['release-history'],
+      ['chamber-close'],
     ];
     const presence = `<button class="space-setting" id="presence-style-setting" ${options.canStylePresence?.() === false ? 'disabled' : ''}><span class="space-setting-icon" data-setting="presence-style-setting" aria-hidden="true">${heart}</span><span class="space-setting-label">在线状态样式</span><small class="space-setting-value">${options.canStylePresence?.() === false ? '加入密室后可设置' : readPresenceStyle() === 'heart' ? '心动按钮' : '在线胶囊'}</small>${arrow}</button>`;
     const known = new Set(groups.flat());

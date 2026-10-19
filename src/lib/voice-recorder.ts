@@ -469,15 +469,21 @@ export class VoiceRecorder {
       handle.addEventListener('pointerdown', event => {
         if (event.button !== 0 || this.state !== 'paused' || this.sendAttempted) return;
         event.preventDefault(); event.stopPropagation();
-        const bounds = timeline.querySelector<HTMLElement>('.voice-trim-track')!.getBoundingClientRect(), origin = event.clientX;
+        const track = timeline.querySelector<HTMLElement>('.voice-trim-track')!;
+        const bounds = track.getBoundingClientRect();
         const sample = edge === 'start' ? this.trimStart : this.trimEnd;
+        const grabOffset = event.clientX - bounds.left - sample / Math.max(1, this.samples.length) * bounds.width;
         handle.setPointerCapture(event.pointerId);
         const gesture = new AbortController();
         const signal = AbortSignal.any([gesture.signal, this.signal]);
-        handle.addEventListener('pointermove', next => {
-          if (next.pointerId === event.pointerId) change(edge, sample + (next.clientX - origin) / Math.max(1, bounds.width) * this.samples.length);
-        }, { signal });
-        const end = (next: PointerEvent) => { if (next.pointerId === event.pointerId) gesture.abort(); };
+        const move = (next: PointerEvent) => {
+          if (next.pointerId !== event.pointerId) return;
+          const current = track.getBoundingClientRect();
+          const point = next.getCoalescedEvents?.().at(-1) ?? next;
+          change(edge, (point.clientX - grabOffset - current.left) / Math.max(1, current.width) * this.samples.length);
+        };
+        handle.addEventListener('pointermove', move, { signal });
+        const end = (next: PointerEvent) => { if (next.pointerId === event.pointerId) { if (next.type === 'pointerup') move(next); gesture.abort(); } };
         handle.addEventListener('pointerup', end, { signal });
         handle.addEventListener('pointercancel', end, { signal });
         handle.addEventListener('lostpointercapture', end, { signal });
@@ -638,7 +644,7 @@ export class VoiceRecorder {
   }
 
   private clearPreview(): void {
-    this.preview.pause(); this.preview.removeAttribute('src'); this.preview.load();
+    if (this.preview.hasAttribute('src')) { this.preview.pause(); this.preview.removeAttribute('src'); this.preview.load(); }
     if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
     this.previewUrl = null;
   }
