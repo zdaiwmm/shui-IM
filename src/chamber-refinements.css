@@ -85,6 +85,14 @@
 #app .cover-style-check { display:grid; place-items:center; width:20px; height:20px; border-radius:50%; background:var(--action-surface); color:var(--action-ink); }
 #app .space-setting.is-danger { color:var(--danger); }
 #app .space-drawer-overlay[aria-label='在线状态样式'] .space-drawer-scroll { padding:20px; }
+#app .space-drawer-overlay[aria-label='在线状态样式'] .space-drawer-header {
+  display:flex; width:min(100%,520px); min-height:0; margin:0 auto;
+  padding:max(32px,calc(env(safe-area-inset-top) + 20px)) 20px 0; border:0;
+}
+#app .space-drawer-overlay[aria-label='在线状态样式'] .space-drawer-header > span { display:none; }
+#app .space-drawer-overlay[aria-label='在线状态样式'] .space-drawer-header h2 { font-size:1.625rem; line-height:1.25; text-align:left; }
+#app .space-drawer-overlay[aria-label='在线状态样式'] .space-drawer-scroll { box-sizing:border-box; width:min(100%,520px); margin-inline:auto; }
+#app .space-setting.is-danger .space-setting-icon { color:var(--danger); background:var(--danger-soft); }
 #app .space-style-options { gap:12px; }
 #app .space-style-choice { padding:16px; gap:16px 12px; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
 #app .space-style-choice[aria-checked=true] { border-color:var(--accent); background:color-mix(in oklch,var(--accent) 8%,var(--surface)); }
