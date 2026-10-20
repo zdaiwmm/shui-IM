@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {fillFormInput} from './helpers/form-input.mjs';
+import {submitPassword} from './helpers/password.mjs';
 import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -51,13 +52,14 @@ try{
  await bob.locator('[data-help-action]').click();await bob.getByRole('dialog',{name:'清除全部本机数据？',exact:true}).getByRole('button',{name:'取消',exact:true}).click();await bob.getByRole('dialog',{name:'清除全部本机数据？',exact:true}).waitFor({state:'detached'});
  assert.equal(await bob.evaluate(async()=>!!await(await import('/src/lib/vault.ts')).readStoredVault()),true,'Cancelling global clear retains locked data');
  await bob.locator('[data-close]').click();await bob.getByRole('dialog',{name:'无法解锁本机',exact:true}).waitFor({state:'detached'});
- await bob.keyboard.type('111111');await bob.locator('.app-toast').waitFor();assert.equal(await bob.locator('.numeric-password-description').textContent(),'');
- await bob.keyboard.type('927451');await bob.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);assert.equal((await snapshot(bob)).archiveId,next.archiveId);
+ await submitPassword(bob,'111111');await bob.locator('.app-toast').waitFor();assert.equal(await bob.locator('.numeric-password-description').textContent(),'');
+ await submitPassword(bob,'927451');await bob.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);assert.equal((await snapshot(bob)).archiveId,next.archiveId);
  await bob.locator('#chat-settings').click();await bob.locator('#room-lock-settings').click();
  bob.once('dialog',d=>d.dismiss());await bob.locator('[data-remove-room-lock]').click();assert.equal(await bob.evaluate(async()=>(await(await import('/src/lib/vault.ts')).readRoomProtection()).method),'password');
  await bob.locator('#auto-lock-back').click();
  // Exercise saved-card verification and private restoration through the actual settings UI.
  await bob.locator('#chat-settings').click();await bob.locator('#archive-settings').click();await bob.locator('[data-sync]').click();
+ await bob.waitForFunction(()=>document.querySelector('[data-sync]')?.disabled===false);
  await bob.locator('[data-archive-status]').filter({hasText:'当前记录及原文件已备份'}).waitFor();
  if(mobile){const layout=await bob.locator('.backup-setting-copy').evaluateAll(nodes=>nodes.map(node=>node.getBoundingClientRect().width));assert.ok(layout.length>0&&layout.every(width=>width>200),'Archive rows retain the shared full-width text column');assert.equal(await bob.locator('.subpage-header h1').evaluate(node=>parseFloat(getComputedStyle(node).fontSize)),26);}
  if(process.env.QR_VISUAL_DIR)await bob.screenshot({path:path.join(process.env.QR_VISUAL_DIR,'archive-settings.png')});
@@ -82,7 +84,7 @@ try{
  await bob.locator('#chat-settings').click();await bob.locator('#chamber-switch-space').click();const selected=bob.locator(`${list} .space-row.is-selected`);await selected.dispatchEvent('contextmenu');bob.once('dialog',d=>d.dismiss());await bob.locator('#space-delete').click();assert.equal(await bob.locator(`${list} .space-row`).count(),2);
  await bob.locator(`${list} .space-row.is-selected`).dispatchEvent('contextmenu');bob.once('dialog',d=>d.accept());await bob.locator('#space-delete').click();await bob.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);
  assert.equal((await snapshot(bob)).roomId,next.roomId);assert.equal(await bob.locator('.private-archive-message').count(),0);
- await bob.locator('#chat-settings').click();await bob.locator('#room-lock-settings').click();bob.once('dialog',d=>d.accept());await bob.locator('[data-remove-room-lock]').click();await bob.locator('.numeric-password-page').waitFor();await bob.keyboard.type('927451');await bob.locator('#message-input').waitFor();
+ await bob.locator('#chat-settings').click();await bob.locator('#room-lock-settings').click();bob.once('dialog',d=>d.accept());await bob.locator('[data-remove-room-lock]').click();await submitPassword(bob,'927451');await bob.locator('#message-input').waitFor();
  assert.equal(await bob.evaluate(async()=>(await(await import('/src/lib/vault.ts')).readRoomProtection()).method),'automatic');
  assert.equal((await snapshot(bob)).archiveId,next.archiveId,'Removing the app lock preserves archive identity');
  await bob.evaluate(async()=>{const k=await import('/src/lib/browser-room-key.ts'),p=await import('/src/lib/password-protection.ts'),v=await import('/src/lib/vault.ts');await k.protectBrowserRoomKey(await p.deriveNumericPasswordCredential('927451'));const record=await v.readRoomProtection();let rejected=false;try{await v.clearAllRoomBrowserData({...record,revision:'stale'});}catch{rejected=true;}if(!rejected||!await v.readStoredVault())throw new Error('Stale reset deleted room data');});
