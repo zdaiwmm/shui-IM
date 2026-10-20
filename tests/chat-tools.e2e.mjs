@@ -168,6 +168,10 @@ try {
     await f.app.toggleMessageFavorite(f.messages[0]);f.app.saveUiPreferencesNow=save;
   });
   assert.equal(await page.evaluate(()=>window.fixture.app.uiPreferences.attachmentFavorites.length),1);
+  // The shared toast survives page rendering until its own timeout. Observe
+  // the failed-save feedback before checking that the peer summary is inert.
+  await page.locator('#app-toast').filter({hasText:'Synthetic save failure'}).waitFor();
+  await page.locator('#app-toast').waitFor({state:'hidden'});
   await page.evaluate(()=>{const f=window.fixture;f.session.vault.role='joiner';f.app.renderChat();});
   await page.locator('.peer-summary').click();assert.equal(await page.locator('.gallery-shell').count(),0);assert.equal(await page.locator('#app-toast').isVisible(),false);
   await page.locator('#open-chat-tools').click();await page.locator('#open-favorites').click();await page.locator('.gallery-tile').waitFor();
