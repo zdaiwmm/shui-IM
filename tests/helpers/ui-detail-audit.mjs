@@ -28,7 +28,7 @@ export async function auditUiDetails(page, out) {
     passwordCreate: '.password-create', passwordReturn: '.password-return', passwordOperation: '.password-operation-sheet',
     settings: '.space-drawer', presenceStyle: '.space-style-options', access: '.browser-access-modal',
     backupPrivacy: '.backup-privacy-panel', spaceInvite: '.entry-chat-guidance',
-    notice: '#notice', errorToast: '#app-toast', textSelection: '.message-text-selection',
+    notice: '#app-toast', errorToast: '#app-toast', textSelection: '.message-text-selection',
   };
   const setup = async name => {
     await page.evaluate(async name => {

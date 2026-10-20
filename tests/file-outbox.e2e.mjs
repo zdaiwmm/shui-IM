@@ -82,7 +82,7 @@ try {
         check(app.pending.get(item.clientMsgId)?.status === 'failed', `${label}: blocked file has no retry state`);
         check(app.retryTimers.has(item.clientMsgId), `${label}: blocked file has no scheduled retry`);
         check(renderCount > paintsBefore, `${label}: the failed state was not rendered`);
-        check(document.querySelector('#notice').textContent.includes('已加密保存在本机待发'), `${label}: missing compatibility explanation`);
+        check(document.querySelector('#app-toast').textContent.includes('已加密保存在本机待发'), `${label}: missing compatibility explanation`);
         check(!app.sending.has(item.clientMsgId), `${label}: blocked item remained in the sending set`);
 
         peer.capabilities = ['file-message-v1', 'reply-v2'];

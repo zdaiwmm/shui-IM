@@ -88,8 +88,8 @@ try {
     const removal = { immediate: !deleted.isConnected, motions: app.chatMessageAnimations.size };
     await pause(400);
     // No new history or protocol operations are involved in this visual fixture.
-    const notice = app.root.querySelector('#notice');
     app.showNotice('Example status'); await pause(100);
+    const notice = document.querySelector('#app-toast');
     app.showNotice('Updated status');
     const repeatedNotice = notice?.classList.contains('is-visible') ?? false;
     app.closeSocket?.();
@@ -190,7 +190,7 @@ try {
       const retainedBeforeError = root.querySelector('[data-device-id="list-own"]');
       refresh = app.renderDeviceManager(); await requested(1); requests.shift()(); await refresh;
       const failedInPlace = retainedBeforeError === root.querySelector('[data-device-id="list-own"]') && !root.querySelector('#refresh-devices').disabled
-        && Boolean(root.querySelector('.device-loading').textContent);
+        && /设备状态载入失败/.test(document.querySelector('#app-toast')?.textContent ?? '') && !root.querySelector('.device-loading');
       fail = false;
       const first = app.renderDeviceManager(); await requested(1);
       const second = app.renderDeviceManager(); await requested(2);

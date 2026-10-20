@@ -83,7 +83,7 @@ try {
   const preference=await page.evaluate(()=>localStorage.getItem('quiet-room:presence-style'));
   await page.locator('[data-style="heart"]').click();
   assert.equal(await page.evaluate(()=>localStorage.getItem('quiet-room:presence-style')),preference);
-  assert.match(await page.locator('.space-drawer .form-error').textContent(),/加入密室后可设置/);
+  assert.match(await page.locator('#app-toast').textContent(),/加入密室后可设置/);
   await page.evaluate(()=>{fixture.session.vault.mls=undefined;fixture.fresh(0);fixture.app.renderAutoLockSettings();});
   assert.equal(await page.locator('#auto-lock-back').evaluate(node=>getComputedStyle(node).backgroundColor==='rgba(0, 0, 0, 0)'),false);
   await page.locator('[data-idle-toggle]').click();await page.locator('.auto-lock-duration').click();await page.clock.runFor(300);

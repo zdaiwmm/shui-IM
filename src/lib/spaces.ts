@@ -7,12 +7,13 @@ import { fromBase64Url, toBase64Url } from './base64';
 import { newRecoveryCode, openJson, sealJson } from './backup-crypto';
 import { ApiError, responseRetryAfterMs } from './api';
 import type { SealedBackup } from './backup-types';
-import { localSpaceExists, readLocalSpaceDirectory, saveVault, vaultSpaceId, withVaultMutation, writeLocalSpaceDirectory, type VaultSession } from './vault';
+import { deleteNewRoomLocal, localSpaceExists, readLocalSpaceDirectory, saveVault, vaultSpaceId, withVaultMutation, writeLocalSpaceDirectory, type VaultSession } from './vault';
 import { validSpaceAvatar, type SpaceAvatar } from './space-avatar';
 
 export type PrivateSpace = {
   roomId: string; name: string; avatar?: SpaceAvatar; localId?: string; code?: string; waiting?: boolean;
   chamber?: boolean;
+  roomArchiveV2?: boolean;
   closed?: boolean;
   /** Explicitly authorized history sources, inside the encrypted recovery directory only. */
   historyCodes?: string[];
@@ -138,7 +139,8 @@ export async function rememberLocalSpace(session: VaultSession, inheritedCode?: 
     } else if (summary) { entry.preview = summary.preview; entry.previewDeviceId = vault.identity.publicBundle.deviceId; entry.observer = summary.observer; }
 
     entry.waiting = !vault.members.some(m => m.role !== vault.role && (m.status === undefined || m.status === 'active'));
-    entry.chamber = isChamberVault(vault);
+    entry.chamber = isChamberVault(vault) || Boolean(vault.roomArchiveV2);
+  entry.roomArchiveV2 = Boolean(vault.roomArchiveV2);
     entry.closed = Boolean(vault.chamberLifecycle?.closed);
     if (vault.backup?.syncedAt && !vault.backup.replaces && !vault.recoverySource) entry.code = vault.backup.code;
     if (rename) {
@@ -160,6 +162,15 @@ export async function forgetLocalSpace(session: VaultSession, roomId: string): P
     if (!code) return [];
     const spaces = (await read(code)).filter(space => space.roomId !== roomId);
     await writeLocalSpaceDirectory(session, spaceCodeId(code), await sealSpaceDirectory(code, spaces), mutation);
+    return spaces;
+  });
+}
+/** The encrypted directory and all target data commit in one local transaction. */
+export async function removeNewRoomFromDirectory(current:VaultSession,target:VaultSession):Promise<PrivateSpace[]> {
+  return withVaultMutation(current,async mutation=>{
+    const code=current.vault.spaceRecoveryCode;if(!code)throw new Error('本机密室目录尚未就绪');
+    const spaces=(await read(code)).filter(space=>space.roomId!==target.vault.roomId);
+    await deleteNewRoomLocal(target,{owner:current,mutation,id:spaceCodeId(code),value:await sealSpaceDirectory(code,spaces)});
     return spaces;
   });
 }

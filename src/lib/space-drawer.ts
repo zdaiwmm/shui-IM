@@ -1,3 +1,4 @@
+import {uiNotice} from './ui-notice';
 import { presenceCircuitMarkup } from './presence-circuit';
 import { layoutViewport } from './form-input';
 import { animatePageReplacement } from './motion';
@@ -41,7 +42,7 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
   select: (space: PrivateSpace) => Promise<void>; create: () => Promise<void>; allowCreate?:boolean; rename: (space: PrivateSpace, name: string) => Promise<void>;
 removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restoreSettings?: boolean; settingsScrollTop?: number; onSettingsLeave?: (scrollTop: number) => void;
   editAvatar?: (space: PrivateSpace) => Promise<import('./space-avatar').SpaceAvatar | null>;
-  remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace) => void;
+  remove?: (space: PrivateSpace) => Promise<void | boolean>; expired?: (space: PrivateSpace) => void;
   listScrollTop?: number;
   refreshUnread?: (signal: AbortSignal) => Promise<void>;
   refreshSpaces?: (signal: AbortSignal) => Promise<PrivateSpace[]>;
@@ -92,7 +93,7 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
     if (busy || signal.aborted) return;
     busy = true;
     sheet.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.disabled = true);
-    try { await action(); } catch (cause) { if (!signal.aborted) { const error = sheet.querySelector('.form-error'); if (error) error.textContent = cause instanceof Error ? cause.message : '操作未完成，请重试'; } }
+    try { await action(); } catch (cause) { if (!signal.aborted) { uiNotice(root,cause instanceof Error ? cause.message : '操作未完成，请重试'); } }
     finally { busy = false; if (!signal.aborted) sheet.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.disabled = false); }
   }
   function rename(space: PrivateSpace, origin: HTMLButtonElement) {
@@ -108,14 +109,14 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
     overlay.querySelector('form')!.addEventListener('submit', async e => {
       e.preventDefault(); if (saving) return;
       const name = input.value.trim();
-      if (!name || name.length > 40) { overlay.querySelector('.form-error')!.textContent = '请输入 1–40 个字符的空间名称'; input.focus(); return; }
+      if (!name || name.length > 40) { uiNotice(root,'请输入 1–40 个字符的空间名称'); input.focus(); return; }
       saving = true; overlay.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.disabled = true);
       try {
         await options.rename(space, name);
         if (signal.aborted) return;
         space.name = name; modal.close({ animate: false, restoreFocus: false }); list();
         sheet.querySelector<HTMLButtonElement>(`[data-space="${options.spaces.indexOf(space)}"]`)?.focus();
-      } catch (cause) { if (!signal.aborted) overlay.querySelector('.form-error')!.textContent = cause instanceof Error ? cause.message : '名称未保存，请重试'; }
+      } catch (cause) { if (!signal.aborted) uiNotice(root,cause instanceof Error ? cause.message : '名称未保存，请重试'); }
       finally { saving = false; overlay.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.disabled = false); }
     });
     // Synchronous focus retains the user's activation for the iOS keyboard.
@@ -124,7 +125,7 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
   function menu(space: PrivateSpace, origin: HTMLButtonElement) {
     if (busy || signal.aborted || space.accessState || root.querySelector('.space-context-overlay')) return;
     const overlay = document.createElement('div'); overlay.className = 'space-context-overlay'; overlay.setAttribute('role','dialog'); overlay.setAttribute('aria-modal','true'); overlay.setAttribute('aria-label',space.name);
-const removable = Boolean(options.remove && space.waiting && !space.accessState);
+const removable = Boolean(options.remove && (space.waiting || space.roomArchiveV2) && !space.accessState);
     overlay.innerHTML = `<div class="space-context-menu"><button id="space-rename">${createElement(Pencil).outerHTML}<span>编辑空间名称</span></button>${options.editAvatar ? `<button id="space-avatar-edit">${createElement(Image).outerHTML}<span>修改空间头像</span></button>` : ''}${removable ? `<button id="space-delete" class="is-danger">${createElement(Trash2).outerHTML}<span>${escape(options.removeLabel?.(space) ?? '删除空间')}</span></button>` : ''}</div>`;
     root.append(overlay);
     const dialog = mountDialog(overlay, { signal, isActive: () => !signal.aborted, returnFocus: origin });
@@ -141,7 +142,7 @@ const removable = Boolean(options.remove && space.waiting && !space.accessState)
     overlay.querySelector('#space-delete')?.addEventListener('click', () => {
       dialog.close({ animate: false, restoreFocus: false });
       void run(async () => {
-        await options.remove!(space);
+        if (await options.remove!(space) === false) return;
         if (signal.aborted) return;
         const index = options.spaces.indexOf(space);
         if (index >= 0) options.spaces.splice(index, 1);
@@ -155,9 +156,9 @@ const removable = Boolean(options.remove && space.waiting && !space.accessState)
     page('在线状态样式', `<p class="space-description">选择聊天页顶部的显示方式。</p><div class="space-style-options" role="radiogroup" aria-label="在线状态样式">${(['capsule','heart'] as const).map(s => `<button class="space-style-choice" role="radio" tabindex="${s === value ? 0 : -1}" aria-checked="${s === value}" data-style="${s}"><span class="space-style-preview ${s}" aria-hidden="true">${s === 'capsule' ? `<span>TA</span>${presenceCircuitMarkup.replace('data-phase="unknown"','data-phase="online" data-self="true" data-peer="true"')}<span>我</span>` : presenceCircuitMarkup.replace('viewBox="0 0 100 24"', 'viewBox="34 -5.52 32 32"').replace('data-phase="unknown"','data-phase="online" data-self="true" data-peer="true" data-compact="true"')}</span><span class="space-style-copy"><strong>${s === 'capsule' ? '在线胶囊' : '心动按钮'}</strong><small>${s === 'capsule' ? '双方状态与连接动效' : '简洁爱心，显示在聊天页右上角'}</small></span><i class="space-radio" aria-hidden="true">${check}</i></button>`).join('')}</div><div class="space-presence-note"><p>左半颗代表对方，右半颗代表你。</p><p>在线状态不代表消息已读。</p></div>`, '', settings);
     const choose = (button: HTMLButtonElement) => {
       if (signal.aborted) return;
-      if (options.canStylePresence?.() === false) { sheet.querySelector('.form-error')!.textContent = '加入密室后可设置'; return; }
+      if (options.canStylePresence?.() === false) { uiNotice(root,'加入密室后可设置'); return; }
       try { writePresenceStyle(button.dataset.style as PresenceStyle); options.styleChanged(readPresenceStyle()); }
-      catch { sheet.querySelector('.form-error')!.textContent = '浏览器未能保存设置，请重试'; return; }
+      catch { uiNotice(root,'浏览器未能保存设置，请重试'); return; }
       sheet.querySelectorAll<HTMLButtonElement>('[data-style]').forEach(b => { b.setAttribute('aria-checked',String(b === button)); b.tabIndex = b === button ? 0 : -1; });
     };
     sheet.querySelectorAll<HTMLButtonElement>('[data-style]').forEach(button => {
@@ -171,8 +172,8 @@ const removable = Boolean(options.remove && space.waiting && !space.accessState)
     const actions = [...options.actions].sort((a, b) => (order.indexOf(a.id) < 0 ? 99 : order.indexOf(a.id)) - (order.indexOf(b.id) < 0 ? 99 : order.indexOf(b.id)));
     const groups = [
       ['appearance-settings', 'presence-style-setting', 'notification-settings', 'app-access-settings'],
-      ['auto-lock-settings', 'manage-devices', 'passkey-management', 'cover-practice-menu'],
-      ['backup-settings', 'local-history-backup', 'local-history-restore', 'recover-other-space'],
+      ['room-lock-settings','auto-lock-settings', 'manage-devices', 'passkey-management', 'cover-practice-menu'],
+      ['chamber-switch-space','new-chat-link','archive-settings','backup-settings', 'local-history-backup', 'local-history-restore', 'recover-other-space'],
       ['release-history'],
       ['chamber-close'],
     ];

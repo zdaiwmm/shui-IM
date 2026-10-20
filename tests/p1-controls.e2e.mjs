@@ -16,7 +16,7 @@ try {
     await page.clock.runFor(300);
     await page.locator('[name="password"]').fill('synthetic password');
     await page.locator('.password-actions [type="submit"]').click();
-    assert.match(await page.locator('#password-error').textContent(), /合成验证失败/);
+    assert.match(await page.locator('#app-toast').textContent(), /合成验证失败/);
     const geometry = await page.evaluate(() => ({
       actions: [...document.querySelectorAll('.password-actions button')].map(e => e.getBoundingClientRect().toJSON()),
       scrollable: document.querySelector('.password-page-content').scrollHeight > document.querySelector('.password-page-content').clientHeight,
@@ -54,18 +54,18 @@ try {
     outline:getComputedStyle(document.activeElement).outlineStyle,width:getComputedStyle(document.activeElement).outlineWidth})),
     {mode:'keyboard',outline:'solid',width:'2px'},'external keyboard retains a visible location');
   await page.evaluate(() => { window.fixture.fresh(0); window.fixture.app.showNotice('合成普通提示'); });
-  await page.clock.runFor(2599); assert.equal(await page.locator('#notice').isVisible(), true);
-  await page.clock.runFor(2); assert.equal(await page.locator('#notice').evaluate(e => e.classList.contains('is-leaving')), true);
-  await page.clock.runFor(140); assert.equal(await page.locator('#notice').isVisible(), false);
+  await page.clock.runFor(2599); assert.equal(await page.locator('#app-toast').isVisible(), true);
+  await page.clock.runFor(2); assert.equal(await page.locator('#app-toast').evaluate(e => e.classList.contains('is-leaving')), true);
+  await page.clock.runFor(140); assert.equal(await page.locator('#app-toast').isVisible(), false);
   await page.evaluate(() => window.fixture.app.showNotice('合成错误提示', 'error'));
-  await page.clock.runFor(2601); assert.equal(await page.locator('#notice').isVisible(), true);
-  await page.clock.runFor(2540); assert.equal(await page.locator('#notice').isVisible(), false);
+  await page.clock.runFor(2601); assert.equal(await page.locator('#app-toast').isVisible(), true);
+  await page.clock.runFor(2540); assert.equal(await page.locator('#app-toast').isVisible(), false);
   await page.evaluate(() => window.fixture.app.showNotice('优先保留的错误','error'));
   await page.clock.runFor(200);
   await page.evaluate(() => window.fixture.app.showNotice('后续操作结果'));
-  assert.equal(await page.locator('#notice').textContent(),'优先保留的错误');
+  assert.equal(await page.locator('#app-toast').textContent(),'优先保留的错误');
   await page.clock.runFor(5100);
-  assert.equal(await page.locator('#notice').textContent(),'后续操作结果','ordinary action feedback is queued, never dropped');
+  assert.equal(await page.locator('#app-toast').textContent(),'后续操作结果','ordinary action feedback is queued, never dropped');
   await page.evaluate(() => {
     window.fixture.app.showNotice('错误','error');
   });

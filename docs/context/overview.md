@@ -1,5 +1,8 @@
 原邀请续入与首页地址：`src/app.ts`在本机解锁后按加密目录定位参与者邀请，复用待加入凭据并以History API清理为同源根地址；专项`tests/chamber-invite-reentry.e2e.mjs`由既有Chamber整链入口调用，并可单独验证Chromium／WebKit。范围见[需求V1](../requirements/2026-10-19-chamber-invite-reentry/README.md)、D-072及PRODUCT／SECURITY。
 
+新密室与本人归档（2026-10-20）：[确认与实施证据](../requirements/2026-10-20-room-archive-static/06_implementation.md)、[长期契约](../../NEW_ROOM_ARCHIVES.md)。首页创建与短链接／设备接替在 `src/app.ts`、`short-room-link.ts`、`server/short-invites.mjs`；浏览器应用锁在 `browser-room-key.ts`；独立归档、PNG 卡及私有恢复在 `room-archive*.ts`、`archive-card-image.ts`、`archive-settings.ts`、`private-archive-view.ts`、`vault.ts` 与 `server/room-archives.mjs`。专项 `new-room-flows`、`new-room-mobile`、`new-room-passkey`、`room-archive-lifecycle` 已注册浏览器门禁。仅处理新建密室，不转换旧数据。下方旧双人恢复说明只对原格式有效。
+
+
 Chamber九项移动交互：`src/lib/page-back.ts`／`src/page-back.css`统一完整页返回，`form-input.ts`处理连续助记词及键盘上四格，`password-keypad.ts`保留验证交接画布；邀请重发与短列表定位位于`server/chamber-invitations.mjs`／`src/app.ts`。范围见[九项V1](../requirements/2026-10-18-chamber-mobile-refinements/README.md)，长期边界D-068及视觉V1.16；回归为Chamber单测／整链、聊天UI、数字密码及移动调试。
 
 Chamber验证码续接与忘记应用锁：`server/chamber-invitations.mjs`区分长期邀请／30分钟码，`src/app.ts`管理双端过期与重取、先核对身份再设新锁；根包装取消写入在`src/lib/vault.ts`，桌面无侧栏由`desktop-workspace.ts`控制。范围与授权见[本轮V1](../requirements/2026-10-18-chamber-invite-recovery/README.md)，长期边界D-067、视觉V1.15；专项为邀请单测及Chamber／数字／桌面浏览器。

@@ -1,3 +1,5 @@
+import {createShortInvites} from './short-invites.mjs';
+import { createRoomArchives } from './room-archives.mjs';
 import { createSpaceDirectories } from './space-directories.mjs';
 import { createBrowserAccess } from './browser-access.mjs';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
@@ -344,6 +346,9 @@ export async function createStore({
   const chamberInvitations = createChamberInvitations(db);
   const personalDirectory = createPersonalDirectory(db, { getMember, chamberInvitations });
   const personalDevices = createPersonalDevices(db, { getMember, roomState, chamberInvitations, personalDirectory });
+  if(!db.prepare('PRAGMA table_info(rooms)').all().some(column=>column.name==='new_invite_expiry'))db.exec('ALTER TABLE rooms ADD COLUMN new_invite_expiry INTEGER');
+  const shortInvites = createShortInvites(db);
+  const roomArchives = createRoomArchives(db, { maxArchiveBytes: maxRoomStorageBytes, maxTotalBytes: maxTotalStorageBytes });
   const chamberHistory = createChamberHistory(db, { getMember, chamberInvitations });
   const chamberHistoryRecovery = createChamberHistoryRecovery(db, { getMember, chamberInvitations, personalDirectory });
   const chamberLifecycle = createChamberLifecycle(db, { getMember, roomState, chamberInvitations, personalDirectory });
@@ -523,7 +528,7 @@ export async function createStore({
   function authenticateInvite(roomId, token) {
     if (!validToken(token)) return false;
     const room = statements.room.get(roomId);
-    if (!room) return false;
+    if (!room || room.new_invite_expiry !== null && room.new_invite_expiry <= Date.now()) return false;
     const expected = Buffer.from(room.access_hash);
     const actual = hashToken(token);
     return expected.length === actual.length && timingSafeEqual(expected, actual);
@@ -560,7 +565,7 @@ export async function createStore({
   }
 
   function createRoom(creatorBundle, accessToken, inviteToken = accessToken, deviceName = '此设备', capabilities = [], personalBinding, requestedRoomId) {
-    if (requestedRoomId !== undefined && (!personalBinding || typeof requestedRoomId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedRoomId))) throw new Error('INVALID_JSON');
+    if (requestedRoomId !== undefined && (!personalBinding && !capabilities.includes('room-archive-v2') || typeof requestedRoomId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedRoomId))) throw new Error('INVALID_JSON');
     const roomId = requestedRoomId ?? randomUUID();
     const createdAt = nowIso();
     const protocol = creatorBundle.mlsKeyPackage ? 'mls-rfc9420' : 'legacy-v1';
@@ -572,7 +577,7 @@ export async function createStore({
         const own = getMember(roomId, creatorBundle.deviceId);
         // A retry can recover the original response only with the exact public
         // identity, both capabilities and root certificate saved before POST.
-        if (!personalBinding || !own || own.role !== 'creator' || own.status !== 'active' || own.addedBy ||
+        if ((!personalBinding && !capabilities.includes('room-archive-v2')) || !own || own.role !== 'creator' || own.status !== 'active' || own.addedBy ||
           canonicalStringify({deviceId:own.deviceId,encryptionKey:own.encryptionKey,signingKey:own.signingKey,mlsKeyPackage:own.mlsKeyPackage}) !== canonicalStringify(creatorBundle) ||
           !authenticatedDevice(roomId, accessToken, creatorBundle.deviceId) || !Buffer.from(existing.access_hash).equals(hashToken(inviteToken)) ||
           canonicalStringify(chamberInvitations.state(roomId)?.creatorBinding) !== canonicalStringify(personalBinding)) throw new Error('ROOM_CREATE_CONFLICT');
@@ -597,6 +602,7 @@ export async function createStore({
         JSON.stringify(capabilities),
         createdAt,
       );
+      if(!personalBinding&&capabilities.includes('room-archive-v2'))db.prepare('UPDATE rooms SET new_invite_expiry=? WHERE room_id=?').run(Date.now()+15*60_000,roomId);
       if (personalBinding) { chamberInvitations.register(roomId, personalBinding); personalDirectory.register(personalBinding.identity); }
       db.exec('COMMIT');
       return { roomId, createdAt, protocol };
@@ -848,11 +854,13 @@ export async function createStore({
     return statements.deviceLinksForRoom.all(roomId, authorizerId).map(publicDeviceLink);
   }
 
+  if (!db.prepare('PRAGMA table_info(repair_links)').all().some(column=>column.name==='candidate_proof')) db.exec('ALTER TABLE repair_links ADD COLUMN candidate_proof TEXT');
+
   function publicRepairLink(row) {
     if (!row) return null;
     return { linkId: row.link_id, roomId: row.room_id, initiatorId: row.initiator_id, sourceDeviceId: row.source_device_id,
       expiresAt: row.expires_at, claimedDeviceId: row.claimed_device_id, createdAt: row.created_at,
-      claimedAt: row.claimed_at, usedAt: row.used_at };
+      claimedAt: row.claimed_at, usedAt: row.used_at, ...(row.candidate_proof?{candidateProof:row.candidate_proof}:{}) };
   }
 
   function createRepairLink(roomId, initiatorId, sourceDeviceId, linkId, secret, expiresAt) {
@@ -863,16 +871,27 @@ export async function createStore({
     const source = getMember(roomId, sourceDeviceId);
     if (!room || room.protocol !== 'mls-rfc9420' || !initiator || !source || source.status !== 'active' || sourceDeviceId === initiatorId) throw new Error('INVALID_REPAIR_LINK');
     assertDeviceActive(roomId, initiatorId);
-    if (statements.memberReservationCountForRole.get(roomId, source.role).count >= 3) throw new Error('DEVICE_LIMIT');
+    const modern = initiator.capabilities?.includes('room-archive-v2');
     const expires = Date.parse(expiresAt);
     if (!Number.isFinite(expires) || expires <= Date.now() || expires > Date.now() + 15 * 60_000) throw new Error('INVALID_REPAIR_LINK');
-    db.prepare(`INSERT INTO repair_links(link_id, room_id, initiator_id, source_device_id, secret_hash, expires_at, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(linkId, roomId, initiatorId, sourceDeviceId, hashToken(secret), expiresAt, nowIso());
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      // One outstanding automatic replacement per initiator. A regenerated link
+      // invalidates an abandoned claim without touching the still-active source.
+      if (modern) for (const old of db.prepare('SELECT * FROM repair_links WHERE room_id=? AND initiator_id=? AND used_at IS NULL').all(roomId,initiatorId)) {
+        if (old.claimed_device_id) statements.deletePendingLinkedMember.run(roomId,old.claimed_device_id,initiatorId);
+        db.prepare('DELETE FROM repair_links WHERE link_id=?').run(old.link_id);
+      }
+      if (statements.memberReservationCountForRole.get(roomId, source.role).count >= (modern ? 4 : 3)) throw new Error('DEVICE_LIMIT');
+      db.prepare(`INSERT INTO repair_links(link_id, room_id, initiator_id, source_device_id, secret_hash, expires_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`).run(linkId, roomId, initiatorId, sourceDeviceId, hashToken(secret), expiresAt, nowIso());
+      db.exec('COMMIT');
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
     return publicRepairLink(db.prepare('SELECT * FROM repair_links WHERE link_id = ?').get(linkId));
   }
 
   function repairLinkRow(linkId) { return db.prepare('SELECT * FROM repair_links WHERE link_id = ?').get(linkId); }
-  function claimRepairLink(linkId, secret, bundle, accessToken, deviceName, capabilities = []) {
+  function claimRepairLink(linkId, secret, bundle, accessToken, deviceName, capabilities = [], candidateProof) {
     cleanupExpiredRepairLinks(nowIso());
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -883,15 +902,15 @@ export async function createStore({
       const source = getMember(link.room_id, link.source_device_id);
       if (!source || source.status !== 'active') throw new Error('REPAIR_SOURCE_UNAVAILABLE');
       if (link.claimed_device_id) {
-        if (link.claimed_device_id !== bundle.deviceId) throw new Error('REPAIR_LINK_CLAIMED');
+        if (link.claimed_device_id !== bundle.deviceId || (link.candidate_proof??undefined)!==candidateProof || !timingSafeEqual(statements.member.get(link.room_id,bundle.deviceId).access_hash,hashToken(accessToken))) throw new Error('REPAIR_LINK_CLAIMED');
         db.exec('COMMIT');
         return { link: publicRepairLink(link), state: roomState(link.room_id) };
       }
-      if (statements.memberReservationCountForRole.get(link.room_id, source.role).count >= 3 || statements.member.get(link.room_id, bundle.deviceId)) throw new Error('DEVICE_LIMIT');
+      if (statements.memberReservationCountForRole.get(link.room_id, source.role).count >= (getMember(link.room_id,link.initiator_id)?.capabilities?.includes('room-archive-v2') ? 4 : 3) || statements.member.get(link.room_id, bundle.deviceId)) throw new Error('DEVICE_LIMIT');
       if (!bundle.mlsKeyPackage) throw new Error('PROTOCOL_MISMATCH');
       const createdAt = nowIso();
       statements.insertMember.run(link.room_id, bundle.deviceId, source.role, JSON.stringify(bundle.encryptionKey), JSON.stringify(bundle.signingKey), bundle.mlsKeyPackage, null, hashToken(accessToken), deviceName, 'pending', link.initiator_id, 0, 0, JSON.stringify(capabilities), createdAt);
-      const changed = db.prepare('UPDATE repair_links SET claimed_device_id = ?, claimed_at = ? WHERE link_id = ? AND claimed_device_id IS NULL AND used_at IS NULL').run(bundle.deviceId, createdAt, linkId).changes;
+      const changed = db.prepare('UPDATE repair_links SET claimed_device_id = ?, claimed_at = ?, candidate_proof = ? WHERE link_id = ? AND claimed_device_id IS NULL AND used_at IS NULL').run(bundle.deviceId, createdAt, candidateProof??null, linkId).changes;
       if (changed !== 1) throw new Error('REPAIR_LINK_CLAIMED');
       db.exec('COMMIT');
       return { link: publicRepairLink(repairLinkRow(linkId)), state: roomState(link.room_id) };
@@ -1590,7 +1609,7 @@ export async function createStore({
     db.exec('BEGIN IMMEDIATE');
     try {
       for (const room of rooms) {
-        if (chamberInvitations.exists(room.room_id)) continue;
+        if (chamberInvitations.exists(room.room_id) || roomState(room.room_id).members.some(member=>member.capabilities?.includes('room-archive-v2'))) continue;
         cloudBackups.enqueueRoomCleanup(room.room_id);
         removed += db.prepare('DELETE FROM rooms WHERE room_id = ? AND sealed_at IS NULL AND NOT EXISTS (SELECT 1 FROM recovery_backups WHERE room_id = rooms.room_id)').run(room.room_id).changes;
       }
@@ -1623,6 +1642,16 @@ export async function createStore({
   return {
     chamberInvitations,
     chamberHistory,
+    roomArchives,
+    shortInvites,
+    rotateNewRoomInvitation(roomId,previousToken,token){
+      if(!validToken(previousToken)||!validToken(token))throw new Error('INVALID_JSON');
+      const room=statements.room.get(roomId);
+      if(!room||room.new_invite_expiry===null||room.sealed_at)throw new Error('ROOM_SEALED');
+      if(Buffer.from(room.access_hash).equals(hashToken(token)))return;
+      if(!Buffer.from(room.access_hash).equals(hashToken(previousToken)))throw new Error('BACKUP_CONFLICT');
+      db.prepare('UPDATE rooms SET access_hash=?,new_invite_expiry=? WHERE room_id=?').run(hashToken(token),Date.now()+15*60_000,roomId);
+    },
     chamberHistoryRecovery,
     chamberLifecycle,
     consumedChamberInvite(roomId,token) {

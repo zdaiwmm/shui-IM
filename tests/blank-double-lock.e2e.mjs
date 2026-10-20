@@ -50,7 +50,7 @@ try {
     Storage.prototype.setItem=function(key,value){if(key==='quiet-room:blank-double-lock')throw Error('denied');return window.originalBlankSetItem.call(this,key,value);};});
   await page.locator('[data-blank-lock]').click();
   assert.equal(await page.locator('[data-blank-lock]').getAttribute('aria-checked'),'false');
-  assert.match(await page.locator('.form-error').textContent(),/保留原设置/);
+  assert.match(await page.locator('#app-toast').textContent(),/保留原设置/);
   await page.evaluate(()=>{Storage.prototype.setItem=window.originalBlankSetItem;});
   await page.locator('[data-blank-lock]').click();assert.equal(await page.locator('[data-blank-lock]').getAttribute('aria-checked'),'true');
   await fresh();await double(await chatPoint());assert.equal(await locked(),true,'Re-enabled gesture must use the normal full lock');

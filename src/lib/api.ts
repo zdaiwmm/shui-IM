@@ -31,6 +31,7 @@ export type DeviceLinkRecord = {
 
 export type DeviceLinkState = { link: DeviceLinkRecord; state: RoomState };
 export type RepairLinkRecord = {
+  candidateProof?: string;
   linkId: string; roomId: string; initiatorId: string; sourceDeviceId: string;
   expiresAt: string; claimedDeviceId: string | null; createdAt: string;
   claimedAt: string | null; usedAt: string | null;
@@ -227,7 +228,7 @@ export async function claimDeviceLink(
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret, bundle, deviceAccessToken, deviceName, capabilities }),
+    body: JSON.stringify({ secret, bundle, deviceAccessToken, deviceName, capabilities, }),
   });
   if (!response.ok) throw await responseError(response);
   return response.json();
@@ -261,10 +262,10 @@ export async function createRepairLink(roomId: string, accessToken: string, body
   return response.json();
 }
 
-export async function claimRepairLink(linkId: string, secret: string, bundle: PublicBundle, deviceAccessToken: string, deviceName: string, capabilities: string[]): Promise<RepairLinkState> {
+export async function claimRepairLink(linkId: string, secret: string, bundle: PublicBundle, deviceAccessToken: string, deviceName: string, capabilities: string[], candidateProof?: string): Promise<RepairLinkState> {
   const response = await fetch(`/api/repair-links/${linkId}/claim`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret, bundle, deviceAccessToken, deviceName, capabilities }),
+    body: JSON.stringify({ secret, bundle, deviceAccessToken, deviceName, capabilities, candidateProof }),
   });
   if (!response.ok) throw await responseError(response);
   return response.json();

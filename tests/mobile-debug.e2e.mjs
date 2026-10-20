@@ -23,9 +23,12 @@ try {
   assert.equal((await (await fetch(`http://localhost:${port}/api/health`)).json()).ok,true);
   browser=await chromium.launch(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
   const context=await browser.newContext({viewport:{width:1000,height:1100},deviceScaleFactor:3,isMobile:true,hasTouch:true,userAgent:deviceProfile.userAgent.userAgent});
-  // This suite exercises the passkey-name editor, including in the iframe.
+  // This suite exercises the retained access-key editor as a presentation fixture,
+  // including the iframe. New creation is covered by new-room-mobile.e2e.mjs.
   // Pin capability discovery so headless Linux takes the same layout as macOS.
   await context.addInitScript(()=>Object.defineProperty(PublicKeyCredential,'getClientCapabilities',{configurable:true,value:async()=>({'extension:prf':true,userVerifyingPlatformAuthenticator:true})}));
+  await context.route('**/src/main.ts',async route=>{const response=await route.fetch();await route.fulfill({response,body:(await response.text())+'\nwindow.__mobileEditorFixture = app;'});});
+  const openEditorFixture=frame=>frame.evaluate(()=>window.__mobileEditorFixture.renderCreateProtection({name:'测试空间',avatar:{v:1,kind:'emoji',emoji:'1f60a',background:0}}));
   const page=await context.newPage();page.setDefaultTimeout(10000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
   const cdp=await context.newCDPSession(page);
   await cdp.send('Emulation.setUserAgentOverride',deviceProfile.userAgent);
@@ -36,7 +39,7 @@ try {
   const initial=await frame.evaluate(()=>({layout:document.documentElement.clientHeight,vv:visualViewport.height,bridge:window.__localSafariBridge?.installed,ua:navigator.userAgent,touch:navigator.maxTouchPoints,dpr:devicePixelRatio}));
   assert.equal(initial.bridge,true);assert.equal(initial.layout,683);assert.equal(initial.vv,683);assert.equal(initial.touch,5);assert.equal(initial.dpr,3);assert.match(initial.ua,/iPhone/);
   assert.equal(await page.locator('#local-address').textContent(),`localhost:${port}`);
-  await frame.locator('#create-room').click();
+  await openEditorFixture(frame);
   await frame.locator('.gateway-intro').evaluate(async el=>{await Promise.all(el.getAnimations().filter(a=>Number.isFinite(Number(a.effect?.getComputedTiming().endTime))).map(a=>a.finished));});
   const footerBefore=await frame.locator('.welcome-actions').boundingBox();
   const assertStableFooter=async()=>{
@@ -92,7 +95,7 @@ try {
   const reloaded=page.frames().find(f=>f!==page.mainFrame()&&new URL(f.url()).pathname==='/');
   const heading=await reloaded.locator('.gateway-heading').evaluate(el=>{const box=el.getBoundingClientRect(),p=el.querySelector('p').getBoundingClientRect();return {center:box.x+box.width/2,paragraph:p.x+p.width/2};});
   assert.ok(Math.abs(heading.center-heading.paragraph)<1,'Welcome description centers within the same heading');
-  await reloaded.locator('#create-room').click();await reloaded.locator('#new-passkey-name').click();await reloaded.locator('#form-input-draft').fill('能力与布局验收');await reloaded.locator('[data-form-input-done]').click();await page.waitForFunction(()=>document.getElementById('keyboard').hidden);await reloaded.waitForFunction(()=>visualViewport.height===763);await reloaded.locator('[data-device-verify]').waitFor();
+  await openEditorFixture(reloaded);await reloaded.locator('#new-passkey-name').click();await reloaded.locator('#form-input-draft').fill('能力与布局验收');await reloaded.locator('[data-form-input-done]').click();await page.waitForFunction(()=>document.getElementById('keyboard').hidden);await reloaded.waitForFunction(()=>visualViewport.height===763);await reloaded.locator('[data-device-verify]').waitFor();
   await reloaded.locator('.gateway-intro .gateway-heading').waitFor();
   assert.equal(await reloaded.locator('.entry-protection,.recovery-explanation').count(),0,'Creation protection uses the confirmed compact name-only layout');
   const sizes=[];
@@ -111,7 +114,7 @@ try {
   assert.ok(!plain.includes('__mobile-debug-bridge'));
   await page.goto(running.url);await page.frameLocator('iframe').locator('#create-room').waitFor();
   const fresh=page.frames().find(f=>f!==page.mainFrame()&&new URL(f.url()).pathname==='/');
-  await fresh.locator('#create-room').click();
+  await openEditorFixture(fresh);
   await fresh.locator('.gateway-intro').evaluate(async el=>{await Promise.all(el.getAnimations().filter(a=>Number.isFinite(Number(a.effect?.getComputedTiming().endTime))).map(a=>a.finished));});
   await fresh.locator('#new-passkey-name').click();await fresh.locator('#form-input-draft').fill('仅草稿');
   await fresh.evaluate(()=>{window.retiredDraft=document.querySelector('#form-input-draft');document.querySelector('#new-passkey-name').closest('.gateway-intro').remove();});
@@ -119,7 +122,7 @@ try {
   assert.equal(await fresh.evaluate(()=>retiredDraft.value),'','Source invalidation wipes the detached editor');
   await page.reload();await page.frameLocator('iframe').locator('#create-room').waitFor();
   const privateFrame=page.frames().find(f=>f!==page.mainFrame()&&new URL(f.url()).pathname==='/');
-  await privateFrame.locator('#create-room').click();
+  await openEditorFixture(privateFrame);
   await privateFrame.locator('.gateway-intro').evaluate(async el=>{await Promise.all(el.getAnimations().filter(a=>Number.isFinite(Number(a.effect?.getComputedTiming().endTime))).map(a=>a.finished));});
   await privateFrame.locator('#new-passkey-name').click();await privateFrame.locator('#form-input-draft').fill('不应保留的草稿');
   await privateFrame.evaluate(()=>{window.retiredDraft=document.querySelector('#form-input-draft');Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'));});

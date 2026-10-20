@@ -72,7 +72,13 @@ try {
         const identity=await c.generateIdentity(),room=await api.createRoom(identity.publicBundle,'a'.repeat(43),'b'.repeat(43));
         return links.makeParticipantInviteUrl({v:1,roomId:room.roomId,creatorFingerprint:await c.bundleFingerprint(identity.publicBundle),accessToken:'b'.repeat(43),pairingSecret:'c'.repeat(43)});
       }
-      if (kind === 'device') return links.makeDeviceInviteUrl({ ...base, kind: 'device-link', linkId: crypto.randomUUID(), secret: 'b'.repeat(43), role: 'creator', authorizerId: crypto.randomUUID(), authorizerFingerprint: 'a'.repeat(43), expiresAt: new Date(Date.now() + 600000).toISOString() });
+      if (kind === 'device') {
+        // Device entry also preflights the link before selecting its UI.
+        const identity=await c.generateIdentity(),room=await api.createRoom(identity.publicBundle,'a'.repeat(43),'b'.repeat(43));
+        const fingerprint=await c.bundleFingerprint(identity.publicBundle),linkId=crypto.randomUUID(),secret='c'.repeat(43),expiresAt=new Date(Date.now()+600000).toISOString();
+        await api.createDeviceLink(room.roomId,'a'.repeat(43),identity.publicBundle.deviceId,linkId,secret,expiresAt);
+        return links.makeDeviceInviteUrl({v:1,roomId:room.roomId,creatorFingerprint:fingerprint,kind:'device-link',linkId,secret,role:'creator',authorizerId:identity.publicBundle.deviceId,authorizerFingerprint:fingerprint,expiresAt});
+      }
       return links.makeRepairInviteUrl({ ...base, kind: 'repair-link', linkId: crypto.randomUUID(), secret: 'b'.repeat(43), sourceDeviceId: crypto.randomUUID(), initiatorId: crypto.randomUUID(), initiatorFingerprint: 'a'.repeat(43), sourceFingerprint: 'a'.repeat(43), expiresAt: new Date(Date.now() + 600000).toISOString() });
     }, kind);
     for (let i = 0; i < 2; i++) {

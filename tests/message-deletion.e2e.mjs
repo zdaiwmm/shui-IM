@@ -363,7 +363,7 @@ try {
   await longPress(fixture.ids.peerMessage);
   await page.locator('[data-message-action="delete"]').click();
   await page.locator('[data-message-action="delete-local"]').click();
-  await page.waitForFunction(targetId => document.querySelector('#notice')?.textContent?.startsWith('本机删除未能保存，消息已恢复')
+  await page.waitForFunction(targetId => document.querySelector('#app-toast')?.textContent?.startsWith('本机删除未能保存，消息已恢复')
     && Boolean(document.querySelector(`.message[data-client-msg-id="${CSS.escape(targetId)}"]`)), fixture.ids.peerMessage);
   assert.equal(await page.evaluate(targetId => (window.messageDeletion.app.uiPreferences.hiddenChatMessageIds ?? []).includes(targetId), fixture.ids.peerMessage), false,
     'Failed local deletion left an unsaved hidden-message projection');
@@ -456,7 +456,7 @@ try {
   await safeAsset.dispatchEvent('contextmenu');
   await page.locator('.gallery-actions-sheet.is-visible').waitFor();
   await page.locator('[data-gallery-action="pin"]').click();
-  await page.waitForFunction(() => document.querySelector('#notice')?.textContent?.startsWith('保险箱操作未能保存，未做更改'));
+  await page.waitForFunction(() => document.querySelector('#app-toast')?.textContent?.startsWith('保险箱操作未能保存，未做更改'));
   assert.equal(await page.locator('.gallery-actions-sheet.is-visible').getAttribute('aria-busy'), null,
     'Failed Safe persistence left its action sheet busy');
   assert.equal(await page.locator('[data-gallery-action="pin"]').isEnabled(), true,
@@ -532,7 +532,7 @@ try {
   await page.locator(messageSelector(fixture.ids.peerReplyLocal)).waitFor({ state: 'visible' });
   assert.equal(await page.locator(`${messageSelector(fixture.ids.peerReplyLocal)} .message-reply-quote span`).textContent(), '消息已删除');
   await page.locator(`${messageSelector(fixture.ids.peerReplyLocal)} .message-reply-quote`).click();
-  await page.waitForFunction(() => document.querySelector('#notice')?.textContent === '原消息已删除');
+  await page.waitForFunction(() => document.querySelector('#app-toast')?.textContent === '原消息已删除');
   assert.equal(await page.locator(messageSelector(fixture.ids.ownLocalImage)).count(), 0, 'Clicking a deleted reply quote restored its target');
   assert.equal(await page.evaluate(() => window.messageDeletion.app.replyTarget), null, 'Clicking a deleted reply quote created a reply target');
 
@@ -689,7 +689,7 @@ try {
       retainedDraft: input.value,
       pendingReactions: [...app.pending.values()].filter(message => message.payload.kind === 'reaction').length,
       pendingTexts: [...app.pending.values()].filter(message => message.payload.kind === 'text').length,
-      notice: root.querySelector('#notice').textContent,
+      notice: document.querySelector('#app-toast').textContent,
     };
     input.value = '';
     input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -741,7 +741,7 @@ try {
       replyTarget: app.replyTarget,
       replyDraftHidden: root.querySelector('#reply-draft').hidden,
       pendingReactions: [...app.pending.values()].filter(message => message.payload.kind === 'reaction').length,
-      notice: root.querySelector('#notice').textContent,
+      notice: document.querySelector('#app-toast').textContent,
     };
   });
   assert.deepEqual(staleSwipeResult, {
@@ -779,7 +779,7 @@ try {
       && [...app.pending.values()].some(message => message.payload.kind === 'message-delete'
         && message.payload.target.clientMsgId === targetId);
   }, fixture.ids.ownGlobal);
-  await page.waitForFunction(() => document.querySelector('#notice')?.textContent
+  await page.waitForFunction(() => document.querySelector('#app-toast')?.textContent
     === '删除请求已加密保存在本机；连接恢复并同步后才会在其他设备生效');
   assert.equal(await page.evaluate(() => window.messageDeletion.app.connectionState), 'disconnected');
   assert.equal(await page.locator('#reply-draft').evaluate(element => element.hidden), true, 'Optimistic global delete left its reply draft open');
@@ -898,7 +898,7 @@ try {
       deferred: app.deferredCapabilityItems.has(outboxItem.clientMsgId),
       targetVisible: Boolean(root.querySelector(`.message[data-client-msg-id="${CSS.escape(ids.ownGlobal)}"]`)),
       tombstonePending: app.messageDeletions().get(ids.ownGlobal)?.pending,
-      notice: root.querySelector('#notice').textContent,
+      notice: document.querySelector('#app-toast').textContent,
     };
     app.clearRetry(outboxItem.clientMsgId);
     peerMember.capabilities = originalCapabilities;
@@ -950,7 +950,7 @@ try {
   assert.equal(await cachedGlobalQuote.locator('span').textContent(), '消息已删除', 'Cached reply preview retained deleted content');
   assert.equal(await cachedGlobalQuote.getAttribute('aria-label'), '被回复的消息已删除', 'Cached reply accessibility label retained deleted content');
   await cachedGlobalQuote.click();
-  await page.waitForFunction(() => document.querySelector('#notice')?.textContent === '原消息已删除');
+  await page.waitForFunction(() => document.querySelector('#app-toast')?.textContent === '原消息已删除');
   assert.equal(await page.locator(messageSelector(fixture.ids.ownGlobal)).count(), 0);
   assert.equal(await page.locator('.message.is-highlighted').count(), 0, 'Deleted reply target was still jump-highlighted');
   assert.equal(await page.evaluate(() => window.messageDeletion.app.replyTarget), null);

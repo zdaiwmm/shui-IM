@@ -41,7 +41,7 @@ try {
   assert.equal(before.length, 1);
   await page.evaluate(() => { cancelNext = true; });
   await page.locator('#passkey-management').click();
-  await page.waitForFunction(() => document.querySelector('.space-drawer .form-error')?.textContent.includes('未完成'));
+  await page.waitForFunction(() => document.querySelector('#app-toast')?.textContent.includes('未完成'));
   assert.equal(await page.locator('.passkey-manager').count(), 0);
   await page.locator('#passkey-management').click();
   await page.locator('#passkey-rename').waitFor();

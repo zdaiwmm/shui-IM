@@ -16,6 +16,7 @@ try {
     await page.goto(`http://localhost:${vite.httpServer.address().port}/__profile`);
     await page.evaluate(async()=>{
       await(await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
+      const {QuietRoomApp}=await import('/src/app.ts');const app=new QuietRoomApp(document.querySelector('#app'));app.privacyCovered=false;
       window.ui=await import('/src/lib/space-profile-ui.ts');
       (await import('/src/lib/form-input.ts')).mountFormInputs(document.querySelector('#app'));
       window.outstanding=new Set();
@@ -29,7 +30,7 @@ try {
         void ui.createSpaceProfile(document.querySelector('#app'),{signal:abort.signal,active:()=>!abort.signal.aborted,hasCredential:true,picker:operation=>operation(),...options}).then(value=>window.result=value);
       }; mount();
     });
-    await page.locator('#profile-done').click();assert.match(await page.locator('.space-profile-content .form-error').innerText(),/1–40/);
+    await page.locator('#profile-done').click();assert.match(await page.locator('#app-toast').innerText(),/1–40/);
     await fillFormInput(page,page.locator('#new-space-name'),'海边小屋');
     assert.ok(await page.locator('#new-space-name').evaluate(input=>document.querySelector('.space-profile-label').getBoundingClientRect().bottom<input.getBoundingClientRect().top));
     assert.equal(await page.locator('#new-space-name').evaluate(input=>getComputedStyle(input).outlineStyle),'none');

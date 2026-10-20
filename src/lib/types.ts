@@ -118,6 +118,9 @@ export type PendingDeviceLink = {
 };
 
 export type Vault = {
+  pendingNewInvite?: {previousToken:string;token:string};
+  archiveState?: import('./room-archive').RoomArchiveState;
+  roomArchiveV2?: { key: import('./room-archive-crypto').ArchiveKey; cardVerified?: boolean };
   /** Local record namespace for independently recovered endpoints; never a server room ID. */
   localDataScope?: string;
   /** Original local preference/draft owner when this browser rotates its device keys. */
@@ -186,6 +189,9 @@ export type Vault = {
   pendingDeviceLinks?: PendingDeviceLink[];
   pendingDeviceLinkId?: string;
   pendingRepair?: {
+    admissionSecret?: string;
+    sourceDeviceId?: string;
+    initiatorId?: string;
     linkId: string;
     secret: string;
     expiresAt: string;
@@ -260,6 +266,7 @@ export type StoredRecoveryVault = {
 };
 
 export type StoredPasswordVault = {
+  browserRoomKey?: true;
   spaceId?: string;
   v: 3;
   unlockMethod: 'password';

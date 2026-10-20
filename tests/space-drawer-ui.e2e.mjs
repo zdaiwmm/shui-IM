@@ -11,6 +11,7 @@ try {
     await page.goto(`http://localhost:${vite.httpServer.address().port}/__drawer`);
     await page.evaluate(async()=>{
       await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
+      const {QuietRoomApp}=await import('/src/app.ts');const app=new QuietRoomApp(document.querySelector('#app'));app.privacyCovered=false;
       window.ui = await import('/src/lib/space-drawer.ts');
       window.mount = (count=12,initialSettings=false) => {
         window.abort?.abort(); window.abort = new AbortController(); window.renamed = ''; window.closed = 0;
@@ -34,7 +35,7 @@ try {
     await page.locator('#space-rename').click();
     assert.equal(await page.locator('#space-name').evaluate(el=>document.activeElement===el),true);
     await page.locator('#space-name').fill('   '); await page.locator('#space-name-form button[type=submit]').click();
-    assert.ok((await page.locator('.space-name-dialog .form-error').innerText()).includes('1–40'));
+    assert.ok((await page.locator('#app-toast').innerText()).includes('1–40'));
     await page.locator('#space-name').fill('改后的名称'); await page.locator('#space-name-form button[type=submit]').click();
     await page.locator('.space-name-dialog').waitFor({state:'detached'});
     assert.equal(await page.evaluate(()=>window.renamed),'改后的名称');

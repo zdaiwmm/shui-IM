@@ -42,7 +42,7 @@ import type {
 } from './types';
 
 const DB_NAME = 'quiet-room';
-const DB_VERSION = 12;
+const DB_VERSION = 15;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const PLATFORM_PAYLOAD_AAD = encoder.encode('quiet-room-vault-payload-v2');
@@ -132,11 +132,17 @@ function putCurrentVault(tx: IDBTransaction, next: StoredVault, expected?: Store
   };
 }
 
-async function installStoredVault(next: StoredVault, expected?: StoredVault): Promise<void> {
+async function installStoredVault(next: StoredVault, expected?: StoredVault, roomProtectionRevision?: string): Promise<void> {
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const tx = database.transaction('vault', 'readwrite');
-    putCurrentVault(tx, next, expected);
+    const tx = database.transaction(roomProtectionRevision ? ['vault', 'security'] : ['vault'], 'readwrite');
+    if (roomProtectionRevision) {
+      const request = tx.objectStore('security').get('room-protection-v2');
+      request.onsuccess = () => {
+        if (request.result?.revision !== roomProtectionRevision) { tx.abort(); return; }
+        putCurrentVault(tx, next, expected);
+      };
+    } else putCurrentVault(tx, next, expected);
     tx.oncomplete = () => { database.close(); resolve(); };
     tx.onabort = () => { database.close(); reject(tx.error ?? staleVaultError()); };
     tx.onerror = () => reject(tx.error ?? new Error('保险库写入失败'));
@@ -190,7 +196,7 @@ type StoredMediaChunk = {
   mimeType?: string;
 };
 
-type LocalStore = 'outbox' | 'receiptOutbox' | 'uploads' | 'preferences' | 'memeFavorites';
+type LocalStore = 'privateArchiveStaging' | 'privateMedia' | 'privateArchive' | 'outbox' | 'receiptOutbox' | 'uploads' | 'preferences' | 'memeFavorites';
 
 export type ChatScrollAnchor = {
   clientMsgId: string;
@@ -276,7 +282,7 @@ function openDatabase(): Promise<IDBDatabase> {
           grouped.set(entry.id, entry); cursor.continue();
         };
       }
-      for (const storeName of ['outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites'] as const) {
+      for (const storeName of ['outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging'] as const) {
         if (!database.objectStoreNames.contains(storeName)) {
           const store = database.createObjectStore(storeName, { keyPath: 'id' });
           store.createIndex('roomId', 'roomId', { unique: false });
@@ -336,6 +342,50 @@ async function transaction<T>(
   });
 }
 
+/** New-room browser key is separate from legacy personal roots and never exported. */
+export async function readRoomProtection(): Promise<import('./browser-room-key').RoomProtection | null> {
+  return (await transaction<import('./browser-room-key').RoomProtection | undefined>('security', 'readonly', store => store.get('room-protection-v2'))) ?? null;
+}
+export async function replaceRoomProtection(expected: import('./browser-room-key').RoomProtection | null, next: import('./browser-room-key').RoomProtection): Promise<void> {
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction('security', 'readwrite'), store = tx.objectStore('security');
+    const current = store.get('room-protection-v2');
+    current.onsuccess = () => { if (canonicalStringify(current.result ?? null) !== canonicalStringify(expected)) tx.abort(); else store.put(next, 'room-protection-v2'); };
+    tx.oncomplete = () => { database.close(); resolve(); };
+    tx.onabort = () => { database.close(); reject(new Error('另一页面已修改本机保护，请重试')); };
+    tx.onerror = () => { database.close(); reject(tx.error); };
+  });
+}
+
+/** Explicit destructive reset from the locked help dialog; never an unlock or
+ * password reset. A single transaction removes every local room and its keys. */
+export async function clearAllRoomBrowserData(expected: import('./browser-room-key').RoomProtection): Promise<void> {
+  await withVaultLifecycle(async () => {
+    const database = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const names = [...database.objectStoreNames], tx = database.transaction(names, 'readwrite');
+      const request = tx.objectStore('security').get('room-protection-v2');
+      request.onsuccess = () => {
+        if (canonicalStringify(request.result ?? null) !== canonicalStringify(expected)) { tx.abort(); return; }
+        for (const name of names) tx.objectStore(name).clear();
+      };
+      tx.oncomplete = () => { database.close(); resolve(); };
+      tx.onabort = () => { database.close(); reject(tx.error ?? new Error('本机保护已改变，请重新打开后再清除')); };
+    });
+    selectedSpace = 'current';
+    for (const name of ['localStorage', 'sessionStorage'] as const) {
+      try {
+        const storage = window[name];
+        for (let index = storage.length - 1; index >= 0; index--) {
+          const key = storage.key(index); if (key?.startsWith('quiet-room:')) storage.removeItem(key);
+        }
+      } catch { /* The committed key/data deletion remains authoritative. */ }
+    }
+    try { localStorage.setItem('quiet-room:room-data-cleared', crypto.randomUUID()); } catch { /* Vault CAS still rejects stale writes. */ }
+  });
+}
+
 /** Personal roots are deliberately outside room vaults and all cloud checkpoint serializers. */
 export async function readPersonalIdentity(id?: string): Promise<import('./personal-identity-vault').StoredPersonalIdentity | null> {
   const { validStoredPersonalIdentity } = await import('./personal-identity-vault');
@@ -390,7 +440,7 @@ export async function replacePersonalIdentityProtection(expected:import('./perso
  * devices never overwrite ciphertext encrypted under another local master. */
 function localDataScope(vault: Pick<Vault, 'roomId' | 'localDataScope'>): string {
   if (!vault.localDataScope) return vault.roomId;
-  if (!/^[0-9a-f-]{36}$/i.test(vault.localDataScope)) throw new Error('本机数据范围不正确');
+  if (!/^[0-9a-f-]{36}(?::private:[0-9a-f-]{36})?$/i.test(vault.localDataScope)) throw new Error('本机数据范围不正确');
   return vault.localDataScope;
 }
 
@@ -942,14 +992,14 @@ export async function clearLocalBrowserData(session: VaultSession): Promise<void
   await withVaultLifecycle(async () => {
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
-      const stores = ['history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
+      const stores = ['history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging'];
       const tx = database.transaction(['vault', ...stores], 'readwrite');
       const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
       current.onsuccess = () => {
         if (!sameStoredVault(current.result, session.stored)) tx.abort();
       };
       for (const name of stores) {
-        const request = tx.objectStore(name).index('roomId').openKeyCursor(IDBKeyRange.only(localDataScope(session.vault)));
+        const request = tx.objectStore(name).index('roomId').openKeyCursor(IDBKeyRange.bound(localDataScope(session.vault), `${localDataScope(session.vault)}\uffff`));
         request.onsuccess = () => {
           const cursor = request.result;
           if (!cursor) return;
@@ -1036,7 +1086,7 @@ export async function finishJointRecovery(session: VaultSession, nextVault: Vaul
     signal.throwIfAborted();
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
-      const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
+      const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging'];
       const tx = database.transaction(stores, 'readwrite');
       putCurrentVault(tx, nextStored, session.stored);
       for (const name of stores.slice(1)) {
@@ -1071,14 +1121,16 @@ async function createVaultLocked(
   if (unlockMethod === 'password' || (preparedPlatformCredential && isPasswordCredential(preparedPlatformCredential))) {
     const credential = preparedPlatformCredential && isPasswordCredential(preparedPlatformCredential)
       ? preparedPlatformCredential : await derivePasswordCredential(legacySecret);
+    if (vault.roomArchiveV2 && !credential.roomProtectionRevision) throw new Error('新密室的本机访问材料已失效，请重试');
     const master = crypto.getRandomValues(new Uint8Array(32));
     try {
       const key = await importMasterKey(master);
       const stored: StoredPasswordVault = { v: 3, unlockMethod: 'password', spaceId: selectedSpace, kdf: credential.kdf,
+        ...(vault.roomArchiveV2 ? { browserRoomKey: true as const } : {}),
         ...(credential.passwordFormat ? { passwordFormat: credential.passwordFormat } : {}),
         wrappedKey: await wrapPasswordMaster(master, credential, selectedSpace), payload: await encryptPayload(vault, key) };
       if (!isActive()) throw new DOMException('保险库创建流程已经结束', 'AbortError');
-      await installStoredVault(stored, expected);
+      await installStoredVault(stored, expected, vault.roomArchiveV2 ? credential.roomProtectionRevision : undefined);
       rememberSpace(vaultSpaceId(stored)); await clearUnlockThrottle(); vault.v = 3;
       return { vault, key, stored };
     } finally { master.fill(0); }
@@ -2650,7 +2702,7 @@ export async function finishVaultRecovery(session: VaultSession, nextVault: Vaul
   const nextStored: StoredPlatformVault | StoredPasswordVault = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
+    const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging'];
     const tx = database.transaction(stores, 'readwrite');
     putCurrentVault(tx, nextStored, session.stored);
     for (const name of stores.slice(1)) {
@@ -2758,4 +2810,112 @@ export async function writePasskeyName(session: VaultSession, record: PlatformCr
       tx.onabort = () => { cleanup(); reject(staleVaultError()); };
     });
   });
+}
+
+type StagedPrivateRecord = {id:string;roomId:string;record:StoredLocalRecord;previous?:StoredLocalRecord};
+export async function stagePrivateArchiveItem(session:VaultSession,runId:string,item:import('./room-archive').PrivateArchiveItem,signal:AbortSignal):Promise<void> {
+  await withVaultMutation(session,async()=>{
+    signal.throwIfAborted();const scope=localDataScope(session.vault),id=`${item.originRoomId}:${item.message.clientMsgId}`;
+    const previous=await transaction<StoredLocalRecord|undefined>('privateArchive','readonly',store=>store.get(`${scope}:${id}`));
+    if(previous&&canonicalStringify(await decryptLocalRecord(session,'privateArchive',previous))!==canonicalStringify(item))throw new Error('导入记录与已保存的历史冲突');
+    const record=previous??await encryptLocalRecord(session,'privateArchive',id,item);signal.throwIfAborted();
+    await transaction('privateArchiveStaging','readwrite',store=>store.put({id:`${scope}:${runId}:${id}`,roomId:scope,record,previous} satisfies StagedPrivateRecord),session.stored);
+  });
+}
+/** Publish every validated message/deletion event together; unfinished imports
+ * never participate in rendering, notifications, receipts or automatic backup. */
+export async function commitPrivateArchiveImport(session:VaultSession,runId:string,signal:AbortSignal):Promise<void> {
+  await withVaultMutation(session,async()=>{
+    signal.throwIfAborted();const database=await openDatabase(),prefix=`${localDataScope(session.vault)}:${runId}:`;
+    await new Promise<void>((resolve,reject)=>{
+      const tx=database.transaction(['vault','privateArchive','privateArchiveStaging'],'readwrite');
+      const abort=()=>{try{tx.abort();}catch{/* Already committed. */}};signal.addEventListener('abort',abort,{once:true});
+      const vault=tx.objectStore('vault').get(vaultSpaceId(session.stored));vault.onsuccess=()=>{if(!sameStoredVault(vault.result,session.stored))abort();};
+      const cursor=tx.objectStore('privateArchiveStaging').openCursor(IDBKeyRange.bound(prefix,`${prefix}\uffff`));
+      cursor.onsuccess=()=>{const entry=cursor.result;if(!entry)return;const staged=entry.value as StagedPrivateRecord;
+        const current=tx.objectStore('privateArchive').get(staged.record.id);current.onsuccess=()=>{
+          if(canonicalStringify(current.result??null)!==canonicalStringify(staged.previous??null)){abort();return;}
+          tx.objectStore('privateArchive').put(staged.record);entry.delete();entry.continue();
+        };
+      };
+      const finish=()=>{signal.removeEventListener('abort',abort);database.close();};
+      tx.oncomplete=()=>{finish();resolve();};tx.onabort=()=>{finish();reject(tx.error??new Error('恢复提交中断，请重新恢复；原记录仍保留'));};
+    });
+  });
+}
+export async function discardPrivateArchiveStaging(session:VaultSession,runId?:string):Promise<void> {
+  const database=await openDatabase(),scope=localDataScope(session.vault),prefix=runId?`${scope}:${runId}:`:`${scope}:`;
+  await new Promise<void>((resolve,reject)=>{const tx=database.transaction('privateArchiveStaging','readwrite');
+    const cursor=tx.objectStore('privateArchiveStaging').openKeyCursor(IDBKeyRange.bound(prefix,`${prefix}\uffff`));
+    cursor.onsuccess=()=>{const entry=cursor.result;if(entry){tx.objectStore('privateArchiveStaging').delete(entry.primaryKey);entry.continue();}};
+    tx.oncomplete=()=>{database.close();resolve();};tx.onabort=()=>{database.close();reject(tx.error);};
+  });
+}
+
+/** Private imports never enter the shared history, outbox, receipt or projection stores. */
+export async function savePrivateArchiveItem(session: VaultSession, item: import('./room-archive').PrivateArchiveItem): Promise<void> {
+  const id = `${item.originRoomId}:${item.message.clientMsgId}`;
+  await withVaultMutation(session, async mutation => {
+    const record = await transaction<StoredLocalRecord | undefined>('privateArchive', 'readonly', store => store.get(`${localDataScope(session.vault)}:${id}`));
+    const existing = record ? await decryptLocalRecord(session, 'privateArchive', record) : undefined;
+    if (existing && canonicalStringify(existing) !== canonicalStringify(item)) throw new Error('导入记录与已保存的历史冲突');
+    if (!existing) await putLocalRecord(session, 'privateArchive', id, item, mutation);
+  });
+}
+export function loadPrivateArchiveItems(session: VaultSession): Promise<import('./room-archive').PrivateArchiveItem[]> {
+  return loadLocalRecords(session, 'privateArchive');
+}
+
+export async function withRoomUnlockThrottle<T>(operation: () => Promise<T>): Promise<T> {
+  const scope='room-protection-v2-throttle';
+  const wait=Math.max(0,(await readUnlockThrottle(scope)).nextAllowedAt-Date.now());
+  if(wait) throw new Error(`尝试次数过多，请 ${Math.ceil(wait/1000)} 秒后重试`);
+  try { const value=await operation();await clearUnlockThrottle(scope);return value; }
+  catch(cause) { await recordUnlockFailure(scope);throw cause; }
+}
+
+/** Management read does not navigate or change the browser's selected room. */
+export function readStoredRoom(id:string):Promise<StoredVault|null> {
+  return withVaultLifecycle(()=>readStoredVaultUnlocked(id));
+}
+/** One local transaction removes the room and every private-media namespace.
+ * It deliberately makes no server request and cannot close the peer's room. */
+export async function deleteNewRoomLocal(session:VaultSession, directory?: {owner:VaultSession;mutation:VaultMutation;id:string;value:unknown}):Promise<void> {
+  if(!session.vault.roomArchiveV2)throw new Error('此操作仅适用于新密室');
+  const remove=async()=>{
+    if(directory&&!ownsVaultMutation(directory.owner,directory.mutation))throw staleVaultError();
+    const database=await openDatabase(),scope=localDataScope(session.vault);
+    await new Promise<void>((resolve,reject)=>{
+      const names=['history','galleryHistory','restoredGallery','mediaCacheEntries','mediaChunks','outbox','receiptOutbox','uploads','preferences','memeFavorites','privateArchive','privateMedia','privateArchiveStaging'];
+      const tx=database.transaction(['vault','spaces',...names],'readwrite');
+      if(directory){const owner=tx.objectStore('vault').get(vaultSpaceId(directory.owner.stored));owner.onsuccess=()=>{if(!sameStoredVault(owner.result,directory.owner.stored))tx.abort();else tx.objectStore('spaces').put(directory.value,directory.id);};}
+      const request=tx.objectStore('vault').get(vaultSpaceId(session.stored));
+      request.onsuccess=()=>{
+        if(!sameStoredVault(request.result,session.stored)){tx.abort();return;}
+        tx.objectStore('vault').delete(vaultSpaceId(session.stored));
+        for(const name of names){
+          const cursor=tx.objectStore(name).index('roomId').openKeyCursor(IDBKeyRange.bound(scope,`${scope}\uffff`));
+          cursor.onsuccess=()=>{const item=cursor.result;if(!item)return;if(item.key===scope||String(item.key).startsWith(`${scope}:private:`))tx.objectStore(name).delete(item.primaryKey);item.continue();};
+        }
+      };
+      tx.oncomplete=()=>{database.close();resolve();};tx.onabort=()=>{database.close();reject(tx.error??staleVaultError());};
+    });
+    clearDraftCheckpoints(vaultSpaceId(session.stored));
+  };
+  if(directory)await remove();else await withVaultLifecycle(remove);
+}
+
+/** Imported originals are durable private data, never an evictable media cache. */
+export async function savePrivateMediaChunk(session:VaultSession,blobId:string,index:number,raw:ArrayBuffer,signal:AbortSignal):Promise<void>{
+  signal.throwIfAborted();await withVaultMutation(session,async mutation=>{
+    signal.throwIfAborted();const id=`${blobId}:${index}`,encoded=toBase64Url(raw);
+    const record=await transaction<StoredLocalRecord|undefined>('privateMedia','readonly',store=>store.get(`${localDataScope(session.vault)}:${id}`));
+    if(record){if(await decryptLocalRecord<string>(session,'privateMedia',record)!==encoded)throw new Error('导入原文件与本机历史冲突');return;}
+    signal.throwIfAborted();await putLocalRecord(session,'privateMedia',id,encoded,mutation);
+  });signal.throwIfAborted();
+}
+export async function loadPrivateMediaChunk(session:VaultSession,blobId:string,index:number,size:number):Promise<ArrayBuffer|null>{
+  const record=await transaction<StoredLocalRecord|undefined>('privateMedia','readonly',store=>store.get(`${localDataScope(session.vault)}:${blobId}:${index}`));
+  if(!record)return null;const encoded=await decryptLocalRecord<string>(session,'privateMedia',record),raw=fromBase64Url(encoded);
+  if(raw.length!==size)throw new Error('历史原文件分块不完整');return raw.buffer;
 }

@@ -1,3 +1,4 @@
+import {uiNotice} from './ui-notice';
 import { layoutViewport } from './form-input';
 import { mountDialog } from './dialog';
 import { passwordValidation } from './password-protection';
@@ -7,6 +8,8 @@ import { requestNumericPassword } from './password-keypad';
 export type PasswordRequestOptions<T> = {
   create?: boolean; title: string; context: string; signal?: AbortSignal; isActive: () => boolean;
   verify: (password: string) => Promise<T>; forgot?: () => void; cancel?: () => void;
+  /** Explain recovery without closing the active authentication request. */
+  help?: () => void;
   presentation?: 'page' | 'sheet'; spaceName?: string; operation?: string; submitLabel?: string;
   passwordFormat?: 'numeric-6'; retryAfterMs?: () => Promise<number>;
   showBrowserHint?: boolean;
@@ -39,7 +42,7 @@ export function requestPassword<T>(root: HTMLElement, options: PasswordRequestOp
         ${options.create ? '<p class="field-hint" id="password-help">使用 12–128 个字符。可使用密码管理器生成、填写或保存。</p><p class="field-hint">忘记密码时，需要双方参与找回。</p>' : '<span id="password-help" class="sr-only">输入此空间已有的密码</span>'}
       </div></div>
       <div class="password-actions"><button class="primary-button" type="submit"></button>
-        ${options.forgot ? '<button class="text-button" type="button" data-password-forgot>忘记密码？使用恢复码找回</button><p class="field-hint">需要双方参与，旧记录另行恢复。</p>' : ''}
+        ${options.help ? '<button class="text-button" type="button" data-password-help>忘记密码？</button>' : options.forgot ? '<button class="text-button" type="button" data-password-forgot>忘记密码？使用恢复码找回</button><p class="field-hint">需要双方参与，旧记录另行恢复。</p>' : ''}
         ${fullPage && !options.create ? '' : `<button class="text-button" type="button" data-password-cancel>${fullPage ? '返回' : '取消操作'}</button>`}
       </div></form>`;
     sheet.querySelector('h2')!.textContent = options.title;
@@ -68,6 +71,7 @@ export function requestPassword<T>(root: HTMLElement, options: PasswordRequestOp
     document.addEventListener('visibilitychange', () => { if (document.hidden) cancel(); }, { signal });
     form.querySelector('[data-password-cancel]')!.addEventListener('click', () => { dialog.close(); options.cancel?.(); });
     form.querySelector('[data-password-forgot]')?.addEventListener('click', () => { dialog.close(); options.forgot?.(); });
+    form.querySelector('[data-password-help]')?.addEventListener('click', () => { password.value='';options.help?.(); });
     form.querySelector('[name=show]')!.addEventListener('change', event => {
       const type = (event.target as HTMLInputElement).checked ? 'text' : 'password'; password.type = type; if (confirmation) confirmation.type = type;
     });
@@ -75,8 +79,8 @@ export function requestPassword<T>(root: HTMLElement, options: PasswordRequestOp
     form.addEventListener('submit', async event => {
       event.preventDefault(); if (busy || !active()) return;
       let secret = password.value;
-      error.textContent = options.create ? passwordValidation(secret, confirmation?.value) : secret ? '' : '请输入此空间已有的密码';
-      if (error.textContent) { const invalid = options.create && Array.from(secret).length >= 12 && Array.from(secret).length <= 128 ? confirmation ?? password : password; invalid.setAttribute('aria-invalid', 'true'); invalid.focus(); return; }
+      const validation = options.create ? passwordValidation(secret, confirmation?.value) : secret ? '' : '请输入此空间已有的密码';
+      if (validation) {uiNotice(root,validation); const invalid = options.create && Array.from(secret).length >= 12 && Array.from(secret).length <= 128 ? confirmation ?? password : password; invalid.setAttribute('aria-invalid', 'true'); invalid.focus(); return; }
       password.removeAttribute('aria-invalid'); confirmation?.removeAttribute('aria-invalid');
       busy = true; button.disabled = true; button.textContent = options.create ? '正在设置本机保护…' : '正在验证…'; form.setAttribute('aria-busy', 'true');
       password.value = ''; if (confirmation) confirmation.value = '';
@@ -85,7 +89,7 @@ export function requestPassword<T>(root: HTMLElement, options: PasswordRequestOp
         if (!active()) { cancel(); return; }
         settled = true; resolve(proof); dialog.close(); controller.abort();
       } catch (cause) {
-        if (active()) { error.textContent = cause instanceof Error ? cause.message : '验证失败，请重试'; password.setAttribute('aria-invalid', 'true'); password.focus(); }
+        if (active()) { uiNotice(root,cause instanceof Error ? cause.message : '验证失败，请重试'); password.setAttribute('aria-invalid', 'true'); password.focus(); }
         else cancel();
       } finally { secret = ''; busy = false; if (active()) { button.disabled = false; button.textContent = submitLabel; form.removeAttribute('aria-busy'); } }
     });
