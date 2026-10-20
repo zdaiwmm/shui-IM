@@ -13,7 +13,7 @@ export async function createShortRoomLink(session:VaultSession,url:string,signal
  await authorizedFetch(`/api/rooms/${session.vault.roomId}/short-invites/${id}`,session.vault.accessToken,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({v:2,iv:toBase64Url(iv),ciphertext:toBase64Url(ciphertext)}),signal:AbortSignal.any([signal,AbortSignal.timeout(15000)])});
  return `${location.origin}/#j=${secret}`;
 }
-export async function expandShortRoomLink():Promise<boolean>{
+export async function expandShortRoomLink(active:()=>boolean=()=>true):Promise<boolean>{
  const current=location.hash;if(!current.startsWith('#j='))return false;
  const secret=current.slice(3);if(!/^[A-Za-z0-9_-]{43}$/.test(secret))throw new Error('聊天链接不完整，请让对方重新发送');
  const id=identifier(secret),response=await fetch(`/api/short-invites/${id}`,{cache:'no-store',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(15000)});
@@ -22,5 +22,5 @@ export async function expandShortRoomLink():Promise<boolean>{
  const key=await crypto.subtle.importKey('raw',fromBase64Url(secret),'AES-GCM',false,['decrypt']);
  let raw:ArrayBuffer;try{raw=await crypto.subtle.decrypt({name:'AES-GCM',iv:fromBase64Url(envelope.iv),additionalData:aad(id)},key,fromBase64Url(envelope.ciphertext));}catch{throw new Error('聊天链接校验失败');}
  const url=new TextDecoder('utf-8',{fatal:true}).decode(raw);if(parseInviteText(url,location.href).kind==='invalid')throw new Error('聊天链接校验失败');
- if(location.hash!==current)return false;history.replaceState(history.state,'',new URL(url).hash);return true;
+ if(!active()||location.hash!==current)return false;history.replaceState(history.state,'',new URL(url).hash);return true;
 }

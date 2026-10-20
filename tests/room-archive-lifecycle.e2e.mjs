@@ -58,7 +58,13 @@ try{
   const afterDeleteItems=await v.loadPrivateArchiveItems(third);
   const afterDeleteMedia=await v.loadPrivateMediaChunk(a.privateItemSession(third,image),manifest.blobId,0,chunks.get(0).byteLength);
   const final=await create();await a.restoreRoomArchive(final,currentKey,signal,()=>{});
-  return {sourceBackup,privateCount:privateItems.length,sharedCount:shared.length,outboxCount:outbox.length,receiptCount:receipts.length,finalCount:finalItems.length,originalsEqual,deleted,deletedItems:afterDeleteItems.length,deletedMedia:afterDeleteMedia===null,cloudSurvivesDelete:(await v.loadPrivateArchiveItems(final)).length,cardIsPng:png.type==='image/png'};
+  const cloudSurvivesDelete=(await v.loadPrivateArchiveItems(final)).length,staleCredential=await k.automaticRoomCredential();
+  await v.clearAllRoomBrowserData(await v.readRoomProtection());k.clearBrowserRoomKey();
+  let staleCreate=false,staleWrite=false;
+  try{await v.createVault(final.vault,'','platform',staleCredential);}catch{staleCreate=true;}
+  try{await v.saveVault(final);}catch{staleWrite=true;}
+  if(!staleCreate||!staleWrite||await v.readStoredVault()||await v.readRoomProtection())throw new Error('Global reset allowed stale creation or writes to resurrect data');
+  return {sourceBackup,privateCount:privateItems.length,sharedCount:shared.length,outboxCount:outbox.length,receiptCount:receipts.length,finalCount:finalItems.length,originalsEqual,deleted,deletedItems:afterDeleteItems.length,deletedMedia:afterDeleteMedia===null,cloudSurvivesDelete,cardIsPng:png.type==='image/png'};
  });
  assert.deepEqual(result,{sourceBackup:2,privateCount:2,sharedCount:0,outboxCount:0,receiptCount:0,finalCount:2,originalsEqual:true,deleted:true,deletedItems:0,deletedMedia:true,cloudSurvivesDelete:2,cardIsPng:true});
  console.log('Private archive lifecycle passed: default backup, PNG card, independent restore, private merge/rebackup, originals, idempotence and local deletion.');

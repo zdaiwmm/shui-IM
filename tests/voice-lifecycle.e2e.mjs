@@ -38,7 +38,7 @@ try {
     navigator.mediaDevices.getUserMedia = () => { requests++; return new Promise(() => {}); };
     app.beginVoiceRecording();
     check(requests === 0 && !app.voiceRecorder, 'Old device gate requested a microphone');
-    check(document.querySelector('#notice').textContent.includes('所有已授权设备'), 'Compatibility explanation missing');
+    check(document.querySelector('#app-toast').textContent.includes('所有已授权设备'), 'Compatibility explanation missing');
 
     // A consumed keyboard owner can reject a competing microphone handoff
     // synchronously. Voice capture must stop before asking the OS for media.
@@ -85,7 +85,7 @@ try {
     window.setTimeout = originalTimeout;
     expirations.get(app.voiceRecorder.permissionTimer)();
     check(!app.voiceRecorder && !app.microphonePromptActive, 'Prompt timeout left a recorder active');
-    check(document.querySelector('#notice').textContent.includes('超时'), 'Prompt timeout has no explanation');
+    check(document.querySelector('#app-toast').textContent.includes('超时'), 'Prompt timeout has no explanation');
 
     fresh();
     const message = { seq: 1, clientMsgId: 'voice-receipt', senderId: 'own', payload: { v: 1, kind: 'audio', durationMs: 1000, waveform: [1, 50], audio: {}, sentAt: new Date().toISOString() }, status: 'stored', acceptedAt: new Date().toISOString() };

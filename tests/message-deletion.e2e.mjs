@@ -689,7 +689,7 @@ try {
       retainedDraft: input.value,
       pendingReactions: [...app.pending.values()].filter(message => message.payload.kind === 'reaction').length,
       pendingTexts: [...app.pending.values()].filter(message => message.payload.kind === 'text').length,
-      notice: root.querySelector('#notice').textContent,
+      notice: document.querySelector('#app-toast').textContent,
     };
     input.value = '';
     input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -741,7 +741,7 @@ try {
       replyTarget: app.replyTarget,
       replyDraftHidden: root.querySelector('#reply-draft').hidden,
       pendingReactions: [...app.pending.values()].filter(message => message.payload.kind === 'reaction').length,
-      notice: root.querySelector('#notice').textContent,
+      notice: document.querySelector('#app-toast').textContent,
     };
   });
   assert.deepEqual(staleSwipeResult, {
@@ -898,7 +898,7 @@ try {
       deferred: app.deferredCapabilityItems.has(outboxItem.clientMsgId),
       targetVisible: Boolean(root.querySelector(`.message[data-client-msg-id="${CSS.escape(ids.ownGlobal)}"]`)),
       tombstonePending: app.messageDeletions().get(ids.ownGlobal)?.pending,
-      notice: root.querySelector('#notice').textContent,
+      notice: document.querySelector('#app-toast').textContent,
     };
     app.clearRetry(outboxItem.clientMsgId);
     peerMember.capabilities = originalCapabilities;

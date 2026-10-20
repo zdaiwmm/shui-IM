@@ -1,5 +1,9 @@
 # Quiet Room Design System
 
+## 2026-10-20 新密室状态反馈
+
+已确认的新密室沿用 P1，具体呈现见[移动规范 V1.19](docs/design/mobile-visual-standard.md#2026-10-20-新密室与反馈承载v119)。创建／复制原位完成，错误统一 toast，加入／接替由聊天内系统卡承接；备份与恢复继承既有设置页，私有历史气泡的标签、正文与时间各占正常流。静态 S2 保留供追踪，后续 toast 修订优先。实施和设备证据见[本需求记录](docs/requirements/2026-10-20-room-archive-static/06_implementation.md)。
+
 ## 2026-10-19 聊天与设置精修
 
 [本轮V1](docs/requirements/2026-10-19-mobile-settings-chat-fixes/README.md)沿用移动视觉V1.18。名称管理、遮蔽页和在线样式使用既有P1页面、R12控件、520px轨道、20px边距；动作最小44px、间隔8px。在线样式预览复用实际SVG，子页无重复关闭；浅色返回和表情选中态具有明确边界。引用不侵占媒体尺寸，滚动渐变逐帧跟随；工具与表情直接交接、Emoji不等待本机收藏读取。语音边界与选区共用实时坐标，Gaussian保持既有强度。真实触控与键盘证据单列。

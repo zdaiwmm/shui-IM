@@ -45,9 +45,9 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
       progress.textContent = seconds ? `请 ${seconds} 秒后重试` : busy ? '正在验证' : `已输入 ${digits.length} 位，共 6 位`;
       form.setAttribute('aria-busy', String(busy));
       keys.forEach(key => { key.disabled = busy || seconds > 0 || waitUnavailable; });
-      left.textContent = options.create || !options.forgot ? '取消' : '忘记密码？';
-      left.hidden = Boolean(options.mandatory && !options.forgot);
-      left.toggleAttribute('data-password-cancel', Boolean(options.create || !options.forgot));
+      left.textContent = options.create || !(options.forgot || options.help) ? '取消' : '忘记密码？';
+      left.hidden = Boolean(options.mandatory && !(options.forgot || options.help));
+      left.toggleAttribute('data-password-cancel', Boolean(options.create || !(options.forgot || options.help)));
       right.textContent = digits.length ? '删除' : '取消';
       right.hidden = Boolean(!digits.length && (options.mandatory || options.create || !options.forgot));
       right.disabled = busy && Boolean(digits.length);
@@ -68,7 +68,10 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
     document.addEventListener('visibilitychange', () => { if (document.hidden) cancel(); }, { signal });
     window.addEventListener('pagehide', cancel, { signal }); document.addEventListener('freeze', cancel, { signal });
     const leave = (forgot = false) => { dialog.close({ animate: !options.mandatory }); if (forgot) options.forgot?.(); else options.cancel?.(); };
-    left.addEventListener('click', () => leave(!options.create && Boolean(options.forgot)), { signal });
+    left.addEventListener('click', () => {
+      if (!options.create && options.help) { digits = ''; paint(); options.help(); }
+      else leave(!options.create && Boolean(options.forgot));
+    }, { signal });
     right.addEventListener('click', () => { if (!digits.length) leave(); else if (!busy) { digits = digits.slice(0, -1); error.textContent = ''; paint(); } }, { signal });
     const failure = (text: string) => {
       digits = ''; error.textContent = '';uiNotice(root,text);

@@ -85,6 +85,7 @@ import QRCode from 'qrcode';
 import { PresenceCircuit, presenceCircuitMarkup } from './lib/presence-circuit';
 import './presence-circuit.css';
 import { closeDialog, mountDialog } from './lib/dialog';
+import { showExplanation } from './lib/explanation-dialog';
 import { createMemePickerCache, MemePicker, memeIcons } from './lib/meme-picker';
 import { isExpressionPayload } from './lib/expression-media';
 import { loadStickerPacks, installStickerPack, removeStickerPack, reorderStickerPacks } from './lib/vault';
@@ -250,6 +251,7 @@ import {
   deleteCurrentVault,
   deleteSpaceVault,
   clearLocalBrowserData,
+  clearAllRoomBrowserData,
   downloadVaultDiagnostic,
   deletePendingReceipt,
   deleteUploadPlan,
@@ -808,6 +810,7 @@ export class QuietRoomApp {
     document.body.append(this.privacyCurtain);
     this.idlePrompt = new IdleLockPrompt(this.root, () => this.resetIdleLock());
     window.addEventListener('storage', event => {
+      if (event.key === 'quiet-room:room-data-cleared') { this.lockNow(); return; }
       // Reading another tab's preference is not local activity or unlock proof.
       if(event.key==='quiet-room:room-removed'&&event.newValue){try{if(this.session&&JSON.parse(event.newValue).space===vaultSpaceId(this.session.stored))this.lockNow();}catch{/* Never unlock from an untrusted notification. */}}
       if (event.key === 'quiet-room:room-protection-change' && this.session?.vault.roomArchiveV2) this.lockNow();
@@ -1506,7 +1509,11 @@ export class QuietRoomApp {
   }
 
   private async routeInvitation(): Promise<void> {
-    try{await expandShortRoomLink();}catch(cause){history.replaceState(history.state,'','/');this.showNotice(cause instanceof Error?cause.message:'聊天链接已失效','error');return;}
+    if(location.hash.startsWith('#j=')){
+      const epoch=this.runtimeEpoch,current=()=>this.runtimeEpoch===epoch;
+      try{await expandShortRoomLink(current);}catch(cause){if(current()){history.replaceState(history.state,'','/');this.showNotice(cause instanceof Error?cause.message:'聊天链接已失效','error');}return;}
+      if(!current())return;
+    }
     const vault = this.session?.vault;
     const invitation = classifyInviteHash(location.hash);
     const replaceArchiveRepair=!!vault?.roomArchiveV2&&vault.pairingState==='repairing'&&invitation.kind==='repair'&&!!invitation.invite.admissionSecret&&invitation.invite.roomId===vault.roomId;
@@ -1554,7 +1561,13 @@ export class QuietRoomApp {
   }
 
   private async renderGatewayPage({ trustedCoverActivation = false, autoUnlock = trustedCoverActivation }: { trustedCoverActivation?: boolean; autoUnlock?: boolean } = {}): Promise<void> {
-    try{await expandShortRoomLink();}catch(cause){history.replaceState(history.state,'','/');this.renderFirstRun(null);this.showNotice(cause instanceof Error?cause.message:'聊天链接已失效','error');return;}
+    if (location.hash.startsWith('#j=')) {
+      const epoch=this.runtimeEpoch,attempt=this.gatewayFailureEpoch;
+      const current=()=>this.runtimeEpoch===epoch&&this.gatewayFailureEpoch===attempt;
+      try { await expandShortRoomLink(current); }
+      catch(cause) { if(current()){history.replaceState(history.state,'','/');this.renderFirstRun(null);this.showNotice(cause instanceof Error?cause.message:'聊天链接已失效','error');} return; }
+      if(!current())return;
+    }
     if (this.desktopAccess.peek()) {
       if (trustedCoverActivation && autoUnlock) { await this.resumeDesktopAccess(); return; }
       if (!document.hidden) {
@@ -3176,7 +3189,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     const record = await readRoomProtection();
     const clearFailure=()=>{if(this.noticeTimer!==null)window.clearTimeout(this.noticeTimer);if(this.noticeRemovalTimer!==null)window.clearTimeout(this.noticeRemovalTimer);this.noticeTimer=null;this.noticeRemovalTimer=null;this.queuedNotice=null;document.getElementById('app-toast')?.remove();};
     if(record?.method==='platform'){
-      this.gatewayTemplate('解锁密室','验证应用锁后继续。','<button class="primary-button" data-room-unlock>解锁</button>',false,'plain','lock');
+      this.gatewayTemplate('解锁密室','验证应用锁后继续。','<button class="primary-button" data-room-unlock>解锁</button><button class="text-button" data-room-unlock-help>无法解锁？</button>',false,'plain','lock');
+      this.root.querySelector('[data-room-unlock-help]')!.addEventListener('click',()=>this.showRoomUnlockHelp());
       const page=this.root.querySelector('.gateway')!,button=page.querySelector<HTMLButtonElement>('[data-room-unlock]')!,epoch=this.runtimeEpoch;
       return new Promise<string>((resolve,reject)=>{
         const signal=this.runtimeAbort?.signal;
@@ -3195,7 +3209,34 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     return requestPassword(this.root, { presentation: 'page', mandatory: true, retainUntilReplaced: true,
       passwordFormat: record.wrapper.passwordFormat, title: '输入应用锁', context: '解锁此浏览器中的密室。',
       signal: this.runtimeAbort?.signal, isActive: () => !this.privacyCovered && this.runtimeEpoch === epoch,
+      help: () => this.showRoomUnlockHelp(),
       verify: password => unlockBrowserRoomKey(password) }).then(key=>{clearFailure();return key;});
+  }
+
+  private showRoomUnlockHelp(): void {
+    const epoch = this.runtimeEpoch;
+    const active = () => !this.privacyCovered && epoch === this.runtimeEpoch;
+    showExplanation(this.root, '无法解锁本机', [
+      '应用锁无法找回或绕过。先保留这里的数据，也可以在另一个浏览器通过对方的新聊天链接进入。',
+      '已有恢复图片和恢复口令时，可在能进入的密室中恢复已完成备份的记录。恢复材料不能直接解开这里的应用锁。',
+      '若确定放弃本机数据，可清除全部本机密室后重新开始。未完成备份的内容将无法恢复。',
+    ], { signal: this.runtimeAbort?.signal, active,
+      action: { label: '清除本机数据', run: async () => {
+        const record = await readRoomProtection();
+        if (!active() || !record) return;
+        showExplanation(this.root, '清除全部本机数据？', [
+          '此浏览器中的全部密室、记录、图片和应用锁都会被清除，未完成备份的数据将丢失。',
+          '对方、云端备份及已经导出的文件不受影响。',
+        ], { signal: this.runtimeAbort?.signal, active, closeLabel: '取消',
+          action: { label: '确认清除', run: async () => {
+            await clearAllRoomBrowserData(record);
+            clearBrowserRoomKey(); this.lockNow(); location.replace('/');
+          } },
+          error: cause => { if(active())this.showNotice(cause instanceof Error?cause.message:'未能清除，请重试','error'); },
+        });
+      } },
+      error: cause => { if (active()) this.showNotice(cause instanceof Error ? cause.message : '未能清除，请重试', 'error'); },
+    });
   }
 
   private renderCreateProtection(profile: SpaceProfile, prepare?: () => Promise<void>): void {
@@ -9118,6 +9159,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     const page = this.root.querySelector<HTMLElement>('.auto-lock-page')!;
     page.querySelector('[data-change-room-lock]')?.addEventListener('click',()=>this.renderRoomLockSettings(true));
     page.querySelector('[data-remove-room-lock]')?.addEventListener('click',()=>{void(async()=>{
+      if(!this.confirmSystemAction('关闭应用锁后，打开此浏览器即可访问所有本机密室。聊天传输与云端备份仍然加密。确认关闭？'))return;
       clearBrowserRoomKey();await this.requireBrowserRoomKey();await removeBrowserRoomProtection();this.roomLockEnabled=false;
       try{localStorage.setItem('quiet-room:room-protection-change',crypto.randomUUID());}catch{}
       this.renderChat();this.showNotice('应用锁已关闭');

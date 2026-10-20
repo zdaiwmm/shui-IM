@@ -133,11 +133,11 @@ try {
   await page.locator('[data-viewer-favorite][aria-pressed="true"]').waitFor();
   await page.locator('[data-viewer-favorite]').click();
   await page.locator('[data-viewer-favorite][aria-pressed="false"]').waitFor();
-  assert.equal(await page.locator('[data-viewer-notice]').innerText(),'已取消收藏');
-  assert.equal(await page.locator('[data-viewer-notice]').isVisible(),true);
+  assert.equal(await page.locator('#app-toast').innerText(),'已取消收藏');
+  assert.equal(await page.locator('#app-toast').isVisible(),true);
   await page.locator('[data-viewer-favorite]').click();
   await page.locator('[data-viewer-favorite][aria-pressed="true"]').waitFor();
-  assert.equal(await page.locator('[data-viewer-notice]').innerText(),'已收藏');
+  assert.equal(await page.locator('#app-toast').innerText(),'已收藏');
   await page.locator('[data-viewer-close]').click();
   await page.locator('#open-chat-tools').click();await page.locator('#open-favorites').click();
   await page.locator('.gallery-tile').waitFor();assert.equal(await page.locator('.gallery-tile').count(),1);

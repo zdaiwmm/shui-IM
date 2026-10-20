@@ -137,7 +137,7 @@ try {
   await waitingRow.click({button:'right'});
   await old.page.route(`**/api/rooms/${waitingRoom}`, route => route.request().method() === 'DELETE' ? route.abort('failed') : route.continue());
   await old.page.locator('#space-delete').click();
-  await old.page.locator('.space-drawer-overlay .form-error').filter({hasText:/./}).waitFor();
+  await old.page.locator('#app-toast').filter({hasText:/./}).waitFor();
   assert.ok(service.store.roomState(waitingRoom), 'failed deletion must keep the room');
   assert.equal(await waitingRow.count(), 1);
   await old.page.unroute(`**/api/rooms/${waitingRoom}`);
@@ -171,8 +171,8 @@ try {
     await route.fetch();await route.abort('failed');
   });
   await old.page.locator('.space-row.is-selected').click({button:'right'});await old.page.locator('#space-delete').click();
-  await old.page.locator('.space-drawer-overlay .form-error').filter({hasText:/./}).waitFor();
-  assert.equal(Boolean(service.store.roomState(currentWaiting)), false, await old.page.locator('.space-drawer-overlay .form-error').textContent());
+  await old.page.locator('#app-toast').filter({hasText:/./}).waitFor();
+  assert.equal(Boolean(service.store.roomState(currentWaiting)), false, await old.page.locator('#app-toast').textContent());
   await old.page.unroute(`**/api/rooms/${currentWaiting}`);
   await old.page.locator('.space-row.is-selected').click({button:'right'});await old.page.locator('#space-delete').click();
   await old.page.locator('.space-drawer-overlay').waitFor({state:'detached'});
@@ -220,7 +220,7 @@ try {
   assert.equal(await fresh.page.locator('#space-delete').innerText(),'从我的空间列表移除');
   await fresh.page.route('**/api/browser-access-catalogs/**',route=>route.request().method()==='PATCH'?route.abort('failed'):route.continue());
   await fresh.page.locator('#space-delete').click();
-  await fresh.page.locator('.space-drawer-overlay .form-error').filter({hasText:/./}).waitFor();
+  await fresh.page.locator('#app-toast').filter({hasText:/./}).waitFor();
   assert.equal(await legacyRow.count(),1,'offline removal keeps the row until confirmed');
   await fresh.page.unroute('**/api/browser-access-catalogs/**');
   await legacyRow.click({button:'right'});await fresh.page.locator('#space-delete').click();

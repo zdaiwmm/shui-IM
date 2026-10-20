@@ -54,7 +54,11 @@ export async function removeBrowserRoomProtection(): Promise<void> {
 export async function automaticRoomCredential() {
   const secret = await browserRoomKey(true);
   if (!secret) throw new Error('请先解锁本机');
-  const credential = await derivePasswordCredential(secret); delete credential.rootKek; return credential;
+  const record = await readRoomProtection();
+  if (!record || await browserRoomKey() !== secret) throw new Error('本机保护已改变，请重试');
+  const credential = await derivePasswordCredential(secret); delete credential.rootKek;
+  if ((await readRoomProtection())?.revision !== record.revision) throw new Error('本机保护已改变，请重试');
+  credential.roomProtectionRevision = record.revision; return credential;
 }
 
 const encoder = new TextEncoder();

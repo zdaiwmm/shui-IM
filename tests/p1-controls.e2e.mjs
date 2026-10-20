@@ -16,7 +16,7 @@ try {
     await page.clock.runFor(300);
     await page.locator('[name="password"]').fill('synthetic password');
     await page.locator('.password-actions [type="submit"]').click();
-    assert.match(await page.locator('#password-error').textContent(), /合成验证失败/);
+    assert.match(await page.locator('#app-toast').textContent(), /合成验证失败/);
     const geometry = await page.evaluate(() => ({
       actions: [...document.querySelectorAll('.password-actions button')].map(e => e.getBoundingClientRect().toJSON()),
       scrollable: document.querySelector('.password-page-content').scrollHeight > document.querySelector('.password-page-content').clientHeight,

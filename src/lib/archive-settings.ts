@@ -3,6 +3,7 @@ import { createArchiveCardImage, readArchiveCardImage } from './archive-card-ima
 import { protectArchiveCard, unlockArchiveCard } from './room-archive-crypto';
 import { restoreRoomArchive } from './room-archive';
 import { saveVault, withVaultMutation, loadPrivateArchiveItems, type VaultSession } from './vault';
+import { showExplanation } from './explanation-dialog';
 
 type Options = {root:HTMLElement;session:VaultSession;signal:AbortSignal;active:()=>boolean;notice:(text:string,error?:boolean)=>void;back:()=>void;sync:()=>Promise<void>;restored:()=>void;beginPick:()=>boolean;finishPick:()=>Promise<boolean>;saveImage:(blob:Blob)=>Promise<void>};
 export function mountArchiveSettings(o:Options):void {
@@ -11,6 +12,15 @@ export function mountArchiveSettings(o:Options):void {
   const active=()=>o.active()&&!o.signal.aborted;
   const shell=(title:string,content:string)=>`<main class="backup-page"><header class="subpage-header backup-header"><button class="icon-button" id="archive-back" data-back type="button" aria-label="返回">‹</button><div class="backup-heading"><h1>${title}</h1></div><span class="backup-header-spacer" aria-hidden="true"></span></header><section class="backup-content">${content}</section></main>`;
   const report=(cause:unknown)=>{if(active())o.notice(cause instanceof Error?cause.message:'操作未完成，请重试',true);};
+  function bindHelp(signal:AbortSignal) {
+    const button=document.createElement('button');button.className='text-button';button.type='button';button.dataset.archiveHelp='';
+    button.textContent='忘记恢复口令？';o.root.querySelector('.backup-content')!.append(button);
+    button.addEventListener('click',()=>showExplanation(o.root,'没有可用的恢复口令',[
+      '恢复图片和对应的恢复口令缺一不可，服务器无法重置口令或解密图片。',
+      '若原密室在本机仍能解锁，可进入那个密室重新保存恢复图片，并设置新的口令。这里生成的图片只对应当前密室的归档。',
+      '重新保存不会让以前的恢复图片失效。请妥善保管旧图片及其口令。',
+    ],{signal,active}));
+  }
   const protectTask=(button:HTMLButtonElement,task:()=>Promise<void>)=>{
     if(button.disabled)return;button.disabled=true;button.setAttribute('aria-busy','true');
     void task().catch(report).finally(()=>{if(button.isConnected){button.disabled=false;button.removeAttribute('aria-busy');}});
@@ -41,6 +51,7 @@ export function mountArchiveSettings(o:Options):void {
     signal.addEventListener('abort',()=>{if(imageUrl)URL.revokeObjectURL(imageUrl);},{once:true});
     o.root.innerHTML=shell('保存恢复图片',`<p class="backup-intro">设置至少 12 个字符的独立恢复口令。图片和口令都要保留，口令不会上传。</p><form class="backup-settings-group" data-card-form novalidate><label class="passkey-name-field">恢复口令<input name="password" type="password" autocomplete="new-password" maxlength="128" required></label><label class="passkey-name-field">再次输入<input name="confirm" type="password" autocomplete="new-password" maxlength="128" required></label><button class="primary-button" type="submit">生成恢复图片</button></form><section data-save hidden><p class="backup-intro">先保存原图，再选择刚保存的图片并输入口令进行验证。</p><a class="primary-button" data-download download="聊天归档恢复卡.png">保存恢复图片</a><img data-preview alt="已用恢复口令加密的归档恢复图片" style="width:100%;max-width:320px;display:block;margin:24px auto"><form data-verify novalidate><label class="passkey-name-field">选择已保存的恢复图片<input name="image" type="file" accept="image/png" required></label><label class="passkey-name-field">恢复口令<input name="password" type="password" autocomplete="off" maxlength="128" required></label><button class="primary-button" type="submit">验证已保存的图片</button></form></section>`);
     o.root.querySelector('[data-back]')!.addEventListener('click',settings);
+    bindHelp(signal);
     bindFileInputs(signal);
     o.root.querySelector<HTMLAnchorElement>('[data-download]')!.addEventListener('click',event=>{event.preventDefault();if(imageBlob)void o.saveImage(imageBlob).catch(report);});
     const form=o.root.querySelector<HTMLFormElement>('[data-card-form]')!;
@@ -66,6 +77,7 @@ export function mountArchiveSettings(o:Options):void {
     const signal=begin();
     o.root.innerHTML=shell('恢复聊天记录',`<p class="backup-intro">恢复内容归入当前密室，只有本机可见。无需对方同意，也不会向对方发送消息。</p><form data-restore-form novalidate><label class="passkey-name-field">恢复图片<input name="image" type="file" accept="image/png" required></label><label class="passkey-name-field">恢复口令<input name="password" type="password" autocomplete="off" maxlength="128" required></label><button class="primary-button" type="submit">恢复到本机</button><p class="backup-footnote" data-progress role="status"></p></form>`);
     o.root.querySelector('[data-back]')!.addEventListener('click',settings);
+    bindHelp(signal);
     bindFileInputs(signal);
     const form=o.root.querySelector<HTMLFormElement>('form')!;
     form.addEventListener('submit',event=>{event.preventDefault();protectTask(form.querySelector('button')!,async()=>{

@@ -1,3 +1,4 @@
+import {uiNotice} from './ui-notice';
 import { animatePageReplacement } from './motion';
 import { createElement, ArrowLeft, Smile, Image, ChevronRight, Check, Minus, Plus } from 'lucide';
 import { mountDialog } from './dialog';
@@ -54,7 +55,7 @@ export function createSpaceProfile(root: HTMLElement, options: {
       if (!options.avatarOnly) { avatar = value; details(); return; }
       const controls = overlay.querySelectorAll<HTMLButtonElement>('button'); controls.forEach(b => b.disabled = true);
       try { await options.saveAvatar?.(value); if (!active()) return; result = { name, avatar: value }; dialog!.close({ animate: false, restoreFocus: false }); }
-      catch (cause) { if (active()) overlay.querySelector('.form-error')!.textContent = cause instanceof Error ? cause.message : '头像未能保存，请重试'; }
+      catch (cause) { if (active()) uiNotice(root,cause instanceof Error ? cause.message : '头像未能保存，请重试'); }
       finally { controls.forEach(b => b.disabled = false); }
     };
     const details = () => {
@@ -72,7 +73,7 @@ export function createSpaceProfile(root: HTMLElement, options: {
       const submit = () => {
         if (!active()) return;
         name = input.value.trim();
-        if (!name || name.length > 40 || /[\u0000-\u001f\u007f]/.test(name)) { overlay.querySelector('.form-error')!.textContent = '请输入 1–40 个字符的空间名称'; input.setAttribute('aria-invalid', 'true'); input.focus(); return; }
+        if (!name || name.length > 40 || /[\u0000-\u001f\u007f]/.test(name)) { uiNotice(root,'请输入 1–40 个字符的空间名称'); input.setAttribute('aria-invalid', 'true'); input.focus(); return; }
         result = { name, avatar }; options.submitted?.(overlay); dialog!.close({ animate: false, restoreFocus: false });
       };
       overlay.querySelector('#profile-done')!.addEventListener('click', submit, { signal: view.signal });
@@ -103,7 +104,7 @@ export function createSpaceProfile(root: HTMLElement, options: {
             sourceChosen = true; chooser.close({ animate: false, restoreFocus: false }); return true;
           });
         }).catch(cause => {
-          if (active() && !sheetSignal.aborted) sheet.querySelector('.form-error')!.textContent = cause instanceof Error ? cause.message : '图片未能打开，请重试';
+          if (active() && !sheetSignal.aborted) uiNotice(root,cause instanceof Error ? cause.message : '图片未能打开，请重试');
         }).finally(() => { picking = false; if (!sheetSignal.aborted) photoButton.disabled = false; });
       }, { signal: sheetSignal });
     };
@@ -165,7 +166,7 @@ export function createSpaceProfile(root: HTMLElement, options: {
           avatar = { v: 1, kind: 'image', data: cropAvatarImage(image, gesture.value()) };
           // The crop stays available for retry if persistence fails; page teardown releases it.
           void finishAvatar(avatar);
-        } catch (cause) { overlay.querySelector('.form-error')!.textContent = (cause as Error).message; }
+        } catch (cause) { uiNotice(root,(cause as Error).message); }
       }, { signal: view.signal });
     };
     if (options.avatarOnly) sources(); else details();

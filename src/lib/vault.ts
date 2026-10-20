@@ -132,11 +132,17 @@ function putCurrentVault(tx: IDBTransaction, next: StoredVault, expected?: Store
   };
 }
 
-async function installStoredVault(next: StoredVault, expected?: StoredVault): Promise<void> {
+async function installStoredVault(next: StoredVault, expected?: StoredVault, roomProtectionRevision?: string): Promise<void> {
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const tx = database.transaction('vault', 'readwrite');
-    putCurrentVault(tx, next, expected);
+    const tx = database.transaction(roomProtectionRevision ? ['vault', 'security'] : ['vault'], 'readwrite');
+    if (roomProtectionRevision) {
+      const request = tx.objectStore('security').get('room-protection-v2');
+      request.onsuccess = () => {
+        if (request.result?.revision !== roomProtectionRevision) { tx.abort(); return; }
+        putCurrentVault(tx, next, expected);
+      };
+    } else putCurrentVault(tx, next, expected);
     tx.oncomplete = () => { database.close(); resolve(); };
     tx.onabort = () => { database.close(); reject(tx.error ?? staleVaultError()); };
     tx.onerror = () => reject(tx.error ?? new Error('保险库写入失败'));
@@ -349,6 +355,34 @@ export async function replaceRoomProtection(expected: import('./browser-room-key
     tx.oncomplete = () => { database.close(); resolve(); };
     tx.onabort = () => { database.close(); reject(new Error('另一页面已修改本机保护，请重试')); };
     tx.onerror = () => { database.close(); reject(tx.error); };
+  });
+}
+
+/** Explicit destructive reset from the locked help dialog; never an unlock or
+ * password reset. A single transaction removes every local room and its keys. */
+export async function clearAllRoomBrowserData(expected: import('./browser-room-key').RoomProtection): Promise<void> {
+  await withVaultLifecycle(async () => {
+    const database = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const names = [...database.objectStoreNames], tx = database.transaction(names, 'readwrite');
+      const request = tx.objectStore('security').get('room-protection-v2');
+      request.onsuccess = () => {
+        if (canonicalStringify(request.result ?? null) !== canonicalStringify(expected)) { tx.abort(); return; }
+        for (const name of names) tx.objectStore(name).clear();
+      };
+      tx.oncomplete = () => { database.close(); resolve(); };
+      tx.onabort = () => { database.close(); reject(tx.error ?? new Error('本机保护已改变，请重新打开后再清除')); };
+    });
+    selectedSpace = 'current';
+    for (const name of ['localStorage', 'sessionStorage'] as const) {
+      try {
+        const storage = window[name];
+        for (let index = storage.length - 1; index >= 0; index--) {
+          const key = storage.key(index); if (key?.startsWith('quiet-room:')) storage.removeItem(key);
+        }
+      } catch { /* The committed key/data deletion remains authoritative. */ }
+    }
+    try { localStorage.setItem('quiet-room:room-data-cleared', crypto.randomUUID()); } catch { /* Vault CAS still rejects stale writes. */ }
   });
 }
 
@@ -1087,6 +1121,7 @@ async function createVaultLocked(
   if (unlockMethod === 'password' || (preparedPlatformCredential && isPasswordCredential(preparedPlatformCredential))) {
     const credential = preparedPlatformCredential && isPasswordCredential(preparedPlatformCredential)
       ? preparedPlatformCredential : await derivePasswordCredential(legacySecret);
+    if (vault.roomArchiveV2 && !credential.roomProtectionRevision) throw new Error('新密室的本机访问材料已失效，请重试');
     const master = crypto.getRandomValues(new Uint8Array(32));
     try {
       const key = await importMasterKey(master);
@@ -1095,7 +1130,7 @@ async function createVaultLocked(
         ...(credential.passwordFormat ? { passwordFormat: credential.passwordFormat } : {}),
         wrappedKey: await wrapPasswordMaster(master, credential, selectedSpace), payload: await encryptPayload(vault, key) };
       if (!isActive()) throw new DOMException('保险库创建流程已经结束', 'AbortError');
-      await installStoredVault(stored, expected);
+      await installStoredVault(stored, expected, vault.roomArchiveV2 ? credential.roomProtectionRevision : undefined);
       rememberSpace(vaultSpaceId(stored)); await clearUnlockThrottle(); vault.v = 3;
       return { vault, key, stored };
     } finally { master.fill(0); }

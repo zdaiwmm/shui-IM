@@ -4,6 +4,8 @@ import type { VaultKdf, StoredPasswordVault } from './types';
 import type { PlatformCredentialResult } from './platform-vault';
 
 export type PasswordCredentialResult = { method: 'password'; kdf: VaultKdf; kek: CryptoKey; passwordFormat?: 'numeric-6';
+  /** Creation fence for the new-room browser key; never a persisted secret. */
+  roomProtectionRevision?: string;
   /** Operation-local personal-root KEK. Never retain this on a daily chat session. */
   rootKek?: CryptoKey };
 export type LocalCredentialResult = PlatformCredentialResult | PasswordCredentialResult;
