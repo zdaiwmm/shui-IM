@@ -53,7 +53,7 @@ try {
  assert.equal(await a.evaluate(()=>app.session.vault.recoveryExperience.codeSaved===app.session.vault.backup.id),true);
  await a.locator('#hide-local-recovery').click();await a.locator('.local-recovery-code').waitFor({state:'detached'});
  // A new browser reads the exported file, sets daily unlock, and persists a pending recovery.
- await c.goto(url);await c.evaluate(()=>app.renderPersonalRestoreProtection());await c.locator('#restore-legacy-card').click();const importCard=c.waitForEvent('filechooser');await c.locator('[data-import-card]').click();await(await importCard).setFiles(file);
+ await c.goto(url);await c.locator('#create-room').waitFor();await c.evaluate(()=>app.renderPersonalRestoreProtection());await c.locator('#restore-legacy-card').click();const importCard=c.waitForEvent('filechooser');await c.locator('[data-import-card]').click();await(await importCard).setFiles(file);
  await c.locator('[data-recovery-spaces] input').waitFor();assert.equal(await c.locator('[name=code]').inputValue(),'');await c.locator('#joint-code-form [type=submit]').click();await c.locator('[data-recovery-protect]').click();await password(c);
  await c.waitForFunction(()=>Boolean(app.session?.vault.pendingJointRecovery));
  const task=await c.evaluate(()=>app.session.vault.pendingJointRecovery.link.requestId);
