@@ -1,5 +1,17 @@
 # Quiet Room 固定发布流程
 
+<a id="release-room-archives-20261020"></a>
+## 新密室与本人归档已发布（2026-10-20 23:15）
+
+- 用户确认 S2 精简流程、操作反馈统一 toast、仅处理新密室且不做旧数据迁移；本任务合并后回复「确认，发布生产」。本次固定应用为 `1efb1fc2d307d36afdfde7038410e42b4b71c366`、版本 `2026.10.20.1`，无独立消息 permalink；没有纳入后续其他提交。[需求记录](docs/requirements/2026-10-20-room-archive-static/README.md)拥有流程确认与验收，原型未重画。
+- [PR #360](https://github.com/zdaiwmm/shui-IM/pull/360)源 `55c07ad3276759a02191526c5439383de5ba82ef` 与应用完整文件树 `a91c4751a9960b0e43553dc0e0cbee94ce5ea9b9` 一致。[精确 PR CI39441095729](https://github.com/zdaiwmm/shui-IM/actions/runs/39441095729)与[精确 main CI39442365387](https://github.com/zdaiwmm/shui-IM/actions/runs/39442365387)均 attempt 1 完整通过，含浏览器、通话／TURN、依赖审计、凭据扫描与双架构镜像。本机最终构建／135 文件 1044 项检查、73／73 浏览器入口分段与 360 个组件呈现组合通过；早期失败与未运行的真机验证保留在实施记录，分段不记为单次全套运行。
+- 新创建与一次性短链接、精确同类设备接替、本机密室切换删除、可选应用锁、默认端到端加密归档、长口令保护 PNG 恢复卡及原子私有历史导入一并上线。恢复历史进入当前密室的本人备份，不向对方分享；不迁移或清理旧数据。长期契约与视觉规范分别由 NEW_ROOM_ARCHIVES、D-073 和 V1.19 拥有。
+- 固定[只读云预检39445084305](https://github.com/zdaiwmm/shui-IM/actions/runs/39445084305)取得 PREFLIGHT_OK，唯一[正式云发布39445347565](https://github.com/zdaiwmm/shui-IM/actions/runs/39445347565)通过 `publish.mjs --cloud --with-readback --environment production --sha 1efb1fc2d307d36afdfde7038410e42b4b71c366` 核对 DEPLOY_VERIFIED。请求 `0b30adb8-dda1-4dd9-8a74-aee94414a56b` 只派发一次，从 `a639f7bcaa436c21b4efa8ab27a6afa60f5a09c3` 实际切换一次，批次 `20261020T150747Z`，回执完成于 `2026-10-20T15:10:24.691Z`，外层云发布 260625 毫秒。工作流来源与应用 SHA 相同，现有 production 审核正常完成，未修改环境保护或 helper。
+- linux/amd64 镜像 `sha256:35ed84d4687885addd59124149c272c30b83957ea2e5b6ac265d0be465b2514c`，归档摘要 `fdca9c93e021c702d51bb722d26e845b1e006fe5e803f232dbd5049b581daf54`、209914907 字节，绑定上述精确 main CI／attempt 1。首次独立回读仅备份 starting，应用 healthy；只读核对备份实际启动 `2026-10-20T15:10:16.311352065Z` 及既有 5 分钟探针／启动期后，只续跑同 SHA readback-only，未重复发布或放宽健康门禁。
+- 最终独立回读于 `2026-10-20T15:15:51.226Z` 取得 READBACK_OK，耗时 3256 毫秒：应用／备份 running 且 healthy，TURN 运行且探针 none；精确 SHA／镜像、HTTPS／数据库／存储、公开与容器资源摘要及新 WebSocket 一致，维护门 absent，管理员及通话启用。未读取真实消息、附件或备份内容。
+- 脱敏授权、CI、预检、发布、回读及启动探针证据保存于公共 Git 元数据 `quiet-room-deliveries/evidence/room-archives-20261020/`，位于任务树及专属 Git 目录之外。第二个无部署配置文档树 `room-archive-release-record-20261020` 仅对账；文档 SHA 不替代线上应用。原开发树的原型仍在查看，且有截图／构建缓存与专属回执；当前对账树仍在使用，本批资源依固定门禁保留，不处理其他任务。
+- 原生 iPhone／iOS 27／Safari、物理认证器和独立安全审阅未完成。旧恢复卡不会因重新导出或改变口令而自动失效；上线健康不等于安全审计。AGENTS、公开高安全门槛及其他长期边界保持；下方为历史生产快照。
+
 <a id="release-mobile-settings-chat-fixes-20261019"></a>
 ## 聊天与设置修订已发布（2026-10-19 21:14）
 
