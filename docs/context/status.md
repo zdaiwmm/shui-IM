@@ -1,9 +1,11 @@
 # Quiet Room 当前状态
 
-## 新密室与本人归档实施与验收（2026-10-20）
+## 新密室与本人归档已发布，真机待验收（2026-10-20 23:15）
 
-用户确认 S2 精简流程、操作错误统一 toast，并授权审计后立即实施；明确不处理旧密室和数据迁移。本任务独立树 `quiet-room-static-flows-20261020`，基线 `04ee8e235b45c12376b6e9addc7fa443565465b0`。新创建／短邀请、精确设备接替、浏览器应用锁、默认 E2EE 归档、PNG 恢复卡及原子本机私有导入已实现，通过 [PR #360](https://github.com/zdaiwmm/shui-IM/pull/360)交付，精确提交的 CI 与集成回执由 PR 拥有。最终构建与 135 文件／1044 项单元检查通过，浏览器 73／73 入口分段通过，360 个组件呈现组合通过；专项验证原文件字节、导入中断不发布、私有重备份、删源后当前卡恢复、虚拟 PRF 解锁与全局清除的陈旧写入阻断。完整证据及失败分类由[实施记录](../requirements/2026-10-20-room-archive-static/06_implementation.md)维护。未发布生产，真实 iPhone 与独立安全审计未完成。下方发布记录均为此前产品版本。
-
+- 用户确认 S2 加 toast 修订、新密室范围及不做旧数据迁移；实施合并后确认发布。本次线上应用为 `1efb1fc2d307d36afdfde7038410e42b4b71c366`、版本 `2026.10.20.1`，经 [PR #360](https://github.com/zdaiwmm/shui-IM/pull/360)交付。创建／短链接、精确设备接替、浏览器应用锁、默认 E2EE 备份、PNG 恢复卡与当前密室私有历史合并由[需求记录](../requirements/2026-10-20-room-archive-static/README.md)拥有，视觉规范 V1.19。
+- 精确 PR／main 完整 CI 均通过；本机最终 135 文件／1044 项、73／73 浏览器入口分段、360 个组件呈现组合通过。原文件字节、原子导入、私有重备份、删源后当前卡恢复、虚拟 PRF 和陈旧写入阻断证据见[实施记录](../requirements/2026-10-20-room-archive-static/06_implementation.md)，其“未发布”仅描述当时实施阶段，最新发布状态由本节与需求 README 拥有。
+- 固定云预检取得 PREFLIGHT_OK，唯一[生产发布39445347565](https://github.com/zdaiwmm/shui-IM/actions/runs/39445347565)核对 DEPLOY_VERIFIED。首次独立回读仅备份 starting；核对既有启动探针后只续跑同 SHA 回读，于 `2026-10-20T15:15:51.226Z` 取得 READBACK_OK。应用／备份 healthy、TURN 运行且探针 none；SHA／镜像、HTTPS／数据库／存储、公开／容器产物及新 WebSocket 一致，维护门 absent。完整证据由[本次发布记录](../../RELEASING.md#release-room-archives-20261020)拥有。
+- 脱敏证据在公共 Git 元数据 `quiet-room-deliveries/evidence/room-archives-20261020/`；独立文档树仅对账，文档提交不替代线上应用。原型仍在使用、开发树缓存／截图及当前对账资源按规则保留。原生 iPhone／iOS 27／Safari、物理认证器与独立安全审计未完成；旧卡不会因重新导出而自动失效。下方均为历史产品状态。
 
 ## 聊天与设置修订已发布，真机待验收（2026-10-19 21:14）
 
