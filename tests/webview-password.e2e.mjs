@@ -47,7 +47,8 @@ try {
       if (name === 'missing-storage') Object.defineProperty(window, 'indexedDB', { configurable: true, value: undefined });
       if (name === 'storage-quota') { const put = IDBObjectStore.prototype.put; IDBObjectStore.prototype.put = function(value, key) { if (String(key).startsWith('quiet-room:storage-probe:')) throw new DOMException('synthetic quota', 'QuotaExceededError'); return put.call(this, value, key); }; }
     }, name);
-    await page.locator('#create-room').click();
+    // Exercise capability selection itself; new-room creation no longer asks for a lock.
+    await page.evaluate(()=>app.renderCreateProtection({name:'合成空间',avatar:{v:1,kind:'emoji',emoji:'1f60a',background:0}}));
     await page.locator('[data-device-verify]').waitFor();
     assert.equal(await page.locator('#new-space-name, #profile-done').count(), 0, 'Creation skips profile setup');
     await page.waitForFunction(() => document.querySelector('.password-sheet') || document.querySelector('[data-device-verify]')?.disabled === false);

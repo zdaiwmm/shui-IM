@@ -104,7 +104,7 @@ try {
   assert.equal(await a.evaluate(async () => (await import('/src/lib/vault.ts')).hasStoredVault()), false, 'Five digits cannot create protection');
   await cancelPasswordForm(a); await a.locator('.password-sheet').waitFor({ state: 'detached' });
   await a.locator('[data-device-verify]').click();
-  await password(a, '012345', '012346'); assert.match(await a.locator('.password-form .form-error').textContent(), /不一致/);
+  await password(a, '012345', '012346'); assert.match(await a.locator('#app-toast').textContent(), /不一致/);
   await cancelPasswordForm(a); await a.locator('.password-sheet').waitFor({ state: 'detached' });
   assert.equal(await a.evaluate(async () => (await import('/src/lib/vault.ts')).hasStoredVault()), false, 'Cancelling new protection wrote a vault');
   await a.locator('[data-device-verify]').click(); await password(a, '012345');
@@ -148,7 +148,7 @@ try {
   if(screenshots)await writeFile(path.join(screenshots,'F14-real-send.json'),JSON.stringify({engine:'desktop Chromium',protocol:'MLS',...rapidSend},null,2));
   // Every sensitive proof is fresh and bound to this original slot and operation.
   await a.evaluate(() => { window.proofResult = null; app.confirmDeviceCredential('合成验收操作').then(() => { window.proofResult = 'verified'; }, () => { window.proofResult = 'cancelled'; }); });
-  await password(a, '654321'); await a.waitForFunction(() => document.querySelector('.password-form .form-error')?.textContent.includes('密码不正确')); assert.match(await a.locator('.password-form .form-error').textContent(), /密码不正确/);
+  await password(a, '654321'); await a.waitForFunction(() => document.querySelector('#app-toast')?.textContent.includes('密码不正确')); assert.match(await a.locator('#app-toast').textContent(), /密码不正确/);
   assert.equal(await a.evaluate(() => proofResult), null);
   await capture(a, 'F15-password-reauth'); await cancelPasswordForm(a);
   await a.waitForFunction(() => proofResult === 'cancelled');

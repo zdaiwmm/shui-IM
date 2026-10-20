@@ -34,7 +34,7 @@ async function waitForState(page, stage, predicate) {
       session: Boolean(app.session), mls: app.session?.vault.mls?.phase,
       connection: app.connectionState, accessFailure: Boolean(app.accessFailure),
       idleExpired: app.idleLease.expired,
-      stalePassword: /其它窗口|重新解锁/.test(document.querySelector('.password-sheet .form-error')?.textContent ?? ''),
+      stalePassword: /其它窗口|重新解锁/.test(document.querySelector('#app-toast')?.textContent ?? ''),
       inputPresent: Boolean(document.querySelector('#message-input')),
       inputDisabled: document.querySelector('#message-input')?.disabled,
       sending: app.sendingTextDrafts.size, fault: Boolean(window.draftFault?.injected),
@@ -57,9 +57,9 @@ async function ready(page) {
       hydrated: app.uiPreferencesHydrated, accessFailure: Boolean(app.accessFailure),
       passwordForm: Boolean(document.querySelector('.password-form')),
       cover: Boolean(document.querySelector('.cover-trigger')),
-      formError: Boolean(document.querySelector('.form-error')?.textContent),
-      staleVault: /其他|重新解锁/.test(document.querySelector('.form-error')?.textContent ?? ''),
-      wrongPassword: /密码.*不|密码.*错/.test(document.querySelector('.form-error')?.textContent ?? ''),
+      formError: Boolean(document.querySelector('#app-toast')?.textContent),
+      staleVault: /其他|重新解锁/.test(document.querySelector('#app-toast')?.textContent ?? ''),
+      wrongPassword: /密码.*不|密码.*错/.test(document.querySelector('#app-toast')?.textContent ?? ''),
     })).catch(() => ({ unavailable: true })));
     throw error;
   }
@@ -247,7 +247,7 @@ try {
       await withVaultMutation(app.session, mutation => saveVault(app.session, mutation));
     });
     await second.evaluate(() => window.releaseConcurrentOpening());
-    await waitForState(second, 'stale-opening-refused', () => /重新解锁/.test(document.querySelector('.form-error')?.textContent ?? ''));
+    await waitForState(second, 'stale-opening-refused', () => /重新解锁/.test(document.querySelector('#app-toast')?.textContent ?? ''));
     assert.equal(await second.locator('.chat-shell, #message-input').count(), 0, 'A changed vault must reject the stale opening');
 
     // A real switch hides the previous tab; Linux headless does not reliably
@@ -284,7 +284,7 @@ try {
         session:Boolean(app.session),surface:app.activeSurface,creating:Boolean(app.spaceCreationAbort),
         creationAborted:app.spaceCreationAbort?.signal.aborted,drawer:app.spaceDrawerOpen,
         copyPresent:Boolean(document.querySelector('#copy-invite')),chat:Boolean(document.querySelector('.chat-shell')),
-        passwordForm:Boolean(document.querySelector('.password-form')),formError:Boolean(document.querySelector('.form-error')?.textContent),
+        passwordForm:Boolean(document.querySelector('.password-form')),formError:Boolean(document.querySelector('#app-toast')?.textContent),
         overlays:document.querySelectorAll('.confirm-overlay').length,
       })).catch(()=>({unavailable:true})));
       throw error;

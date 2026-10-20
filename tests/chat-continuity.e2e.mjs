@@ -161,7 +161,7 @@ try {
   const reading = await page.evaluate(() => window.listFixture.app.chatScrollTop);
   await page.evaluate(() => window.listFixture.app.jumpToReplyTarget('not-on-this-device'));
   assert.equal(await page.evaluate(() => window.listFixture.app.chatScrollTop), reading);
-  assert.match(await page.locator('#notice').textContent(), /未保存可读取的原消息/);
+  assert.match(await page.locator('#app-toast').textContent(), /未保存可读取的原消息/);
   // Same-text ABA editing is a different draft even if its string is equal.
   await page.evaluate(async()=>{
     const app=window.listFixture.app,input=document.querySelector('#message-input');

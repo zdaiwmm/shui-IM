@@ -1,3 +1,4 @@
+import {uiNotice} from './ui-notice';
 import { layoutViewport } from './form-input';
 import { mountDialog } from './dialog';
 import { passwordValidation } from './password-protection';
@@ -75,8 +76,8 @@ export function requestPassword<T>(root: HTMLElement, options: PasswordRequestOp
     form.addEventListener('submit', async event => {
       event.preventDefault(); if (busy || !active()) return;
       let secret = password.value;
-      error.textContent = options.create ? passwordValidation(secret, confirmation?.value) : secret ? '' : '请输入此空间已有的密码';
-      if (error.textContent) { const invalid = options.create && Array.from(secret).length >= 12 && Array.from(secret).length <= 128 ? confirmation ?? password : password; invalid.setAttribute('aria-invalid', 'true'); invalid.focus(); return; }
+      const validation = options.create ? passwordValidation(secret, confirmation?.value) : secret ? '' : '请输入此空间已有的密码';
+      if (validation) {uiNotice(root,validation); const invalid = options.create && Array.from(secret).length >= 12 && Array.from(secret).length <= 128 ? confirmation ?? password : password; invalid.setAttribute('aria-invalid', 'true'); invalid.focus(); return; }
       password.removeAttribute('aria-invalid'); confirmation?.removeAttribute('aria-invalid');
       busy = true; button.disabled = true; button.textContent = options.create ? '正在设置本机保护…' : '正在验证…'; form.setAttribute('aria-busy', 'true');
       password.value = ''; if (confirmation) confirmation.value = '';
@@ -85,7 +86,7 @@ export function requestPassword<T>(root: HTMLElement, options: PasswordRequestOp
         if (!active()) { cancel(); return; }
         settled = true; resolve(proof); dialog.close(); controller.abort();
       } catch (cause) {
-        if (active()) { error.textContent = cause instanceof Error ? cause.message : '验证失败，请重试'; password.setAttribute('aria-invalid', 'true'); password.focus(); }
+        if (active()) { uiNotice(root,cause instanceof Error ? cause.message : '验证失败，请重试'); password.setAttribute('aria-invalid', 'true'); password.focus(); }
         else cancel();
       } finally { secret = ''; busy = false; if (active()) { button.disabled = false; button.textContent = submitLabel; form.removeAttribute('aria-busy'); } }
     });

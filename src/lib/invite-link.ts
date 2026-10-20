@@ -33,6 +33,8 @@ export type RepairInvite = {
   sourceFingerprint: string;
   creatorFingerprint: string;
   expiresAt: string;
+  admissionSecret?: string;
+  sourceKind?: 'phone' | 'computer' | 'unknown';
 };
 
 export type ParsedInviteLink =
@@ -140,7 +142,9 @@ function deviceInvite(value: unknown): DeviceInvite | null {
 }
 
 function repairInvite(value: unknown): RepairInvite | null {
-  if (!isRecord(value) || !hasExactKeys(value, repairKeys)) return null;
+  if (!isRecord(value) || !hasExactKeys(value, value.admissionSecret===undefined ? repairKeys : [...repairKeys,'admissionSecret',...(value.sourceKind===undefined?[]:['sourceKind'])].sort())) return null;
+  if(value.sourceKind!==undefined&&!['phone','computer','unknown'].includes(String(value.sourceKind)))return null;
+  if(value.admissionSecret!==undefined&&(typeof value.admissionSecret!=='string'||!/^[-_A-Za-z0-9]{43}$/.test(value.admissionSecret)))return null;
   if (value.v !== 1 || value.kind !== 'repair-link' ||
     typeof value.roomId !== 'string' || !UUID_V4.test(value.roomId) ||
     typeof value.linkId !== 'string' || !UUID_V4.test(value.linkId) ||

@@ -280,7 +280,7 @@ try {
       console.error('Synthetic activation diagnostic', index, await page.evaluate(() => ({
         pairing: app.session?.vault.pairingState, phase: app.session?.vault.mls?.phase,
         error: document.querySelector('.chamber-code-card .form-error')?.textContent,
-        notice: document.querySelector('#notice')?.textContent, gateway: document.querySelector('.gateway h1')?.textContent,
+        notice: document.querySelector('#app-toast')?.textContent, gateway: document.querySelector('.gateway h1')?.textContent,
         failure: app.accessFailure, fatal: document.querySelector('#fatal-message')?.textContent,
       })), errors); throw cause;
     }
@@ -306,7 +306,7 @@ try {
       connection:app.connectionState,transport:app.socket?.connected,covered:app.privacyCovered,surface:app.activeSurface,
       pairing:app.session?.vault.pairingState,phase:app.session?.vault.mls?.phase,lastSeq:app.session?.vault.lastSeq,
       outbox:app.outbox.size,pending:app.pending.size,queued:app.serverQueue.size,messages:app.messages.size,
-      input:document.querySelector('#message-input')?.value,notice:document.querySelector('#notice')?.textContent,
+      input:document.querySelector('#message-input')?.value,notice:document.querySelector('#app-toast')?.textContent,
       fatal:document.querySelector('#fatal-message')?.textContent,fail:app.accessFailure,
       syntheticMessagePresent:document.body.textContent.includes('Synthetic Chamber encrypted message'),
     })));

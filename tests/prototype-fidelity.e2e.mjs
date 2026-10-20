@@ -23,7 +23,7 @@ try {
   await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
   const {QuietRoomApp}=await import('/src/app.ts');window.app=new QuietRoomApp(document.querySelector('#app'));await app.start();
  });
- await shot(page,'F15-wechat-welcome');await page.locator('#create-room').click(); await page.locator('.password-create').waitFor();
+ await shot(page,'F15-wechat-welcome');await page.evaluate(()=>{void app.preparePasswordProtection(()=>true).catch(()=>{});}); await page.locator('.password-create').waitFor();
  assert.equal(await page.locator('#new-space-name, #profile-done').count(),0,'Creation opens numeric protection without a profile step');await shot(page,'F15-wechat-create-click');
  assert.equal(await page.locator('.password-page').count(),1); await cancelPasswordForm(page); await page.locator('.password-sheet').waitFor({state:'detached'});
  await page.evaluate(()=>app.renderJointRecovery(null));await shot(page,'F01-recovery-entry'); assert.equal(await page.locator('.recovery-steps').count(),0);await openRecoveryCard(page);await shot(page,'F01-recovery-code'); await page.locator('#joint-code-close').click(); await page.locator('.joint-code-sheet').waitFor({state:'detached'});

@@ -318,7 +318,7 @@ try {
       };
     });
     await page.locator('#cover-enabled').click();
-    await page.waitForFunction(()=>document.querySelector('.cover-settings-page .form-error').textContent.includes('未保存'));
+    await page.waitForFunction(()=>document.querySelector('#app-toast')?.textContent.includes('未保存'));
     assert.equal(await page.evaluate(()=>fixture.session.vault.recoveryExperience.coverEnabled),true,'Failed persistence retains the previous preference');
     await page.evaluate(()=>restoreTransactions());
     await page.locator('#cover-enabled').click();

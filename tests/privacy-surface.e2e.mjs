@@ -52,7 +52,7 @@ try {
   await page.locator('.auto-lock-duration').click();
   await page.clock.runFor(300);
   await page.locator('[value="300"]').click();
-  assert.equal(await page.locator('.form-error').textContent(), '未能保存，已保留原设置，请重试');
+  assert.equal(await page.locator('#app-toast').textContent(), '未能保存，已保留原设置，请重试');
   assert.equal(await page.locator('[value="120"]').isChecked(), true);
   assert.equal(await page.evaluate(() => localStorage.getItem('quiet-room:auto-lock-seconds')), '120');
   await page.evaluate(() => { Storage.prototype.setItem = window.originalSetItem; window.fixture.fresh(); });

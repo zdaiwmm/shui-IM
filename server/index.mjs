@@ -623,7 +623,7 @@ export async function startServer(options = {}) {
           typeof body.accessToken !== 'string' ||
           body.accessToken.length < 32 ||
           body.accessToken.length > 512 ||
-          (body.roomId !== undefined && (!body.personalBinding || typeof body.roomId !== 'string' || !new RegExp(`^${ID_PATTERN}$`).test(body.roomId))) ||
+          (body.roomId !== undefined && (!body.personalBinding && !body.capabilities?.includes('room-archive-v2') || typeof body.roomId !== 'string' || !new RegExp(`^${ID_PATTERN}$`).test(body.roomId))) ||
           (body.inviteToken !== undefined && (typeof body.inviteToken !== 'string' || body.inviteToken.length < 32 || body.inviteToken.length > 512)) ||
           ((body.deviceName !== undefined || body.capabilities !== undefined) &&
             !validDeviceMetadata(body.deviceName ?? '此设备', body.capabilities ?? []))
@@ -774,6 +774,49 @@ export async function startServer(options = {}) {
         else if (request.method === 'PUT') json(request, response, 200, await store.personalDirectory.save(roomId, member.deviceId, JSON.parse((await readBody(request, 3_000_000)).toString('utf8'))));
         else throw new Error('INVALID_JSON');
         return;
+      }
+
+      const newInvitation=pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/new-invitation$`));
+      if(newInvitation&&request.method==='POST'){
+        const member=requireActiveDevice(request,newInvitation[1]);if(member.role!=='creator'||!member.capabilities?.includes('room-archive-v2'))throw new Error('UNAUTHORIZED');
+        if(!allowRequest(request,`new-invitation:${newInvitation[1]}`,30)){json(request,response,429,{code:'RATE_LIMITED',error:'请稍后重试'});return;}
+        const body=await readJson(request);store.rotateNewRoomInvitation(newInvitation[1],body.previousToken,body.token);json(request,response,200,{saved:true});return;
+      }
+      const shortInviteWrite=pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/short-invites/([A-Za-z0-9_-]{22})$`));
+      if(shortInviteWrite&&request.method==='PUT'){
+        const member=requireActiveDevice(request,shortInviteWrite[1]);
+        if(!member.capabilities?.includes('room-archive-v2'))throw new Error('UNAUTHORIZED');
+        if(!allowRequest(request,`short-invite:${shortInviteWrite[1]}`,30)){json(request,response,429,{code:'RATE_LIMITED',error:'请稍后重试'});return;}
+        store.shortInvites.put(shortInviteWrite[1],member.deviceId,shortInviteWrite[2],JSON.parse((await readBody(request,8192)).toString('utf8')));json(request,response,200,{saved:true});return;
+      }
+      const shortInviteRead=pathname.match(/^\/api\/short-invites\/([A-Za-z0-9_-]{22})$/);
+      if(shortInviteRead&&request.method==='GET'){
+        if(!allowRequest(request,'short-invite-read',90)){json(request,response,429,{code:'RATE_LIMITED',error:'请稍后重试'});return;}
+        response.setHeader('Cache-Control','no-store');json(request,response,200,store.shortInvites.get(shortInviteRead[1]));return;
+      }
+
+      const privateArchiveWrite = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/private-archives/([A-Za-z0-9_-]{43})(?:/([0-9a-f-]{36}))?$`));
+      if (privateArchiveWrite) {
+        const [,roomId,archiveId,objectId] = privateArchiveWrite;
+        const member = requireActiveDevice(request,roomId);
+        if (!member.capabilities?.includes('room-archive-v2')) throw new Error('UNAUTHORIZED');
+        if (!allowRequest(request, `private-archive-write:${roomId}`, 120)) {response.setHeader('Retry-After','15');json(request,response,429,{code:'RATE_LIMITED',error:'备份稍后会继续'});return;}
+        if (request.method !== 'PUT') throw new Error('INVALID_JSON');
+        const body = JSON.parse((await readBody(request, objectId ? 4_300_000 : 4096)).toString('utf8'));
+        if (objectId) { if(body.id!==objectId)throw new Error('INVALID_BACKUP');store.roomArchives.put(roomId,member.deviceId,archiveId,body); }
+        else { if(body.descriptor?.id!==archiveId)throw new Error('INVALID_BACKUP');store.roomArchives.register(roomId,member.deviceId,body.descriptor,member.role,body.proof); }
+        json(request,response,200,{saved:true});return;
+      }
+      const privateArchiveRead = pathname.match(/^\/api\/private-archives\/([A-Za-z0-9_-]{43})(?:\/([0-9a-f-]{36}))?$/);
+      if (privateArchiveRead) {
+        if(request.method!=='GET')throw new Error('INVALID_JSON');
+        const [,archiveId,objectId]=privateArchiveRead;
+        if(!allowRequest(request,`private-archive-read:${archiveId}`,600)){response.setHeader('Retry-After','15');json(request,response,429,{code:'RATE_LIMITED',error:'归档读取稍后会继续'});return;}
+        const header=request.headers.authorization??'', token=header.startsWith('Bearer ')?header.slice(7):'';
+        const value=objectId ? store.roomArchives.read(archiveId,token,objectId)
+          : url.searchParams.has('after') ? store.roomArchives.list(archiveId,token,Number(url.searchParams.get('after')),Number(url.searchParams.get('end')))
+          : store.roomArchives.snapshot(archiveId,token);
+        response.setHeader('Cache-Control','no-store');json(request,response,200,value);return;
       }
 
       const chamberRestoreMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/chamber-history-recovery(?:/(${ID_PATTERN}))?$`));
@@ -996,10 +1039,11 @@ export async function startServer(options = {}) {
       const claimRepairLinkMatch = pathname.match(new RegExp(`^/api/repair-links/(${ID_PATTERN})/claim$`));
       if (request.method === 'POST' && claimRepairLinkMatch) {
         const body = await readJson(request);
+        if (body.candidateProof!==undefined&&(typeof body.candidateProof!=='string'||!/^[-_A-Za-z0-9]{43}$/.test(body.candidateProof)))throw new Error('INVALID_REPAIR_LINK');
         if (typeof body.secret !== 'string' || body.secret.length < 32 || body.secret.length > 512 || !validatePublicBundle(body.bundle) || !body.bundle.mlsKeyPackage || typeof body.deviceAccessToken !== 'string' || body.deviceAccessToken.length < 32 || !validDeviceMetadata(body.deviceName, body.capabilities ?? [])) {
           json(request, response, 400, { error: 'INVALID_REPAIR_LINK' }); return;
         }
-        const claimed = store.claimRepairLink(claimRepairLinkMatch[1], body.secret, body.bundle, body.deviceAccessToken, body.deviceName.trim(), body.capabilities ?? []);
+        const claimed = store.claimRepairLink(claimRepairLinkMatch[1], body.secret, body.bundle, body.deviceAccessToken, body.deviceName.trim(), body.capabilities ?? [], body.candidateProof);
         broadcast(claimed.link.roomId, { type: 'membership', state: publicState(claimed.state) });
         broadcastPresence(claimed.link.roomId);
         json(request, response, 201, { link: claimed.link, state: publicState(claimed.state) });

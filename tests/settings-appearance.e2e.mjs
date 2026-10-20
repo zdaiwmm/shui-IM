@@ -91,7 +91,7 @@ try {
   await page.locator('[name="color-scheme"][value="light"]').click();
   assert.equal(await page.locator('[name="color-scheme"][value="dark"]').isChecked(), true);
   assert.equal(await page.evaluate(() => document.documentElement.dataset.colorScheme), 'dark');
-  assert.match(await page.locator('.form-error').textContent(), /已保留原明暗模式/);
+  assert.match(await page.locator('#app-toast').textContent(), /已保留原明暗模式/);
   await page.evaluate(() => { Storage.prototype.setItem = window.schemeSetItem; });
   await page.locator('[name="color-scheme"][value="system"]').check();
   assert.equal(await page.evaluate(() => document.documentElement.dataset.colorScheme), 'light');
@@ -101,7 +101,7 @@ try {
   await page.locator('[name="appearance"][value="green"]').click();
   assert.equal(await page.locator('[name="appearance"][value="apricot"]').isChecked(), true);
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'apricot');
-  assert.match(await page.locator('.form-error').textContent(), /已保留原配色/);
+  assert.match(await page.locator('#app-toast').textContent(), /已保留原配色/);
   await page.evaluate(() => { Storage.prototype.setItem = window.themeSetItem; });
   const sibling = await page.context().newPage(); await sibling.goto(page.url());
   assert.equal(await sibling.evaluate(async () => { const {mountAppearance}=await import('/src/lib/appearance.ts'); mountAppearance(); return document.documentElement.dataset.theme; }), 'apricot');

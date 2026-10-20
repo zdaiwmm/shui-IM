@@ -78,7 +78,7 @@ try {
   }));
   await page.evaluate(() => window.fixture.app.showNotice('已收藏'));
   await page.waitForTimeout(220);
-  const toast=await page.locator('#notice').boundingBox();const header=await page.locator('.chat-header').boundingBox();
+  const toast=await page.locator('#app-toast').boundingBox();const header=await page.locator('.chat-header').boundingBox();
   assert.ok(toast.width<150 && toast.y>=header.y+header.height && toast.y<=header.y+header.height+12, JSON.stringify({toast,header}));
   const positions=await page.locator('#chat-tools > button').evaluateAll(nodes=>nodes.map(e=>({top:e.getBoundingClientRect().top,left:e.getBoundingClientRect().left})));
   assert.equal(positions[0].top,positions[3].top);assert(positions[4].top>positions[3].top);assert.equal(positions[4].left,positions[0].left);
@@ -169,7 +169,7 @@ try {
   });
   assert.equal(await page.evaluate(()=>window.fixture.app.uiPreferences.attachmentFavorites.length),1);
   await page.evaluate(()=>{const f=window.fixture;f.session.vault.role='joiner';f.app.renderChat();});
-  await page.locator('.peer-summary').click();assert.equal(await page.locator('.gallery-shell').count(),0);assert.equal(await page.locator('#notice').isVisible(),false);
+  await page.locator('.peer-summary').click();assert.equal(await page.locator('.gallery-shell').count(),0);assert.equal(await page.locator('#app-toast').isVisible(),false);
   await page.locator('#open-chat-tools').click();await page.locator('#open-favorites').click();await page.locator('.gallery-tile').waitFor();
   await page.evaluate(async()=>{
     const {app,messages,vault,session}=window.fixture;const target=messages[1];

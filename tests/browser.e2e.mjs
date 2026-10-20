@@ -230,7 +230,8 @@ try {
   await holdCover(creator);
   await assertStablePage(creator, 'Welcome page');
   invariant(await creator.locator('#join-room').count() === 0, 'Welcome page still offers a paste-invite entry');
-  await creator.locator('#restore-cloud').click();
+  invariant(await creator.locator('#restore-cloud').count()===0,'New homepage exposes recovery');
+  await creator.evaluate(()=>window.__legacyApp.renderPersonalRestoreProtection());
   await creator.locator('#restore-legacy-card').click();
   await creator.locator('#joint-start').waitFor();
   invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during recovery navigation');
@@ -282,10 +283,8 @@ try {
   await creator.locator('#create-room').waitFor();
   const welcomeLayout = await creator.evaluate(() => {
     const primary = document.querySelector('#create-room');
-    const secondary = document.querySelector('#restore-cloud');
     return {
       font: getComputedStyle(primary).fontSize,
-      gap: secondary.getBoundingClientRect().top - primary.getBoundingClientRect().bottom,
     };
   });
   await creator.evaluate(() => {

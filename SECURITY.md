@@ -1,5 +1,9 @@
 # Security model
 
+## 2026-10-20 新密室范围
+
+本轮新建密室采用 [新密室与本人归档契约](NEW_ROOM_ARCHIVES.md)：无前置应用锁、单次短链接、默认端到端加密备份、口令保护的本人恢复图片及当前密室私有历史合并。下文助记词／双人共同恢复及 QR3/QR4 继续描述原格式，不适用于本轮新建格式；不执行旧数据迁移或清理。交付证据见[需求记录](docs/requirements/2026-10-20-room-archive-static/README.md)，不是生产发布声明。
+
 ## Participant invitation reentry, 2026-10-19
 
 An old participant URL is a navigation target, never evidence of current membership. Existing encrypted local vaults and the encrypted room directory remain behind normal application-lock verification; matching the room also checks the original creator fingerprint. Reentry uses the existing device credential and normal lifecycle/membership checks, without reactivating the consumed invite or generating a replacement endpoint. An unfinished local join uses its encrypted pending claim; losing sessionStorage cannot justify a new claimant. Canonical URL replacement preserves no invitation capability in a new plaintext routing index. New browsers still require identity recovery and the existing opposite-participant approval. The [confirmed scope](docs/requirements/2026-10-19-chamber-invite-reentry/README.md) grants no device, history or recovery capability through URL cleanup.
