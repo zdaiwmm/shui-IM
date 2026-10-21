@@ -6,7 +6,7 @@ import type { RoomMember, Vault } from '../src/lib/types';
 
 afterEach(() => vi.restoreAllMocks());
 
-it('exchanges MLS messages between persisted PKCS#8 and seed identities with native Ed25519 generation unavailable', async () => {
+it('exchanges MLS messages between persisted PKCS#8 and seed identities with native Ed25519 and X25519 generation unavailable', async () => {
   const oldIdentity = await generateIdentity();
   const seed = fromBase64Url(oldIdentity.mlsPrivatePackage!.signaturePrivateKey);
   // RFC 8410's Ed25519 PKCS#8 encoding, as stored by the previous native path.
@@ -19,10 +19,11 @@ it('exchanges MLS messages between persisted PKCS#8 and seed identities with nat
   const generate = crypto.subtle.generateKey;
   vi.spyOn(crypto.subtle, 'generateKey').mockImplementation((...args) => {
     const algorithm = typeof args[0] === 'string' ? args[0] : args[0].name;
-    if (algorithm === 'Ed25519') return Promise.reject(new DOMException('Native Ed25519 unavailable', 'OperationError'));
+    if (['Ed25519', 'X25519'].includes(algorithm)) return Promise.reject(new DOMException('Native Ed25519 unavailable', 'OperationError'));
     return Reflect.apply(generate, crypto.subtle, args);
   });
   await expect(crypto.subtle.generateKey('Ed25519', true, ['sign', 'verify'])).rejects.toMatchObject({ name: 'OperationError' });
+  await expect(crypto.subtle.generateKey('X25519', true, ['deriveBits'])).rejects.toMatchObject({ name: 'OperationError' });
   const newIdentity = await generateIdentity();
   const roomId = crypto.randomUUID();
   const members: RoomMember[] = [
@@ -52,4 +53,27 @@ it('exchanges MLS messages between persisted PKCS#8 and seed identities with nat
 it('fails closed when secure randomness is unavailable', async () => {
   vi.spyOn(crypto, 'getRandomValues').mockImplementation(() => { throw new DOMException('Secure randomness unavailable', 'OperationError'); });
   await expect(generateIdentity()).rejects.toThrow('Secure randomness unavailable');
+});
+
+it('interoperates with the previous native X25519 HPKE implementation and serialized keys', async () => {
+  const { getCiphersuiteFromName, getCiphersuiteImpl } = await import('ts-mls');
+  const { compatibleMlsCipherSuite } = await import('../src/lib/mls-crypto');
+  const suite = getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519');
+  const previous = (await getCiphersuiteImpl(suite)).hpke;
+  const compatible = (await compatibleMlsCipherSuite(suite)).hpke;
+  const oldKeys = await previous.generateKeyPair();
+  const newKeys = await compatible.generateKeyPair();
+  const plaintext = new TextEncoder().encode('existing HPKE wire format');
+  const info = new TextEncoder().encode('compatibility test');
+  const aad = new Uint8Array([1, 2, 3]);
+  for (const [sender, recipient, keys] of [[previous, compatible, newKeys], [compatible, previous, oldKeys]] as const) {
+    const publicBytes = await recipient.exportPublicKey(keys.publicKey);
+    const privateBytes = await recipient.exportPrivateKey(keys.privateKey);
+    expect(publicBytes.byteLength).toBe(32); expect(privateBytes.byteLength).toBe(32);
+    const sealed = await sender.seal(await sender.importPublicKey(publicBytes), plaintext, info, aad);
+    expect(await recipient.open(await recipient.importPrivateKey(privateBytes), sealed.enc, sealed.ct, info, aad)).toEqual(plaintext);
+    await expect(recipient.open(await recipient.importPrivateKey(privateBytes), sealed.enc, sealed.ct, info, new Uint8Array([4]))).rejects.toThrow();
+  }
+  vi.spyOn(crypto, 'getRandomValues').mockImplementation(() => { throw new DOMException('Secure randomness unavailable', 'OperationError'); });
+  await expect(compatible.generateKeyPair()).rejects.toThrow();
 });

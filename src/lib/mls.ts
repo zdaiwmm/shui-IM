@@ -1,3 +1,4 @@
+import { compatibleMlsCipherSuite } from './mls-crypto';
 import { retentionBoundary, validRetentionBoundary, isWindowMessage, MLS_WINDOW_MESSAGES } from './message-window';
 import { verifyPersonalDeviceRequest, type PersonalDeviceAuthorization } from './personal-device-request';
 import { verifyPersonalDeviceBinding } from './personal-device-binding';
@@ -20,7 +21,6 @@ import {
   encodeMlsMessage,
   generateKeyPackageWithKey,
   getCiphersuiteFromName,
-  getCiphersuiteImpl,
   joinGroup,
   processPrivateMessage,
   processPublicMessage,
@@ -151,7 +151,7 @@ function clientConfig(members: RoomMember[]): ClientConfig {
 }
 
 async function cipherSuite() {
-  return getCiphersuiteImpl(CIPHERSUITE);
+  return compatibleMlsCipherSuite(CIPHERSUITE);
 }
 
 function decodeKeyPackage(encoded: string): KeyPackage {

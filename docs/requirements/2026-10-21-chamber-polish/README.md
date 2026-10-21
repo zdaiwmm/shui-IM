@@ -45,5 +45,8 @@
 
 - 根因证据：隔离采样CI39584538397（4425f38）捕获 `generateKey → ts-mls signature.keygen → generateMlsKeyMaterial → generateIdentity` 的 OperationError，发生于首次创建，排除了必须先离开旧密室的假设。之前24样本未隔离服务端状态的首次超时未强行认定同源；不包装Promise的最终诊断保留了真实异常。
 - 可控负例：仅阻断原生Ed25519生成后，未修实现稳定复现第二间创建超时、session空、标题Chamber，证据在本机脱敏交接目录；没有调整20秒等待或成功断言。
-- 最小修复：generateMlsKeyMaterial使用仓库既有Noble Ed25519种子路径（系统CSPRNG），只替换签名密钥生成。ts-mls原已接受32字节种子及旧PKCS#8；新增跨格式welcome／双向消息／重放拒绝与安全随机源失败关闭检查。协议及旧数据不迁移，发布仍为尚未上线的2026.10.21.2整批。
-- 诊断夹具：生产逻辑不含探针；失败才记录合成页面异常／状态。独立后端避免样本累积，CI恢复为三轮WebKit并在连续创建前持续阻断原生Ed25519生成。WebKit原生退出资源报错仅在对应请求确认为cancel/abort且来源为browser-access时归为取消诊断，其他页面错误继续使验收失败。
+- 第一处修复：generateMlsKeyMaterial使用仓库既有Noble Ed25519种子路径（系统CSPRNG）替换签名密钥生成。ts-mls原已接受32字节种子及旧PKCS#8；新增跨格式welcome／双向消息／重放拒绝与安全随机源失败关闭检查。协议及旧数据不迁移，发布仍为尚未上线的2026.10.21.2整批。
+- 诊断夹具：生产逻辑不含探针；失败才记录合成页面异常／状态。独立后端避免样本累积，CI恢复为三轮WebKit并在连续创建前持续阻断原生Ed25519和X25519生成。WebKit原生退出资源报错仅在对应请求确认为cancel/abort且来源为browser-access时归为取消诊断，其他页面错误继续使验收失败。
+- 后续证据：候选1334710的CI39586654687、job119177224639在原生X25519 generateKey → HPKE generateKeyPair → generateKeyPackageWithKey处抛OperationError。Ed25519单路径修复不足；本机该候选完整门禁主动SIGINT中止（14浏览器入口通过、60未运行），不记为通过。
+- 补齐修复：X25519 HPKE沿用仓库已有@hpke/dhkem-x25519及ts-mls适配器，包含临时密钥生成，保持套件和编码；新增与旧原生HPKE双向互通、AAD篡改拒绝。定向7项单元、本机Chromium和WebKit连续创建均通过。
+- 用户质疑已核对：PR #365未改mls.ts、crypto.ts和依赖版本；动画在generateIdentity前挂载，但生成参数未变。目前只定位直接失败接口，不能把底层兼容性或动画时序任一推断当作已证实根因。浏览器夹具新增无应用、无动画独立页面，逐算法64次调用原生生成并仅输出统计；本机两引擎均全部成功，Linux结果待候选CI。
