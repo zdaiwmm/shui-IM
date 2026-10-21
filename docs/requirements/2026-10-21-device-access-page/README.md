@@ -1,6 +1,6 @@
 # 设备失去接入权限独立页 V1
 
-- 阶段：实施及本地完整验收完成；最终云端验证与交付状态由[PR #368](https://github.com/zdaiwmm/shui-IM/pull/368)拥有，生产未授权。
+- 阶段：已合并并发布，版本2026.10.21.3；实现交付由[PR #368](https://github.com/zdaiwmm/shui-IM/pull/368)拥有，精确发布及独立回读见[发布记录](../../../RELEASING.md#release-device-access-page-20261021)。
 - 规则来源、起始基线：`2ada7892bb95ecd88f92be91b5db9bdf27a247bb`。
 - 工作树：`/Users/zhouding/ss-worktrees/device-access-page-20261021`；分支：`codex/device-access-page-20261021`。
 - 确认：2026-10-21，当前会话用户确认上一轮V1方案，并明确“直接实施，无需制作原型和业务流程图，完成测试后合并”。消息定位未提供。本次原型／流程图豁免，不继承生产发布授权。
@@ -33,5 +33,10 @@
 
 - 最终`npm run check:full`单次完整通过：构建、136文件／1050项单元及集成测试、76／76浏览器入口，浏览器总耗时1070.96秒，无失败或未运行入口。包含本次独立页、旧格式撤销，以及原聊天、生命周期、恢复、应用锁与媒体回归。
 - `npm run env:check -- browser`、本地及远端repo doctor、文档链接／格式检查和差异空白检查通过。新增仅源码与Markdown，没有二进制、Base64素材、依赖或构建产物。
-- 版本`2026.10.21.3`，应用实现提交`11bd123d90c3f4a350269132b8d74d64630cb5e4`。最终云端完整CI与合并状态以[PR #368](https://github.com/zdaiwmm/shui-IM/pull/368)为准；生产未授权、未执行。
+- 版本`2026.10.21.3`，应用实现提交`11bd123d90c3f4a350269132b8d74d64630cb5e4`，经[PR #368](https://github.com/zdaiwmm/shui-IM/pull/368)合并为`242270bb56e2992f078cb36cd9f85718986f1351`。实施交付阶段未执行生产，后续明确授权及发布见下节。
 - 完整本地验证期间main合入PR #367为`283262b581f5870f940467d72bcf15cd2d7102db`，涉及WebKit签名兼容与页面退出未读请求，本任务源分支未纳入其他未合并工作。合并树预检无冲突；本PR的完整CI基于最新main合并引用验证最终组合，本地上述数量对应原应用提交。
+
+## 生产确认与独立回读
+
+- 2026-10-21，用户在收到PR已合并、提交242270b后明确「确认，发布生产」，授权精确`242270bb56e2992f078cb36cd9f85718986f1351`。main完整CI39604665955 attempt 1及PREFLIGHT_OK核验通过后，固定入口唯一云发布39606425821取得DEPLOY_VERIFIED，从8d6256a7切换一次。
+- 首次回读仅backup starting；核对原有5分钟探针后只续跑readback-only，最终于北京时间21:25取得READBACK_OK，应用／备份healthy，SHA／镜像、HTTPS、公开／容器产物和新WebSocket一致，维护门absent。原生真机与独立安全审阅未验证。证据、批次覆盖范围及资源保留见[本轮发布记录](../../../RELEASING.md#release-device-access-page-20261021)。

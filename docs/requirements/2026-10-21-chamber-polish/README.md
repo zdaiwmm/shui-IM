@@ -1,6 +1,6 @@
 # Chamber 页面与恢复流程修订 V2
 
-- 阶段：已实施；交付与最终验证见[PR #365](https://github.com/zdaiwmm/shui-IM/pull/365)；原型与业务流程图由用户明确免除。
+- 阶段：已实施并随完整应用242270bb／版本2026.10.21.3发布；交付与早期验证见[PR #365](https://github.com/zdaiwmm/shui-IM/pull/365)，生产及WebKit续修统一见[本轮发布记录](../../../RELEASING.md#release-device-access-page-20261021)；原型与业务流程图由用户明确免除。
 - 规则及基线：68b08720eebfffbd9a2528b53de91025f46ed433。
 - 工作树：`/Users/zhouding/ss-worktrees/chamber-polish-20261021`；分支：`codex/chamber-polish-20261021`。
 - 确认：2026-10-21，本会话先提出七项V1；用户追加六项，明确“立即实施，无需制作原型和业务流程图”，随后补充统一页面标题上下留白，以及生成对方进入链接前必须二次确认指定旧设备将被移出密室。正式实施及持续D交付获授权；生产未授权。
