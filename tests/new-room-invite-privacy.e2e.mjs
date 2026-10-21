@@ -25,7 +25,7 @@ try {
       assert.equal(await page.title(),'chamber1');
       assert.equal(await page.locator('#copy-invite').textContent(),'复制密室加入链接');
       assert.equal(await page.locator('.chamber-invite-hero > p').textContent(),'将密室加入链接，发给你想说悄悄话的人。');
-      assert.match(await page.locator('#new-room-invite-countdown').textContent(),/链接有效时间：24:00/);
+      assert.match(await page.locator('#new-room-invite-countdown').textContent(),/链接有效时间：(24:00:00|23:59:\d{2})/);
       for(const step of ['cover','lock'])assert.match(await page.locator(`[data-personal-guide=${step}] small`).textContent(),/^未开启 - /);
       assert.match(await page.locator('[data-personal-guide=archive] small').textContent(),/^未设置 - /);
       // WebKit can suppress a synthetic mouse click during automatic scroll.
@@ -33,7 +33,7 @@ try {
       const credentialEntry=page.locator('[data-personal-guide=archive]');
       await credentialEntry.scrollIntoViewIfNeeded();
       await credentialEntry.tap();
-      await page.locator('[data-card-form]').waitFor();assert.equal(await page.locator('.backup-heading h1').textContent(),'聊天记录恢复凭证');
+      await page.locator('[data-card-form]').waitFor();assert.equal(await page.locator('.backup-heading h1').textContent(),'恢复凭证');
       assert.equal(await page.locator('[data-sync]').count(),0,'Guide opens the credential form directly');
       assert.match(await page.locator('.backup-intro').first().textContent(),/不上传服务器/);
       await page.locator('[data-back]').click();await page.locator('#copy-invite').waitFor();

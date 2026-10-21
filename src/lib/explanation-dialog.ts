@@ -2,7 +2,7 @@ import { mountDialog } from './dialog';
 
 /** Long-lived help belongs in an on-demand dialog, never in an error toast. */
 export function showExplanation(root: HTMLElement, title: string, paragraphs: string[],
-  options: { signal?: AbortSignal; active: () => boolean; closeLabel?: string; action?: { label: string; run: () => Promise<void> }; error?: (cause: unknown) => void }) {
+  options: { signal?: AbortSignal; active: () => boolean; closeLabel?: string; action?: { label: string; danger?: boolean; closeBeforeRun?: boolean; run: () => Promise<void> }; error?: (cause: unknown) => void }) {
   const sheet = document.createElement('section');
   sheet.className = 'confirm-overlay';
   sheet.setAttribute('role', 'dialog');
@@ -20,11 +20,13 @@ export function showExplanation(root: HTMLElement, title: string, paragraphs: st
   sheet.querySelector('[data-close]')!.addEventListener('click', () => dialog.close());
   if (options.action) {
     const button = document.createElement('button'); button.className = 'text-button'; button.type = 'button';
+    if (options.action.danger) button.classList.add('danger-text');
     button.textContent = options.action.label; button.dataset.helpAction = '';
     sheet.querySelector('.simple-confirm-actions')!.prepend(button);
     button.addEventListener('click', () => {
       if (busy || !options.active()) return;
       busy = true; button.disabled = true;
+      if (options.action!.closeBeforeRun) dialog.close({ animate: false, restoreFocus: false });
       void options.action!.run().catch(options.error).finally(() => { busy = false; button.disabled = false; });
     });
   }

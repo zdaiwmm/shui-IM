@@ -118,15 +118,19 @@ async function get<T>(key:ArchiveKey,suffix:string,signal:AbortSignal):Promise<T
   }
 }
 /** No source-room token, member approval, device credential or MLS state is loaded. */
-export async function restoreRoomArchive(session:VaultSession,key:ArchiveKey,signal:AbortSignal,progress:(done:number)=>void):Promise<number> {
+export type ArchiveRestoreProgress = { stage: 'reading' | 'restoring' | 'committing' | 'complete'; objects: number; totalObjects: number; messages: number; images: number; videos: number; files: number; audio: number };
+export async function restoreRoomArchive(session:VaultSession,key:ArchiveKey,signal:AbortSignal,progress:(done:number)=>void,detail?:(state:ArchiveRestoreProgress)=>void):Promise<number> {
   const runId=crypto.randomUUID();
-  const run=async()=>{try{return await restoreArchiveContents(session,key,signal,progress,runId);}finally{await discardPrivateArchiveStaging(session,runId).catch(()=>undefined);}};
+  const run=async()=>{try{return await restoreArchiveContents(session,key,signal,progress,runId,detail);}finally{await discardPrivateArchiveStaging(session,runId).catch(()=>undefined);}};
   if(navigator.locks)return navigator.locks.request(`quiet-room:archive-restore:${session.vault.roomId}`,{signal},async()=>{await discardPrivateArchiveStaging(session);return run();});
   return run();
 }
-async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal:AbortSignal,progress:(done:number)=>void,runId:string):Promise<number> {
+async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal:AbortSignal,progress:(done:number)=>void,runId:string,detail?:(state:ArchiveRestoreProgress)=>void):Promise<number> {
+  const state:ArchiveRestoreProgress={stage:'reading',objects:0,totalObjects:0,messages:0,images:0,videos:0,files:0,audio:0};
+  detail?.({...state});
   const snapshot=await get<{descriptor:ArchiveKey['descriptor'];end:number}>(key,'',signal);
   if(canonicalStringify(snapshot.descriptor)!==canonicalStringify(key.descriptor)||!Number.isSafeInteger(snapshot.end)||snapshot.end<0)throw new Error('归档来源校验失败');
+  state.totalObjects=snapshot.end;state.stage='restoring';detail?.({...state});
   let after=0,revision=0,count=0;let previous:Ref|null=null;
   const existing=await loadPrivateArchiveItems(session);
   const existingById=new Map(existing.map(item=>[itemId(item),item]));
@@ -140,7 +144,7 @@ async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal
       if(object.id!==row.id)throw new Error('归档分块被替换');
       const payload=await openArchiveObject(key,object) as Batch|MediaPayload;
       if(payload?.v!==2||!['batch','media'].includes(payload.kind))throw new Error('不支持的归档内容');
-      if(payload.kind!=='batch')continue;
+      if(payload.kind!=='batch'){state.objects++;detail?.({...state});continue;}
     signal.throwIfAborted();
     if(payload.revision!==++revision||canonicalStringify(payload.previous)!==canonicalStringify(previous)||
       !payload.item||typeof payload.item.self!=='boolean'||!uuid.test(payload.item.originRoomId)||!isMessagePayload(payload.item.message?.payload)||
@@ -166,11 +170,15 @@ async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal
         else {await savePrivateMediaChunk(destination,manifest.blobId,index,raw.buffer,signal);const saved=await loadPrivateMediaChunk(destination,manifest.blobId,index,raw.length);if(!saved||toBase64Url(saved)!==media.bytes)throw new Error('本机空间不足，请腾出空间后重试');}
       }
     }
+    for(const {manifest} of payload.media){const kind=manifest.mimeType?.startsWith('image/')?'images':manifest.mimeType?.startsWith('video/')?'videos':manifest.mimeType?.startsWith('audio/')?'audio':'files';state[kind]++;}
+    state.messages++;state.objects++;detail?.({...state});
     await stagePrivateArchiveItem(session,runId,item,signal);existingById.set(itemId(item),item);
     previous={id:object.id,hash:archiveObjectHash(object)};progress(++count);
     }
     if(page.length<100){if(after!==snapshot.end)throw new Error('备份目录不完整，请重试');break;}
   }
+  state.stage='committing';detail?.({...state});
   await commitPrivateArchiveImport(session,runId,signal);
+  state.stage='complete';detail?.({...state});
   return count;
 }

@@ -4,7 +4,10 @@ export function entryArt(kind: 'pair' | 'lock' | 'card' | 'gallery' = 'pair'): s
   return `<div class="entry-art entry-art-${kind}" aria-hidden="true"><span class="entry-orbit"></span><span class="entry-ground"></span><div class="entry-fold entry-fold-one"><span class="entry-message"><i></i><i></i></span></div><div class="entry-fold entry-fold-two"><span class="entry-message"><i></i><i></i></span></div><span class="entry-spark"></span></div>`;
 }
 
-/** Original architectural doorway and two people. Geometry stays centered in every theme. */
+/** User-selected private-dialogue-v9: enclosed frame and inward-facing dialogue. */
+export function chamberMark(): string {
+  return `<svg viewBox="0 0 100 100" role="img" aria-label="Chamber，双向对话的私密空间"><rect class="chamber-frame" x="21" y="24" width="58" height="52" rx="13" fill="none" stroke="currentColor" stroke-width="3.4"/><g class="chamber-dialogue chamber-dialogue-left"><path d="M37.2 38.5h7.6a3.2 3.2 0 0 1 3.2 3.2v22.4l-5.4-5.4h-5.4a3.2 3.2 0 0 1-3.2-3.2V41.7a3.2 3.2 0 0 1 3.2-3.2Z" fill="currentColor"/></g><g class="chamber-dialogue chamber-dialogue-right"><path d="M55.2 38.5h7.6a3.2 3.2 0 0 1 3.2 3.2v13.8a3.2 3.2 0 0 1-3.2 3.2h-5.4L52 64.1V41.7a3.2 3.2 0 0 1 3.2-3.2Z" fill="currentColor"/></g></svg>`;
+}
 export function chamberBrand(): string {
-  return `<div class="chamber-brand entry-art" aria-label="Chamber"><svg viewBox="0 0 128 128" role="img" aria-label="Chamber，留给两个人的隐蔽入口"><path class="chamber-door" d="M51 105V45l30-10v70Z"/><path class="chamber-room" d="M29 106V49a35 35 0 0 1 70 0v57M22 106h84"/><path class="chamber-threshold" d="M42 106V50a22 22 0 0 1 44 0v56"/><circle class="chamber-person chamber-person-one" cx="56" cy="76" r="4.5"/><circle class="chamber-person chamber-person-two" cx="73" cy="76" r="4.5"/></svg><span>Chamber</span></div>`;
+  return `<div class="chamber-brand entry-art" aria-label="Chamber">${chamberMark()}<span>Chamber</span></div>`;
 }
