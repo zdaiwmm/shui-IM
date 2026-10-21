@@ -2,7 +2,7 @@
 
 ## 身份与确认
 
-- 当前阶段：已通过验收并合并[PR #362](https://github.com/zdaiwmm/shui-IM/pull/362)，应用`8d6256a7b1d9bb783f11fcc85de57284ce1324a2`、版本`2026.10.21.1`。本任务尚未执行生产切换，精确应用main完整CI已通过，等待只读预检及用户确认该SHA。
+- 当前阶段：已通过验收并合并[PR #362](https://github.com/zdaiwmm/shui-IM/pull/362)，应用`8d6256a7b1d9bb783f11fcc85de57284ce1324a2`、版本`2026.10.21.1`。本任务尚未执行生产切换，精确应用main完整CI与只读预检均通过，等待用户确认该SHA。
 - 规则来源：本机main `04ee8e235b45c12376b6e9addc7fa443565465b0`。起始基线：实时GitHub main及origin/main均为`06108c5fb8ec676fb6e5c705b2a6199db77e654c`，本机main落后8提交且干净。
 - 独占工作树：`/Users/zhouding/ss-worktrees/invite-privacy-20261021`；分支`codex/invite-privacy-20261021`，本会话新建。
 - 2026-10-21用户先提供邀请与隐私引导截图，随后将第三步修订为“聊天记录恢复凭证”，新增当前名称作为标签标题及本机`chamberN`命名规则。用户在看到V2方案后明确要求“立即实施，完成后合并发布”。消息无独立permalink；本轮免原型／流程图，授权正式实施、验证及远端交付。生产仍须另行确认精确应用SHA。
@@ -46,3 +46,5 @@
 - 最终[PR CI 39548764053](https://github.com/zdaiwmm/shui-IM/actions/runs/39548764053)最新attempt 2完整通过。首轮仅新WebKit用例结束时后台fetch被取消的原生诊断，日志核实后只原样重跑失败作业一次，未放宽异常过滤或修改运行代码。双架构镜像、依赖审计、凭据扫描及verify均成功。
 - 应用合并后的[main CI 39550197797](https://github.com/zdaiwmm/shui-IM/actions/runs/39550197797)最新attempt 1完整通过，Full application verification成功；发布证据不复用PR CI。验收对账使用独立文档树`invite-privacy-delivery-record-20261021`，其文档SHA不替代应用SHA，不触发生产切换。
 - 本机脱敏逐项映射保存在公共Git元数据`quiet-room-deliveries/evidence/invite-privacy-20261021/local-continuation.json`；原始日志和截图仅本机临时保存。本需求源码、测试和规范均为文本，无二进制、Base64、依赖或构建产物入库。任务工作树在待发布阶段保留。
+
+- 固定只读[云预检39550996742](https://github.com/zdaiwmm/shui-IM/actions/runs/39550996742)以`publish.mjs --cloud --prepare --environment production --sha 8d6256a7b1d9bb783f11fcc85de57284ce1324a2`取得PREFLIGHT_OK。已核对保存请求为doctor模式，依本轮授权通过现有production环境正常审核，未修改保护规则；该预检不执行生产切换。当前仅剩用户对上述精确应用SHA的生产确认，不能用文档提交替代该应用SHA。

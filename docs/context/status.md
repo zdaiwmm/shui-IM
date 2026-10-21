@@ -4,7 +4,7 @@
 
 - [需求V2](../requirements/2026-10-21-invite-privacy/README.md)由用户明确免原型直接实施、合并及准备发布。[PR #362](https://github.com/zdaiwmm/shui-IM/pull/362)合并应用`8d6256a7b1d9bb783f11fcc85de57284ce1324a2`，版本`2026.10.21.1`；与最终源c9a4d98完整文件树一致。24小时加入／设备接替、真实三步隐私状态、恢复凭证直达、应用锁默认30秒闲置与通行密钥自动唤起、本机chamberN及私密标签标题均已实施，长期契约由NEW_ROOM_ARCHIVES与移动视觉V1.20拥有。
 - 本机最终构建／1046项单元通过，74浏览器入口分段逐项对账通过；WebKit鼠标自动滚动夹具改为真实tap，旧相册瞬态原样重跑通过，原始失败与证据映射见需求记录。最终PR完整CI最新attempt 2成功；精确应用[main完整CI 39550197797](https://github.com/zdaiwmm/shui-IM/actions/runs/39550197797) attempt 1成功，Full application verification通过。原生iPhone／iOS27／Safari、真实认证器与独立安全审阅未验证。
-- 本任务尚未执行生产切换，下一步为固定只读预检及用户确认该SHA。独立文档对账只更新验收／待发布事实，文档提交不是线上应用版本；下方保留最近一次已发布事实。
+- 本任务尚未执行生产切换；固定只读[云预检39550996742](https://github.com/zdaiwmm/shui-IM/actions/runs/39550996742)已核对doctor模式并取得PREFLIGHT_OK，下一步仅用户确认上述精确应用SHA。独立文档对账只更新验收／待发布事实，文档提交不是线上应用版本；下方保留最近一次已发布事实。
 
 ## 新密室与本人归档已发布，真机待验收（2026-10-20 23:15）
 
