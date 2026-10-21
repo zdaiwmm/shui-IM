@@ -1,5 +1,9 @@
 # Security model
 
+## 2026-10-21 Page-exit unread refresh
+
+Once `pagehide` begins, cover rendering and late focus events do not start new count-only unread GET requests. `pageshow` resumes them, including a persisted page return. Locking order, the cached confirmed count, observer authority, registration and read-cursor rules are unchanged. Test-only exit evidence observes each request and document; it preserves returned Promise rejections and never excuses writes, active-page failures or unhandled errors using an older read request.
+
 ## 2026-10-21 MLS Curve25519 生成兼容
 
 Ed25519 签名也使用已锁定 Noble 实现：32字节种子直接签名，旧48字节 PKCS#8 仅在完整匹配 RFC 8410 固定头后读取种子；其他编码继续交给原解析器，损坏编码不作为种子处理。此修复针对主分支 CI 捕获的原生私钥 importKey DataError。签名验证器、成员认证与身份绑定保持原样；原生签名结果一致性、篡改拒绝、旧编码及强制导入失败由回归覆盖，不重写持久密钥。

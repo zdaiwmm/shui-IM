@@ -1,5 +1,5 @@
 const PREFIX = '__QR_EXIT_WITNESS__';
-const READ_PATH = /^\/api\/(?:browser-access-catalogs\/[^/?]+|rooms\/[^/?]+\/browser-access)$/;
+const READ_PATH = /^\/api\/(?:browser-access-catalogs\/[^/?]+|rooms\/[^/?]+\/(?:browser-access|unread\/[^/?]+))$/;
 
 export class ExitRequestEvidence {
   sequence = 0;
@@ -10,6 +10,7 @@ export class ExitRequestEvidence {
     const document = this.documents.get(event.document) ?? { failed: false, hidden: false };
     this.documents.set(event.document, document);
     if (event.event === 'pagehide') document.hidden = true;
+    if (event.event === 'pageshow') document.hidden = false;
     if (event.event === 'window-error' || event.event === 'unhandledrejection') document.failed = true;
     const key = `${event.document}:${event.request}`;
     if (event.event === 'start') this.requests.set(key, { ...event, at });
@@ -18,7 +19,7 @@ export class ExitRequestEvidence {
   capture(error) { return { name: error.name, message: error.message, stack: error.stack, at: ++this.sequence }; }
   confirmsNativeExit(error) {
     if (error.name !== 'Fetch API cannot load http' || !/due to access control checks/.test(error.message)
-      || !/accessApi|syncBrowserCatalog/.test(error.stack ?? '')) return false;
+      || !/accessApi|syncBrowserCatalog|unread-counter/.test(error.stack ?? '')) return false;
     // A previous closing document must never excuse a later active request
     // to the same catalog URL after reload.
     const request = [...this.requests.values()].filter(request => request.at <= error.at && (error.stack ?? '').includes(request.url))
@@ -44,14 +45,15 @@ export async function observeExitRequests(page) {
     let requestId = 0, leaving = false;
     const emit = event => console.debug(prefix + JSON.stringify({ document: documentId, ...event }));
     addEventListener('beforeunload', () => { leaving = true; });
-    addEventListener('pagehide', () => emit({ event: 'pagehide' }));
+    addEventListener('pagehide', () => { leaving = true; emit({ event: 'pagehide' }); });
+    addEventListener('pageshow', () => { leaving = false; emit({ event: 'pageshow' }); });
     addEventListener('error', () => emit({ event: 'window-error' }));
     addEventListener('unhandledrejection', () => emit({ event: 'unhandledrejection' }));
     const original = window.fetch;
     window.fetch = function (input, init) {
       const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url, location.href);
       const method = (init?.method ?? (input instanceof Request ? input.method : 'GET')).toUpperCase();
-      if (method !== 'GET' || url.origin !== location.origin || !/^\/api\/(?:browser-access-catalogs\/[^/?]+|rooms\/[^/?]+\/browser-access)$/.test(url.pathname)) {
+      if (url.origin !== location.origin || !/^\/api\/(?:browser-access-catalogs\/[^/?]+|rooms\/[^/?]+\/(?:browser-access|unread\/[^/?]+))$/.test(url.pathname)) {
         return Reflect.apply(original, this, [input, init]);
       }
       const request = ++requestId;
