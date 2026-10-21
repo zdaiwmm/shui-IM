@@ -1560,6 +1560,7 @@ try {
   // initiator. The replacement device can claim the link, but it must not be
   // activated until both sides compare the safety code and the initiator
   // publishes the signed MLS replacement event.
+  await recovery.evaluate(()=>window.legacyDeviceTestApp.renderDeviceManager('peer'));
   const peerSection = recovery.locator('.peer-device-section');
   await peerSection.getByRole('button', { name: '修复此设备', exact: true }).click();
   const repairUrl = await recovery.locator('.device-link-sheet input[aria-label="设备链接"]').inputValue();
@@ -1589,7 +1590,7 @@ try {
   invariant((await repairCard.locator('.device-inline-code').textContent())?.trim() === repairCode,
     'Initiator and replacement device disagreed on the repair safety code');
   await repairCard.getByRole('button', { name: '安全码一致，批准修复', exact: true }).click();
-  await recovery.locator('.device-section').filter({ has: recovery.getByRole('heading', { name: '你的设备', exact: true }) }).waitFor();
+  await recovery.locator('.peer-device-section').waitFor();
   await repairPage.locator('#retry-repair').click().catch(() => undefined);
   await repairPage.locator('.chat-shell').waitFor({ timeout: 15_000 }).catch(async error => {
     console.error('Repair completion state', await repairPage.evaluate(() => ({

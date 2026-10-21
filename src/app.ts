@@ -6689,8 +6689,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         { id: 'appearance-settings', label: '主题外观', icon: spaceIcons.appearance, run: forward(() => this.renderAppearanceSettings()) },
         ...(this.desktopBrowser ? [{ id: 'app-access-settings', label: '在应用中打开', icon: spaceIcons.app, run: forward(() => this.renderAppAccess()) }] : []),
         { id: 'manage-devices', label: '设备管理', icon: spaceIcons.device, run: forward(() => this.renderDeviceManager()) },
+        ...(!isChamberVault(session.vault)?[{id:'help-peer-enter',label:'帮对方进入密室',icon:spaceIcons.device,run:forward(()=>this.renderDeviceManager('peer'))}]:[]),
         ...(session.vault.roomArchiveV2 ? [
-          {id:'help-peer-enter',label:'帮对方进入密室',icon:spaceIcons.device,run:forward(()=>this.renderDeviceManager('peer'))},
           {id:'archive-settings',label:'恢复凭证',icon:spaceIcons.key,run:forward(()=>this.renderBackupSettings(true))},
           {id:'archive-restore',label:'聊天记录恢复',icon:spaceIcons.download,run:forward(()=>this.renderBackupSettings(false,true))},
           {id:'room-lock-settings',group:'本机' as const,label:'应用锁与自动锁定',icon:spaceIcons.key,run:forward(()=>this.renderAutoLockSettings())},
