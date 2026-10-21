@@ -12,9 +12,11 @@ let backend,vite;
 const allErrors=[];
 try {
   backend=await startServer({host:'127.0.0.1',port:0,dataDir,quiet:true});
-  vite=await createServer({root:process.cwd(),configFile:false,logLevel:'error',plugins:[{name:'privacy-test-observer',enforce:'pre',transform(code,id){if(id.endsWith('/src/main.ts'))return code.replace('void app.start();','window.app=app;void app.start();');}}],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${backend.port}`,'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});
+  vite=await createServer({root:process.cwd(),configFile:false,logLevel:'error',plugins:[{name:'privacy-test-observer',enforce:'pre',transform(code,id){if(id.endsWith('/src/main.ts'))return code.replace('void app.start();','window.app=app;void app.start();');if(id.endsWith('/src/app.ts'))return code.replace("})().catch(cause => { if (!this.privacyCovered) this.showNotice(cause instanceof Error ? cause.message : '创建失败，请重试', 'error'); })", "})().catch(cause => { window.creationTrace?.push({error:cause?.message,stack:cause?.stack,epoch:this.runtimeEpoch,session:!!this.session,covered:this.privacyCovered}); if (!this.privacyCovered) this.showNotice(cause instanceof Error ? cause.message : '创建失败，请重试', 'error'); })");}}],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${backend.port}`,'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});
   await vite.listen();
   for(const [name,engine]of Object.entries(process.env.QR_TRACE_WEBKIT?{webkit}:{chromium,webkit}).flatMap(entry=>entry[0]==='webkit'?Array.from({length:process.env.CI?24:1},()=>entry):[entry])) {
+    await backend.close();await rm(dataDir,{recursive:true,force:true});backend=await startServer({host:'127.0.0.1',port:backend.port,dataDir,quiet:true});
+    let diagnosticPage;
     const browser=await engine.launch(name==='chromium'&&!process.env.CI&&!process.env.CHROME_PATH?{channel:'chrome'}:process.env.CHROME_PATH&&name==='chromium'?{executablePath:process.env.CHROME_PATH}:{});
     try {
       const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'});
@@ -22,8 +24,8 @@ try {
         if(name==='webkit'&&error.name==='Fetch API cannot load http'&&/\/unread\//.test(error.message)&&/renderCover/.test(error.stack??'')&&/lockNow/.test(error.stack??''))teardownFetchDiagnostics.push('pagehide unread resource canceled');
         else errors.push({name:error.name,message:error.message,stack:error.stack});
       });
-      await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}`);
-      await page.evaluate(()=>{window.creationTrace=[];for(const name of ['renderCreate','leaveSpace','handleCreate','cleanupRuntime','lockNow','showNotice','openSession']){const original=app[name];app[name]=function(...args){const record=phase=>window.creationTrace.push({name,phase,epoch:this.runtimeEpoch,session:!!this.session,covered:this.privacyCovered,creating:!!this.spaceCreationAbort,...(name==='cleanupRuntime'&&phase==='start'?{stack:new Error().stack}:{}),...(name==='showNotice'?{notice:String(args[0])}:{})});record('start');try{const result=original.apply(this,args);if(result?.then){void result.then(()=>record('done'),error=>window.creationTrace.push({name,error:error.message}));return result;}record('done');return result;}catch(error){window.creationTrace.push({name,error:error.message});throw error;}};}});
+      diagnosticPage=page;await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}`);
+      await page.evaluate(()=>{window.creationTrace=[];for(const type of ['visibilitychange','pagehide','blur','focus'])window.addEventListener(type,event=>{if(event.target!==window&&event.target!==document)return;window.creationTrace.push({event:type,hidden:document.hidden,epoch:app.runtimeEpoch,session:!!app.session,covered:app.privacyCovered,creating:!!app.spaceCreationAbort});},{capture:true});});
       await page.locator('#create-room').click();await page.locator('#copy-invite').waitFor();
       assert.equal(await page.title(),'chamber1');
       assert.equal(await page.locator('#copy-invite').textContent(),'复制密室加入链接');
@@ -76,7 +78,7 @@ try {
       await page.reload();await page.locator('.cover').waitFor();assert.equal(await page.title(),'Chamber','Locked pages do not expose room names');
       allErrors.push(...errors);await context.close();
       console.log(`${name}: invitation copy, 24-hour display, credential entry, real guide state, themed switches, local numbering and private tab titles passed; ${teardownFetchDiagnostics.length} known pagehide unread diagnostics recorded.`);
-    } finally { await browser.close(); }
+    } catch(error){console.error('CREATE_DIAGNOSTIC',JSON.stringify(await diagnosticPage?.evaluate(()=>({trace:window.creationTrace,title:document.title,epoch:app.runtimeEpoch,session:!!app.session,covered:app.privacyCovered,creating:!!app.spaceCreationAbort,notice:document.querySelector('#app-toast')?.textContent})).catch(()=>null)));throw error;} finally { await browser.close(); }
   }
   assert.deepEqual(allErrors,[]);
 } finally { await vite?.close();await backend?.close();await rm(dataDir,{recursive:true,force:true}); }
