@@ -625,6 +625,7 @@ export class QuietRoomApp {
   private renderedMessageSeq = new Map<string, number>();
   private gesturePad: GesturePad | null = null;
   private privacyCovered = true;
+  private documentLeaving = false;
   private locking = false;
   private runtimeAbort: AbortController | null = null;
   private runtimeEpoch = 0;
@@ -825,10 +826,10 @@ export class QuietRoomApp {
       }
     });
     const refreshUnread = () => {
-      if (document.hidden) return;
+      if (document.hidden || this.documentLeaving) return;
       // A visible chat may have nothing new to acknowledge. Keep its cached
       // cover count current too, including while the unlock gateway has no session.
-      void this.unreadCounter.refresh();
+      this.refreshCoverUnread();
       if (this.privacyCovered) return;
       const session = this.session;
       const epoch = this.runtimeEpoch;
@@ -1300,11 +1301,20 @@ export class QuietRoomApp {
     }, { capture: true });
     document.addEventListener('freeze', () => this.lockNow({ preserveFilePicker: false }), { capture: true });
     window.addEventListener('pageshow', event => {
+      this.documentLeaving = false;
       if (event.persisted) this.lockNow({ preserveFilePicker: false });
       else this.expireIdleSession();
       refreshUnread();
     }, { capture: true });
-    window.addEventListener('pagehide', () => this.lockNow({ preserveFilePicker: false }), { capture: true });
+    window.addEventListener('pagehide', () => {
+      this.documentLeaving = true;
+      this.lockNow({ preserveFilePicker: false });
+    }, { capture: true });
+  }
+
+  private refreshCoverUnread(): void {
+    // WebKit can still report visible while pagehide renders the locked cover.
+    if (!document.hidden && !this.documentLeaving) void this.unreadCounter.refresh();
   }
 
   async start(): Promise<void> {
@@ -1320,7 +1330,7 @@ export class QuietRoomApp {
         return;
       }
       this.renderCover();
-      void this.unreadCounter.refresh();
+      this.refreshCoverUnread();
     } catch {
       this.renderStartupFailure();
     }
@@ -1398,7 +1408,7 @@ export class QuietRoomApp {
     this.privacyCovered = true;
     document.body.className = 'cover-mode';
     const coverEnabled = localStorage.getItem('quiet-room:cover-enabled') !== '0';
-    if (!document.hidden) void this.unreadCounter.refresh();
+    this.refreshCoverUnread();
     if (!coverEnabled) {
       this.coverStoredVault = null;
       this.root.innerHTML = `
@@ -4530,7 +4540,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       void this.unreadCounter.ensureConfigured(session.vault, this.runtimeAbort?.signal).then(ready => {
         if (!ready || !this.isRuntimeActive(epoch, session)) return;
         this.markVisibleMessagesRead();
-        void this.unreadCounter.refresh();
+        this.refreshCoverUnread();
       });
     };
     // History loading may fail or take time. Register the count-only observer

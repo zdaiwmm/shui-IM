@@ -85,7 +85,11 @@ try {
     window.galleryLoading = { app, session, records, gates, failed, slow, cached, retry, decodeGate, addImage, release };
     app.renderGallery();
   });
-  await page.waitForFunction(() => window.galleryLoading.gates.get(window.galleryLoading.slow).waiting && window.galleryLoading.decodeGate.waiting && document.querySelectorAll('.gallery-tile[data-thumbnail-state="error"]').length === 1);
+  // Metadata enumeration remounts the observer after the first error. Settle
+  // that scan and intersection delivery before sampling the gated thumbnails.
+  await page.waitForFunction(() => document.querySelector('.gallery-scan-status')?.textContent.startsWith('已加载本机保存的全部'));
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await page.waitForFunction(() => window.galleryLoading.gates.get(window.galleryLoading.slow).waiting && window.galleryLoading.decodeGate.waiting && document.querySelectorAll('.gallery-tile[data-thumbnail-state="error"]').length === 1 && document.querySelectorAll('.gallery-tile[aria-busy="true"]').length === 2);
   const loading = page.locator('.gallery-tile[aria-busy="true"]');
   assert.equal(await loading.count(), 2, 'Transport and cached-image decode must both retain a loading state');
   assert.equal(await loading.locator('img, :scope > svg').count(), 0, 'Loading exposed an undecoded image or the former black SVG icon');

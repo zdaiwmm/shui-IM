@@ -6,7 +6,7 @@ import type { RoomMember, Vault } from '../src/lib/types';
 
 afterEach(() => vi.restoreAllMocks());
 
-it('exchanges MLS messages between persisted PKCS#8 and seed identities with native Ed25519 and X25519 generation unavailable', async () => {
+it('exchanges MLS messages between PKCS#8 and seed identities when native generation and private import fail', async () => {
   const oldIdentity = await generateIdentity();
   const seed = fromBase64Url(oldIdentity.mlsPrivatePackage!.signaturePrivateKey);
   // RFC 8410's Ed25519 PKCS#8 encoding, as stored by the previous native path.
@@ -17,6 +17,14 @@ it('exchanges MLS messages between persisted PKCS#8 and seed identities with nat
   seed.fill(0); pkcs8.fill(0);
 
   const generate = crypto.subtle.generateKey;
+  const importKey = crypto.subtle.importKey;
+  vi.spyOn(crypto.subtle, 'importKey').mockImplementation((...args) => {
+    const algorithm = typeof args[2] === 'string' ? args[2] : args[2].name;
+    if (args[0] === 'pkcs8' && algorithm === 'Ed25519') return Promise.reject(new DOMException('Injected Ed25519 private import failure', 'DataError'));
+    return Reflect.apply(importKey, crypto.subtle, args);
+  });
+  await expect(crypto.subtle.importKey('pkcs8', fromBase64Url(oldIdentity.mlsPrivatePackage!.signaturePrivateKey), 'Ed25519', false, ['sign']))
+    .rejects.toMatchObject({ name: 'DataError', message: 'Injected Ed25519 private import failure' });
   vi.spyOn(crypto.subtle, 'generateKey').mockImplementation((...args) => {
     const algorithm = typeof args[0] === 'string' ? args[0] : args[0].name;
     if (['Ed25519', 'X25519'].includes(algorithm)) return Promise.reject(new DOMException('Native Ed25519 unavailable', 'OperationError'));
@@ -48,6 +56,26 @@ it('exchanges MLS messages between persisted PKCS#8 and seed identities with nat
     expect(opened.payload).toEqual(payload);
     await expect(decryptMlsApplication(receiver!, encrypted.envelope)).rejects.toThrow();
   }
+});
+
+it('produces the same signatures as native Ed25519 for native PKCS#8 and seed keys without changing verification', async () => {
+  const { getCiphersuiteFromName, getCiphersuiteImpl } = await import('ts-mls');
+  const { compatibleMlsCipherSuite } = await import('../src/lib/mls-crypto');
+  const suite = getCiphersuiteFromName('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519');
+  const previous = (await getCiphersuiteImpl(suite)).signature;
+  const compatible = (await compatibleMlsCipherSuite(suite)).signature;
+  const keys = await previous.keygen();
+  expect(keys.signKey.byteLength).toBe(48);
+  const message = new TextEncoder().encode('Ed25519 import compatibility');
+  const expected = await previous.sign(keys.signKey, message);
+  expect(await compatible.sign(keys.signKey, message)).toEqual(expected);
+  expect(await compatible.sign(keys.signKey.subarray(16), message)).toEqual(expected);
+  expect(await compatible.verify(keys.publicKey, message, expected)).toBe(true);
+  const modified = expected.slice(); modified[0] ^= 1;
+  expect(await compatible.verify(keys.publicKey, message, modified)).toBe(false);
+  const malformed = keys.signKey.slice(); malformed[0] ^= 1;
+  await expect(compatible.sign(malformed, message)).rejects.toThrow();
+  await expect(compatible.sign(new Uint8Array(31), message)).rejects.toThrow();
 });
 
 it('fails closed when secure randomness is unavailable', async () => {
