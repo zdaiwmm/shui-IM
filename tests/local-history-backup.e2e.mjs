@@ -194,21 +194,17 @@ try {
     const guide = document.querySelector('.cover-practice-page .hold-guide')?.getBoundingClientRect();
     const notice = document.querySelector('.cover-practice-notice');
     const back = document.querySelector('#practice-back');
-    const noticeBox = notice?.getBoundingClientRect();
     const cover = document.querySelector('.cover-practice-page > .cover')?.getBoundingClientRect();
-    if (!hotspot || !guide || !noticeBox || !cover) return null;
+    if (!hotspot || !guide || !cover) return null;
     return {
       width: Math.round(hotspot.width),
       height: Math.round(hotspot.height),
       right: cover.right - hotspot.right,
       bottom: cover.bottom - hotspot.bottom,
       guideAbove: guide.bottom <= hotspot.top + 8,
-      notice: notice?.textContent ?? '',
+      noticeCount:notice?1:0,
       backCount: back ? 1 : 0,
-      noticeWithinCover: noticeBox.bottom <= cover.bottom,
       headerCount: document.querySelectorAll('.cover-practice-page > header').length,
-      noticeLeft: noticeBox.left,
-      noticeRight: innerWidth - noticeBox.right,
     };
   });
   assert.equal(coverGeometry?.width, 80);
@@ -216,12 +212,9 @@ try {
   assert.equal(Math.round(coverGeometry?.right ?? 0), 16, 'practice hotspot keeps its inset inside the error-page canvas');
   assert.equal(Math.round(coverGeometry?.bottom ?? 0), 20, 'practice hotspot keeps bottom clearance without a footer');
   assert.equal(coverGeometry?.guideAbove, true);
-  assert.match(coverGeometry?.notice ?? '', /锁定时显示普通网页外观.*遮蔽不是身份验证/);
+  assert.equal(coverGeometry?.noticeCount,0,'The removed left-side explanatory notice must not return');
   assert.equal(coverGeometry?.backCount, 0, 'practice cover has no bottom navigation band');
-  assert.equal(coverGeometry?.noticeWithinCover, true, 'cover practice notice remains in the error-page canvas');
   assert.equal(coverGeometry?.headerCount, 0, 'cover practice has no top navigation bar');
-  assert.ok((coverGeometry?.noticeLeft ?? 0) >= 12, 'cover practice notice does not keep left inset');
-  assert.ok((coverGeometry?.noticeRight ?? 0) >= 12, 'cover practice notice does not keep right inset');
   const resumedPractice = await page.evaluate(() => {
     const app = window.fixtureApp;
     const session = app.session;

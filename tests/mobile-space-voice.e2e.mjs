@@ -51,11 +51,11 @@ try {
   console.log('SPACE_VOICE A creates, B joins');
   const firstInvite=await create(a,'空间一',true);await join(b,firstInvite);await ready();
   await exchange(a,b,'first A to B');await exchange(b,a,'first B to A');
-  for(const page of pages){await page.locator('#open-spaces').click();await page.locator('.space-row').first().waitFor();assert.equal(await page.locator('[data-expires]').count(),0);await page.locator('.space-close').click();}
+  for(const page of pages){await page.locator('#open-spaces').click();await page.locator('.space-row').first().waitFor();assert.equal(await page.locator('[data-expires]').count(),0);await page.locator('.space-close,.settings-dismiss-handle,.space-return').click();}
   console.log('SPACE_VOICE B creates, A joins');
   const secondInvite=await create(b,'空间二');await join(a,secondInvite);await ready();
   await exchange(b,a,'second B to A');await exchange(a,b,'second A to B');
-  for(const page of pages){await page.locator('#open-spaces').click();await page.locator('.space-row').first().waitFor();assert.equal(await page.locator('.space-row').count(),2);assert.equal(await page.locator('[data-expires]').count(),0);await page.locator('.space-close').click();}
+  for(const page of pages){await page.locator('#open-spaces').click();await page.locator('.space-row').first().waitFor();assert.equal(await page.locator('.space-row').count(),2);assert.equal(await page.locator('[data-expires]').count(),0);await page.locator('.space-close,.settings-dismiss-handle,.space-return').click();}
   // Old source list remains mounted behind creation and is visible throughout pop.
   await b.locator('#open-spaces').click();await b.locator('#space-create').click();
   assert.equal(await b.locator('.is-space-list-page').count(),1);
@@ -67,7 +67,7 @@ try {
       samples.push(covered);if(!covered)console.log('RETURN_UNCOVERED_FRAME',JSON.stringify({profile:profile?.getBoundingClientRect().toJSON(),list:list?.getBoundingClientRect().toJSON()}));
       await new Promise(r=>requestAnimationFrame(r));}while(performance.now()<end);
     return {covered:samples.every(Boolean),lists:document.querySelectorAll('.is-space-list-page').length};
-  });assert.deepEqual(returned,{covered:true,lists:1});await b.locator('.space-close').click();
+  });assert.deepEqual(returned,{covered:true,lists:1});await b.locator('.space-close,.settings-dismiss-handle,.space-return').click();
   // Recreate the exact delayed original-participant snapshot: a welcome plus
   // signed key update arrives before any MLS state was installed in this slot.
   const delayed=await a.evaluate(async()=>{

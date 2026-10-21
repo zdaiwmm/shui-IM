@@ -22,14 +22,27 @@ export function validArchiveObject(d, object) {
 export function createRoomArchives(db,{maxArchiveBytes=1024**3,maxTotalBytes=10*1024**3}={}) {
   if (![maxArchiveBytes,maxTotalBytes].every(n=>Number.isSafeInteger(n)&&n>0)) throw new Error('INVALID_ARCHIVE_BUDGET');
   db.exec(`CREATE TABLE IF NOT EXISTS private_archives_v2(id TEXT PRIMARY KEY,room_id TEXT NOT NULL,device_id TEXT NOT NULL,descriptor TEXT NOT NULL,owner_role TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS private_archive_access_v2(archive_id TEXT PRIMARY KEY REFERENCES private_archives_v2(id),read_hash TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS private_archive_objects_v2(cursor INTEGER PRIMARY KEY AUTOINCREMENT,archive_id TEXT NOT NULL REFERENCES private_archives_v2(id),id TEXT NOT NULL,record TEXT NOT NULL,bytes INTEGER NOT NULL,UNIQUE(archive_id,id));`);
   const descriptor=id=>{const row=db.prepare('SELECT descriptor FROM private_archives_v2 WHERE id=?').get(id);if(!row)throw new Error('BACKUP_NOT_FOUND');return JSON.parse(row.descriptor);};
   const readable=(id,token)=>{
     if(typeof token!=='string'||!keyPattern.test(token))throw new Error('UNAUTHORIZED');
-    const d=descriptor(id),actual=Buffer.from(hash(token)),expected=Buffer.from(d.readHash);
+    const d=descriptor(id),actual=Buffer.from(hash(token)),expected=Buffer.from(db.prepare('SELECT read_hash FROM private_archive_access_v2 WHERE archive_id=?').get(id)?.read_hash ?? d.readHash);
     if(actual.length!==expected.length||!timingSafeEqual(actual,expected))throw new Error('UNAUTHORIZED');return d;
   };
   return {
+    rotateAccess(roomId,deviceId,id,expected,next,proof) {
+      const row=db.prepare('SELECT * FROM private_archives_v2 WHERE id=?').get(id);
+      if(!row||row.room_id!==roomId||row.device_id!==deviceId||![expected,next].every(x=>typeof x==='string'&&keyPattern.test(x)))throw new Error('UNAUTHORIZED');
+      const d=JSON.parse(row.descriptor),publicKey=createPublicKey({key:{kty:'OKP',crv:'Ed25519',x:d.signingKey},format:'jwk'});
+      if(typeof proof!=='string'||!verify(null,Buffer.from(canonicalStringify(['quiet-room-archive-access-v1',id,roomId,deviceId,expected,next])),publicKey,Buffer.from(proof,'base64url')))throw new Error('UNAUTHORIZED');
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const current=db.prepare('SELECT read_hash FROM private_archive_access_v2 WHERE archive_id=?').get(id)?.read_hash??d.readHash;
+        if(current!==next){if(current!==expected)throw new Error('BACKUP_CONFLICT');db.prepare('INSERT INTO private_archive_access_v2 VALUES(?,?) ON CONFLICT(archive_id) DO UPDATE SET read_hash=excluded.read_hash').run(id,next);}
+        db.exec('COMMIT');
+      }catch(cause){db.exec('ROLLBACK');throw cause;}
+    },
     register(roomId,deviceId,d,role=deviceId,proof) {
       if(!validArchiveDescriptor(d))throw new Error('INVALID_BACKUP');
       const publicKey=createPublicKey({key:{kty:'OKP',crv:'Ed25519',x:d.signingKey},format:'jwk'});

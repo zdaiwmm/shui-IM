@@ -53,7 +53,7 @@ try {
   await page.clock.runFor(16);
   assert.notEqual(await page.locator('.text-bubble').first().evaluate(n=>n.style.getPropertyValue('--bubble-gradient-offset')),gradient,'Gradient must change during the active scroll gesture');
   await page.evaluate(()=>fixture.app.chatViewportMotion.suspend());
-  await page.evaluate(()=>fixture.app.mountPrivateSpaceDrawer(fixture.session,[],fixture.app.runtimeAbort.signal,'chat',0));
+  await page.evaluate(()=>fixture.app.mountPrivateSpaceDrawer(fixture.session,[],fixture.app.runtimeAbort.signal,'chat',0));await page.clock.runFor(350);
   for(const id of ['notification-settings','recover-other-space','passkey-management']) assert.equal(await page.locator(`#${id}`).count(),0);
   assert.equal(await page.locator('#manage-devices').textContent(),'设备管理');
   assert.equal(await page.locator('#cover-practice-menu .space-setting-label').textContent(),'入口遮蔽页');

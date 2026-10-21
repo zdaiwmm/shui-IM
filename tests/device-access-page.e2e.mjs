@@ -37,7 +37,7 @@ try {
     await alice.locator('.app-toast').filter({ hasText: '聊天链接已复制' }).waitFor();
     const url = await alice.evaluate(() => navigator.clipboard.readText());
     await alice.locator('#device-back').click();
-    await alice.locator('.is-settings-page .space-back:visible, .is-settings-page .space-close:visible').click();
+    await alice.locator('.is-settings-page .space-back:visible, .is-settings-page .settings-dismiss-handle:visible').click();
     return url;
   };
   const blocked = async () => {

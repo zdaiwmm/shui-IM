@@ -45,11 +45,11 @@ try {
       await credentialEntry.tap();
       await page.locator('[data-card-form]').waitFor();assert.equal(await page.locator('.backup-heading h1').textContent(),'恢复凭证');
       assert.equal(await page.locator('[data-sync]').count(),0,'Guide opens the credential form directly');
-      assert.match(await page.locator('.backup-intro').first().textContent(),/不上传服务器/);
+      assert.match(await page.locator('.backup-intro').first().textContent(),/不上传服务器/);assert.match(await page.locator('.backup-intro').first().textContent(),/完成密码设置、导出和原图回验后.*已设置/);assert.deepEqual(await page.locator('.archive-steps li > span').allTextContents(),['设置密码','导出凭证','回验原图']);
       await page.locator('[data-back]').click();await page.locator('#copy-invite').waitFor();
       await page.locator('#chat-settings').click();await page.locator('#cover-practice-menu').click();
       await page.locator('#cover-enabled').click();await page.waitForFunction(()=>document.querySelector('#cover-enabled')?.getAttribute('aria-checked')==='true');
-      await page.locator('#cover-settings-back').click();await page.locator('#chamber-switch-space').waitFor();await page.getByRole('button',{name:'关闭',exact:true}).click();await page.locator('#copy-invite').waitFor();
+      await page.locator('#cover-settings-back').click();await page.locator('#chamber-switch-space').waitFor();await page.locator('.settings-dismiss-handle').click();await page.locator('#copy-invite').waitFor();
       assert.match(await page.locator('[data-personal-guide=cover] small').textContent(),/^已开启 - /);
       // Populate existing protection through the actual crypto module; passkey
       // creation, automatic assertion and cancellation are tested separately.

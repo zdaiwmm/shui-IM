@@ -16,7 +16,8 @@ export function createChatKeyboardLayout() {
     width: number; started: number; confirmed: boolean; nativeProgress: boolean } | null = null;
 
   const observe = (viewport: Viewport, closing = false) => {
-    if (viewport.layoutHeight - viewport.height <= 120) closed = viewport;
+    if (viewport.layoutHeight - viewport.height <= 120
+      && (!closed || closed.width!==viewport.width || viewport.height>=closed.height-120)) closed = viewport;
     else if (!closing && closed?.width === viewport.width) {
       opened = { height: viewport.height, width: viewport.width, closedHeight: closed.height };
     }
@@ -39,7 +40,8 @@ export function createChatKeyboardLayout() {
         motion = null;
         return viewport.height;
       }
-      const actual = viewport.layoutHeight - viewport.height > 120 ? 'open' : 'closed';
+      const baseline=Math.max(viewport.layoutHeight,closed?.width===viewport.width?closed.height:0);
+      const actual = baseline - viewport.height > 120 ? 'open' : 'closed';
       // A cached endpoint must not move the row before the keyboard actually
       // starts. When WebKit supplies intermediate geometry, follow it directly
       // instead of superimposing a second animation on the native movement.

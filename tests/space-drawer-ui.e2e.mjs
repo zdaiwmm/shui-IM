@@ -29,8 +29,9 @@ try {
     assert.equal(await page.locator('[data-space="1"] .space-unread').getAttribute('aria-label'),'105 条未读消息');
     assert.equal(await page.locator('[data-space="3"] .space-unread').isVisible(),false);
     for (const preview of ['[图片]','[视频]','[表情]']) assert.ok(await page.locator('.space-message-preview').filter({hasText:preview}).count()>0);
+    const surface=await page.locator('[data-space="1"]').evaluate(el=>getComputedStyle(el).backgroundColor);assert.notEqual(surface,'rgba(0, 0, 0, 0)');assert.notEqual(await page.locator('.space-row.is-selected').evaluate(n=>getComputedStyle(n).backgroundColor),surface,'The current space keeps its distinct selected surface');
     await page.locator('[data-space="1"]').hover();
-    assert.equal(await page.locator('[data-space="1"]').evaluate(el=>getComputedStyle(el).backgroundColor),'rgba(0, 0, 0, 0)');
+    assert.equal(await page.locator('[data-space="1"]').evaluate(el=>getComputedStyle(el).backgroundColor),surface);
     await page.locator('[data-space="1"]').click({button:'right'});
     await page.locator('#space-rename').click();
     assert.equal(await page.locator('#space-name').evaluate(el=>document.activeElement===el),true);
@@ -48,7 +49,7 @@ try {
     await page.setViewportSize({width:393,height:680});
     await page.locator('.space-drawer:not(.local-page-outgoing) > .space-drawer-scroll').evaluate(el=>{el.scrollTop=400;window.listPosition=el.scrollTop;});
     const settingsStart=await page.evaluate(()=>{mount(12,true);return document.querySelector('.space-drawer').getBoundingClientRect().top;});
-    assert.ok(settingsStart>=679,'First settings entry must begin below the viewport');
+    assert.ok(settingsStart<=-600,'First settings entry must begin above the viewport');
     await page.locator('.space-drawer-overlay.is-visible').waitFor();
     await page.locator('.space-drawer').evaluate(async panel=>{await Promise.all(panel.getAnimations().map(animation=>animation.finished));});
     assert.equal(await page.locator('#feature-help').count(),0);
@@ -56,14 +57,14 @@ try {
     const icons=await page.locator('.space-setting-icon svg').evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect(),tile=el.parentElement.getBoundingClientRect();return [r.width,r.height,tile.width,tile.height,getComputedStyle(el.parentElement).flexShrink];}));
     assert.ok(icons.every(([w,h,tileWidth,tileHeight,shrink])=>w===17&&h===17&&tileWidth===24&&tileHeight===24&&shrink==='0'),JSON.stringify(icons));
     assert.equal(await page.locator('.space-back').count(),0);
-    assert.equal(await page.locator('.settings-sheet-handle').count(),0);
-    await page.waitForFunction(()=>Math.abs(document.querySelector('.space-drawer').getBoundingClientRect().top)<1);
-    await page.locator('.space-close').click(); await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
+    assert.equal(await page.locator('.settings-sheet-handle').count(),0);assert.equal(await page.locator('.settings-dismiss-handle').count(),1);assert.equal(await page.locator('.space-close').count(),0);
+    await page.waitForFunction(()=>Math.abs(document.querySelector('.space-drawer').getBoundingClientRect().top)<1);assert.ok(await page.locator('.space-drawer').evaluate(n=>innerHeight-n.getBoundingClientRect().bottom>=63));
+    await page.locator('.space-close,.settings-dismiss-handle,.space-return').click(); await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
     await page.evaluate(()=>mount(12,true));
     await page.locator('#presence-style-setting').click();
     await page.locator('[data-style=capsule]').focus(); await page.locator('[data-style=capsule]').press('ArrowRight');
     assert.equal(await page.locator('[data-style=heart]').evaluate(n=>document.activeElement===n),true);
-    await page.locator('.space-back').click();await page.locator('.space-close').click();
+    await page.locator('.space-back').click();await page.locator('.space-close,.settings-dismiss-handle,.space-return').click();
     await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
     assert.equal(await page.evaluate(()=>window.style),'heart', 'style applies before closing');
     assert.equal(await page.locator('#space-style-done').count(),0);

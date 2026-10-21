@@ -239,7 +239,9 @@ try {
   await state(true,true);
   await page.waitForFunction(() => document.querySelector('.presence-circuit').dataset.phase === 'online', null, {timeout:6000});
   await page.evaluate(() => window.fixture.app.presenceCircuit.sent()); await page.waitForTimeout(100);
-  assert.notEqual(await page.locator('[data-half="right"]').getAttribute('transform'), 'translate(2 0)');
+  assert.notEqual(await page.locator('.presence-heart').getAttribute('transform'), null);
+  assert.equal(await page.locator('.presence-whole').evaluate(n=>getComputedStyle(n).display),'block');
+  assert.equal(await page.locator('[data-half="right"]').evaluate(n=>getComputedStyle(n).display),'none');
   assert.equal(await page.locator('[data-half="left"]').getAttribute('transform'), 'translate(-2 0)');
   await page.evaluate(() => window.fixture.app.cleanupRuntime());
   assert.deepEqual(errors, []);

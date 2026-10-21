@@ -1,7 +1,7 @@
 import {DatabaseSync} from 'node:sqlite';
 import {afterEach,describe,expect,it} from 'vitest';
 import {createRoomArchives} from '../server/room-archives.mjs';
-import {newArchiveKey,sealArchiveObject,archiveReadToken,archiveWriterProof} from '../src/lib/room-archive-crypto';
+import {newArchiveKey,sealArchiveObject,archiveReadToken,archiveWriterProof,archiveAccessProof,archiveAccessHash,archiveAccessToken} from '../src/lib/room-archive-crypto';
 const databases:DatabaseSync[]=[];
 afterEach(()=>databases.splice(0).forEach(db=>db.close()));
 function setup(budget?:number){const db=new DatabaseSync(':memory:');databases.push(db);return createRoomArchives(db,budget?{maxArchiveBytes:budget,maxTotalBytes:budget}:{});}
@@ -42,6 +42,27 @@ describe('private archive authority and persistence',()=>{
   const first=store.snapshot(a.descriptor.id,archiveReadToken(a.seed)),second=store.snapshot(b.descriptor.id,archiveReadToken(b.seed));
   expect(first).toMatchObject({end:3,count:2});expect(second).toMatchObject({end:5,count:3});
   expect(store.list(a.descriptor.id,archiveReadToken(a.seed),0,first.end)).toHaveLength(first.count);
+ });
+ it('rotates only the owner read authority, persists revocation and retries without rollback',async()=>{
+  const db=new DatabaseSync(':memory:');databases.push(db);let store=createRoomArchives(db);const key=newArchiveKey(),other=newArchiveKey();
+  store.register('r','d',key.descriptor,'creator',archiveWriterProof(key,'r','d'));
+  store.register('r','peer',other.descriptor,'joiner',archiveWriterProof(other,'r','peer'));
+  const object=await sealArchiveObject(key,{text:'retained original'});store.put('r','d',key.descriptor.id,object);
+  const old=archiveAccessToken(key),nextKey={...key,readToken:other.seed},next=archiveAccessHash(nextKey.readToken),expected=archiveAccessHash(old),proof=archiveAccessProof(key,'r','d',expected,next);
+  expect(()=>store.rotateAccess('r','peer',key.descriptor.id,expected,next,proof)).toThrow('UNAUTHORIZED');
+  expect(()=>store.rotateAccess('r','d',key.descriptor.id,expected,next,archiveWriterProof(key,'r','d'))).toThrow('UNAUTHORIZED');
+  store.rotateAccess('r','d',key.descriptor.id,expected,next,proof);store=createRoomArchives(db);
+  expect(()=>store.snapshot(key.descriptor.id,old)).toThrow('UNAUTHORIZED');
+  expect(()=>store.list(key.descriptor.id,old,0,100)).toThrow('UNAUTHORIZED');
+  expect(()=>store.read(key.descriptor.id,old,object.id)).toThrow('UNAUTHORIZED');
+  expect(store.read(key.descriptor.id,archiveAccessToken(nextKey),object.id)).toEqual(object);
+  store.rotateAccess('r','d',key.descriptor.id,expected,next,proof);
+  store.register('r','d',key.descriptor,'creator',archiveWriterProof(key,'r','d'));
+  expect(()=>store.snapshot(key.descriptor.id,old)).toThrow('UNAUTHORIZED');
+  const third=archiveAccessHash(newArchiveKey().seed),thirdProof=archiveAccessProof(key,'r','d',next,third);
+  store.rotateAccess('r','d',key.descriptor.id,next,third,thirdProof);
+  expect(()=>store.rotateAccess('r','d',key.descriptor.id,expected,next,proof)).toThrow('CONFLICT');
+  expect(store.snapshot(other.descriptor.id,archiveAccessToken(other)).count).toBe(0);
  });
  it('fails capacity without deleting a previously committed archive',async()=>{
   const store=setup(1500),key=newArchiveKey();store.register('r','d',key.descriptor,'creator',archiveWriterProof(key,'r','d'));

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { newArchiveKey, sealArchiveObject, openArchiveObject, verifyArchiveObject, protectArchiveCard, unlockArchiveCard, archiveReadToken } from '../src/lib/room-archive-crypto';
+import { newArchiveKey, sealArchiveObject, openArchiveObject, verifyArchiveObject, protectArchiveCard, unlockArchiveCard, archiveReadToken, archiveAccessToken } from '../src/lib/room-archive-crypto';
 
 describe('independent participant archive', () => {
   it('restores with its own material without any room or opposite participant credential', async () => {
@@ -12,6 +12,15 @@ describe('independent participant archive', () => {
     expect(JSON.stringify(object)).not.toContain(payload.text);
     expect(JSON.stringify(key.descriptor)).not.toContain(key.seed);
     expect(archiveReadToken(key.seed)).not.toEqual(key.seed);
+  });
+  it('protects a random rotated read capability without changing history identity',async()=>{
+    const original=newArchiveKey(),key={...original,readToken:newArchiveKey().seed};
+    const object=await sealArchiveObject(original,{text:'before rotation'}),card=await protectArchiveCard(key,'a changed long password');
+    const unlocked=await unlockArchiveCard(card,'a changed long password');
+    expect(unlocked).toEqual(key);expect(await openArchiveObject(unlocked,object)).toEqual({text:'before rotation'});
+    expect(archiveAccessToken(unlocked)).not.toBe(archiveReadToken(original.seed));
+    await expect(unlockArchiveCard(card,'the previous password')).rejects.toThrow();
+    await expect(protectArchiveCard({...key,readToken:'invalid'},'a changed long password')).rejects.toThrow();
   });
   it('rejects changed ownership, identifiers, ciphertext and signatures', async () => {
     const key = newArchiveKey(), object = await sealArchiveObject(key, { text: 'hello' });

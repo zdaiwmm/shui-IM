@@ -3,7 +3,7 @@ import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
 import { isMessagePayload } from './message-payload';
 import { attachmentVerifier } from './local-history-backup';
-import { archiveObjectHash, archiveReadToken, archiveWriterProof, openArchiveObject, sealArchiveObject, type ArchiveKey, type ArchiveObject } from './room-archive-crypto';
+import { archiveObjectHash, archiveAccessToken, archiveWriterProof, openArchiveObject, sealArchiveObject, type ArchiveKey, type ArchiveObject } from './room-archive-crypto';
 import { loadCachedMediaChunk, loadChamberHistoryPageAfter, saveVault, withVaultMutation, stagePrivateArchiveItem, commitPrivateArchiveImport, discardPrivateArchiveStaging, loadPrivateArchiveItems, savePrivateMediaChunk, loadPrivateMediaChunk, type VaultSession } from './vault';
 import type { DecryptedMessage, ImageManifest } from './types';
 
@@ -74,7 +74,7 @@ async function prepare(session:VaultSession,key:ArchiveKey,item:PrivateArchiveIt
 }
 /** Foreground-only. A durable encrypted pending batch precedes every network write. */
 export async function syncRoomArchive(session:VaultSession,signal:AbortSignal):Promise<void> {
-  const key=session.vault.roomArchiveV2?.key;if(!key||session.vault.pairingState!=='ready')return;
+  const key=session.vault.roomArchiveV2?.key;if(!key||session.vault.roomArchiveV2?.rotation||session.vault.pairingState!=='ready')return;
   await put(session,key,undefined,signal);
   for(let pass=0;pass<10;pass++) {
     signal.throwIfAborted();
@@ -109,7 +109,7 @@ export async function syncRoomArchive(session:VaultSession,signal:AbortSignal):P
 async function get<T>(key:ArchiveKey,suffix:string,signal:AbortSignal):Promise<T> {
   for(let attempt=0;;attempt++) {
     try {
-      const response=await authorizedFetch(`/api/private-archives/${key.descriptor.id}${suffix}`,archiveReadToken(key.seed),{cache:'no-store',signal:AbortSignal.any([signal,AbortSignal.timeout(30_000)])});return await response.json();
+      const response=await authorizedFetch(`/api/private-archives/${key.descriptor.id}${suffix}`,archiveAccessToken(key),{cache:'no-store',signal:AbortSignal.any([signal,AbortSignal.timeout(30_000)])});return await response.json();
     }catch(cause){
       if(signal.aborted||!(cause instanceof ApiError)||!cause.retryable||attempt>=8)throw cause;
       const delay=Math.min(30_000,Math.max(cause.retryAfterMs,1000*2**attempt));
@@ -118,7 +118,8 @@ async function get<T>(key:ArchiveKey,suffix:string,signal:AbortSignal):Promise<T
   }
 }
 /** No source-room token, member approval, device credential or MLS state is loaded. */
-export type ArchiveRestoreProgress = { stage: 'reading' | 'restoring' | 'committing' | 'complete'; objects: number; totalObjects: number; messages: number; images: number; videos: number; files: number; audio: number };
+export type ArchiveCounts = {messages:number;images:number;videos:number;files:number;audio:number};
+export type ArchiveRestoreProgress = ArchiveCounts & { stage: 'reading' | 'restoring' | 'committing' | 'complete'; objects: number; totalObjects: number; totals?: ArchiveCounts };
 export async function restoreRoomArchive(session:VaultSession,key:ArchiveKey,signal:AbortSignal,progress:(done:number)=>void,detail?:(state:ArchiveRestoreProgress)=>void):Promise<number> {
   const runId=crypto.randomUUID();
   const run=async()=>{try{return await restoreArchiveContents(session,key,signal,progress,runId,detail);}finally{await discardPrivateArchiveStaging(session,runId).catch(()=>undefined);}};
@@ -132,8 +133,11 @@ async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal
   if(canonicalStringify(snapshot.descriptor)!==canonicalStringify(key.descriptor)||!Number.isSafeInteger(snapshot.end)||snapshot.end<0)throw new Error('归档来源校验失败');
   // Cursor IDs are global across archives; only this snapshot's actual count
   // is a valid denominator. Older servers retain indeterminate progress.
-  state.totalObjects=Number.isSafeInteger(snapshot.count)&&snapshot.count!>=0&&snapshot.count!<=snapshot.end?snapshot.count!:0;state.stage='restoring';detail?.({...state});
-  let after=0,revision=0,count=0;let previous:Ref|null=null;
+  state.totalObjects=Number.isSafeInteger(snapshot.count)&&snapshot.count!>=0&&snapshot.count!<=snapshot.end?snapshot.count!:0;detail?.({...state});
+  const totals:ArchiveCounts={messages:0,images:0,videos:0,files:0,audio:0};let count=0;
+  for(const discovering of [true,false]) {
+  if(!discovering){state.stage='restoring';state.objects=0;state.totals={...totals};detail?.({...state});}
+  let after=0,revision=0;let previous:Ref|null=null;
   const existing=await loadPrivateArchiveItems(session);
   const existingById=new Map(existing.map(item=>[itemId(item),item]));
   for(;;) {
@@ -156,6 +160,10 @@ async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal
     if(prior&&canonicalStringify(prior)!==canonicalStringify(item))throw new Error('导入记录与已保存的历史冲突');
     const destination=sourceSession(session,scope),expected=manifests(payload.item.message);
     if(canonicalStringify(expected)!==canonicalStringify(payload.media.map(x=>x.manifest)))throw new Error('原图片清单不完整');
+    if(discovering){
+      totals.messages++;for(const {manifest} of payload.media){const kind=manifest.mimeType?.startsWith('image/')?'images':manifest.mimeType?.startsWith('video/')?'videos':manifest.mimeType?.startsWith('audio/')?'audio':'files';totals[kind]++;}
+      previous={id:object.id,hash:archiveObjectHash(object)};state.objects++;detail?.({...state});continue;
+    }
     for(const {manifest,parts} of payload.media) {
       if(!Array.isArray(parts)||parts.length!==manifest.chunkCount)throw new Error('原图片分块缺失');
       const verifier=await attachmentVerifier(manifest);
@@ -178,6 +186,8 @@ async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal
     previous={id:object.id,hash:archiveObjectHash(object)};progress(++count);
     }
     if(page.length<100){if(after!==snapshot.end)throw new Error('备份目录不完整，请重试');break;}
+  }
+  if(snapshot.count!==undefined&&state.objects!==snapshot.count)throw new Error('备份目录数量不一致');
   }
   state.stage='committing';detail?.({...state});
   await commitPrivateArchiveImport(session,runId,signal);

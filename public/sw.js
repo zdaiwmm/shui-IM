@@ -3,12 +3,12 @@ const CACHE = `quiet-room-shell-${RELEASE_ID}`;
 const NOTIFICATION_POLICY_CACHE = 'quiet-room-notification-policy-v1';
 const NOTIFICATION_POLICY_URL = '/__quiet-room-notification-policy';
 const NOTIFICATION_COPY_URL = '/__quiet-room-notification-copy';
-const SHELL = ['/', '/manifest.webmanifest', '/icon.svg', '/icon-192.png', '/icon-512.png'];
+const SHELL = ['/', '/manifest.webmanifest', '/icon.svg', '/favicon.svg?v=20261022', '/favicon-32.png?v=20261022', '/icon-192.png', '/icon-512.png'];
 
 function isCacheableAsset(url) {
   return url.origin === self.location.origin && (
     url.pathname.startsWith('/assets/') ||
-    url.pathname === '/icon.svg' ||
+    url.pathname === '/icon.svg' || url.pathname === '/favicon.svg' || url.pathname === '/favicon-32.png' ||
     url.pathname === '/icon-192.png' || url.pathname === '/icon-512.png' ||
     url.pathname === '/manifest.webmanifest'
   );

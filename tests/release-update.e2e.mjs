@@ -107,7 +107,7 @@ try {
   if (JSON.stringify(versions) !== JSON.stringify(await page.evaluate(() => window.releaseFixture.release.releaseLog.map(item => item.id)))) throw new Error('Release log order mismatch');
   await page.getByRole('button', { name: '返回聊天' }).click();
   await page.locator('.space-drawer-overlay[aria-label="设置"].is-restored').waitFor();
-  await page.locator('.space-close').click();
+  await page.locator('.space-close,.settings-dismiss-handle,.space-return').click();
   await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
   await page.locator('.chat-shell:not(.is-page-outgoing)').waitFor();
 

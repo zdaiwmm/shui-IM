@@ -128,14 +128,14 @@ export async function auditUiDetails(page, out) {
         }
         if(name==='settings') {
           assert.ok((await page.locator('.space-setting').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height))).every(h=>h>=44&&h<=45),'P1 single-line settings rows are 44px');
-          assert.ok(Math.abs((await page.locator('.space-drawer-header').boundingBox()).height-48)<1,'P1 settings header is 48px');
+          const heading=await page.locator('.space-drawer-header').evaluate(n=>{const s=getComputedStyle(n),t=n.querySelector('h2'),r=n.getBoundingClientRect(),b=t.getBoundingClientRect();return {size:parseFloat(getComputedStyle(t).fontSize),align:getComputedStyle(t).textAlign,left:b.left-r.left,border:s.borderBottomWidth,close:!!n.querySelector('.space-close')};});assert.ok(heading.size===26&&heading.align==='left'&&Math.abs(heading.left-20)<1&&heading.border==='0px'&&!heading.close,JSON.stringify(heading));
           assert.equal(await page.locator('.space-setting').first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize)),14,'P1 settings copy is 14px');
           const actualType=await page.evaluate(()=>{
             const row=getComputedStyle(document.querySelector('.space-setting')), title=getComputedStyle(document.querySelector('.space-drawer-header h2'));
             return {font:row.fontSize,weight:row.fontWeight,family:row.fontFamily,smoothing:row.webkitFontSmoothing,titleWeight:title.fontWeight};
           });
           assert.deepEqual(actualType,referenceType,'settings typography follows the confirmed P1 renderer');
-          const rect=await page.locator('.space-drawer').boundingBox();assert.ok(rect.x===0&&Math.abs(rect.width-width)<1,'mobile settings presentation fills the page');
+          const rect=await page.locator('.space-drawer').boundingBox();assert.ok(rect.x===0&&rect.y===0&&Math.abs(rect.width-width)<1&&700-rect.y-rect.height>=63,'top settings drawer spans the viewport and retains its dismissal gap');
         }
         if(name==='create') {
           assert.equal(await page.locator('.entry-protection,.entry-support,.recovery-explanation,#new-device-alias').count(),0,'creation uses the confirmed compact protection layout');

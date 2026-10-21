@@ -6,7 +6,7 @@ import { mountDialog } from './dialog';
 import { bindHalfSheetHandle } from './half-sheet';
 import { spaceAvatarMarkup, bindSpaceAvatarPlayback } from './space-avatar';
 import type { PrivateSpace } from './spaces';
-import { Image, createElement, Bell, Settings, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2, PanelLeftClose, Palette, MonitorDown, ArrowLeft } from 'lucide';
+import { Image, createElement, Bell, Settings, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, Plus, ChevronRight, Trash2, PanelLeftClose, Palette, MonitorDown, ArrowLeft } from 'lucide';
 import { formatPendingCountdown, pendingSpaceExpiry } from './spaces';
 export type PresenceStyle = 'capsule' | 'heart';
 export function readPresenceStyle(): PresenceStyle { try { return localStorage.getItem('quiet-room:presence-style') === 'heart' ? 'heart' : 'capsule'; } catch { return 'capsule'; } }
@@ -19,7 +19,6 @@ export const spaceIcons = {
   appearance: createElement(Palette).outerHTML, app: createElement(MonitorDown).outerHTML,
 };
 const arrow = createElement(ChevronRight).outerHTML, check = createElement(Check).outerHTML, heart = createElement(Heart).outerHTML;
-const closeIcon = createElement(X).outerHTML;
 const escape = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 type Action = { id: string; label: string; icon: string; group?: '当前空间' | '本机' | '关于'; keepOpen?: boolean | (() => boolean); run: (showSpaceList: () => void) => void | Promise<void> };
 
@@ -56,7 +55,7 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
   const embedded = Boolean(options.presentation);
   if (embedded) { sheet.className = `space-embedded space-${options.presentation}`; sheet.removeAttribute('aria-modal'); sheet.setAttribute('role', 'region'); }
   (options.container ?? root).append(sheet);
-  let handingOff = false;
+  let handingOff = false, listReturnSettings = false;
   let busy = false, listScrollTop = options.listScrollTop ?? 0;
   let pageLifetime = new AbortController();
   signal.addEventListener('abort', () => pageLifetime.abort(), { once: true });
@@ -77,12 +76,20 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
     const listing = title === '私密空间';
     const settingsSheet = !embedded && !listing;
     sheet.classList.toggle('is-settings-sheet', settingsSheet);
-    const leading = !embedded && (listing || title === '设置') ? '<span class="space-header-spacer"></span>'
-      : back ? `<button class="icon-button space-back" aria-label="返回">${createElement(ArrowLeft).outerHTML}</button>`
-      : `<button class="icon-button space-close" aria-label="${options.presentation === 'sidebar' ? '收起空间侧栏' : '返回聊天'}">${options.presentation === 'sidebar' ? createElement(PanelLeftClose).outerHTML : createElement(ArrowLeft).outerHTML}</button>`;
-    const trailing = back && title !== '设置' ? '<span class="space-header-spacer"></span>' : listing && embedded ? `<div class="space-header-actions"><button class="icon-button" id="space-settings" aria-label="设置">${spaceIcons.settings}</button></div>`
-      : `<button class="icon-button space-close" aria-label="关闭">${closeIcon}</button>`;
-    sheet.innerHTML = `<section class="space-drawer"><header class="space-drawer-header">${leading}<h2>${title}</h2>${trailing}</header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${footer ? `<footer class="space-drawer-footer">${footer}</footer>` : ''}</section>`;
+    const fullPage=listing&&!embedded;
+    const leading=!embedded?'':back?`<button class="icon-button space-back" aria-label="返回">${createElement(ArrowLeft).outerHTML}</button>`:`<button class="icon-button space-close" aria-label="${options.presentation==='sidebar'?'收起空间侧栏':'返回聊天'}">${createElement(options.presentation==='sidebar'?PanelLeftClose:ArrowLeft).outerHTML}</button>`;
+    const trailing=listing&&embedded?`<button class="icon-button" id="space-settings" aria-label="设置">${spaceIcons.settings}</button>`:'';
+    const controls=`${footer}${!embedded&&back&&title!=='设置'&&!listing?'<button class="text-button space-back" type="button">返回</button>':''}${fullPage?'<button class="text-button space-return" type="button">返回</button>':''}`;
+    sheet.innerHTML=`<section class="space-drawer"><header class="space-drawer-header">${leading}<h2>${title}</h2>${trailing}</header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${controls?`<footer class="space-drawer-footer">${controls}</footer>`:''}${settingsSheet?'<button class="settings-dismiss-handle" type="button" aria-label="上滑关闭设置"><span></span></button>':''}</section>`;
+    sheet.querySelector('.space-return')?.addEventListener('click',()=>{if(listReturnSettings)settings();else close();});
+    const handle=sheet.querySelector<HTMLElement>('.settings-dismiss-handle');
+    handle?.addEventListener('click',close);
+    let drag:{id:number;y:number}|undefined;const panel=sheet.querySelector<HTMLElement>(':scope > .space-drawer')!;
+    const clearDrag=()=>{drag=undefined;panel.classList.remove('is-settings-dragging');panel.style.removeProperty('--settings-drag');};
+    handle?.addEventListener('pointerdown',event=>{if(event.button!==0||busy)return;drag={id:event.pointerId,y:event.clientY};panel.classList.add('is-settings-dragging');handle.setPointerCapture(event.pointerId);});
+    handle?.addEventListener('pointermove',event=>{if(drag?.id===event.pointerId)panel.style.setProperty('--settings-drag',`${Math.min(0,event.clientY-drag.y)}px`);});
+    handle?.addEventListener('pointerup',event=>{if(drag?.id===event.pointerId&&drag.y-event.clientY>32)close();clearDrag();});
+    handle?.addEventListener('pointercancel',clearDrag);
 
     bindSpaceAvatarPlayback(sheet, AbortSignal.any([signal, pageLifetime.signal]));
     if (previousPage && priorTitle !== title && !settingsSheet) animatePageReplacement(sheet, previousPage, sheet.querySelector<HTMLElement>(':scope > .space-drawer')!, title === '私密空间' || (title === '设置' && priorTitle === '在线状态样式'), signal);
@@ -206,6 +213,7 @@ const expiry = pendingSpaceExpiry(s);
     return `<div class="space-access-row"><button class="space-row ${selected ? 'is-selected' : ''}" data-space="${i}" aria-current="${selected ? 'true' : 'false'}">${spaceAvatarMarkup(s.avatar, s.name)}<span class="space-row-copy"><strong>${escape(s.name)}</strong>${statusLine}</span><span class="space-row-trailing"><span class="space-unread" data-unread="${i}" hidden></span>${selected ? '' : `<span class="space-row-arrow" aria-hidden="true">${arrow}</span>`}</span></button><button class="space-access-action" data-access="${i}" aria-label="授权 ${escape(s.name)} 的设备请求" hidden><span>授权</span></button></div>`;
   }
   function list() {
+    if(sheet.getAttribute('aria-label')==='设置')listReturnSettings=true;
     const focused = sheet.contains(document.activeElement) && document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
     const focusedRoom = focused?.dataset.space ? options.spaces[Number(focused.dataset.space)]?.roomId : undefined;
     const focusedId = focused?.id;

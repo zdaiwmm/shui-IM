@@ -62,8 +62,8 @@ try {
     });
     assert.deepEqual(nativeIme,{value:'原生完成的中文',closed:true});
     await page.locator('#original').click();
-    const paint=await page.evaluate(()=>{
-      setViewport(473);
+    const paint=await page.evaluate(async()=>{
+      setViewport(473);await new Promise(resolve=>requestAnimationFrame(resolve));
       const overlay=document.querySelector('.form-input-overlay'),bar=document.querySelector('.form-input-panel'),field=document.querySelector('#form-input-draft');
       return {underlay:getComputedStyle(overlay,'::after').backgroundColor,bar:getComputedStyle(bar).backgroundColor,
         field:getComputedStyle(field).backgroundColor,height:parseFloat(getComputedStyle(overlay,'::after').height),bottom:getComputedStyle(document.documentElement).backgroundColor};
@@ -346,7 +346,7 @@ try {
     }
     const closingSettings=await page.evaluate(()=>{
       const settings=document.querySelector('.is-settings-sheet'),panel=settings.querySelector('.space-drawer');
-      const before=panel.getBoundingClientRect().top;settings.querySelector('.space-close').click();
+      const before=panel.getBoundingClientRect().top;settings.querySelector('.settings-dismiss-handle').click();
       return {connected:settings.isConnected,same:settings===document.querySelector('.is-settings-sheet'),
         jump:Math.abs(panel.getBoundingClientRect().top-before),chatInert:document.querySelector('.chat-shell').inert};
     });
@@ -383,21 +383,21 @@ try {
           const last=scroll.querySelector('.space-settings-list').lastElementChild.querySelector('button');
           const bounds=last.getBoundingClientRect(),viewport=scroll.getBoundingClientRect();
           const hit=document.elementFromPoint(bounds.x+bounds.width/2,bounds.y+bounds.height/2)?.closest('button');
-          const result={start,top:panel.getBoundingClientRect().top,bottom:panel.getBoundingClientRect().bottom,handle:!!sheet.querySelector('.half-sheet-handle'),
+          const result={start,top:panel.getBoundingClientRect().top,bottom:panel.getBoundingClientRect().bottom,handle:!!sheet.querySelector('.settings-dismiss-handle'),
             reachable:bounds.bottom<=viewport.bottom+1&&hit===last,
             width:innerWidth,font:parseFloat(getComputedStyle(document.documentElement).fontSize),
             rowTop:bounds.top,rowBottom:bounds.bottom,viewportTop:viewport.top,viewportBottom:viewport.bottom,
             scrollTop:scroll.scrollTop,scrollMax:scroll.scrollHeight-scroll.clientHeight,hitSame:hit===last,
             sheetInert:sheet.inert,rowInert:!!last.closest('[inert]'),
             background:getComputedStyle(panel).backgroundColor,canvas:getComputedStyle(document.documentElement).backgroundColor,hint:document.querySelector('#system-chrome-color').content};
-          sheet.querySelector('.space-close').click();
+          sheet.querySelector('.settings-dismiss-handle').click();
           await new Promise(resolve=>{
             if(!sheet.isConnected)return resolve();
             const observer=new MutationObserver(()=>{if(!sheet.isConnected){observer.disconnect();resolve();}});
             observer.observe(document.querySelector('#app'),{childList:true,subtree:true});
           });return result;
         },{theme,scheme});
-        assert.ok(result.start>=567,JSON.stringify(result));assert.ok(Math.abs(result.top)<.01,JSON.stringify(result));assert.ok(Math.abs(result.bottom-568)<.01,JSON.stringify(result));assert.equal(result.handle,false);assert.equal(result.reachable,true,JSON.stringify(result));assert.equal(result.background,result.canvas);assert.equal(result.background,result.hint);
+        assert.ok(result.start<=-500,JSON.stringify(result));assert.ok(Math.abs(result.top)<.01,JSON.stringify(result));assert.ok(568-result.bottom>=63,JSON.stringify(result));assert.equal(result.handle,true);assert.equal(result.reachable,true,JSON.stringify(result));assert.equal(result.background,result.canvas);assert.equal(result.background,result.hint);
       }
     }
     await page.evaluate(()=>document.documentElement.style.fontSize='');

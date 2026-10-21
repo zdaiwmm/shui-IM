@@ -893,10 +893,17 @@ export class QuietRoomApp {
       if (style.getPropertyValue(property) !== value) style.setProperty(property, value);
     };
     const syncVisualViewport = () => {
+      const chat = this.activeSurface === 'chat' && this.chatLayoutElements?.shell.isConnected ? this.chatLayoutElements : null;
+      const composerInput = chat?.composer.querySelector<HTMLTextAreaElement>('#message-input');
       const viewport = layoutViewport();
       // Fixed controls and document scrolling use the layout viewport. Safari
       // can report a keyboard-sized innerHeight while that viewport stays tall.
-      const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
+      const measuredLayoutHeight = document.documentElement.clientHeight || window.innerHeight;
+      const focusedEditor = chat && this.visualClientCoordinates && composerInput === document.activeElement;
+      // iPhone Chrome may resize the layout viewport with the keyboard. Keep
+      // the pre-focus baseline so that this is not mistaken for a closed keyboard.
+      const layoutHeight = this.visualClientCoordinates && focusedEditor
+        ? Math.max(measuredLayoutHeight, this.listKeyboardLayout.closedHeight ?? 0) : measuredLayoutHeight;
       // Toolbar collapse can expose more than clientHeight before WebKit
       // updates its layout viewport. Never clip that newly visible area.
       const viewportScale = viewport?.scale ?? 1;
@@ -908,7 +915,6 @@ export class QuietRoomApp {
       // Discard rubber-band and stale dismissal offsets once the full viewport
       // is visible. Panning never contributes to the document's keyboard space.
       const viewportTop = Math.max(0, Math.min(viewport?.offsetTop ?? 0, keyboardSpace));
-      const chat = this.activeSurface === 'chat' && this.chatLayoutElements?.shell.isConnected ? this.chatLayoutElements : null;
       const chatGeneration = chat ? this.chatLayoutGeneration : 0;
       const resized = previousViewportHeight !== viewportHeight || previousLayoutHeight !== layoutHeight;
       const widthChanged = previousViewportWidth !== viewportWidth;
@@ -940,7 +946,6 @@ export class QuietRoomApp {
             paddingBottom: parseFloat(style.paddingBottom) || 0 };
         }
       }
-      const composerInput = chat?.composer.querySelector<HTMLTextAreaElement>('#message-input');
       const composerResizeOwnsGeometry = Boolean(chat
         && (this.composerHeightMotion || this.sendingTextDrafts.size > 0
           || performance.now() < this.composerViewportSettleUntil
@@ -1067,7 +1072,7 @@ export class QuietRoomApp {
         if (this.chatBottomFollowPending && this.chatScrollIntent !== 'up') this.alignChatBottom();
         this.chatBottomControl?.update(false);
       }
-      const keepSamplingNativeChrome = Boolean(chat && this.visualClientCoordinates);
+      const keepSamplingNativeChrome = Boolean(chat && this.visualClientCoordinates && performance.now() < trackingHardUntil);
       const now = performance.now();
       if (now >= trackingUntil) {
         this.chatBottomFollowPending = false;
@@ -3459,7 +3464,11 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       // creation. A recoverable failure alone needs the pending-create page.
       creation.step('connect','正在建立安全连接');
       try { await this.advanceChamberCreate(createdSession,AbortSignal.any([creationSignal,AbortSignal.timeout(30_000)])); }
-      catch { if(!this.isRuntimeActive(epoch,createdSession))return; }
+      catch {
+        if(!this.isRuntimeActive(epoch,createdSession))return;
+        creation.dispose();await this.openSession();return;
+      }
+      creation.complete();
       await creation.finished;
       creation.dispose();
       if(this.isRuntimeActive(epoch,createdSession)){markReleaseNotesSeen();await this.openSession();}
@@ -6928,7 +6937,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         </div>
         <div class="notice" id="notice" role="status" hidden></div>
         <section class="message-list" id="message-list" aria-label="聊天消息">${(isChamberVault(this.session.vault) || Boolean(this.session.vault.roomArchiveV2)) ? `<details class="chamber-privacy-guide" ${(this.session.vault.roomArchiveV2 ? this.session.vault.roomArchiveV2.cardVerified : this.session.vault.personalGuide?.mnemonicViewed || this.session.vault.personalGuide?.mnemonicChecked) && this.session.vault.personalGuide?.coverRead && this.session.vault.personalGuide?.autoLockRead ? '' : 'open'}><summary>三步，熟悉你的隐私保护</summary><ol>
-            ${this.session.vault.roomArchiveV2 ? `${this.roomGuideStep('cover','01','入口遮蔽',this.entranceCoverEnabled(),'进入时先打开遮蔽页')}${this.roomGuideStep('lock','02','应用锁与自动锁定',this.roomLockEnabled,'进入时需要验证身份')}${this.roomGuideStep('archive','03','聊天记录恢复凭证',Boolean(this.session.vault.roomArchiveV2.cardVerified),'若密室无法进入，可创建新密室找回您的历史消息',true)}` : `<li><button type="button" data-personal-guide="mnemonic"><b>01</b><span><strong>助记词</strong><small>${this.session.vault.personalGuide?.mnemonicViewed ? '已查看，请妥善保存' : this.session.vault.personalGuide?.mnemonicChecked ? '已核对助记词' : '密室进不去时，用它找回并恢复记录'}</small></span><span aria-hidden="true">›</span></button></li>
+            ${this.session.vault.roomArchiveV2 ? `${this.roomGuideStep('cover','01','入口遮蔽',this.entranceCoverEnabled(),'进入时先打开遮蔽页')}${this.roomGuideStep('lock','02','应用锁与自动锁定',this.roomLockEnabled,'进入时需要验证身份')}${this.roomGuideStep('archive','03','聊天记录恢复凭证',Boolean(this.session.vault.roomArchiveV2.cardVerified),'可在任意新密室中找回您的历史记录',true)}` : `<li><button type="button" data-personal-guide="mnemonic"><b>01</b><span><strong>助记词</strong><small>${this.session.vault.personalGuide?.mnemonicViewed ? '已查看，请妥善保存' : this.session.vault.personalGuide?.mnemonicChecked ? '已核对助记词' : '密室进不去时，用它找回并恢复记录'}</small></span><span aria-hidden="true">›</span></button></li>
             <li><button type="button" data-personal-guide="cover"><b>02</b><span><strong>入口遮蔽</strong><small>${this.session.vault.recoveryExperience?.coverEnabled ? '已开启' : '了解伪装入口，按需开启'}</small></span><span aria-hidden="true">›</span></button></li>
             <li><button type="button" data-personal-guide="auto-lock"><b>03</b><span><strong>自动锁定</strong><small>了解暂时离开后的保护</small></span><span aria-hidden="true">›</span></button></li>
           `}</ol></details>` : ''}</section>
@@ -7888,7 +7897,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       syncChatBubbleGradient(list);
       const settings = header.querySelector<HTMLElement>('#chat-settings');
       const topGap = settings ? Math.max(0, settings.offsetTop) : 14;
-      const topSpace = isChamberVault(this.session?.vault) && settings ? settings.offsetTop + settings.offsetHeight + topGap + noticesHeight : headerHeight + noticesHeight + 14;
+      const topSpace = (isChamberVault(this.session?.vault) || this.session?.vault.roomArchiveV2) && settings ? settings.offsetTop + settings.offsetHeight + topGap + noticesHeight : headerHeight + noticesHeight + 14;
       const measurements = `${headerHeight}:${noticesHeight}:${composerHeight}:${topSpace}`;
       if (measurements === previousMeasurements) return;
       previousMeasurements = measurements;
@@ -9270,7 +9279,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       <section class="privacy-setting"><div class="privacy-control-row"><div><h2>闲置时锁定</h2><p>开启后，按所选时间自动锁定</p></div><button type="button" class="backup-toggle" data-idle-toggle role="switch" aria-label="无操作倒计时" aria-checked="${selected !== 0}"><span></span></button></div>
       <button class="auto-lock-duration" type="button" aria-expanded="false" aria-controls="auto-lock-options" ${selected === 0 ? 'hidden' : ''}><span>等待时间</span><strong data-duration-value>${durationLabel()}</strong><span aria-hidden="true">›</span></button>
       </section>
-      <p class="preference-note">设置仅适用于本机。关闭或刷新页面仍需验证，恢复口令等敏感内容离开即隐藏。</p>
+      <p class="preference-note">设置仅适用于本浏览器。</p>
       <p class="form-error" role="alert"></p></main>
       <footer class="privacy-page-footer"><button class="text-button" id="auto-lock-back" type="button">返回</button></footer></section>`;
     const page = this.root.querySelector<HTMLElement>('.auto-lock-page')!;
@@ -12858,9 +12867,12 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       <main class="device-content"><p class="preference-intro">为密室入口选择一个普通网页外观。</p>
         <section class="privacy-setting"><div class="privacy-control-row"><div><h2>使用入口遮蔽页</h2><p>锁定后，先显示所选的遮蔽页</p></div><button type="button" class="backup-toggle" id="cover-enabled" role="switch" aria-label="使用入口遮蔽页" aria-checked="${enabled}"><span></span></button></div></section>
         <h2 class="cover-list-heading">遮蔽页样式</h2><div class="cover-style-list" role="radiogroup" aria-label="遮蔽页样式">
-          <button type="button" class="cover-style-option" role="radio" aria-checked="true" aria-label="遮蔽层，已选择"><span class="cover-style-thumbnail" aria-hidden="true"><span>无法打开网页</span><i></i><small>长按色块</small></span><span class="cover-style-caption"><strong>遮蔽层</strong><span class="cover-style-check" aria-hidden="true">✓</span></span></button>
+          <button type="button" class="cover-style-option" role="radio" aria-checked="true" aria-label="遮蔽层，已选择"><span class="cover-style-thumbnail" aria-hidden="true"><span class="cover-preview-viewport"><span class="cover cover-preview-canvas">${this.coverErrorMarkup()}<span class="cover-trigger cover-preview-hotspot">长按热区</span></span></span></span><span class="cover-style-caption"><strong>遮蔽层</strong><span class="cover-style-check" aria-hidden="true">✓</span></span></button>
         </div><p class="preference-note">长按遮蔽页上的色块进入验证。遮蔽页只隐藏入口，不代替应用锁。</p><p class="form-error" role="alert"></p>
       </main><footer class="chamber-page-footer"><button type="button" class="text-button page-back-button" id="cover-settings-back">返回</button></footer></section>`;
+    const preview=this.root.querySelector<HTMLElement>('.cover-preview-canvas')!,thumbnail=this.root.querySelector<HTMLElement>('.cover-preview-viewport')!;
+    const fitPreview=()=>{if(!thumbnail.isConnected){previewObserver.disconnect();return;}const width=innerWidth,height=layoutViewport()?.height??innerHeight,scale=Math.min(thumbnail.clientWidth/width,thumbnail.clientHeight/height);preview.style.width=`${width}px`;preview.style.height=`${height}px`;preview.style.transform=`translate(-50%,-50%) scale(${scale})`;};
+    const previewObserver=new ResizeObserver(fitPreview);previewObserver.observe(thumbnail);this.runtimeAbort.signal.addEventListener('abort',()=>previewObserver.disconnect(),{once:true});fitPreview();
     const page = this.root.querySelector<HTMLElement>('.cover-settings-page')!;
     const toggle = page.querySelector<HTMLButtonElement>('#cover-enabled')!;
     const active = () => page.isConnected && this.isRuntimeActive(epoch, session);
@@ -13404,7 +13416,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       <section class="cover" aria-label="遮蔽演练。内容已隐藏，遮蔽本身不是身份验证。">
         ${this.coverErrorMarkup()}
         <div class="hold-guide" id="practice-result">长按色块 1 秒，进入聊天<span aria-hidden="true">↓</span></div>
-        <p class="cover-practice-notice">开启后，锁定时显示普通网页外观。遮蔽不是身份验证。</p>
+
         <button class="cover-trigger practice-hotspot" type="button" aria-label="长按一秒练习返回"><span>长按</span></button>
       </section>
     </main>`;
@@ -13420,7 +13432,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       dialog.setAttribute('role', 'dialog');
       dialog.setAttribute('aria-modal', 'true');
       dialog.setAttribute('aria-label', '恭喜，你已经会用了');
-      dialog.innerHTML = `<div class="confirm-dialog simple-confirm"><h2>恭喜，你已经会用了</h2><p>为你提高您的隐私安全，建议开启遮蔽层，避免页面信息泄漏。</p><p class="field-hint">以后可在「设置 → 入口遮蔽页」中关闭。设备锁定后仍需验证。</p><div class="simple-confirm-actions"><button class="text-button" id="skip-cover">暂不开启</button><button class="primary-button" id="enable-cover">开启自动遮蔽</button></div></div>`;
+      dialog.innerHTML = `<div class="confirm-dialog simple-confirm"><h2>恭喜，你已经会用了</h2><p>为你提高您的隐私安全，建议开启遮蔽层，避免页面信息泄漏。</p><p>以后可在「设置 → 入口遮蔽页」中关闭。设备锁定后仍需验证。</p><div class="simple-confirm-actions"><button class="text-button" id="skip-cover">暂不开启</button><button class="primary-button" id="enable-cover">开启自动遮蔽</button></div></div>`;
       this.root.append(dialog);
       mountDialog(dialog, { isActive: () => !this.privacyCovered && this.session === session, signal: this.runtimeAbort?.signal });
       dialog.querySelector('#enable-cover')!.addEventListener('click', () => void save(true));

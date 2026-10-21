@@ -11,13 +11,13 @@ export class IdleLockPrompt {
   constructor(private readonly root: HTMLElement, extend: () => void) {
     const button = this.element;
     button.type = 'button'; button.className = 'idle-lock-prompt'; button.hidden = true;
-    button.innerHTML = '<span class="idle-lock-capsule"><i class="idle-lock-fill" aria-hidden="true"></i><span class="idle-lock-label">即将锁定</span><span class="idle-lock-extend" aria-hidden="true">延期</span></span>';
+    button.innerHTML = '<span class="idle-lock-capsule"><i class="idle-lock-fill" aria-hidden="true"></i><span class="idle-lock-label">即将锁定</span><span class="idle-lock-extend" aria-hidden="true">进行任意操作可延期</span></span>';
     this.fill = button.querySelector('i')!;
     this.label = button.querySelector('.idle-lock-label')!;
     this.action = button.querySelector('.idle-lock-extend')!;
     button.addEventListener('pointerdown', event => { event.preventDefault(); event.stopPropagation(); });
     button.addEventListener('click', event => { event.preventDefault(); event.stopPropagation(); if (button.getAttribute('aria-disabled') !== 'true') extend(); });
-    button.setAttribute('aria-label', '即将锁定，延期使用');
+    button.setAttribute('aria-label', '即将锁定，进行任意操作可延期');
   }
   hide(): void { this.element.hidden = true; this.element.remove(); }
   update(remaining: number, renewable: boolean): void {
@@ -30,8 +30,8 @@ export class IdleLockPrompt {
     this.element.hidden = false;
     this.element.setAttribute('aria-disabled', String(!renewable));
     this.element.tabIndex = renewable ? 0 : -1;
-    this.element.setAttribute('aria-label', renewable ? '即将锁定，延期使用' : '恢复码即将锁定，需重新验证');
-    this.label.textContent = renewable ? '即将锁定' : '恢复码即将锁定，需重新验证';
+    this.element.setAttribute('aria-label', renewable ? '即将锁定，进行任意操作可延期' : '恢复码即将锁定，需重新验证');
+    this.label.textContent = renewable ? '即将锁定，' : '恢复码即将锁定，需重新验证';
     this.action.hidden = !renewable;
     this.fill.style.transform = `scaleX(${Math.max(0, Math.min(1, remaining / IDLE_WARNING_MS))})`;
     this.position(modal);

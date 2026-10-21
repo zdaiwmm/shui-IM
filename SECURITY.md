@@ -1,5 +1,9 @@
 # Security model
 
+## 2026-10-22 凭证在线读取能力轮换
+
+[24项V1](docs/requirements/2026-10-22-chamber-24-polish/README.md)中修改凭证密码先核对原密码、独立验证应用锁并二次确认。新随机读取能力与归档加密种子分离，服务端仅持摘要；活跃本人写入端及旧归档签名绑定expected/next摘要，原子比较交换并允许同请求幂等重试。替换不改变历史密文，不因设备重新注册复活旧能力。新能力与待完成请求先保存在加密保险库；未知网络结果保留同请求，不覆盖待完成记录。旧图停止在线读取，但已交付密文、已读历史及恶意服务端不在可撤销保证内。凭证原图、凭证密码与归档种子不上传；凭证图只在应用锁验证后显示，URL离页/隐私取消立即释放。完整契约见NEW_ROOM_ARCHIVES.md；自动测试不等于独立安全审阅。
+
 ## 2026-10-21 Page-exit unread refresh
 
 Once `pagehide` begins, cover rendering and late focus events do not start new count-only unread GET requests. `pageshow` resumes them, including a persisted page return. Locking order, the cached confirmed count, observer authority, registration and read-cursor rules are unchanged. Test-only exit evidence observes each request and document; it preserves returned Promise rejections and never excuses writes, active-page failures or unhandled errors using an older read request.

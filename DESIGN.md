@@ -1,5 +1,9 @@
 # Quiet Room Design System
 
+## 2026-10-22 二十四项精修
+
+沿用P1及[移动规范V1.23](docs/design/mobile-visual-standard.md#2026-10-22-二十四项页面精修v123)：3.6秒分阶段创建、顶部设置抽屉、完整原图凭证、三步回验及页内恢复密码。本人归档改密校验原密码并停用旧在线读取能力；真实历史和应用锁边界由NEW_ROOM_ARCHIVES与SECURITY拥有。原型/流程仅本轮按用户要求免除；逐条证据及未通过项由[24项需求](docs/requirements/2026-10-22-chamber-24-polish/README.md)拥有，不以规范目标声称完成。
+
 ## 2026-10-21 设备接入失效页
 
 独立状态页沿用P1主题，520px内容轨、20px左右留白、26px标题、14px正文／1.6行高、三步有序列表和44px底部「返回密室列表」。页面主体独立滚动，操作区不遮挡正文；使用现有锁形图标及accent-soft，不显示聊天或在线控件。参数及实组件样例见[移动规范设备失效补充](docs/design/mobile-visual-standard.md#2026-10-21-设备接入失效页v122)。

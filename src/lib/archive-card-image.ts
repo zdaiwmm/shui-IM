@@ -27,12 +27,14 @@ function crc32(bytes: Uint8Array): number {
   for(const byte of bytes){crc^=byte;for(let i=0;i<8;i++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}
   return (crc^0xffffffff)>>>0;
 }
-async function embedEnvelope(blob: Blob, text: string): Promise<Blob> {
+async function embedEnvelope(blob: Blob, text: string, name: string): Promise<Blob> {
   const png=new Uint8Array(await blob.arrayBuffer()),data=cardRaster(text),type=encoder.encode('qrAc');
   const chunk=new Uint8Array(data.length+12),view=new DataView(chunk.buffer);
   view.setUint32(0,data.length);chunk.set(type,4);chunk.set(data,8);view.setUint32(data.length+8,crc32(chunk.subarray(4,data.length+8)));
   // Canvas PNG ends with a twelve-byte IEND chunk.
-  return new Blob([png.slice(0,-12),chunk,png.slice(-12)],{type:'image/png'});
+  const label=encoder.encode(name.slice(0,80)),labelType=encoder.encode('qrAn'),labelChunk=new Uint8Array(label.length+12),lv=new DataView(labelChunk.buffer);
+  lv.setUint32(0,label.length);labelChunk.set(labelType,4);labelChunk.set(label,8);lv.setUint32(label.length+8,crc32(labelChunk.subarray(4,label.length+8)));
+  return new Blob([png.slice(0,-12),chunk,labelChunk,png.slice(-12)],{type:'image/png'});
 }
 export async function createArchiveCardImage(text:string,name='Chamber'):Promise<Blob> {
   cardRaster(text); // Keep the bounded format validation before QR allocation.
@@ -46,13 +48,13 @@ export async function createArchiveCardImage(text:string,name='Chamber'):Promise
   ctx.font='500 28px system-ui';ctx.fillText('CHAMBER',146,105);
   ctx.font='600 42px system-ui';
   let title=name;while(ctx.measureText(title).width>772&&title.length>1)title=title.slice(0,-2)+'…';ctx.fillText(title,64,184);
-  ctx.fillStyle='#21382a';ctx.font='600 32px system-ui';ctx.fillText('聊天记录恢复凭证',64,310);
-  ctx.fillStyle='#5c6e63';ctx.font='24px system-ui';ctx.fillText('与凭证密码一起使用，找回已备份的聊天记录',64,355);
+  ctx.fillStyle='#21382a';
+  ctx.fillStyle='#5c6e63';ctx.font='24px system-ui';ctx.fillText('凭证密码请单独保管',64,310);
   const qr=document.createElement('canvas');await QRCode.toCanvas(qr,text,{width:720,margin:4,errorCorrectionLevel:'M',color:{dark:'#18271e',light:'#ffffff'}});
-  ctx.drawImage(qr,90,400,720,720);
-  ctx.font='22px system-ui';ctx.textAlign='center';ctx.fillText('请保留原图 · 凭证密码请单独保管',450,1157);
+  ctx.drawImage(qr,90,360,720,720);
+  ctx.textAlign='center';
   const blob=await new Promise<Blob>((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('恢复图片生成失败')),'image/png'));
-  return embedEnvelope(blob,text);
+  return embedEnvelope(blob,text,name);
 }
 export async function readArchiveCardImage(file:Blob):Promise<string> {
   if(file.size>4*1024*1024||file.size<24)throw new Error('请选择 4 MB 以内的恢复图片原文件');
@@ -84,4 +86,15 @@ export async function readArchiveCardImage(file:Blob):Promise<string> {
     }
     return readCardRaster(packet);
   }finally{image.src='';URL.revokeObjectURL(url);}
+}
+
+/** A visible image label is identifying context, never authenticated archive authority. */
+export async function archiveCardLabel(file: Blob): Promise<string | undefined> {
+  if(file.size>4*1024*1024)return;
+  const bytes=new Uint8Array(await file.arrayBuffer()),view=new DataView(bytes.buffer);
+  for(let offset=8;offset+12<=bytes.length;){
+    const size=view.getUint32(offset);if(size>bytes.length-offset-12)return;
+    if(decoder.decode(bytes.slice(offset+4,offset+8))==='qrAn'&&size<=320&&crc32(bytes.subarray(offset+4,offset+8+size))===view.getUint32(offset+8+size))return decoder.decode(bytes.slice(offset+8,offset+8+size)).replace(/[\u0000-\u001f]/g,'').slice(0,80);
+    offset+=size+12;
+  }
 }
