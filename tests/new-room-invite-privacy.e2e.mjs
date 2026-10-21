@@ -9,6 +9,7 @@ import { fillFormInput } from './helpers/form-input.mjs';
 
 const dataDir=await mkdtemp(path.join(tmpdir(),'room-invite-privacy-'));
 let backend,vite;
+const allErrors=[];
 try {
   backend=await startServer({host:'127.0.0.1',port:0,dataDir,quiet:true});
   vite=await createServer({root:process.cwd(),configFile:false,logLevel:'error',plugins:[{name:'privacy-test-observer',enforce:'pre',transform(code,id){if(id.endsWith('/src/main.ts'))return code.replace('void app.start();','window.app=app;void app.start();');}}],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${backend.port}`,'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});
@@ -73,8 +74,9 @@ try {
       await page.locator(`${list} .space-row.is-selected`).dispatchEvent('contextmenu');page.once('dialog',dialog=>dialog.accept());await page.locator('#space-delete').click();await page.waitForFunction(()=>document.title==='chamber1');await page.locator('#copy-invite').waitFor();assert.equal(await page.title(),'chamber1');
       await openList();await createFromList();await page.waitForFunction(()=>document.title==='chamber3').catch(async error=>{console.error('THIRD_CREATE_STATE',await page.evaluate(()=>({trace:window.creationTrace,title:document.title,text:document.querySelector('#app').innerText.slice(0,1800),creating:!!app.spaceCreationAbort,locked:app.privacyCovered})));throw error;});await page.locator('#copy-invite').waitFor();assert.equal(await page.title(),'chamber3','Deleted and renamed rooms do not reuse their sequence');
       await page.reload();await page.locator('.cover').waitFor();assert.equal(await page.title(),'Chamber','Locked pages do not expose room names');
-      assert.deepEqual(errors,[]);await context.close();
+      allErrors.push(...errors);await context.close();
       console.log(`${name}: invitation copy, 24-hour display, credential entry, real guide state, themed switches, local numbering and private tab titles passed; ${teardownFetchDiagnostics.length} known pagehide unread diagnostics recorded.`);
     } finally { await browser.close(); }
   }
+  assert.deepEqual(allErrors,[]);
 } finally { await vite?.close();await backend?.close();await rm(dataDir,{recursive:true,force:true}); }
