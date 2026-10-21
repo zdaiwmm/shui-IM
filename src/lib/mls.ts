@@ -2,6 +2,7 @@ import { retentionBoundary, validRetentionBoundary, isWindowMessage, MLS_WINDOW_
 import { verifyPersonalDeviceRequest, type PersonalDeviceAuthorization } from './personal-device-request';
 import { verifyPersonalDeviceBinding } from './personal-device-binding';
 import { sha256 } from '@noble/hashes/sha2.js';
+import { ed25519 } from '@noble/curves/ed25519.js';
 import {
   createApplicationMessage,
   createCommit,
@@ -515,7 +516,12 @@ export async function generateMlsKeyMaterial(
   signingPrivateKey: JsonWebKey,
 ): Promise<Pick<PrivateIdentity, 'mlsPrivatePackage'> & { mlsKeyPackage: string }> {
   const impl = await cipherSuite();
-  const signatureKeyPair = await impl.signature.keygen();
+  // ts-mls 1.6.4 otherwise selects native Ed25519 generation solely because
+  // SubtleCrypto exists. Linux WebKit can intermittently reject that operation.
+  // Its existing Noble path uses the same Ed25519 seed format; the signer
+  // accepts both these seeds and previously persisted PKCS#8 private keys.
+  const signKey = ed25519.utils.randomSecretKey();
+  const signatureKeyPair = { signKey, publicKey: ed25519.getPublicKey(signKey) };
   const unsigned: Omit<CredentialBinding, 'bindingSignature'> = {
     v: 1,
     deviceId,

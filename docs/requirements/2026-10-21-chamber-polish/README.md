@@ -42,3 +42,8 @@
 - 用户明确要求继续定位修复，主分支全部CI通过后发布PR #365这批修改；属于原批次必要修复及发布续跑，不重新制作原型。
 - 基线为PR #365合并提交87fbbf8a404921f394cd1852fb50bda09d75c035；本机main、origin/main和GitHub一致。main CI39578900339的WebKit连续创建第二间密室超时，现场session为空，不能继续假定只是激活未命中。
 - 独立修复树chamber-webkit-create-20261021、分支codex/chamber-webkit-create-20261021。先增加仅合成浏览器用例内的生命周期／异常诊断，追踪旧会话退出与新会话创建；本机原路径Chromium及连续三次WebKit通过，Linux CI仍需取证。未部署生产。
+
+- 根因证据：隔离采样CI39584538397（4425f38）捕获 `generateKey → ts-mls signature.keygen → generateMlsKeyMaterial → generateIdentity` 的 OperationError，发生于首次创建，排除了必须先离开旧密室的假设。之前24样本未隔离服务端状态的首次超时未强行认定同源；不包装Promise的最终诊断保留了真实异常。
+- 可控负例：仅阻断原生Ed25519生成后，未修实现稳定复现第二间创建超时、session空、标题Chamber，证据在本机脱敏交接目录；没有调整20秒等待或成功断言。
+- 最小修复：generateMlsKeyMaterial使用仓库既有Noble Ed25519种子路径（系统CSPRNG），只替换签名密钥生成。ts-mls原已接受32字节种子及旧PKCS#8；新增跨格式welcome／双向消息／重放拒绝与安全随机源失败关闭检查。协议及旧数据不迁移，发布仍为尚未上线的2026.10.21.2整批。
+- 诊断夹具：生产逻辑不含探针；失败才记录合成页面异常／状态。独立后端避免样本累积，CI恢复为三轮WebKit并在连续创建前持续阻断原生Ed25519生成。WebKit原生退出资源报错仅在对应请求确认为cancel/abort且来源为browser-access时归为取消诊断，其他页面错误继续使验收失败。
