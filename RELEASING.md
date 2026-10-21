@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+<a id="release-chamber-24-polish-20261022"></a>
+## Chamber 24项精修已发布（2026-10-22 02:39）
+
+- 用户收到完整应用`d6367caf9dd7b9066d966e0431bc87b7b34d7d49`、版本`2026.10.21.4`、完整CI及只读预检结果后明确回复「确认，发布生产」，无独立消息permalink。本批为[24项V1](docs/requirements/2026-10-22-chamber-24-polish/README.md)，包含新版标签页图标；凭证引导仍以导出原图回验成功才显示已设置。[PR #371](https://github.com/zdaiwmm/shui-IM/pull/371)源a861d37与获批应用完整文件树一致；交付记录PR #372仅更新文档，不替代应用候选。
+- [PR完整CI39647621013](https://github.com/zdaiwmm/shui-IM/actions/runs/39647621013) attempt 1及[精确main完整CI39649212709](https://github.com/zdaiwmm/shui-IM/actions/runs/39649212709)最新attempt 2成功，137文件／1062项、76浏览器入口、通话／TURN、审计、文档／凭据扫描及双架构镜像通过。main首轮恢复授权超时及表情FLIP断言失败，一次完整原样复验通过，根因未确定；本机有界续修和容量阻断由需求记录保留。原生iPhone／iOS27 Safari、iPhone Chrome键盘与帧率、系统分享及独立安全审阅仍未验证。
+- 固定只读[预检39652152441](https://github.com/zdaiwmm/shui-IM/actions/runs/39652152441)核对PREFLIGHT_OK后，确认无其他运行中的正式发布。固定入口`publish.mjs --cloud --with-readback --environment production --sha d6367caf9dd7b9066d966e0431bc87b7b34d7d49`正常通过既有production审核，唯一[正式云发布39653189687](https://github.com/zdaiwmm/shui-IM/actions/runs/39653189687)核对精确DEPLOY_VERIFIED，请求`f46d8fc7-343d-417a-ba75-4462cf9c7e36`只派发一次，从`242270bb56e2992f078cb36cd9f85718986f1351`实际切换一次。批次`20261021T183100Z`，回执完成`2026-10-21T18:33:37.719Z`，云发布262643毫秒。工作流来源为文档主线`682413dbbca425a25510f77fa0b98f2d7c013f31`，应用仍固定为获批SHA；未修改环境保护、helper或云权限。
+- linux/amd64镜像`sha256:c59ac394411304d826fa9ff78f854215f91b732550398c1f6ec62f0fbbe551fc`，归档摘要`b08c43ffbaaa1b219a0d608a4d204291844dbb7aae703343f60082a042597cb4`、210032525字节，绑定上述精确main CI／attempt 2。首次独立回读仅backup starting，应用healthy、SHA／镜像一致、维护门absent；只读核对备份启动`2026-10-21T18:33:27.581271338Z`及既有5分钟探针／启动期，等待后仅续跑同SHA readback-only，未再次部署、重启或放宽检查。
+- 最终独立回读于`2026-10-21T18:39:07.225Z`启动、`18:39:29.567Z`完成，22342毫秒取得READBACK_OK：应用／备份running且healthy，TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物及新WebSocket一致，维护门absent。额外生产GET核对新版SVG／32px PNG favicon原始字节、MIME和版本化页面引用通过。管理员与通话启用；上线健康不等于真机或独立安全审阅。
+- 授权、CI身份、预检／部署、首次及最终回读、探针周期及生产图标脱敏证据保存于公共Git元数据`quiet-room-deliveries/evidence/chamber-24-polish-20261022/`，不随任务工作树删除。独立文档树对账，不发布文档SHA；本批资源按固定清理门禁核验，忽略调试数据／缓存、专属回执与当前协调目录保留，其他任务目录不处理。
+
 <a id="release-device-access-page-20261021"></a>
 ## 页面恢复与设备接入失效指引已发布（2026-10-21 21:25）
 
