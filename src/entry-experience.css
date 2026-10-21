@@ -52,6 +52,11 @@
 .chamber-privacy-guide button > span:last-of-type { color:var(--ink-muted); font-size:20px; }
 .chamber-privacy-guide strong { font-size:.875rem; font-weight:600; }
 .chamber-privacy-guide small { font-size:.75rem; line-height:1.45; color:var(--ink-muted); }
+.chamber-privacy-guide .guide-configured { color:var(--accent); }
+.room-lock-actions { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+#app .room-lock-actions .room-lock-change { min-height:44px; min-width:52px; padding:8px 12px; border-radius:12px; font-size:.875rem; }
+#app .auto-lock-page .privacy-control-row > div:first-child { min-width:0; }
+#new-room-invite-countdown { font-variant-numeric:tabular-nums; }
 .chamber-mnemonic-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; list-style:none; counter-reset:words; padding:0; margin:24px 0; }
 .chamber-mnemonic-grid li { counter-increment:words; background:var(--surface-raised); border:1px solid var(--line); border-radius:10px; padding:14px 8px; font-size:14px; font-weight:650; user-select:none; }
 .chamber-mnemonic-grid li::before { content:counter(words); margin-right:8px; font-size:11px; color:var(--ink-muted); font-weight:400; }

@@ -1,3 +1,4 @@
+import { ROOM_LINK_TTL_MS } from '../src/lib/room-link-lifetime.mjs';
 /** Only an encrypted invitation envelope is stored. Reading/previewing never
  * consumes the underlying single-use membership invitation. */
 export function createShortInvites(db){
@@ -9,7 +10,7 @@ export function createShortInvites(db){
    const value=JSON.stringify(envelope),old=db.prepare('SELECT * FROM short_invites_v2 WHERE id=?').get(id);
    if(old){if(old.room_id!==roomId||old.device_id!==deviceId||old.envelope!==value)throw new Error('BACKUP_CONFLICT');return;}
    if(db.prepare('SELECT COUNT(*) AS n FROM short_invites_v2 WHERE room_id=?').get(roomId).n>=30||db.prepare('SELECT COUNT(*) AS n FROM short_invites_v2').get().n>=100_000)throw new Error('STORAGE_QUOTA');
-   db.prepare('INSERT INTO short_invites_v2 VALUES(?,?,?,?,?)').run(id,roomId,deviceId,value,Date.now()+15*60_000);
+    db.prepare('INSERT INTO short_invites_v2 VALUES(?,?,?,?,?)').run(id,roomId,deviceId,value,Date.now()+ROOM_LINK_TTL_MS);
   },
   get(id){const row=db.prepare('SELECT envelope,expires_at FROM short_invites_v2 WHERE id=?').get(id);if(!row||row.expires_at<=Date.now())throw new Error('INVALID_REPAIR_LINK');return JSON.parse(row.envelope);},
  };

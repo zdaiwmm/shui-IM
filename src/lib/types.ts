@@ -136,6 +136,7 @@ export type Vault = {
   personalPeers?: import('./personal-device-binding').PersonalDeviceBinding[];
   /** Durable creator intent. No room services start before server readback. */
   pendingChamberCreate?: true;
+  invitationExpiresAt?: string;
   pendingChamberInvitation?: { secret: string; requestId: string; version: number; expiresAt: string; codeRevision?: number; refreshId?: string };
   pendingChamberHistoryRecovery?: string;
   chamberHistoryRestoreProgress?: {requestId:string;scopeHash:string;doneHeads:string[];count:number;imported:number;
@@ -520,6 +521,7 @@ export type ImageUploadPlanV2 = Omit<LegacyImageUploadPlan, 'v'> & {
 export type ImageUploadPlan = LegacyImageUploadPlan | ImageUploadPlanV2;
 
 export type RoomState = {
+  invitationExpiresAt?: string;
   chamberLifecycle?: import('./chamber-lifecycle').ChamberLifecycle | null;
   chamber?: import('./chamber-invitations').ChamberInvitation | null;
   roomId: string;

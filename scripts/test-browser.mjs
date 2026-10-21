@@ -60,6 +60,7 @@ export const browserGroups = Object.freeze({
     'tests/new-room-passkey.e2e.mjs',
     'tests/new-room-flows.e2e.mjs',
     'tests/new-room-mobile.e2e.mjs',
+    'tests/new-room-invite-privacy.e2e.mjs',
     'tests/room-archive-lifecycle.e2e.mjs',
     'tests/chamber-chat-ui.e2e.mjs',
     'tests/mobile-settings-chat-fixes.e2e.mjs',

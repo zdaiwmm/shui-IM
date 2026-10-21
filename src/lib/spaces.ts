@@ -79,7 +79,7 @@ export async function refreshSpaceUnread(spaces: PrivateSpace[], signal: AbortSi
     }
   }));
 }
-type Directory = { v: 1; spaces: PrivateSpace[] };
+type Directory = { v: 1; spaces: PrivateSpace[]; roomSequence?: number };
 const uuid = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i;
 export function newSpaceRecoveryCode(): string { return newRecoveryCode().code.replace('QR3-', 'QR4-'); }
 export function spaceCodeId(code: string): string {
@@ -97,6 +97,7 @@ export async function spaceCapability(code: string, purpose: 'fetch' | 'write' |
 }
 function validate(value: unknown): Directory {
   const data = value as Directory;
+  if(data?.roomSequence!==undefined&&(!Number.isSafeInteger(data.roomSequence)||data.roomSequence<0||data.roomSequence>=Number.MAX_SAFE_INTEGER))throw new Error('密室编号不完整，请重试');
   if (Array.isArray(data?.spaces) && data.spaces.some(s => s.avatar !== undefined && !validSpaceAvatar(s.avatar))) throw new Error('空间头像不完整，已停止读取');
   if (Array.isArray(data?.spaces) && data.spaces.some(s => s.historyCodes !== undefined &&
     (!Array.isArray(s.historyCodes) || s.historyCodes.length > 32 || s.historyCodes.some(code => typeof code !== 'string' || !/^QR3-[A-Za-z0-9_-]{64}$/.test(code))))) throw new Error('备份目录不完整，请重试');
@@ -107,16 +108,21 @@ function validate(value: unknown): Directory {
       || !Number.isSafeInteger(s.observer.count) || s.observer.count < 0))) throw new Error('空间摘要不完整，已停止读取');
   return data;
 }
-export async function sealSpaceDirectory(code: string, spaces: PrivateSpace[]): Promise<SealedBackup> {
-  const value = validate({ v: 1, spaces });
+export async function sealSpaceDirectory(code: string, spaces: PrivateSpace[], roomSequence?:number): Promise<SealedBackup> {
+  const value = validate({ v: 1, spaces, ...(roomSequence===undefined?{}:{roomSequence}) });
   return sealJson(value, await spaceCapability(code, 'encryption'), `quiet-room-spaces-v1:${spaceCodeId(code)}`);
 }
 export async function openSpaceDirectory(code: string, sealed: SealedBackup): Promise<PrivateSpace[]> {
   return validate(await openJson(sealed, await spaceCapability(code, 'encryption'), `quiet-room-spaces-v1:${spaceCodeId(code)}`)).spaces;
 }
-async function read(code: string): Promise<PrivateSpace[]> {
-  const sealed = await readLocalSpaceDirectory(spaceCodeId(code));
-  return sealed ? openSpaceDirectory(code, sealed as SealedBackup) : [];
+async function readDirectory(code:string):Promise<Directory>{
+  const sealed=await readLocalSpaceDirectory(spaceCodeId(code));
+  return sealed?validate(await openJson(sealed as SealedBackup,await spaceCapability(code,'encryption'),`quiet-room-spaces-v1:${spaceCodeId(code)}`)):{v:1,spaces:[]};
+}
+async function read(code:string):Promise<PrivateSpace[]>{return (await readDirectory(code)).spaces;}
+/** Keep the local sequence inside the encrypted directory, including deletions. */
+async function sealLocalDirectory(code:string,spaces:PrivateSpace[],roomSequence?:number):Promise<SealedBackup>{
+  return sealSpaceDirectory(code,spaces,roomSequence??(await readDirectory(code)).roomSequence);
 }
 /** Directory read/merge/write uses the vault's cross-tab lease; only ciphertext is durable. */
 export async function rememberLocalSpace(session: VaultSession, inheritedCode?: string, rename?: { roomId: string; name: string; avatar?: SpaceAvatar }, summary?: { preview: string; observer?: UnreadObserver; roomId?: string }): Promise<PrivateSpace[]> {
@@ -127,7 +133,16 @@ export async function rememberLocalSpace(session: VaultSession, inheritedCode?: 
     }
     const code = session.vault.spaceRecoveryCode, spaces = await read(code), vault = session.vault;
     let entry = spaces.find(s => s.roomId === vault.roomId);
-    if (!entry) { entry = { roomId: vault.roomId, name: `私密空间 ${spaces.length + 1}`, createdAt: vault.createdAt }; spaces.push(entry); }
+    let sequence:number|undefined;
+    if (!entry) {
+      let name=`私密空间 ${spaces.length+1}`;
+      if(vault.roomArchiveV2){
+        sequence=Math.max((await readDirectory(code)).roomSequence??0,spaces.length,...spaces.map(space=>Number(/^chamber([1-9][0-9]*)$/.exec(space.name)?.[1]??0)))+1;
+        if(!Number.isSafeInteger(sequence)||sequence>=Number.MAX_SAFE_INTEGER)throw new Error('密室编号超出范围');
+        name=`chamber${sequence}`;
+      }
+      entry={roomId:vault.roomId,name,createdAt:vault.createdAt};spaces.push(entry);
+    }
     if (!entry.createdAt && Number.isFinite(Date.parse(vault.createdAt))) entry.createdAt = vault.createdAt;
     const localId = vaultSpaceId(session.stored);
     // A replaced endpoint must not inherit this browser's older endpoint preview.
@@ -152,7 +167,7 @@ export async function rememberLocalSpace(session: VaultSession, inheritedCode?: 
         target.avatar = rename.avatar;
       }
     }
-    await writeLocalSpaceDirectory(session, spaceCodeId(code), await sealSpaceDirectory(code, spaces), mutation);
+    await writeLocalSpaceDirectory(session, spaceCodeId(code), await sealLocalDirectory(code, spaces, sequence), mutation);
     return spaces;
   });
 }
@@ -161,7 +176,7 @@ export async function forgetLocalSpace(session: VaultSession, roomId: string): P
     const code = session.vault.spaceRecoveryCode;
     if (!code) return [];
     const spaces = (await read(code)).filter(space => space.roomId !== roomId);
-    await writeLocalSpaceDirectory(session, spaceCodeId(code), await sealSpaceDirectory(code, spaces), mutation);
+    await writeLocalSpaceDirectory(session, spaceCodeId(code), await sealLocalDirectory(code, spaces), mutation);
     return spaces;
   });
 }
@@ -170,7 +185,7 @@ export async function removeNewRoomFromDirectory(current:VaultSession,target:Vau
   return withVaultMutation(current,async mutation=>{
     const code=current.vault.spaceRecoveryCode;if(!code)throw new Error('本机密室目录尚未就绪');
     const spaces=(await read(code)).filter(space=>space.roomId!==target.vault.roomId);
-    await deleteNewRoomLocal(target,{owner:current,mutation,id:spaceCodeId(code),value:await sealSpaceDirectory(code,spaces)});
+    await deleteNewRoomLocal(target,{owner:current,mutation,id:spaceCodeId(code),value:await sealLocalDirectory(code,spaces)});
     return spaces;
   });
 }
@@ -200,7 +215,7 @@ export async function rememberHistorySources(session: VaultSession, codes: strin
     const code = session.vault.spaceRecoveryCode!, spaces = await read(code);
     const entry = spaces.find(s => s.roomId === session.vault.roomId)!;
     entry.historyCodes = [...new Set([...(entry.historyCodes ?? []), ...codes])].filter(value => value !== entry.code).slice(-32);
-    await writeLocalSpaceDirectory(session, spaceCodeId(code), await sealSpaceDirectory(code, spaces), mutation);
+    await writeLocalSpaceDirectory(session, spaceCodeId(code), await sealLocalDirectory(code, spaces), mutation);
   });
 }
 export async function syncSpaceDirectory(session: VaultSession, signal: AbortSignal): Promise<void> {

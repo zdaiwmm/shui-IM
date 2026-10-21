@@ -1,4 +1,5 @@
 import {createShortInvites} from './short-invites.mjs';
+import { ROOM_LINK_TTL_MS } from '../src/lib/room-link-lifetime.mjs';
 import { createRoomArchives } from './room-archives.mjs';
 import { createSpaceDirectories } from './space-directories.mjs';
 import { createBrowserAccess } from './browser-access.mjs';
@@ -365,7 +366,7 @@ export async function createStore({
       room_id, device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof, access_hash,
       device_name, status, added_by, join_seq, join_receipt_seq, capabilities, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
-    room: db.prepare(`SELECT room_id, access_hash, next_seq, next_receipt_seq, next_mls_event_seq,
+    room: db.prepare(`SELECT room_id, access_hash, new_invite_expiry, next_seq, next_receipt_seq, next_mls_event_seq,
       message_count, message_bytes, created_at, sealed_at, mls_welcome, protocol, mls_epoch_offset, window_from_seq, window_enabled
       FROM rooms WHERE room_id = ?`),
     members: db.prepare(`SELECT device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof,
@@ -602,7 +603,7 @@ export async function createStore({
         JSON.stringify(capabilities),
         createdAt,
       );
-      if(!personalBinding&&capabilities.includes('room-archive-v2'))db.prepare('UPDATE rooms SET new_invite_expiry=? WHERE room_id=?').run(Date.now()+15*60_000,roomId);
+      if(!personalBinding&&capabilities.includes('room-archive-v2'))db.prepare('UPDATE rooms SET new_invite_expiry=? WHERE room_id=?').run(Date.now()+ROOM_LINK_TTL_MS,roomId);
       if (personalBinding) { chamberInvitations.register(roomId, personalBinding); personalDirectory.register(personalBinding.identity); }
       db.exec('COMMIT');
       return { roomId, createdAt, protocol };
@@ -721,6 +722,7 @@ export async function createStore({
       mlsEpochOffset: room.mls_epoch_offset ?? 0,
       createdAt: room.created_at,
       sealedAt: room.sealed_at,
+      ...(room.new_invite_expiry === null ? {} : { invitationExpiresAt: new Date(room.new_invite_expiry).toISOString() }),
       protocol: room.protocol,
       mlsWelcome: room.mls_welcome ? JSON.parse(room.mls_welcome) : null,
       members: statements.members.all(roomId).map(memberRow),
@@ -873,7 +875,7 @@ export async function createStore({
     assertDeviceActive(roomId, initiatorId);
     const modern = initiator.capabilities?.includes('room-archive-v2');
     const expires = Date.parse(expiresAt);
-    if (!Number.isFinite(expires) || expires <= Date.now() || expires > Date.now() + 15 * 60_000) throw new Error('INVALID_REPAIR_LINK');
+    if (!Number.isFinite(expires) || expires <= Date.now() || expires > Date.now() + (modern ? ROOM_LINK_TTL_MS : 15 * 60_000)) throw new Error('INVALID_REPAIR_LINK');
     db.exec('BEGIN IMMEDIATE');
     try {
       // One outstanding automatic replacement per initiator. A regenerated link
@@ -1648,9 +1650,11 @@ export async function createStore({
       if(!validToken(previousToken)||!validToken(token))throw new Error('INVALID_JSON');
       const room=statements.room.get(roomId);
       if(!room||room.new_invite_expiry===null||room.sealed_at)throw new Error('ROOM_SEALED');
-      if(Buffer.from(room.access_hash).equals(hashToken(token)))return;
+      if(Buffer.from(room.access_hash).equals(hashToken(token)))return new Date(room.new_invite_expiry).toISOString();
       if(!Buffer.from(room.access_hash).equals(hashToken(previousToken)))throw new Error('BACKUP_CONFLICT');
-      db.prepare('UPDATE rooms SET access_hash=?,new_invite_expiry=? WHERE room_id=?').run(hashToken(token),Date.now()+15*60_000,roomId);
+      const expiresAt=Date.now()+ROOM_LINK_TTL_MS;
+      db.prepare('UPDATE rooms SET access_hash=?,new_invite_expiry=? WHERE room_id=?').run(hashToken(token),expiresAt,roomId);
+      return new Date(expiresAt).toISOString();
     },
     chamberHistoryRecovery,
     chamberLifecycle,

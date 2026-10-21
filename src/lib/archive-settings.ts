@@ -5,7 +5,7 @@ import { restoreRoomArchive } from './room-archive';
 import { saveVault, withVaultMutation, loadPrivateArchiveItems, type VaultSession } from './vault';
 import { showExplanation } from './explanation-dialog';
 
-type Options = {root:HTMLElement;session:VaultSession;signal:AbortSignal;active:()=>boolean;notice:(text:string,error?:boolean)=>void;back:()=>void;sync:()=>Promise<void>;restored:()=>void;beginPick:()=>boolean;finishPick:()=>Promise<boolean>;saveImage:(blob:Blob)=>Promise<void>};
+type Options = {startWithCredential?:boolean;root:HTMLElement;session:VaultSession;signal:AbortSignal;active:()=>boolean;notice:(text:string,error?:boolean)=>void;back:()=>void;sync:()=>Promise<void>;restored:()=>void;beginPick:()=>boolean;finishPick:()=>Promise<boolean>;saveImage:(blob:Blob)=>Promise<void>};
 export function mountArchiveSettings(o:Options):void {
   let pageAbort:AbortController|undefined;
   const begin=()=>{pageAbort?.abort();pageAbort=new AbortController();return AbortSignal.any([o.signal,pageAbort.signal]);};
@@ -49,8 +49,8 @@ export function mountArchiveSettings(o:Options):void {
   function card() {
     const signal=begin();let imageUrl:string|undefined,imageBlob:Blob|undefined;
     signal.addEventListener('abort',()=>{if(imageUrl)URL.revokeObjectURL(imageUrl);},{once:true});
-    o.root.innerHTML=shell('保存恢复图片',`<p class="backup-intro">设置至少 12 个字符的独立恢复口令。图片和口令都要保留，口令不会上传。</p><form class="backup-settings-group" data-card-form novalidate><label class="passkey-name-field">恢复口令<input name="password" type="password" autocomplete="new-password" maxlength="128" required></label><label class="passkey-name-field">再次输入<input name="confirm" type="password" autocomplete="new-password" maxlength="128" required></label><button class="primary-button" type="submit">生成恢复图片</button></form><section data-save hidden><p class="backup-intro">先保存原图，再选择刚保存的图片并输入口令进行验证。</p><a class="primary-button" data-download download="聊天归档恢复卡.png">保存恢复图片</a><img data-preview alt="已用恢复口令加密的归档恢复图片" style="width:100%;max-width:320px;display:block;margin:24px auto"><form data-verify novalidate><label class="passkey-name-field">选择已保存的恢复图片<input name="image" type="file" accept="image/png" required></label><label class="passkey-name-field">恢复口令<input name="password" type="password" autocomplete="off" maxlength="128" required></label><button class="primary-button" type="submit">验证已保存的图片</button></form></section>`);
-    o.root.querySelector('[data-back]')!.addEventListener('click',settings);
+    o.root.innerHTML=shell('聊天记录恢复凭证',`<p class="backup-intro">设置独立恢复口令，保护图片凭证中的备份定位信息与解密材料。恢复时需同时提供原图和口令，图片与口令只在本机读取，不上传服务器。口令至少 12 个字符。</p><form class="backup-settings-group" data-card-form novalidate><label class="passkey-name-field">恢复口令<input name="password" type="password" autocomplete="new-password" maxlength="128" required></label><label class="passkey-name-field">再次输入<input name="confirm" type="password" autocomplete="new-password" maxlength="128" required></label><button class="primary-button" type="submit">生成恢复图片</button></form><section data-save hidden><p class="backup-intro">先保存原图，再选择刚保存的图片并输入口令进行验证。</p><a class="primary-button" data-download download="聊天归档恢复卡.png">保存恢复图片</a><img data-preview alt="已用恢复口令加密的归档恢复图片" style="width:100%;max-width:320px;display:block;margin:24px auto"><form data-verify novalidate><label class="passkey-name-field">选择已保存的恢复图片<input name="image" type="file" accept="image/png" required></label><label class="passkey-name-field">恢复口令<input name="password" type="password" autocomplete="off" maxlength="128" required></label><button class="primary-button" type="submit">验证已保存的图片</button></form></section>`);
+    o.root.querySelector('[data-back]')!.addEventListener('click',()=>{if(o.startWithCredential){pageAbort?.abort();o.back();}else settings();});
     bindHelp(signal);
     bindFileInputs(signal);
     o.root.querySelector<HTMLAnchorElement>('[data-download]')!.addEventListener('click',event=>{event.preventDefault();if(imageBlob)void o.saveImage(imageBlob).catch(report);});
@@ -70,7 +70,7 @@ export function mountArchiveSettings(o:Options):void {
       if(signal.aborted||!active())return;
       if(key.descriptor.id!==o.session.vault.roomArchiveV2!.key.descriptor.id)throw new Error('这张图片不属于当前密室的归档');
       await withVaultMutation(o.session,async lease=>{signal.throwIfAborted();const archive=o.session.vault.roomArchiveV2!,before=archive.cardVerified;archive.cardVerified=true;try{await saveVault(o.session,lease);}catch(cause){archive.cardVerified=before;throw cause;}});
-      verify.reset();settings();o.notice('恢复图片已保存并验证');
+      verify.reset();if(o.startWithCredential){pageAbort?.abort();o.back();}else settings();o.notice('恢复凭证已设置');
     });});
   }
   function restore() {
@@ -88,5 +88,5 @@ export function mountArchiveSettings(o:Options):void {
       if(signal.aborted||!active())return;o.restored();pageAbort?.abort();o.back();o.notice(`已在本机恢复 ${count} 条记录，正在合并到当前备份`);
     });});
   }
-  settings();
+  if(o.startWithCredential)card();else settings();
 }

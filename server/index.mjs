@@ -780,7 +780,7 @@ export async function startServer(options = {}) {
       if(newInvitation&&request.method==='POST'){
         const member=requireActiveDevice(request,newInvitation[1]);if(member.role!=='creator'||!member.capabilities?.includes('room-archive-v2'))throw new Error('UNAUTHORIZED');
         if(!allowRequest(request,`new-invitation:${newInvitation[1]}`,30)){json(request,response,429,{code:'RATE_LIMITED',error:'请稍后重试'});return;}
-        const body=await readJson(request);store.rotateNewRoomInvitation(newInvitation[1],body.previousToken,body.token);json(request,response,200,{saved:true});return;
+        const body=await readJson(request);const expiresAt=store.rotateNewRoomInvitation(newInvitation[1],body.previousToken,body.token);json(request,response,200,{saved:true,expiresAt});return;
       }
       const shortInviteWrite=pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/short-invites/([A-Za-z0-9_-]{22})$`));
       if(shortInviteWrite&&request.method==='PUT'){
