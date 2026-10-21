@@ -29,7 +29,7 @@ try {
  await a.locator('.chat-shell').waitFor();assert.equal(await a.locator('.space-invite-overlay').count(),0);await a.locator('#copy-invite').waitFor();
  assert.equal(await a.locator('#entrance-card-banner').count(),0);
  assert.match(await a.locator('#invite-countdown').textContent(),/剩余 \d+:\d{2}/);
- await a.locator('#chat-settings').click();await a.locator('.space-drawer-overlay[aria-label="设置"]').waitFor();await a.locator('.space-close').click();await a.locator('.space-drawer-overlay').waitFor({state:'detached'});
+ await a.locator('#chat-settings').click();await a.locator('.space-drawer-overlay[aria-label="设置"]').waitFor();await a.locator('.space-close,.settings-dismiss-handle,.space-return').click();await a.locator('.space-drawer-overlay').waitFor({state:'detached'});
  await a.locator('#open-spaces').click();await a.locator('.space-row.is-selected').click();await a.locator('.space-drawer-overlay').waitFor({state:'detached'});
  assert.equal(await a.locator('.space-invite-overlay').count(),0,'Waiting-space row returns directly to chat');
  assert.match(await a.locator('#invite-countdown').textContent(),/剩余/);

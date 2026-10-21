@@ -10,9 +10,9 @@ try {
     await page.clock.runFor(seconds * 1000 - 10001); assert.equal((await state()).prompt, false);
     await page.clock.runFor(101); assert.equal((await state()).prompt, true);
     const dimensions = await page.locator('.idle-lock-prompt').evaluate(button => ({ hit: button.getBoundingClientRect().height,
-      visual: button.firstElementChild.getBoundingClientRect().height, action: button.querySelector('.idle-lock-extend').getBoundingClientRect().height,
+      visual: button.firstElementChild.getBoundingClientRect().height, action: button.querySelector('.idle-lock-extend').getBoundingClientRect().height,label:button.querySelector('.idle-lock-label').getBoundingClientRect().height,copy:button.textContent,actionBackground:getComputedStyle(button.querySelector('.idle-lock-extend')).backgroundColor,
       fill: button.querySelector('.idle-lock-fill').getBoundingClientRect().width, capsule: button.firstElementChild.clientWidth }));
-    assert.equal(dimensions.hit, 44); assert.equal(dimensions.visual, 28); assert.equal(dimensions.action, 20);
+    assert.equal(dimensions.hit, 44); assert.equal(dimensions.visual, 28); assert.equal(dimensions.action,dimensions.label);assert.equal(dimensions.copy,'即将锁定，进行任意操作可延期');assert.equal(dimensions.actionBackground,'rgba(0, 0, 0, 0)');
     assert.ok(dimensions.fill > dimensions.capsule * .96);
     await page.clock.runFor(3000);
     await page.waitForTimeout(150); // CSS compositor time is independent of the mocked JS clocks.

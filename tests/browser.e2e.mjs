@@ -427,7 +427,7 @@ try {
   invariant(await creator.locator('.recovery-status-badge').count() === 0, 'Recovery-code status rows are still shown');
   await creator.locator('#recovery-center-back').click();
   await creator.locator('.space-drawer-overlay[aria-label="设置"].is-restored').waitFor();
-  await creator.locator('.space-close').click();
+  await creator.locator('.space-close,.settings-dismiss-handle,.space-return').click();
   await creator.locator('.space-drawer-overlay').waitFor({state:'detached'});
   await creator.locator('#app:not([data-page-transition]) > .chat-shell').waitFor();
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-shield-entry-card-mobile.png') });
@@ -1020,7 +1020,7 @@ try {
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'devices-mobile.png') });
   await creator.locator('#device-back').click();
   await creator.locator('.space-drawer-overlay[aria-label="设置"].is-restored').waitFor();
-  await creator.locator('.space-close').click();
+  await creator.locator('.space-close,.settings-dismiss-handle,.space-return').click();
   await creator.locator('.space-drawer-overlay').waitFor({state:'detached'});
   await creator.locator('.chat-shell').waitFor();
   await assertStablePage(creator, 'Chat return from devices');
@@ -1178,7 +1178,7 @@ try {
   invariant(await creator.locator('#hide-local-recovery').textContent() === '稍后再保存', 'Recovery-code action has the wrong label');
   await creator.locator('#hide-local-recovery').click();
   await creator.locator('.space-drawer-overlay[aria-label="设置"].is-restored').waitFor();
-  await creator.locator('.space-close').click();
+  await creator.locator('.space-close,.settings-dismiss-handle,.space-return').click();
   await creator.locator('.space-drawer-overlay').waitFor({state:'detached'});
   await creator.locator('.chat-shell').waitFor();
   const sourceIdentity = await creator.evaluate(async () => {

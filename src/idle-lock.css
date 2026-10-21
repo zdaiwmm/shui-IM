@@ -26,3 +26,6 @@
 .auto-lock-options { border: 0; padding: 0; min-width: 0; display: grid; gap: 4px; margin-block: 16px; }
 .auto-lock-options label { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
 @media (prefers-reduced-motion: reduce) { .idle-lock-fill { transition: none; } }
+/* One sentence, with the existing countdown surface and no separate defer chip. */
+.idle-lock-capsule { padding-inline:10px; gap:0; }
+.idle-lock-extend { height:auto; min-width:0; padding:0; border-radius:0; background:transparent; color:inherit; font-size:inherit; white-space:nowrap; }

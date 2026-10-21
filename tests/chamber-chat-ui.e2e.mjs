@@ -33,12 +33,12 @@ try {
   assert.equal(await heart.locator('.presence-base').evaluate(n=>getComputedStyle(n).opacity),'1');
   assert.equal(await heart.locator('.presence-heart').evaluate(n=>getComputedStyle(n).fill),await heart.evaluate(n=>{const test=document.createElement('span');test.style.color='var(--space-heart-red)';n.parentElement.append(test);const color=getComputedStyle(test).color;test.remove();return color;}));
   await page.evaluate(()=>{fixture.app.rolePresence={creator:true,joiner:true};fixture.app.updatePeerStatus();});
-  assert.equal(await heart.getAttribute('data-phase'),'charging');
+  assert.equal(await heart.getAttribute('data-phase'),'online');assert.equal(await heart.locator('.presence-whole').evaluate(n=>getComputedStyle(n).display),'block');assert.ok(await heart.locator('.presence-half').evaluateAll(nodes=>nodes.every(n=>getComputedStyle(n).display==='none')));
   await page.clock.runFor(4500);
   assert.equal(await heart.getAttribute('data-phase'),'online');
   await page.evaluate(()=>fixture.app.presenceCircuit.sent());await page.clock.runFor(32);
-  assert.equal(await heart.getAttribute('data-phase'),'pulsing');
-  assert.notEqual(await heart.locator('[data-half=right]').getAttribute('transform'),'translate(2 0)');
+  assert.equal(await heart.getAttribute('data-phase'),'online-pulsing');
+  assert.ok(await heart.locator('.presence-heart').getAttribute('transform'));assert.equal(await heart.locator('.presence-whole').evaluate(n=>getComputedStyle(n).display),'block');
   await page.evaluate(()=>{fixture.app.connectionState='disconnected';fixture.app.rolePresence=null;fixture.app.updatePeerStatus();});
   assert.equal(await heart.getAttribute('data-phase'),'unknown');
   assert.equal(await heart.locator('[data-arc][d]').count(),0);
@@ -96,10 +96,10 @@ try {
   assert.equal(await page.evaluate(()=>document.activeElement.classList.contains('auto-lock-duration')),true);
   await page.evaluate(()=>{fixture.fresh(0);fixture.app.renderCoverPractice();});await page.clock.runFor(300);
   const geometry=await page.evaluate(()=>{
-    const note=document.querySelector('.cover-practice-notice').getBoundingClientRect(),hot=document.querySelector('.practice-hotspot').getBoundingClientRect();
-    return{noteCenter:note.y+note.height/2,hotCenter:hot.y+hot.height/2,gap:hot.x-note.right};
+    const hotspot=document.querySelector('.practice-hotspot'),hot=hotspot.getBoundingClientRect(),label=hotspot.querySelector('span').getBoundingClientRect();
+    return{dx:label.x+label.width/2-hot.x-hot.width/2,dy:label.y+label.height/2-hot.y-hot.height/2,notes:document.querySelectorAll('.cover-practice-notice').length};
   });
-  assert.ok(Math.abs(geometry.noteCenter-geometry.hotCenter)<1&&geometry.gap>=40,JSON.stringify(geometry));
+  assert.ok(Math.abs(geometry.dx)<1&&Math.abs(geometry.dy)<1&&geometry.notes===0,JSON.stringify(geometry));
   await capture('cover-practice-alignment');
   await page.locator('.practice-hotspot').focus();await page.keyboard.down('Enter');await page.clock.runFor(1100);await page.keyboard.up('Enter');await page.clock.runFor(300);
   assert.equal(await page.locator('#skip-cover').evaluate(node=>getComputedStyle(node).backgroundColor),'rgba(0, 0, 0, 0)');

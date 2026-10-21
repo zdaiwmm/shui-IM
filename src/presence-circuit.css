@@ -105,3 +105,6 @@
 }
 
 .chat-header[data-presence-style="heart"] .presence-electric { display: none; }
+/* Online compact hearts stay fused even when a legacy style displays halves. */
+.chat-header[data-presence-style=heart] .presence-circuit[data-self=true][data-peer=true] .presence-half { display:none; }
+.chat-header[data-presence-style=heart] .presence-circuit[data-self=true][data-peer=true] .presence-whole { display:block; fill:var(--circuit-heart); }

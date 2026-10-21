@@ -123,7 +123,7 @@ export type Vault = {
   pendingNewInvite?: {previousToken:string;token:string};
   copiedRoomLink?: { source: string; url: string };
   archiveState?: import('./room-archive').RoomArchiveState;
-  roomArchiveV2?: { key: import('./room-archive-crypto').ArchiveKey; cardVerified?: boolean; credential?: string };
+  roomArchiveV2?: { key: import('./room-archive-crypto').ArchiveKey; cardVerified?: boolean; credential?: string; exported?: boolean; rotation?: { key: import('./room-archive-crypto').ArchiveKey; credential: string; expected: string; next: string; proof: string } };
   /** Local record namespace for independently recovered endpoints; never a server room ID. */
   localDataScope?: string;
   /** Original local preference/draft owner when this browser rotates its device keys. */

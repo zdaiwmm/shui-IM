@@ -17,12 +17,19 @@ const secret = (seed: string, purpose: string) => {
   return Uint8Array.from(hkdf(sha256, fromBase64Url(seed), new Uint8Array(), encoder.encode(`quiet-room-archive-v2:${purpose}`), 32));
 };
 export type ArchiveDescriptor = { v: 2; id: string; encryptionKey: string; signingKey: string; readHash: string };
-export type ArchiveKey = { v: 2; seed: string; descriptor: ArchiveDescriptor };
+export type ArchiveKey = { v: 2; seed: string; descriptor: ArchiveDescriptor; readToken?: string };
 export type ArchiveObject = { v: 2; archiveId: string; id: string; enc: string; ciphertext: string; signature: string };
 export type ProtectedArchiveCard = { format: 'quiet-room-private-archive'; v: 2; kdf: VaultKdf; iv: string; ciphertext: string };
 export const MAX_ARCHIVE_OBJECT_BYTES = 4_300_000;
 export const MAX_CARD_BYTES = 4096;
 export function archiveReadToken(seed: string): string { const raw = secret(seed, 'read'); try { return toBase64Url(raw); } finally { raw.fill(0); } }
+export const archiveAccessToken = (key: ArchiveKey): string => key.readToken ?? archiveReadToken(key.seed);
+export const archiveAccessHash = (token: string): string => hash(encoder.encode(token));
+export function archiveAccessProof(key: ArchiveKey, room: string, device: string, expected: string, next: string): string {
+  validateArchiveKey(key); const signing = secret(key.seed, 'sign');
+  try { return toBase64Url(ed25519.sign(bytes(['quiet-room-archive-access-v1', key.descriptor.id, room, device, expected, next]), signing)); }
+  finally { signing.fill(0); }
+}
 export function descriptorForSeed(seed: string): ArchiveDescriptor {
   const encryption = secret(seed, 'decrypt'), signing = secret(seed, 'sign');
   try {
@@ -37,7 +44,7 @@ export function newArchiveKey(): ArchiveKey {
 }
 export function validateArchiveKey(value: unknown): asserts value is ArchiveKey {
   const key = value as ArchiveKey;
-  if (!key || Object.keys(key).sort().join(',') !== 'descriptor,seed,v' || key.v !== 2 || canonicalStringify(descriptorForSeed(key.seed)) !== canonicalStringify(key.descriptor)) throw new Error('恢复材料校验失败');
+  if (!key || !['descriptor,seed,v','descriptor,readToken,seed,v'].includes(Object.keys(key).sort().join(',')) || (Object.hasOwn(key,'readToken') && !/^[A-Za-z0-9_-]{43}$/.test(key.readToken!)) || key.v !== 2 || canonicalStringify(descriptorForSeed(key.seed)) !== canonicalStringify(key.descriptor)) throw new Error('恢复材料校验失败');
 }
 /** Only archive data enters this envelope. Device credentials and MLS state are never inputs. */
 export async function sealArchiveObject(key: ArchiveKey, payload: unknown): Promise<ArchiveObject> {

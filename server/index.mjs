@@ -795,6 +795,15 @@ export async function startServer(options = {}) {
         response.setHeader('Cache-Control','no-store');json(request,response,200,store.shortInvites.get(shortInviteRead[1]));return;
       }
 
+      const archiveAccess = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/private-archives/([A-Za-z0-9_-]{43})/access$`));
+      if(archiveAccess){
+        const [,roomId,id]=archiveAccess,member=requireActiveDevice(request,roomId);
+        if(request.method!=='PUT'||!member.capabilities?.includes('room-archive-v2'))throw new Error('UNAUTHORIZED');
+        if(!allowRequest(request,`archive-access:${roomId}`,20)){json(request,response,429,{code:'RATE_LIMITED',error:'请稍后重试'});return;}
+        const body=JSON.parse((await readBody(request,4096)).toString('utf8'));
+        store.roomArchives.rotateAccess(roomId,member.deviceId,id,body.expected,body.next,body.proof);
+        json(request,response,200,{saved:true});return;
+      }
       const privateArchiveWrite = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/private-archives/([A-Za-z0-9_-]{43})(?:/([0-9a-f-]{36}))?$`));
       if (privateArchiveWrite) {
         const [,roomId,archiveId,objectId] = privateArchiveWrite;

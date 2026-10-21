@@ -102,8 +102,8 @@
 #app .space-style-preview.capsule .presence-circuit { width:84px; height:24px; }
 #app .space-style-preview.heart .presence-circuit { width:28px; height:28px; --circuit-heart:var(--space-heart-red); }
 #app .space-style-preview.heart .presence-wires { display:none; }
-#app .space-style-preview.heart .presence-half { display:block; opacity:1; }
-#app .space-style-preview.heart .presence-whole { display:none; }
+#app .space-style-preview.heart .presence-half { display:none; opacity:1; }
+#app .space-style-preview.heart .presence-whole { display:block; }
 #app .space-presence-note { margin:20px 0; font-size:.75rem; }
 /* Light surfaces need an explicit boundary, not a near-white fill alone. */
 :root[data-color-scheme=light] #app :is(.page-back-footer,.chamber-page-footer,.privacy-page-footer,.recovery-flow-footer) > .page-back-button {

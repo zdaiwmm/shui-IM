@@ -58,8 +58,9 @@ export class PresenceCircuit {
     if (self === this.self && peer === this.peer) return;
     this.self = self;
     this.peer = peer;
+    this.element.dataset.self=String(self);this.element.dataset.peer=String(peer);
     this.reset();
-    if (self === true && peer === true && !this.motion.matches && !document.hidden) {
+    if (self === true && peer === true && this.element.dataset.compact!=='true' && !this.motion.matches && !document.hidden) {
       this.start('connect');
     }
   }
@@ -97,6 +98,7 @@ export class PresenceCircuit {
     this.frame = null;
     this.mode = null;
     this.queued = [];
+    this.element.dataset.self=String(this.self);this.element.dataset.peer=String(this.peer);
     this.heart.removeAttribute('transform');
     this.arcs.forEach(arc => arc.removeAttribute('d'));
     this.left.setAttribute('transform', 'translate(-2 0)');
@@ -138,11 +140,11 @@ export class PresenceCircuit {
     // The corner heart has no wire to wait on. Shake the sender's half immediately.
     if (this.mode === 'send' && compact && elapsed < 1600) {
       this.arcs.forEach(arc => arc.removeAttribute('d'));
-      this.element.dataset.phase = 'pulsing';
+      this.element.dataset.phase = both?'online-pulsing':'pulsing';
       const t = elapsed / 1600;
       const shake = Math.sin(t * Math.PI * 14) * (1 - t);
-      const part = this.side === 'right' ? this.right : this.left;
-      const base = this.side === 'right' ? 2 : -2;
+      const part = both?this.heart:this.side === 'right' ? this.right : this.left;
+      const base = both?0:this.side === 'right' ? 2 : -2;
       part.setAttribute('transform', `translate(${base + shake * 2.6} ${shake * 1.5}) rotate(${shake * 18}) scale(${1 + Math.abs(shake) * .2})`);
       this.frame = requestAnimationFrame(this.tick);
       return;

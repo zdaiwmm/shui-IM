@@ -40,8 +40,8 @@ html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confi
 .chamber-dialogue { transform-box:view-box; animation:chamber-dialogue-left 4.2s cubic-bezier(.22,1,.36,1) infinite; }
 .chamber-dialogue-left { transform-origin:34% 50%; }
 .chamber-dialogue-right { transform-origin:66% 50%; animation-name:chamber-dialogue-right; }
-@keyframes chamber-dialogue-left { 0%,4%,34%,100% { transform:perspective(360px) rotateY(0deg); } 14%,22% { transform:perspective(360px) rotateY(-58deg); } }
-@keyframes chamber-dialogue-right { 0%,4%,34%,100% { transform:perspective(360px) rotateY(0deg); } 14%,22% { transform:perspective(360px) rotateY(58deg); } }
+@keyframes chamber-dialogue-left { 0%,4%,34%,100% { transform:translateX(0) scaleX(1); } 14%,22% { transform:translateX(-2px) scaleX(.53); } }
+@keyframes chamber-dialogue-right { 0%,4%,34%,100% { transform:translateX(0) scaleX(1); } 14%,22% { transform:translateX(2px) scaleX(.53); } }
 #app .device-management-page .device-toolbar { padding:0 0 12px; border:0; display:flex; align-items:center; justify-content:space-between; gap:12px; }
 #app .device-management-page .device-toolbar > div { display:grid; gap:4px; }
 #app .device-management-page .device-toolbar strong { font-size:1rem; }
@@ -134,3 +134,105 @@ html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confi
 @media(max-width:360px) { #app .archive-credential-card { padding:18px; } .archive-card-brand > span { display:none; } }
 @media(prefers-reduced-motion:reduce) { .chamber-dialogue,.creation-track span { animation:none; } }
 @media(forced-colors:active) { .archive-credential-card,.archive-upload,.archive-dialog { border:1px solid CanvasText; } }
+
+/* V1.23: current P1 controls and complete, explicit credential stages. */
+#app .room-creation-dialog .chamber-dialogue { animation-duration:3.6s; }
+#app .creation-track span { animation:none; transform:scaleX(0); }
+#app .room-creation-dialog li { transition:color 180ms var(--motion-out); }
+#app .room-creation-dialog li[data-state=done] { color:var(--ink); }
+#app .room-creation-dialog li[data-state=active]::before { color:var(--accent); }
+#app .archive-steps { display:flex; justify-content:space-between; gap:8px; list-style:none; margin:0 0 24px; padding:0; }
+#app .archive-steps li { display:flex; align-items:center; gap:7px; flex:1; min-width:0; color:var(--ink-muted); font-size:.75rem; line-height:1.4; }
+#app .archive-steps b { display:grid; place-items:center; flex:0 0 24px; width:24px; height:24px; border-radius:50%; background:var(--surface); color:var(--ink-muted); font-size:.75rem; }
+#app .archive-steps b svg { width:14px; height:14px; }
+#app .archive-steps li[data-state=active] { color:var(--accent); font-weight:600; }
+#app .archive-steps li[data-state=active] b { background:var(--action-surface); color:var(--action-ink); }
+#app .archive-steps li[data-state=done] b { background:var(--accent-soft); color:var(--accent); }
+#app .archive-password-form { gap:20px; }
+#app .archive-password-control { display:block; position:relative; }
+#app .archive-password-control input { box-sizing:border-box; padding:14px 56px 14px 14px; min-height:52px; border:0; background:var(--surface); }
+#app .archive-password-control > button { display:grid; place-items:center; position:absolute; right:4px; top:4px; width:44px; height:44px; min-width:44px; padding:0; border:0; background:transparent; color:var(--ink-muted); }
+#app .archive-password-control svg { width:20px; height:20px; }
+#app .archive-page .archive-password-form > .primary-button { width:100%; min-height:48px; background:var(--action-surface); color:var(--action-ink); margin-top:8px; }
+#app .archive-form-note,.archive-step-note { margin:0; color:var(--ink-muted); font-size:.8125rem; line-height:1.6; }
+#app .archive-page .backup-header .backup-heading { flex:1; }
+#app .archive-change-password { flex:none; min-height:44px; padding:8px 0 8px 12px; border:0; background:transparent; color:var(--accent); font-size:.8125rem; white-space:nowrap; }
+#app .archive-credential-page > .backup-content { display:flex; flex-direction:column; align-items:stretch; gap:12px; padding-block:8px; }
+#app .archive-credential-page .archive-steps { margin:0; flex:none; }
+#app .archive-image-preview { position:relative; display:flex; align-items:center; justify-content:center; flex:1 1 0; min-height:120px; margin:0; overflow:hidden; }
+#app .archive-image-preview img { display:block; width:auto; max-width:100%; height:100%; max-height:100%; aspect-ratio:3/4; object-fit:contain; border-radius:16px; }
+#app .archive-image-preview img:not([src]) { visibility:hidden; }
+#app .archive-image-preview p { position:absolute; inset:0; display:grid; place-items:center; padding:20px; text-align:center; font-size:.875rem; color:var(--ink-muted); }
+#app .archive-credential-page .archive-card-status { flex:none; border:0; padding:0; font-size:.75rem; }
+#app .archive-credential-page .archive-card-actions { margin:0; flex:none; gap:8px; }
+#app .archive-credential-page .archive-card-actions button { min-height:44px; }
+#app .archive-credential-page .archive-step-note { font-size:.75rem; flex:none; }
+#app .archive-upload-main { min-height:136px; margin:0 0 12px; padding:20px; gap:10px; box-sizing:border-box; }
+#app .archive-upload > svg { display:block; flex:none; align-self:center; width:28px; height:28px; }
+#app .archive-selected { display:flex; align-items:center; gap:16px; padding:12px; margin:12px 0 20px; border-radius:12px; background:var(--surface); }
+#app .archive-selected img { width:66px; height:88px; border-radius:6px; object-fit:contain; flex:none; }
+#app .archive-selected strong { font-size:.875rem; overflow-wrap:anywhere; }
+#app .archive-selected p { margin:6px 0 0; color:var(--ink-muted); font-size:.75rem; line-height:1.5; }
+#app .archive-page [data-restore-submit] { margin-top:24px; }
+#app :is(.archive-dialog,.archive-page) progress { appearance:none; display:block; width:100%; height:5px; border:0; border-radius:8px; overflow:hidden; background:var(--surface); }
+#app :is(.archive-dialog,.archive-page) progress::-webkit-progress-bar { background:var(--surface); border-radius:8px; }
+#app :is(.archive-dialog,.archive-page) progress::-webkit-progress-value { background:var(--accent); border-radius:8px; }
+#app :is(.archive-dialog,.archive-page) progress::-moz-progress-bar { background:var(--accent); border-radius:8px; }
+#app .archive-dialog progress:indeterminate { opacity:.5; }
+#app .archive-page [hidden] { display:none !important; }
+#app .archive-page .archive-restore-details { margin-block:20px; }
+#app .form-input-overlay.dialog-surface,#app .form-input-overlay .form-input-panel { transform:none; transition:none; animation:none; }
+#app .form-input-password #form-input-draft { padding-right:120px; }
+#app .form-input-panel .form-input-password-toggle { position:absolute; right:68px; top:2px; bottom:2px; min-width:44px; width:44px; min-height:44px; padding:0; display:grid; place-items:center; }
+#app .form-input-password-toggle svg { width:20px; height:20px; }
+/* The top sheet ends above the page bottom; its handle owns dismissal, content owns scrolling. */
+#app .is-settings-sheet.space-drawer-overlay { background:rgb(10 8 14 / .28); }
+#app .is-settings-sheet.space-drawer-overlay > .space-drawer { inset:0 0 auto; width:100%; height:calc(100% - max(64px,8%)); max-height:calc(100% - 64px); padding:0; border:0; border-radius:0 0 20px 20px; transform:translateY(-100%); background:var(--paper); }
+#app .is-settings-sheet.space-drawer-overlay.is-visible > .space-drawer { transform:translateY(0); }
+#app .is-settings-sheet.space-drawer-overlay.is-closing > .space-drawer { transform:translateY(-100%); }
+#app :is(.is-settings-sheet,.is-space-list-page) .space-drawer-header { box-sizing:border-box; min-height:0; padding:calc(env(safe-area-inset-top) + 18px) 20px 18px; border:0; text-align:left; }
+#app :is(.is-settings-sheet,.is-space-list-page) .space-drawer-header h2 { margin:0; font-size:1.625rem; line-height:1.25; font-weight:600; color:var(--ink); letter-spacing:normal; }
+#app .settings-dismiss-handle { display:grid; place-items:center; width:100%; min-height:44px; border:0; background:transparent; touch-action:none; flex:none; }
+#app .settings-dismiss-handle span { display:block; width:32px; height:4px; border-radius:4px; background:var(--ink-faint); }
+#app .is-settings-sheet .space-drawer-scroll { padding:4px 20px 0; }
+#app .space-return { width:100%; min-height:44px; border:0; border-radius:12px; padding:10px 12px; color:var(--ink); background:var(--surface); font-size:.875rem; }
+#app .is-space-list-page .space-drawer-footer { display:grid; gap:8px; }
+#app .is-space-list-page .space-row { padding:16px; margin-bottom:8px; border-radius:12px; background:var(--surface); }
+#app .is-space-list-page .space-row.is-selected { background:var(--accent-soft); }
+/* Equal 34px visible planes inside 44px targets. */
+#app > .chat-shell > .chat-header.chamber-chat-header { background:transparent; background-image:none; backdrop-filter:none; -webkit-backdrop-filter:none; filter:none; box-shadow:none; }
+#app .chat-shell > .chat-header.chamber-chat-header[data-presence-style=capsule] > .peer-summary.chamber-presence-capsule { box-sizing:border-box; height:44px; min-height:44px; max-height:44px; padding:7px 12px; gap:1px; }
+#app .chamber-chat-header[data-presence-style=capsule] .peer-summary > .presence-heading { height:18px; gap:5px; }
+#app .chamber-chat-header[data-presence-style=capsule] .presence-circuit { width:68px; height:17px; }
+#app .chamber-chat-header[data-presence-style=capsule] .presence-row { font-size:.6875rem; line-height:17px; }
+#app .chamber-chat-header[data-presence-style=capsule] .peer-summary > .peer-status { line-height:11px; font-size:.625rem; }
+#app .presence-circuit[data-compact=true][data-self=true][data-peer=true] .presence-half { display:none; }
+#app .presence-circuit[data-compact=true][data-self=true][data-peer=true] .presence-whole { display:block; fill:var(--circuit-heart); }
+#app .gallery-header > .gallery-tabs { box-sizing:border-box; padding-inline:4px; }
+#app .gallery-tabs::before { inset:4px auto 4px 4px; width:calc(50% - 4px); }
+#app .device-management-page .device-toolbar { flex-direction:column; align-items:stretch; gap:16px; margin-bottom:16px; }
+#app .device-management-page .device-toolbar > button { width:100%; min-height:44px; margin:0; white-space:normal; text-wrap:balance; }
+#app .device-management-page .device-card > button { grid-column:1 / -1; justify-self:stretch; width:100%; margin-top:8px; white-space:normal; text-wrap:balance; }
+#app .device-management-page .device-card strong { line-height:1.6; }
+#app .cover-practice-page .practice-hotspot { display:grid; place-items:center; }
+#app .cover-practice-page .practice-hotspot::before,#app .cover-practice-page .practice-hotspot::after { transform-origin:center; }
+#app .cover-practice-confirm p { font-size:.875rem; line-height:1.6; }
+#app .cover-style-thumbnail { display:block; position:relative; padding:0; height:160px; min-height:160px; overflow:hidden; }
+#app .cover-preview-viewport { display:block; position:absolute; inset:0; overflow:hidden; background:var(--paper-pure); }
+#app .cover-preview-canvas { display:block; position:absolute; top:50%; left:50%; right:auto; bottom:auto; transform-origin:center; pointer-events:none; background:var(--paper-pure); }
+#app .cover-preview-hotspot { position:absolute; right:max(4px,env(safe-area-inset-right)); bottom:max(4px,env(safe-area-inset-bottom)); display:grid; place-items:center; width:80px; height:80px; border-radius:24px; background:var(--accent-soft); color:var(--accent); font-size:13px; outline:2px dashed var(--accent); outline-offset:3px; }
+@media(max-height:580px) { #app .archive-credential-page > .backup-content { overflow:auto; } #app .archive-image-preview { flex:none; height:200px; } }
+@media(prefers-reduced-motion:reduce) { #app :is(.archive-dialog,.archive-page) progress::-webkit-progress-value { transition:none; } }
+#app .cover-practice-page .practice-hotspot::before,#app .cover-practice-page .practice-hotspot::after { inset:0; margin:0; width:auto; height:auto; background:transparent; }
+#app .cover-preview-hotspot::after { display:none; }
+#app .is-settings-sheet .space-drawer-footer .space-back { width:100%; min-height:44px; border-radius:12px; background:var(--surface); color:var(--ink); }
+#app .is-settings-sheet.space-drawer-overlay.is-visible > .space-drawer { transform:translateY(var(--settings-drag,0px)); }
+#app .is-settings-sheet.space-drawer-overlay > .space-drawer.is-settings-dragging { transition:none; }
+/* These headers no longer have the legacy three-column leading/close slots. */
+#app :is(.is-settings-sheet,.is-space-list-page) .space-drawer-header { display:flex; align-items:center; }
+#app :is(.is-settings-sheet,.is-space-list-page) .space-drawer-header h2 { flex:1; min-width:0; }
+#app .is-space-list-page .space-drawer-footer { grid-template-columns:minmax(0,1fr); }
+#app .is-space-list-page .space-drawer-footer .space-create { box-sizing:border-box; width:100%; max-width:none; justify-self:stretch; justify-content:center; }
+/* Labels sit outside individual filled fields, rather than merging into a form card. */
+#app .archive-page .archive-password-form { margin:0; padding:0; border:0; border-radius:0; background:transparent; box-shadow:none; }
+#app :is(.is-settings-sheet,.is-space-list-page) .space-drawer-header h2 { text-align:left; }

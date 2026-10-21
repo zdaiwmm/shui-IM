@@ -121,15 +121,15 @@ try {
   assert.equal(await page.locator('.space-preview-hint').count(), 0);
   assert.equal(await page.locator('.space-row').count(),2);
   assert.equal(await page.locator('.space-avatar').count(),3);
-  assert.equal(await page.locator('.space-row.is-selected').evaluate(el=>el.getBoundingClientRect().height),68);
+  const row=await page.locator('.space-row.is-selected').evaluate(el=>{const s=getComputedStyle(el),r=el.getBoundingClientRect(),copy=el.querySelector('.space-row-copy').getBoundingClientRect();return {height:r.height,top:parseFloat(s.paddingTop),bottom:parseFloat(s.paddingBottom),fits:copy.top>=r.top&&copy.bottom<=r.bottom};});assert.ok(row.height>=68&&row.fits);assert.equal(row.top,16);assert.equal(row.bottom,16);
   await page.locator('.space-row').first().click({button:'right'}); await page.locator('#space-rename').click();
   assert.equal(await page.locator('#space-name').evaluate(el=>document.activeElement===el),true);
   await page.locator('#space-name').fill('慢慢聊'); await page.locator('#space-name-form button[type=submit]').click();
   await page.locator('.space-row.is-selected strong').waitFor();
-  await page.locator('.space-close').click(); await page.locator('#chat-settings').click(); await page.locator('#presence-style-setting').click();
+  await page.locator('.space-close,.settings-dismiss-handle,.space-return').click(); await page.locator('#chat-settings').click(); await page.locator('#presence-style-setting').click();
   if (process.env.QUIET_ROOM_SPACE_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.QUIET_ROOM_SPACE_SCREENSHOTS, 'style-light.png') });
   await page.locator('[data-style=heart]').click();
-  await page.locator('.space-back').click();await page.locator('.space-close').click();
+  await page.locator('.space-back').click();await page.locator('.space-close,.settings-dismiss-handle,.space-return').click();
   await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
   assert.equal(await page.locator('#space-style-done').count(), 0);
 
@@ -143,7 +143,7 @@ try {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.evaluate(() => { app.connectionState = 'connected'; app.rolePresence = { creator: true, joiner: true }; app.updatePeerStatus(); window.heartBeforeDrawer = app.presenceCircuit; });
   assert.equal(await page.locator('.chat-header .presence-circuit').getAttribute('data-phase'), 'online');
-  await page.locator('#open-spaces').click(); await page.locator('.space-close').click();
+  await page.locator('#open-spaces').click(); await page.locator('.space-close,.settings-dismiss-handle,.space-return').click();
   await page.locator('.space-drawer-overlay').waitFor({ state: 'detached' });
   assert.equal(await page.evaluate(() => heartBeforeDrawer === app.presenceCircuit), true, 'Drawer closing retains the painted heart controller');
   assert.equal(await page.locator('.chat-header .presence-circuit').getAttribute('data-phase'), 'online', 'Awaiting a fresh snapshot must not flash the heart into unknown');
@@ -156,8 +156,8 @@ try {
   if(output){await mkdir(output,{recursive:true});await page.screenshot({path:path.join(output,'chat-heart.png')});}
   await page.locator('#open-spaces').click(); await page.locator('.space-row').first().waitFor();
   if(output){await page.waitForTimeout(400);await page.screenshot({path:path.join(output,'spaces.png')});}
-  await page.locator('.space-close').click(); await page.locator('#chat-settings').click(); if(output){await page.waitForTimeout(400);await page.screenshot({path:path.join(output,'settings.png')});}
-  await page.locator('.space-close').click(); await page.locator('#open-spaces').click();
+  await page.locator('.space-close,.settings-dismiss-handle,.space-return').click(); await page.locator('#chat-settings').click(); if(output){await page.waitForTimeout(400);await page.screenshot({path:path.join(output,'settings.png')});}
+  await page.locator('.space-close,.settings-dismiss-handle,.space-return').click(); await page.locator('#open-spaces').click();
   await page.evaluate(() => { window.originalComposer = document.querySelector('#message-input'); originalComposer.value = '创建取消后保留的草稿'; });
   await page.locator('#space-create').click();
   await page.locator('#new-space-name').fill('未提交的空间');

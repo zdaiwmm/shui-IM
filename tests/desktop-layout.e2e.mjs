@@ -130,7 +130,7 @@ try {
     await page.setViewportSize({width:800,height:600}); await settle();
     await page.locator('#open-spaces').click();
     await page.locator('.space-drawer-overlay.is-visible').waitFor();
-    await page.locator('.space-drawer-overlay .space-close').focus();
+    await page.locator('.space-drawer-overlay .space-return').focus();
     for (let i=0;i<12;i++) await page.keyboard.press('Shift+Tab');
     assert.equal(await page.evaluate(() => Boolean(document.activeElement.closest('.space-drawer-overlay'))), true, await page.evaluate(() => JSON.stringify({active:document.activeElement.outerHTML.slice(0,350),drawer:document.querySelector('.space-drawer-overlay')?.outerHTML.slice(0,350),rootInert:document.querySelector('#app').inert})));
     await page.keyboard.press('Escape');

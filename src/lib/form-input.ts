@@ -1,5 +1,5 @@
 import { mountDialog } from './dialog';
-import { createChatKeyboardLayout } from './chat-keyboard-layout';
+import { createElement, Eye, EyeOff } from 'lucide';
 
 type Field = HTMLInputElement | HTMLTextAreaElement;
 type Geometry = Pick<VisualViewport, 'height' | 'width' | 'offsetTop' | 'offsetLeft' | 'pageTop' | 'pageLeft' | 'scale'>;
@@ -99,6 +99,7 @@ export function mountFormInputs(root: HTMLElement): () => void {
     let selection: [number | null, number | null] = [null, null];
     try { selection = codeGroup ? [Math.min(codeFields.indexOf(original as HTMLInputElement), initialValue.length), Math.min(codeFields.indexOf(original as HTMLInputElement)+1, initialValue.length)] : [original.selectionStart, original.selectionEnd]; } catch { /* Numeric fields have no selection API. */ }
     overlay.querySelector('.form-input-field')!.prepend(editor);
+    overlay.style.height=`${view?.height??innerHeight}px`;overlay.classList.add('is-visible');
     root.append(overlay);
     let finished = false, composing = false, pointerAction = false, commitRequested = false;
     const release = () => {
@@ -160,25 +161,23 @@ export function mountFormInputs(root: HTMLElement): () => void {
     cancelCurrent = () => finish(false);
     const observer = new MutationObserver(() => { if (!active()) finish(false); });
     observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'disabled', 'readonly', 'aria-hidden', 'class'] });
-    const keyboard = createChatKeyboardLayout();
-    const geometry = () => ({height:view?.height ?? innerHeight, width:view?.width ?? innerWidth, layoutHeight:closedHeight});
-    keyboard.begin('open', closedHeight, {height:closedHeight,width:view?.width ?? innerWidth,layoutHeight:closedHeight}, performance.now());
-    let frame: number | null = null;
-    events.signal.addEventListener('abort', () => { if (frame !== null) cancelAnimationFrame(frame); keyboard.reset(); }, {once:true});
-    const fit = () => {
-      const height = keyboard.sample(geometry(), performance.now(), matchMedia('(prefers-reduced-motion: reduce)').matches);
-      overlay.style.top = `${view?.offsetTop ?? 0}px`;
-      overlay.style.height = `${height}px`;
-      overlay.style.left = `${view?.offsetLeft ?? 0}px`;
-      overlay.style.width = `${view?.width ?? innerWidth}px`;
-      // Safari's translucent input accessory samples below the visible page.
-      // Paint that occluded layout area with the editor's opaque surface too.
-      overlay.style.setProperty('--form-input-underlay-height', `${Math.max(0,
-        Math.max(rootHeight, innerHeight, document.documentElement.clientHeight) - (view?.offsetTop ?? 0) - (view?.height ?? innerHeight))}px`);
-      if (keyboard.moving && frame === null) frame = requestAnimationFrame(() => { frame = null; if (!events.signal.aborted) fit(); });
+    let frame:number|null=null;
+    const fit=()=>{
+      const values={top:`${view?.offsetTop??0}px`,height:`${view?.height??innerHeight}px`,left:`${view?.offsetLeft??0}px`,width:`${view?.width??innerWidth}px`};
+      for(const [name,value]of Object.entries(values))if(overlay.style.getPropertyValue(name)!==value)overlay.style.setProperty(name,value);
+      overlay.style.setProperty('--form-input-underlay-height',`${Math.max(0,Math.max(rootHeight,innerHeight,document.documentElement.clientHeight)-(view?.offsetTop??0)-(view?.height??innerHeight))}px`);
     };
-    fit(); view?.addEventListener('resize', fit, { signal: events.signal }); view?.addEventListener('scroll', fit, { signal: events.signal });
-    window.addEventListener('resize', fit, { signal: events.signal });
+    const schedule=()=>{if(frame===null)frame=requestAnimationFrame(()=>{frame=null;if(!events.signal.aborted)fit();});};
+    events.signal.addEventListener('abort',()=>{if(frame!==null)cancelAnimationFrame(frame);},{once:true});
+    fit();view?.addEventListener('resize',schedule,{signal:events.signal});view?.addEventListener('scroll',schedule,{signal:events.signal});window.addEventListener('resize',schedule,{signal:events.signal});
+    if(original instanceof HTMLInputElement&&(original.type==='password'||original.closest('.archive-password-control'))){
+      overlay.classList.add('form-input-password');
+      const visible=(editor as HTMLInputElement).type==='text';
+      const eye=document.createElement('button');eye.type='button';eye.className='form-input-password-toggle';eye.setAttribute('aria-label',visible?'隐藏密码':'显示密码');eye.setAttribute('aria-pressed',String(visible));eye.innerHTML=createElement(visible?EyeOff:Eye).outerHTML;
+      overlay.querySelector('.form-input-field')!.append(eye);
+      eye.addEventListener('pointerdown',event=>event.preventDefault(),{signal:events.signal});
+      eye.addEventListener('click',()=>{const input=editor as HTMLInputElement,start=input.selectionStart,end=input.selectionEnd,show=input.type==='password';input.type=show?'text':'password';eye.setAttribute('aria-label',show?'隐藏密码':'显示密码');eye.setAttribute('aria-pressed',String(show));eye.innerHTML=createElement(show?EyeOff:Eye).outerHTML;input.focus({preventScroll:true});if(start!==null)input.setSelectionRange(start,end);},{signal:events.signal});
+    }
     // IME confirmation can emit an implicit form submit with isComposing=false.
     // Only the explicit Done action or a non-composing editor key completes.
     overlay.querySelector('form')!.addEventListener('submit', event => { event.preventDefault(); }, { signal: events.signal });

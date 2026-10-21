@@ -79,6 +79,14 @@ describe('list keyboard layout', () => {
     expect(layout.moving).toBe(false);
   });
 
+  it('fits a keyboard that shrinks both layout and visual viewports on iPhone Chrome',()=>{
+    const layout=createChatKeyboardLayout();layout.sample(closed,0);layout.begin('open',closed.height,closed,100);
+    const resized={...opened,layoutHeight:opened.height};
+    const middle=layout.sample(resized,280);expect(middle).toBeLessThan(closed.height);expect(middle).toBeGreaterThan(opened.height);
+    expect(layout.sample(resized,460)).toBe(opened.height);expect(layout.moving).toBe(false);
+    expect(layout.closedHeight).toBe(closed.height);expect(layout.occupiedHeight).toBe(closed.height-opened.height);
+    layout.begin('closed',opened.height,resized,500);expect(layout.sample(closed,860)).toBe(closed.height);
+  });
   it('honors reduced motion and forgets geometry on teardown', () => {
     const layout = openedLayout();
     layout.begin('closed', 319, opened, 600);

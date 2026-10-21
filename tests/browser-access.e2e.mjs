@@ -153,8 +153,8 @@ try {
   await old.page.evaluate(async () => { await access.publishPreparedCatalog(app.session, app.runtimeAbort.signal); });
   await fresh.page.evaluate(async () => { await app.refreshSpaceCatalog(app.runtimeAbort.signal); });
   assert.equal(await fresh.page.evaluate(roomId => app.browserProfile.profile.spaces.some(s => s.roomId === roomId), waitingRoom), false);
-  await fresh.page.locator('.space-close').click();
-  await old.page.locator('.space-close').click();
+  await fresh.page.locator('.space-close,.settings-dismiss-handle,.space-return').click();
+  await old.page.locator('.space-close,.settings-dismiss-handle,.space-return').click();
   // Current-room deletion must publish before its token disappears. Lose the
   // successful response and retry using the authenticated catalog tombstone.
   await old.page.evaluate(() => app.createPrivateSpace());await old.page.locator('#copy-invite').waitFor();
@@ -199,7 +199,7 @@ try {
   assert.equal(Boolean(service.store.roomState(remoteWaiting)),false);
   await fresh.page.waitForFunction(id=>app.browserProfile.profile.removed.includes(id),remoteWaiting);
   await fresh.page.getByText(/等待对方加入 · 剩余/).waitFor({state:'detached'});
-  await old.page.locator('.space-close').click();await fresh.page.locator('.space-close').click();
+  await old.page.locator('.space-close,.settings-dismiss-handle,.space-return').click();await fresh.page.locator('.space-close,.settings-dismiss-handle,.space-return').click();
   // Legacy pending entry: the original device is permanently unavailable.
   const legacyRoom=service.store.createRoom({deviceId:crypto.randomUUID(),encryptionKey:{kty:'EC'},signingKey:{kty:'EC'}},'l'.repeat(43));
   await fresh.page.evaluate(async roomId=>{
@@ -226,7 +226,7 @@ try {
   await legacyRow.click({button:'right'});await fresh.page.locator('#space-delete').click();
   await legacyRow.waitFor({state:'detached'});
   assert.ok(service.store.roomState(legacyRoom.roomId),'catalog removal must not destroy the room');
-  await fresh.page.locator('.space-close').click();
+  await fresh.page.locator('.space-close,.settings-dismiss-handle,.space-return').click();
   await fresh.page.evaluate(async bytes=>{
     const stored=await v.readBrowserAccessRecord();
     const saved=await access.loadBrowserProfile(new Uint8Array(bytes),stored.record.credentialId);
@@ -271,7 +271,7 @@ try {
     await old.page.locator('.space-drawer-overlay[aria-label="设置"]').waitFor();
     assert.ok(await old.page.locator('.space-drawer-overlay').evaluate(el=>el.classList.contains('is-restored')&&getComputedStyle(el).transitionDuration==='0s'));
   }
-  await old.page.locator('.space-close').click();
+  await old.page.locator('.space-close,.settings-dismiss-handle,.space-return').click();
   const profileRace=await fresh.page.evaluate(async bytes=>{
     const saved=await v.readBrowserAccessRecord(),prf=new Uint8Array(bytes);
     const a=await access.loadBrowserProfile(prf,saved.record.credentialId),b=await access.loadBrowserProfile(prf,saved.record.credentialId),signal=new AbortController().signal;
