@@ -49,4 +49,7 @@
 - 诊断夹具：生产逻辑不含探针；失败才记录合成页面异常／状态。独立后端避免样本累积，CI恢复为三轮WebKit并在连续创建前持续阻断原生Ed25519和X25519生成。WebKit原生退出资源报错仅在对应请求确认为cancel/abort且来源为browser-access时归为取消诊断，其他页面错误继续使验收失败。
 - 后续证据：候选1334710的CI39586654687、job119177224639在原生X25519 generateKey → HPKE generateKeyPair → generateKeyPackageWithKey处抛OperationError。Ed25519单路径修复不足；本机该候选完整门禁主动SIGINT中止（14浏览器入口通过、60未运行），不记为通过。
 - 补齐修复：X25519 HPKE沿用仓库已有@hpke/dhkem-x25519及ts-mls适配器，包含临时密钥生成，保持套件和编码；新增与旧原生HPKE双向互通、AAD篡改拒绝。定向7项单元、本机Chromium和WebKit连续创建均通过。
-- 用户质疑已核对：PR #365未改mls.ts、crypto.ts和依赖版本；动画在generateIdentity前挂载，但生成参数未变。目前只定位直接失败接口，不能把底层兼容性或动画时序任一推断当作已证实根因。浏览器夹具新增无应用、无动画独立页面，逐算法64次调用原生生成并仅输出统计；本机两引擎均全部成功，Linux结果待候选CI。
+- 用户质疑已核对：PR #365未改mls.ts、crypto.ts和依赖版本；动画在generateIdentity前挂载，但生成参数未变。独立无应用／无动画页面的Linux CI39588103329三轮采样分别出现一次Ed25519及一次X25519原生OperationError，证明新动画不是必要触发条件；尚不能确定为何本批次集中暴露。本机两引擎原生采样全部成功，统计不包含密钥。
+- PR #366候选7493806的完整本机门禁通过：136文件／1050项单元及集成、75／75浏览器入口，clean=true，1084秒；PR CI39588103329全部通过。已合并为2ada7892bb95ecd88f92be91b5db9bdf27a247bb，本机main／origin/main／GitHub一致。该main的CI39590389119在WebKit第二间创建时捕获Ed25519私钥importKey DataError；仍未发布，不以PR成功替代main成功。
+- 私钥导入分类首次定向修复：新独立树chamber-webkit-signing-20261021、分支codex/chamber-webkit-signing-20261021，从2ada789开工。规则文件与87fbbf8内容相同。仅让已知种子／严格匹配旧PKCS#8通过已有Noble签名，保留原验证器及未知编码解析；不改算法、格式、成员认证或超时。旧实现对强制导入失败的负例稳定失败，新实现8项定向单元通过（含原生签名完全一致及损坏格式拒绝）。浏览器增加私钥导入故障注入，独立页同时采样原生导出／导入／签名；最终完整门禁待完成。同类导入失败再次出现则按有界规则停止。
+- 本机补修候选的Chromium／WebKit连续创建及故障注入断言通过，但整条浏览器入口最终失败：WebKit退出时browser-access-catalogs及browser-access报“Fetch API cannot load http ... due to access control checks”，无对应requestfailed取消证据，不能归入已确认取消过滤或记为通过。此为此前出现过的环境／退出分类，按有界规则保存补修草稿并停止，不扩大过滤、不修改无关生命周期代码，不继续重跑完整门禁或生产发布。主分支仍为2ada789，生产仍为此前2026.10.21.1；后者沿用已记录发布事实，本轮未执行生产命令。
