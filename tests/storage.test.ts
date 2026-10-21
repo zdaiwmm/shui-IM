@@ -3,12 +3,13 @@ import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createStore } from '../server/storage.mjs';
 
 const directories: string[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -21,6 +22,32 @@ function bundle(deviceId: string) {
 }
 
 describe('server ciphertext storage', () => {
+  it('expires new-room invitations and exact-device replacement links at 24 hours', async () => {
+    const dataDir=await mkdtemp(path.join(tmpdir(),'quiet-room-link-expiry-'));directories.push(dataDir);
+    const store=await createStore({dataDir});
+    try {
+      const now=Date.now(),clock=vi.spyOn(Date,'now').mockReturnValue(now),ttl=24*60*60_000;
+      const creator=crypto.randomUUID(),joiner=crypto.randomUUID(),token='a'.repeat(43),invite='b'.repeat(43);
+      const withMls=(id:string)=>({...bundle(id),mlsKeyPackage:'A'.repeat(64)});
+      const {roomId}=store.createRoom(withMls(creator),token,invite,'Mac',['room-archive-v2']);
+      expect(Date.parse(store.roomState(roomId).invitationExpiresAt)).toBe(now+ttl);
+      clock.mockReturnValue(now+ttl-1);expect(store.authenticateInvite(roomId,invite)).toBe(true);
+      clock.mockReturnValue(now+ttl);expect(store.authenticateInvite(roomId,invite)).toBe(false);
+      const rotated='c'.repeat(43),expiry=store.rotateNewRoomInvitation(roomId,invite,rotated);
+      expect(Date.parse(expiry)).toBe(now+2*ttl);expect(store.authenticateInvite(roomId,invite)).toBe(false);
+      clock.mockReturnValue(now+ttl+60_000);expect(store.rotateNewRoomInvitation(roomId,invite,rotated)).toBe(expiry);
+      store.joinRoom(roomId,withMls(joiner),'proof','d'.repeat(43),'iPhone',['room-archive-v2']);
+      const linkId=crypto.randomUUID(),secret='e'.repeat(43),deadline=new Date(Date.now()+ttl).toISOString();
+      expect(store.createRepairLink(roomId,creator,joiner,linkId,secret,deadline).expiresAt).toBe(deadline);
+      expect(()=>store.createRepairLink(roomId,creator,joiner,crypto.randomUUID(),secret,new Date(Date.now()+ttl+1).toISOString())).toThrow('INVALID_REPAIR_LINK');
+      const candidate=withMls(crypto.randomUUID());
+      clock.mockReturnValue(Date.parse(deadline)-1);
+      expect(store.claimRepairLink(linkId,secret,candidate,'f'.repeat(43),'New phone',['room-archive-v2']).link.claimedDeviceId).toBe(candidate.deviceId);
+      clock.mockReturnValue(Date.parse(deadline));
+      expect(()=>store.claimRepairLink(linkId,secret,candidate,'f'.repeat(43),'New phone',['room-archive-v2'])).toThrow('INVALID_REPAIR_LINK');
+    } finally { store.close(); }
+  });
+
   it('migrates the previous two-device schema without losing device authentication', async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-migration-'));
     directories.push(dataDir);

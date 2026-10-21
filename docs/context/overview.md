@@ -1,3 +1,5 @@
+邀请与隐私引导（2026-10-21）：24小时共享时限在`room-link-lifetime.mjs`、`short-invites.mjs`与storage；恢复凭证直达和状态、自动应用锁及标题在`app.ts`／`archive-settings.ts`，本机顺序保存在`spaces.ts`加密目录。验收入口`new-room-invite-privacy`、`new-room-passkey`与`new-room-flows/mobile`，范围及证据见[需求V2](../requirements/2026-10-21-invite-privacy/README.md)。
+
 原邀请续入与首页地址：`src/app.ts`在本机解锁后按加密目录定位参与者邀请，复用待加入凭据并以History API清理为同源根地址；专项`tests/chamber-invite-reentry.e2e.mjs`由既有Chamber整链入口调用，并可单独验证Chromium／WebKit。范围见[需求V1](../requirements/2026-10-19-chamber-invite-reentry/README.md)、D-072及PRODUCT／SECURITY。
 
 新密室与本人归档（2026-10-20）：[确认与实施证据](../requirements/2026-10-20-room-archive-static/06_implementation.md)、[长期契约](../../NEW_ROOM_ARCHIVES.md)。首页创建与短链接／设备接替在 `src/app.ts`、`short-room-link.ts`、`server/short-invites.mjs`；浏览器应用锁在 `browser-room-key.ts`；独立归档、PNG 卡及私有恢复在 `room-archive*.ts`、`archive-card-image.ts`、`archive-settings.ts`、`private-archive-view.ts`、`vault.ts` 与 `server/room-archives.mjs`。专项 `new-room-flows`、`new-room-mobile`、`new-room-passkey`、`room-archive-lifecycle` 已注册浏览器门禁。仅处理新建密室，不转换旧数据。下方旧双人恢复说明只对原格式有效。
