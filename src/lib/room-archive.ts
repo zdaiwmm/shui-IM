@@ -128,9 +128,11 @@ export async function restoreRoomArchive(session:VaultSession,key:ArchiveKey,sig
 async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal:AbortSignal,progress:(done:number)=>void,runId:string,detail?:(state:ArchiveRestoreProgress)=>void):Promise<number> {
   const state:ArchiveRestoreProgress={stage:'reading',objects:0,totalObjects:0,messages:0,images:0,videos:0,files:0,audio:0};
   detail?.({...state});
-  const snapshot=await get<{descriptor:ArchiveKey['descriptor'];end:number}>(key,'',signal);
+  const snapshot=await get<{descriptor:ArchiveKey['descriptor'];end:number;count?:number}>(key,'',signal);
   if(canonicalStringify(snapshot.descriptor)!==canonicalStringify(key.descriptor)||!Number.isSafeInteger(snapshot.end)||snapshot.end<0)throw new Error('归档来源校验失败');
-  state.totalObjects=snapshot.end;state.stage='restoring';detail?.({...state});
+  // Cursor IDs are global across archives; only this snapshot's actual count
+  // is a valid denominator. Older servers retain indeterminate progress.
+  state.totalObjects=Number.isSafeInteger(snapshot.count)&&snapshot.count!>=0&&snapshot.count!<=snapshot.end?snapshot.count!:0;state.stage='restoring';detail?.({...state});
   let after=0,revision=0,count=0;let previous:Ref|null=null;
   const existing=await loadPrivateArchiveItems(session);
   const existingById=new Map(existing.map(item=>[itemId(item),item]));

@@ -35,6 +35,14 @@ describe('private archive authority and persistence',()=>{
   expect(store.list(key.descriptor.id,archiveReadToken(key.seed),0,snapshot.end)).toHaveLength(1);
   expect(()=>store.put('r','d',key.descriptor.id,{...object,ciphertext:object.ciphertext.slice(1)})).toThrow('INVALID');
  });
+ it('counts only the selected archive despite interleaved global cursors',async()=>{
+  const store=setup(),a=newArchiveKey(),b=newArchiveKey();
+  for(const key of [a,b])store.register('r','d',key.descriptor,'creator',archiveWriterProof(key,'r','d'));
+  for(const key of [a,b,a,b,b])store.put('r','d',key.descriptor.id,await sealArchiveObject(key,{text:'synthetic count'}));
+  const first=store.snapshot(a.descriptor.id,archiveReadToken(a.seed)),second=store.snapshot(b.descriptor.id,archiveReadToken(b.seed));
+  expect(first).toMatchObject({end:3,count:2});expect(second).toMatchObject({end:5,count:3});
+  expect(store.list(a.descriptor.id,archiveReadToken(a.seed),0,first.end)).toHaveLength(first.count);
+ });
  it('fails capacity without deleting a previously committed archive',async()=>{
   const store=setup(1500),key=newArchiveKey();store.register('r','d',key.descriptor,'creator',archiveWriterProof(key,'r','d'));
   const first=await sealArchiveObject(key,{text:'keep'});store.put('r','d',key.descriptor.id,first);

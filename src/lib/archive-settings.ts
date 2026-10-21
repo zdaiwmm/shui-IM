@@ -134,8 +134,8 @@ export function mountArchiveSettings(o:Options):void {
     const update=(state:ArchiveRestoreProgress)=>{
       if(signal.aborted||!active()||!sheet.isConnected)return;
       const progress=sheet.querySelector('progress')!;
-      if(state.stage!=='reading')progress.value=state.stage==='complete'?100:Math.min(99,Math.floor(state.objects/Math.max(1,state.totalObjects)*100));
-      sheet.querySelector('[data-progress]')!.textContent=state.stage==='reading'?'正在读取备份目录…':state.stage==='committing'?'正在整理并保存记录…':state.stage==='complete'?'聊天记录和原文件已恢复':`正在校验内容 · ${progress.value}%`;
+      if(state.stage==='complete')progress.value=100;else if(state.totalObjects>0)progress.value=Math.min(99,Math.floor(state.objects/state.totalObjects*100));else progress.removeAttribute('value');
+      sheet.querySelector('[data-progress]')!.textContent=state.stage==='reading'?'正在读取备份目录…':state.stage==='committing'?'正在整理并保存记录…':state.stage==='complete'?'聊天记录和原文件已恢复':state.totalObjects>0?`正在校验内容 · ${progress.value}%`:`正在校验内容 · 已读取 ${state.objects} 项`;
       for(const [id]of kinds)sheet.querySelector(`[data-count="${id}"]`)!.textContent=String(state[id]);
     };
     try{await restoreRoomArchive(o.session,key,signal,()=>{},update);if(signal.aborted||!active())return;complete=true;o.restored();sheet.querySelector('[data-progress-title]')!.textContent='恢复完成';sheet.querySelector('[data-progress-note]')!.textContent='已保存到当前密室，仅自己可见。自动备份将在联网时继续。';}
