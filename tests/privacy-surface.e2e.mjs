@@ -59,7 +59,7 @@ try {
   // Opting out of background locking preserves an ordinary in-memory session,
   // but never its visible surface, sensitive exposure or hard lifecycle.
   await page.evaluate(() => {window.fixture.fresh(0);window.fixture.app.renderAutoLockSettings();});
-  assert.equal(await page.locator('.auto-lock-page header').count(),0);
+  assert.equal(await page.locator('.auto-lock-page > .subpage-header').count(),1,'The shared page header keeps the title vertically centered');
   assert.equal(await page.locator('[data-hidden-lock]').getAttribute('aria-checked'),'true');
   await page.locator('[data-hidden-lock]').click();
   assert.equal(await page.locator('[data-hidden-lock]').getAttribute('aria-checked'),'false');
