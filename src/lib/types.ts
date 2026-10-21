@@ -118,6 +118,8 @@ export type PendingDeviceLink = {
 };
 
 export type Vault = {
+  /** Encrypted local presentation only; transport denial never changes membership. */
+  localAccessDeniedDeviceId?: string;
   pendingNewInvite?: {previousToken:string;token:string};
   copiedRoomLink?: { source: string; url: string };
   archiveState?: import('./room-archive').RoomArchiveState;
