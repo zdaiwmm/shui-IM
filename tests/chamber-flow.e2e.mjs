@@ -34,8 +34,8 @@ try {
   assert.match(await blocked.locator('#app h1').textContent(), /无法打开/);
   await blocked.close();
   await a.goto(url); await a.locator('.chamber-brand').waitFor();
-  await a.locator('.chamber-room').evaluate(element => { const animation = element.getAnimations()[0]; if(animation) animation.currentTime = 3000; });
-  assert.equal(await a.locator('.chamber-room').evaluate(element => getComputedStyle(element).animationIterationCount), 'infinite');
+  await a.locator('.chamber-dialogue-left').evaluate(element => { const animation = element.getAnimations()[0]; if(animation) animation.currentTime = 3000; });
+  assert.equal(await a.locator('.chamber-dialogue-left').evaluate(element => getComputedStyle(element).animationIterationCount), 'infinite');
   await a.screenshot({ path: '/private/tmp/chamber-home-390.png' });
   await auditP1Surface(a,'chamber-home','.gateway');
   let protectedBeforeRoom = false, deviceBeforeRoom = false, legacyUploads = 0;
@@ -80,7 +80,7 @@ try {
     await a.waitForFunction(()=>!document.querySelector('#app > .page-transition-incoming, #app > .page-transition-outgoing'));
     assert.equal(await a.locator('.chamber-mnemonic-page header').count(),0);
     await a.locator('.chamber-mnemonic-page .chamber-brand').evaluate(mark=>{ for(const animation of mark.getAnimations({subtree:true})) { animation.pause(); animation.currentTime=3000; } });
-    assert.ok(await a.locator('.chamber-mnemonic-page .chamber-person-one').evaluate(person=>Number(getComputedStyle(person).opacity)>.9));
+    assert.ok(await a.locator('.chamber-mnemonic-page .chamber-dialogue-left').evaluate(person=>Number(getComputedStyle(person).opacity)>.9));
     const brand=await a.locator('.chamber-mnemonic-page .chamber-brand').boundingBox();assert.ok(Math.abs(brand.x+brand.width/2-195)<1,JSON.stringify(brand));
     const back=await a.locator('[data-personal-back]').boundingBox();assert.ok(back.y+back.height<=844);
     await capture(`mnemonic-${scheme}`);

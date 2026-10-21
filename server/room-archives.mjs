@@ -62,7 +62,7 @@ export function createRoomArchives(db,{maxArchiveBytes=1024**3,maxTotalBytes=10*
         db.exec('COMMIT');
       }catch(e){db.exec('ROLLBACK');throw e;}
     },
-    snapshot(id,token){const d=readable(id,token);const end=db.prepare('SELECT COALESCE(MAX(cursor),0) AS n FROM private_archive_objects_v2 WHERE archive_id=?').get(id).n;return {descriptor:d,end};},
+    snapshot(id,token){const d=readable(id,token);const {end,count}=db.prepare('SELECT COALESCE(MAX(cursor),0) AS end,COUNT(*) AS count FROM private_archive_objects_v2 WHERE archive_id=?').get(id);return {descriptor:d,end,count};},
     list(id,token,after,end){readable(id,token);if(!Number.isSafeInteger(after)||after<0||!Number.isSafeInteger(end)||end<after)throw new Error('INVALID_BACKUP');return db.prepare('SELECT cursor,id,bytes FROM private_archive_objects_v2 WHERE archive_id=? AND cursor>? AND cursor<=? ORDER BY cursor LIMIT 100').all(id,after,end);},
     read(id,token,objectId){readable(id,token);const row=db.prepare('SELECT record FROM private_archive_objects_v2 WHERE archive_id=? AND id=?').get(id,objectId);if(!row)throw new Error('BACKUP_NOT_FOUND');return JSON.parse(row.record);},
   };

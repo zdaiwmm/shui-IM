@@ -173,7 +173,7 @@ const removable = Boolean(options.remove && (space.waiting || space.roomArchiveV
     const groups = [
       ['appearance-settings', 'presence-style-setting', 'notification-settings', 'app-access-settings'],
       ['room-lock-settings','auto-lock-settings', 'manage-devices', 'passkey-management', 'cover-practice-menu'],
-      ['chamber-switch-space','new-chat-link','archive-settings','backup-settings', 'local-history-backup', 'local-history-restore', 'recover-other-space'],
+      ['chamber-switch-space','help-peer-enter','archive-settings','archive-restore','backup-settings', 'local-history-backup', 'local-history-restore', 'recover-other-space'],
       ['release-history'],
       ['chamber-close'],
     ];

@@ -264,7 +264,7 @@ try {
   await a.locator('.password-return .password-form').waitFor(); await password(a, '012345'); await a.locator('#message-input').waitFor();
   await a.evaluate(() => app.renderDeviceManager());
   for (const repair of [false, true]) {
-    if (repair) await a.locator('.peer-device-section').getByRole('button', { name: '修复此设备', exact: true }).first().click();
+    if (repair) { await a.evaluate(()=>app.renderDeviceManager('peer'));await a.locator('.peer-device-section').getByRole('button', { name: '修复此设备', exact: true }).first().click(); }
     else await requestLegacyDeviceLink(a);
     const link = await a.locator('.device-link-sheet input[aria-label="设备链接"]').inputValue();
     const extraContext = await browser.newContext({ viewport: { width: 390, height: 844 } });

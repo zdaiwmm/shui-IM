@@ -14,9 +14,11 @@ it('keeps previews non-consuming, rejects replacement, and expires encrypted env
  vi.mocked(Date.now).mockReturnValue(now+ROOM_LINK_TTL_MS);expect(()=>store.get(id)).toThrow('INVALID_REPAIR_LINK');
 });
 
-it('shows remaining hours and minutes without wrapping at an hour or a day',()=>{
- expect(formatRoomLinkRemaining(ROOM_LINK_TTL_MS)).toBe('24:00');
- expect(formatRoomLinkRemaining(61*60_000)).toBe('01:01');
- expect(formatRoomLinkRemaining(1)).toBe('00:01');
- expect(formatRoomLinkRemaining(-1)).toBe('00:00');
+it('shows remaining hours, minutes and seconds without wrapping at an hour or a day',()=>{
+ expect(formatRoomLinkRemaining(ROOM_LINK_TTL_MS)).toBe('24:00:00');
+ expect(formatRoomLinkRemaining(61*60_000)).toBe('01:01:00');
+ expect(formatRoomLinkRemaining(59_001)).toBe('00:01:00');
+ expect(formatRoomLinkRemaining(59_000)).toBe('00:00:59');
+ expect(formatRoomLinkRemaining(1)).toBe('00:00:01');
+ expect(formatRoomLinkRemaining(-1)).toBe('00:00:00');
 });

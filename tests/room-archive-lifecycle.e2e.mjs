@@ -40,7 +40,8 @@ try{
   try{await a.restoreRoomArchive(second,recoveredKey,interrupted.signal,done=>{if(done===1)interrupted.abort();});}catch{interruption=true;}
   if(!interruption||(await v.loadPrivateArchiveItems(second)).length!==0)throw new Error('Interrupted restore exposed a partial history');
   await a.syncRoomArchive(second,signal);if(second.vault.archiveState.revision!==0)throw new Error('Unfinished restore entered backup');
-  await a.restoreRoomArchive(second,recoveredKey,signal,()=>{});
+  const states=[];await a.restoreRoomArchive(second,recoveredKey,signal,()=>{},state=>states.push(state));
+  if(states[0].stage!=='reading'||states.at(-1).stage!=='complete'||states.at(-1).messages!==2||states.at(-1).images!==1||!states.some(s=>s.stage==='committing'))throw new Error('Restore progress does not describe verified records and original media');
   await a.restoreRoomArchive(second,recoveredKey,signal,()=>{});
   const privateItems=await v.loadPrivateArchiveItems(second);
   const shared=await v.loadHistoryPage(second,{limit:100});const outbox=await v.loadOutbox(second),receipts=await v.loadPendingReceipts(second);

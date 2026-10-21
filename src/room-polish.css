@@ -1,0 +1,119 @@
+/* V1.21: one content rail, balanced headings and clear task-specific controls. */
+#app .chamber-settings-page > .subpage-header { padding:calc(env(safe-area-inset-top) + 18px) 20px 18px; min-height:68px; }
+#app .chamber-settings-page > :is(.device-content,.backup-content) { padding-top:12px; }
+#app .subpage-header :is(h1,h2), #app .space-drawer-header h2 { margin-block:0; }
+#app .subpage-header { align-items:center; }
+#app .appearance-page .preference-section-title { margin:24px 0 12px; color:var(--ink-muted); font-size:.875rem; font-weight:500; }
+#app .appearance-page .appearance-preview + .preference-section-title { margin-top:0; }
+#app .appearance-page .scheme-options { padding:0; background:transparent; gap:10px; margin-bottom:0; }
+#app .appearance-page .theme-options { padding:0 16px; margin:0; }
+#app .simple-confirm-actions .danger-text { color:var(--danger); }
+#app .simple-confirm [data-copy] { display:grid; gap:12px; }
+#app .simple-confirm [data-copy] p { margin:0; font-size:.875rem; line-height:1.6; }
+#app .confirm-dialog.simple-confirm { width:min(360px,calc(100vw - 40px)); background:var(--paper-pure); background-image:none; }
+#app .room-unlock-page { width:min(100%,520px); margin:auto; }
+#app .room-unlock-page .gateway-intro-content { display:flex; flex-direction:column; align-items:center; justify-content:center; }
+#app .room-unlock-page .entry-art { margin:0 auto 28px; }
+#app .room-unlock-page .welcome-actions { width:100%; max-width:440px; }
+#app .room-unlock-page .welcome-actions .text-button { background:transparent; }
+/* Dialog scrim and the canvas use the same alpha, preventing two different grays. */
+html:has(#app > .gateway.room-unlock-page) { --chrome-page-top:var(--paper); --chrome-page-bottom:var(--paper); }
+html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confirm-overlay) { --chrome-top-surface:color-mix(in srgb,var(--paper) 72%,#141019); --chrome-bottom-surface:color-mix(in srgb,var(--paper) 72%,#141019); }
+#app:has(> :is(.room-unlock-page,.numeric-password-page)) > .confirm-overlay { background:rgb(20 16 25 / .28); backdrop-filter:none; }
+.chamber-dialogue { transform-box:view-box; animation:chamber-dialogue-left 4.2s cubic-bezier(.22,1,.36,1) infinite; }
+.chamber-dialogue-left { transform-origin:34% 50%; }
+.chamber-dialogue-right { transform-origin:66% 50%; animation-name:chamber-dialogue-right; }
+@keyframes chamber-dialogue-left { 0%,4%,34%,100% { transform:perspective(360px) rotateY(0deg); } 14%,22% { transform:perspective(360px) rotateY(-58deg); } }
+@keyframes chamber-dialogue-right { 0%,4%,34%,100% { transform:perspective(360px) rotateY(0deg); } 14%,22% { transform:perspective(360px) rotateY(58deg); } }
+#app .device-management-page .device-toolbar { padding:0 0 12px; border:0; display:flex; align-items:center; justify-content:space-between; gap:12px; }
+#app .device-management-page .device-toolbar > div { display:grid; gap:4px; }
+#app .device-management-page .device-toolbar strong { font-size:1rem; }
+#app .device-management-page .device-toolbar span { font-size:.75rem; color:var(--ink-muted); }
+#app .device-management-page .device-section { margin:0 0 24px; padding:0; }
+#app .device-management-page .device-section > h2 { margin:0 0 12px; color:var(--ink-muted); }
+#app .device-management-page .device-card { display:grid; grid-template-columns:44px minmax(0,1fr); align-items:center; gap:12px; margin:0; padding:16px; border-radius:0; }
+#app .device-management-page .device-card:first-of-type { border-radius:12px 12px 0 0; }
+#app .device-management-page .device-card:last-child { border-radius:0 0 12px 12px; }
+#app .device-management-page .device-card:only-of-type { border-radius:12px; }
+#app .device-management-page .device-card + .device-card { border-top:1px solid var(--line); }
+#app .device-management-page .device-card > div { min-width:0; }
+#app .device-management-page .device-card strong { display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:.875rem; line-height:1.5; overflow-wrap:anywhere; }
+#app .device-management-page .device-card small { display:block; font-size:.75rem; color:var(--ink-muted); line-height:1.5; margin-top:3px; }
+#app .device-management-page .device-card > button { grid-column:2; justify-self:start; min-height:44px; padding:10px 14px; font-size:.8125rem; }
+#app .device-management-page .device-kind-icon { display:grid; place-items:center; width:44px; height:44px; border-radius:12px; background:var(--accent-soft); color:var(--accent); }
+#app .device-management-page .device-kind-icon svg { width:24px; height:24px; }
+#app .device-management-page .device-current-badge { color:var(--accent); font-size:.625rem; font-weight:500; padding:2px 6px; border-radius:5px; background:var(--accent-soft); }
+#app .device-management-page .device-security-note { margin:20px 0 0; padding:0; background:transparent; border:0; font-size:.75rem; line-height:1.65; color:var(--ink-muted); }
+#app .device-management-page .device-empty { padding:28px 16px; background:var(--surface); border-radius:12px; font-size:.875rem; line-height:1.6; color:var(--ink-muted); }
+#app .chamber-invite-hero #new-room-invite-countdown { color:var(--accent); font-variant-numeric:tabular-nums; }
+#app .archive-page > .backup-content { display:block; }
+#app .archive-page .archive-inline-note { margin:16px 0; }
+#app .archive-page .archive-form-title { margin:0 0 10px; font-size:1.25rem; font-weight:600; line-height:1.4; }
+.archive-intro-symbol { display:grid; place-items:center; width:56px; height:56px; border-radius:16px; margin:8px 0 24px; background:var(--accent-soft); color:var(--accent); }
+.archive-intro-symbol svg { width:28px; height:28px; }
+.archive-password-form { display:grid; gap:20px; }
+#app .archive-page .passkey-name-field, #app .archive-dialog .passkey-name-field { display:grid; gap:8px; margin:0; font-size:.875rem; color:var(--ink); }
+#app .archive-page input:not([type=file]), #app .archive-dialog input:not([type=file]) { width:100%; min-height:48px; padding:12px; border:1px solid var(--line); border-radius:12px; background:var(--surface); color:var(--ink); font-size:1rem; }
+#app .archive-page .primary-button, #app .archive-page .secondary-button, #app .archive-dialog .primary-button, #app .archive-dialog .secondary-button { min-height:44px; border-radius:12px; font-size:.875rem; margin:0; }
+.archive-inline-note { color:var(--ink-muted); font-size:.75rem; line-height:1.65; margin:16px 0; }
+#app .archive-credential-card { padding:24px; border:1px solid var(--line); border-radius:20px; background:var(--surface-raised); overflow:hidden; }
+.archive-card-brand { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:20px; color:var(--ink-muted); }
+.archive-card-brand > span { font-size:.5rem; letter-spacing:.12em; }
+#app .archive-card-brand .chamber-brand { flex-direction:row; width:auto; height:auto; gap:0; margin:0; }
+#app .archive-card-brand .chamber-brand svg { width:42px; height:42px; }
+#app .archive-card-brand .chamber-brand > span { font-size:1rem; }
+#app .archive-card-brand .chamber-dialogue { animation:none; }
+#app .archive-credential-card h2 { margin:0; font-size:1.5rem; font-weight:600; line-height:1.4; overflow-wrap:anywhere; }
+#app .archive-credential-card > p { margin:4px 0 20px; font-size:.75rem; color:var(--ink-muted); }
+.archive-qr-wrap { position:relative; width:200px; height:200px; margin:0 auto 20px; overflow:hidden; border-radius:12px; background:var(--paper); }
+.archive-qr-wrap canvas { width:200px; height:200px; filter:blur(9px); opacity:.3; }
+.archive-qr-wrap > span { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:12px; text-align:center; }
+.archive-qr-wrap svg { color:var(--accent); width:28px; height:28px; }
+.archive-qr-wrap b { font-size:.8125rem; font-weight:600; }
+.archive-qr-wrap small { font-size:.625rem; line-height:1.5; color:var(--ink-muted); }
+.archive-card-status { border-top:1px solid var(--line); padding-top:16px; color:var(--accent); font-size:.75rem; text-align:center; }
+.archive-card-actions { display:grid; gap:10px; margin-top:24px; }
+.archive-card-actions button { display:flex; align-items:center; justify-content:center; gap:8px; width:100%; }
+.archive-card-actions svg { width:18px; height:18px; }
+.archive-help { width:100%; }
+.archive-entry { display:flex; align-items:center; gap:12px; width:100%; padding:16px; border:0; border-radius:12px; background:var(--surface); color:var(--ink); text-align:left; }
+.archive-entry > svg { width:22px; height:22px; color:var(--accent); }
+.archive-entry > span { flex:1; font-size:.875rem; }
+.archive-entry small { display:block; margin-top:4px; font-size:.75rem; color:var(--ink-muted); }
+.archive-upload { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; min-height:72px; padding:20px; border:1px dashed var(--line); border-radius:16px; background:var(--surface); cursor:pointer; overflow-wrap:anywhere; }
+.archive-upload:focus-within { outline:2px solid var(--accent); outline-offset:3px; }
+.archive-upload input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:pointer; }
+.archive-upload-main { min-height:220px; margin:12px 0 24px; }
+.archive-upload > svg { width:32px; height:32px; color:var(--accent); }
+.archive-upload strong { max-width:100%; font-size:.9375rem; text-align:center; }
+.archive-upload > span { font-size:.75rem; color:var(--ink-muted); }
+#app .archive-page [data-restore-submit] { width:100%; }
+#app .archive-dialog { width:min(360px,calc(100vw - 32px)); padding:24px; border-radius:20px; }
+#app .archive-dialog h2 { margin:0 0 8px; font-size:1.25rem; }
+#app .archive-dialog > p { margin:0 0 20px; font-size:.875rem; line-height:1.6; color:var(--ink-muted); }
+#app .archive-dialog form { display:grid; gap:16px; }
+#app .archive-dialog > button { width:100%; margin-top:12px; }
+.archive-dialog progress { width:100%; height:6px; accent-color:var(--accent); border:0; border-radius:6px; }
+.archive-restore-details { margin:20px 0; }
+.archive-restore-details > div { display:grid; grid-template-columns:20px 1fr auto; gap:12px; align-items:center; padding:10px 0; }
+.archive-restore-details svg { width:18px; height:18px; color:var(--ink-muted); }
+.archive-restore-details dt, .archive-restore-details dd { font-size:.8125rem; margin:0; }
+.archive-restore-details dd { font-variant-numeric:tabular-nums; color:var(--accent); }
+#app .room-creation-dialog { width:min(320px,calc(100vw - 40px)); padding:24px 28px 28px; border-radius:24px; text-align:center; }
+#app .room-creation-dialog .chamber-brand { width:132px; height:122px; margin:0 auto 12px; }
+#app .room-creation-dialog .chamber-brand > span { display:none; }
+#app .room-creation-dialog .chamber-brand svg { width:132px; height:132px; }
+#app .room-creation-dialog .chamber-dialogue { animation-duration:1.6s; animation-iteration-count:1; }
+#app .room-creation-dialog h2 { margin:0 0 8px; font-size:1.25rem; }
+#app .room-creation-dialog p { margin:0 0 20px; color:var(--ink-muted); font-size:.8125rem; }
+.room-creation-dialog ol { padding:0; margin:0; list-style:none; text-align:left; counter-reset:steps; }
+.room-creation-dialog li { counter-increment:steps; display:flex; align-items:center; gap:10px; padding:8px 0; font-size:.75rem; color:var(--ink-muted); }
+.room-creation-dialog li::before { content:'0' counter(steps); color:var(--ink-muted); font-size:.625rem; font-variant-numeric:tabular-nums; }
+.room-creation-dialog li[data-state=done]::before { content:'✓'; color:var(--accent); }
+.room-creation-dialog li[data-state=active] { color:var(--accent); }
+.creation-track { height:2px; overflow:hidden; margin-top:20px; background:var(--line); }
+.creation-track span { display:block; height:100%; background:var(--accent); transform-origin:left; animation:creation-scan 1.6s cubic-bezier(.22,1,.36,1) both; }
+@keyframes creation-scan { from { transform:scaleX(0); opacity:.3; } to { transform:scaleX(1); opacity:1; } }
+@media(max-width:360px) { #app .archive-credential-card { padding:18px; } .archive-card-brand > span { display:none; } }
+@media(prefers-reduced-motion:reduce) { .chamber-dialogue,.creation-track span { animation:none; } }
+@media(forced-colors:active) { .archive-credential-card,.archive-upload,.archive-dialog { border:1px solid CanvasText; } }

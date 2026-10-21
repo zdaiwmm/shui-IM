@@ -57,6 +57,7 @@ export const browserGroups = Object.freeze({
     'tests/local-history-backup.e2e.mjs',
     'tests/backup-access.e2e.mjs',
     'tests/joint-recovery.e2e.mjs',
+    'tests/chamber-polish.e2e.mjs',
     'tests/new-room-passkey.e2e.mjs',
     'tests/new-room-flows.e2e.mjs',
     'tests/new-room-mobile.e2e.mjs',

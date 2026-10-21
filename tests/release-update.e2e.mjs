@@ -47,6 +47,8 @@ try {
     window.releaseFixture = { app, release };
   });
 
+  if(await page.locator('.release-notes-sheet').count())throw Error('A normal room visit must not show update notes');
+  await page.evaluate(()=>{sessionStorage.setItem('quiet-room:update-requested','previous-release');window.releaseFixture.app.showReleaseNotesIfNeeded();});
   await page.locator('.release-notes-sheet.is-visible').waitFor();
   await page.waitForTimeout(400);
   const notesStyle=await page.locator('.release-notes-panel').evaluate(panel=>({radius:getComputedStyle(panel).borderRadius,padding:getComputedStyle(panel).padding,

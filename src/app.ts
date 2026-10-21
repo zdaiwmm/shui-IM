@@ -1,3 +1,4 @@
+import { mountRoomCreation } from './lib/room-creation-view';
 import {createShortRoomLink,expandShortRoomLink} from './lib/short-room-link';
 import { ROOM_LINK_TTL_MS, formatRoomLinkRemaining } from './lib/room-link-lifetime.mjs';
 import { visiblePrivateItems, privateArchiveRow } from './lib/private-archive-view';
@@ -2611,9 +2612,12 @@ export class QuietRoomApp {
     if(session?.vault.roomArchiveV2&&signal&&/^#(?:invite|device|repair)=/.test(new URL(url).hash)) {
       if(this.newRoomLinkBusy)return;this.newRoomLinkBusy=true;
       try {
-        if(new URL(url).hash.startsWith('#invite='))url=await this.freshRoomInvitation();
+        // Copy never rotates the invitation or extends its deadline.
+        if(new URL(url).hash.startsWith('#invite=') && Date.parse(session.vault.invitationExpiresAt ?? session.vault.createdAt) + (session.vault.invitationExpiresAt ? 0 : ROOM_LINK_TTL_MS) <= Date.now()) throw new Error('链接已过期，请点击重新生成链接');
         if(!this.isRuntimeActive(epoch,session)||signal.aborted)return;
-        const compact=await createShortRoomLink(session,url,signal);
+        let compact=session.vault.copiedRoomLink?.source===url ? session.vault.copiedRoomLink.url : undefined;
+        if(!compact){compact=await createShortRoomLink(session,url,signal);const saved={source:url,url:compact};
+          await withVaultMutation(session,async mutation=>{signal.throwIfAborted();const previous=session.vault.copiedRoomLink;session.vault.copiedRoomLink=saved;try{await saveVault(session,mutation);}catch(cause){session.vault.copiedRoomLink=previous;throw cause;}});}
         if(!this.isRuntimeActive(epoch,session)||signal.aborted)return;
         await this.withSystemSurface(()=>navigator.clipboard.writeText(compact));
         if(this.isRuntimeActive(epoch,session))this.showNotice(fallback);
@@ -3195,7 +3199,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     const record = await readRoomProtection();
     const clearFailure=()=>{if(this.noticeTimer!==null)window.clearTimeout(this.noticeTimer);if(this.noticeRemovalTimer!==null)window.clearTimeout(this.noticeRemovalTimer);this.noticeTimer=null;this.noticeRemovalTimer=null;this.queuedNotice=null;document.getElementById('app-toast')?.remove();};
     if(record?.method==='platform'){
-      this.gatewayTemplate('解锁密室','验证应用锁后继续。','<button class="primary-button" data-room-unlock>解锁</button><button class="text-button" data-room-unlock-help>无法解锁？</button>',false,'plain','lock');
+      this.gatewayTemplate('解锁密室','验证应用锁后继续。','<div class="welcome-actions"><button class="primary-button" data-room-unlock>解锁</button><button class="text-button" data-room-unlock-help>无法解锁？</button></div>',false,'plain','lock');
+      this.root.querySelector('.gateway')!.classList.add('room-unlock-page');
       this.root.querySelector('[data-room-unlock-help]')!.addEventListener('click',()=>this.showRoomUnlockHelp());
       const page=this.root.querySelector('.gateway')!,button=page.querySelector<HTMLButtonElement>('[data-room-unlock]')!,epoch=this.runtimeEpoch;
       return new Promise<string>((resolve,reject)=>{
@@ -3226,22 +3231,60 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       verify: password => unlockBrowserRoomKey(password) }).then(key=>{clearFailure();return key;});
   }
 
+  /** Fresh operation proof leaves the caller page intact on cancellation. */
+  private async verifyRoomOperation(): Promise<void> {
+    const session=this.session,epoch=this.runtimeEpoch,signal=this.runtimeAbort?.signal;
+    if(!session||!signal)throw new DOMException('验证已结束','AbortError');
+    const active=()=>this.isRuntimeActive(epoch,session)&&!signal.aborted;
+    const record=await readRoomProtection();
+    if(!active()||!record)throw new DOMException('验证已结束','AbortError');
+    if(record.method==='platform'){
+      const proof=await this.withDeviceVerification(()=>unlockPlatformCredential(record.platform,signal));
+      if(!active()){proof.fill(0);throw new DOMException('验证已结束','AbortError');}
+      await unlockBrowserRoomPlatform(proof);
+    }else if(record.method==='password'){
+      await requestPassword(this.root,{title:'验证应用锁',context:'验证后继续本次操作。',passwordFormat:record.wrapper.passwordFormat,
+        signal,isActive:active,verify:password=>unlockBrowserRoomKey(password)});
+    }else throw new Error('请先开启应用锁');
+    if(!active())throw new DOMException('验证已结束','AbortError');
+  }
+
+  private async authorizeArchiveExport(): Promise<void> {
+    const session=this.session,epoch=this.runtimeEpoch;
+    const active=()=>!!session&&this.isRuntimeActive(epoch,session);
+    if((await readRoomProtection())?.method==='automatic'){
+      if(!active())throw new DOMException('操作已结束','AbortError');
+      this.showNotice('先设置应用锁，再导出恢复凭证');
+      let credential:LocalCredentialResult;
+      if(platformVaultSetupState()==='unsupported')credential=await this.preparePasswordProtection(active);
+      else try{credential=await this.withDeviceVerification(()=>createPlatformCredential());}
+      catch(cause){if(!isPlatformVaultUnavailable(cause))throw cause;credential=await this.preparePasswordProtection(active);}
+      if(!active()){this.releasePersonalCredential(credential);throw new DOMException('操作已结束','AbortError');}
+      await protectBrowserRoomKey(credential);this.roomLockEnabled=true;
+      if(readIdleSeconds(localStorage)===0)saveIdleSeconds(localStorage,30);
+      try{localStorage.setItem('quiet-room:room-protection-change',crypto.randomUUID());}catch{/* Revision fences remain. */}
+      this.resetIdleLock();
+    }
+    await this.verifyRoomOperation();
+  }
+
   private showRoomUnlockHelp(): void {
     const epoch = this.runtimeEpoch;
     const active = () => !this.privacyCovered && epoch === this.runtimeEpoch;
-    showExplanation(this.root, '无法解锁本机', [
-      '应用锁无法找回或绕过。先保留这里的数据，也可以在另一个浏览器通过对方的新聊天链接进入。',
-      '已有恢复图片和恢复口令时，可在能进入的密室中恢复已完成备份的记录。恢复材料不能直接解开这里的应用锁。',
-      '若确定放弃本机数据，可清除全部本机密室后重新开始。未完成备份的内容将无法恢复。',
+    showExplanation(this.root, '无法解锁？', [
+      '应用锁无法重置。你可以先保留此浏览器的数据，用恢复凭证找回已备份的聊天记录。',
+      '1. 在另一个浏览器创建密室，或请对方通过「帮对方进入密室」发送进入链接。',
+      '2. 进入密室，在设置中打开「聊天记录恢复」，上传已保存的凭证原图。',
+      '3. 输入凭证密码，等待聊天记录和原文件恢复完成。',
     ], { signal: this.runtimeAbort?.signal, active,
-      action: { label: '清除本机数据', run: async () => {
+      action: { label: '清除本浏览器数据', danger: true, closeBeforeRun: true, run: async () => {
         const record = await readRoomProtection();
         if (!active() || !record) return;
-        showExplanation(this.root, '清除全部本机数据？', [
+        showExplanation(this.root, '清除本浏览器数据？', [
           '此浏览器中的全部密室、记录、图片和应用锁都会被清除，未完成备份的数据将丢失。',
           '对方、云端备份及已经导出的文件不受影响。',
         ], { signal: this.runtimeAbort?.signal, active, closeLabel: '取消',
-          action: { label: '确认清除', run: async () => {
+          action: { label: '确认清除', danger: true, run: async () => {
             await clearAllRoomBrowserData(record);
             clearBrowserRoomKey(); this.lockNow(); location.replace('/');
           } },
@@ -3347,6 +3390,10 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     const epoch = this.runtimeEpoch;
     const initialSession = this.session;
     const active = () => flowActive() && !this.privacyCovered && this.runtimeEpoch === epoch && this.session === initialSession;
+    const creationAbort=new AbortController();
+    const creationSignal=AbortSignal.any([creationAbort.signal,...(this.runtimeAbort?[this.runtimeAbort.signal]:[]),...(this.spaceCreationAbort?[this.spaceCreationAbort.signal]:[])]);
+    const creation=mountRoomCreation(this.root,creationSignal);
+    creation.step('keys','正在准备本机密钥');
     const accessToken = randomBase64Url(32);
     const inviteToken = randomBase64Url(32);
     try {
@@ -3389,6 +3436,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       vault.mls = await createCreatorMlsState(roomId, identity, [creator]);
       identity.mlsPrivatePackage = undefined;
       vault.spaceRecoveryCode = this.newSpaceCollectionCode;
+      creation.step('save','正在加密保存密室');
       const createdSession = await createVault(vault, '', 'platform', platformResult, active);
       if (!active()) return;
       if (profile) await rememberLocalSpace(createdSession, this.newSpaceCollectionCode, { roomId: vault.roomId, ...profile });
@@ -3399,15 +3447,18 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       if (source) source.dataset.authenticatedPage = '';
       // Keep the verified numeric page opaque through the idempotent server
       // creation. A recoverable failure alone needs the pending-create page.
-      try { await this.advanceChamberCreate(createdSession,AbortSignal.timeout(30_000)); }
+      creation.step('connect','正在建立安全连接');
+      try { await this.advanceChamberCreate(createdSession,AbortSignal.any([creationSignal,AbortSignal.timeout(30_000)])); }
       catch { if(!this.isRuntimeActive(epoch,createdSession))return; }
-      if(this.isRuntimeActive(epoch,createdSession))await this.openSession();
+      await creation.finished;
+      creation.dispose();
+      if(this.isRuntimeActive(epoch,createdSession)){markReleaseNotesSeen();await this.openSession();}
     } catch (cause) {
       // No server room exists until the encrypted creator intent is durable.
       // A failed response retains the same intent for idempotent reconnect.
       if (!active()) return;
       throw cause;
-    }
+    } finally { creationAbort.abort(); creation.dispose(); }
   }
 
   private async advanceChamberCreate(session: VaultSession, signal: AbortSignal): Promise<void> {
@@ -3438,7 +3489,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     const session = this.session, epoch = this.runtimeEpoch, signal = this.runtimeAbort?.signal;
     if (!session?.vault.pendingChamberCreate || this.privacyCovered || !signal) return;
     if(session.vault.roomArchiveV2){
-      const page=this.renderJoiningChat('正在创建密室，网络恢复后会自动继续。');let busy=false,lastError='';
+      this.gatewayTemplate('正在创建密室','网络恢复后会继续，无需重复创建。','<div class="welcome-actions"><button class="text-button" id="pending-create-lock">锁定</button></div>',false,'plain');
+      const page=this.root.querySelector('.gateway')!;page.querySelector('#pending-create-lock')!.addEventListener('click',()=>this.lockNow());let busy=false,lastError='';
       const retry=async()=>{if(busy||signal.aborted||!page.isConnected||!this.isRuntimeActive(epoch,session))return;busy=true;
         try{await this.advanceChamberCreate(session,signal);if(this.isRuntimeActive(epoch,session))await this.openSession();}
         catch(cause){if(page.isConnected){const text=cause instanceof Error?cause.message:'创建尚未完成，请检查网络';if(text!==lastError){lastError=text;this.showNotice(text,'error');}}}
@@ -5390,7 +5442,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       if (session.vault.roomArchiveV2&&hasPendingRepairClaim) void this.autoApproveArchiveRepair();
       else if (!hadPendingRepairClaim && hasPendingRepairClaim) {
         this.showNotice('修复设备已确认，请在设备管理中核对安全码并批准');
-        if (this.activeSurface === 'away') void this.renderDeviceManager();
+        if (this.root.querySelector('[data-device-view]')) void this.renderDeviceManager(this.root.querySelector('[data-device-view]')?.getAttribute('data-device-view')==='peer'?'peer':'own');
       }
       await this.ensureMlsReady(state);
       if (!this.isRuntimeActive(epoch, session)) return;
@@ -5994,7 +6046,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     if(this.session.vault.roomArchiveV2){
       const label=this.root.querySelector<HTMLElement>('#new-room-invite-countdown');
       if(label){const expires=Date.parse(this.session.vault.invitationExpiresAt??this.session.vault.createdAt)+ (this.session.vault.invitationExpiresAt?0:ROOM_LINK_TTL_MS);
-        label.textContent=expires>Date.now()?`链接有效时间：${formatRoomLinkRemaining(expires-Date.now())}`:'链接已过期，请重新复制密室加入链接';}
+        const expired=expires<=Date.now();const renew=this.root.querySelector<HTMLButtonElement>('#renew-room-invite'),copy=this.root.querySelector<HTMLButtonElement>('#copy-invite');if(renew)renew.hidden=!expired;if(copy)copy.disabled=expired;
+        label.textContent=expires>Date.now()?`链接有效时间：${formatRoomLinkRemaining(expires-Date.now())}`:'链接已过期，请重新生成链接';}
       return;
     }
     if (isChamberVault(this.session.vault)) {
@@ -6636,16 +6689,17 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         { id: 'appearance-settings', label: '主题外观', icon: spaceIcons.appearance, run: forward(() => this.renderAppearanceSettings()) },
         ...(this.desktopBrowser ? [{ id: 'app-access-settings', label: '在应用中打开', icon: spaceIcons.app, run: forward(() => this.renderAppAccess()) }] : []),
         { id: 'manage-devices', label: '设备管理', icon: spaceIcons.device, run: forward(() => this.renderDeviceManager()) },
+        ...(!isChamberVault(session.vault)?[{id:'help-peer-enter',label:'帮对方进入密室',icon:spaceIcons.device,run:forward(()=>this.renderDeviceManager('peer'))}]:[]),
         ...(session.vault.roomArchiveV2 ? [
-          {id:'new-chat-link',label:'生成聊天链接',icon:spaceIcons.device,keepOpen:true,run:()=>this.renderChatLinkPanel()},
-          {id:'archive-settings',label:'备份与恢复',icon:spaceIcons.upload,run:forward(()=>this.renderBackupSettings())},
-          {id:'room-lock-settings',group:'本机' as const,label:'应用锁',icon:spaceIcons.key,keepOpen:true,run:()=>this.renderRoomLockSettings()},
+          {id:'archive-settings',label:'恢复凭证',icon:spaceIcons.key,run:forward(()=>this.renderBackupSettings(true))},
+          {id:'archive-restore',label:'聊天记录恢复',icon:spaceIcons.download,run:forward(()=>this.renderBackupSettings(false,true))},
+          {id:'room-lock-settings',group:'本机' as const,label:'应用锁与自动锁定',icon:spaceIcons.key,run:forward(()=>this.renderAutoLockSettings())},
         ] : [
         { id: 'backup-settings', label: isChamberVault(session.vault)?'助记词':'恢复卡', icon: spaceIcons.key, run: forward(() => this.renderRecoveryCenter()) },
         { id: 'local-history-backup', label: isChamberVault(session.vault)?'备份与共同恢复':'备份数据', icon: spaceIcons.upload, run: forward(() => isChamberVault(session.vault)?this.renderBackupSettings():this.renderLocalHistoryBackup('export')) },
         ...(!isChamberVault(session.vault)?[{ id: 'local-history-restore', label: '恢复数据', icon: spaceIcons.download, run: forward(() => this.renderLocalHistoryBackup('import')) }]:[]),
         ]),
-        { id: 'auto-lock-settings', group: '本机', label: '自动锁定', icon: spaceIcons.cover, run: forward(() => this.renderAutoLockSettings()) },
+        ...(!session.vault.roomArchiveV2 ? [{ id: 'auto-lock-settings', group: '本机' as const, label: '自动锁定', icon: spaceIcons.cover, run: forward(() => this.renderAutoLockSettings()) }] : []),
         ...(session.stored.unlockMethod === 'password' ? [] : [{ id: 'passkey-management', group: '本机' as const, label: '通行密钥管理', icon: spaceIcons.key, keepOpen: true, run: () => {
           const credential = this.deviceCredential;
           if (!credential) return Promise.reject(new Error('请先完成通行密钥绑定'));
@@ -6895,7 +6949,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     this.root.querySelectorAll<HTMLButtonElement>('[data-personal-guide]').forEach(button => button.addEventListener('click', () => {
       const session = this.session; if (!session || this.privacyCovered) return;
       const step = button.dataset.personalGuide;
-      if (step === 'archive') this.renderBackupSettings(true);
+      if (step === 'archive') {this.settingsReturn=null;this.renderBackupSettings(true);}
       else if(step === 'lock') this.renderRoomLockSettings();
       else if (step === 'mnemonic') this.transitionPage('forward', () => this.renderRecoveryCenter());
       else {
@@ -7493,7 +7547,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     if (!session) throw new Error('请先解锁目标空间');
     const epoch = this.runtimeEpoch;
     const active = () => this.isRuntimeActive(epoch, session);
-    if(session.vault.roomArchiveV2){clearBrowserRoomKey();await this.requireBrowserRoomKey();if(!active())throw new DOMException('验证已结束','AbortError');return session;}
+    if(session.vault.roomArchiveV2){await this.verifyRoomOperation();if(!active())throw new DOMException('验证已结束','AbortError');return session;}
     if (session.stored.unlockMethod === 'password') {
       return requestPassword(this.root, { passwordFormat: session.stored.v === 3 ? session.stored.passwordFormat : undefined, retryAfterMs: passwordUnlockWaitMs, title: '输入空间密码', context: '请输入此空间已有的密码，确认后继续本次操作。', spaceName: this.currentSpaceName, operation,
         signal: this.runtimeAbort?.signal, isActive: active,
@@ -7523,6 +7577,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       catch { this.showNotice('草稿未能保存，请重试更新', 'error'); return; }
       button.disabled = true;
       this.desktopAccess.clear();
+      try{sessionStorage.setItem('quiet-room:update-requested',currentRelease.id);}catch{/* Reload remains available. */}
       window.location.reload();
     });
   }
@@ -7539,6 +7594,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     const session = this.session;
     const epoch = this.runtimeEpoch;
     if (!session || !hasPendingReleaseNotes() || this.root.querySelector('.release-notes-sheet')) return;
+    let prior:string|null=null;try{prior=sessionStorage.getItem('quiet-room:update-requested');}catch{return;}
+    if(!prior||prior===currentRelease.id)return;
+    try{sessionStorage.removeItem('quiet-room:update-requested');}catch{/* In-memory release latch remains authoritative. */}
     const sheet = document.createElement('section');
     sheet.className = 'release-notes-sheet';
     sheet.setAttribute('role', 'dialog');
@@ -7872,21 +7930,21 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     }, matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 320);
   }
 
-  private async renderDeviceManager(): Promise<void> {
+  private async renderDeviceManager(view: 'own' | 'peer' = 'own'): Promise<void> {
     const session = this.session;
     if (!session || this.privacyCovered) return;
     if (!this.setActiveSurface('away')) return;
-    const existingPage = this.root.querySelector<HTMLElement>(':scope > .device-shell:has(#device-back)');
+    const existingPage = this.root.querySelector<HTMLElement>(`:scope > .device-shell[data-device-view="${view}"]`);
     if (!existingPage) this.root.innerHTML = `
-      <section class="device-shell">
+      <section class="device-shell device-management-page" data-device-view="${view}">
         <header class="subpage-header device-header">
           <button class="icon-button" id="device-back" type="button" aria-label="返回聊天">${icons.back}</button>
-          <div><h1>设备管理</h1></div>
+          <div><h1>${view==='peer'?'帮对方进入密室':'设备管理'}</h1></div>
           <button class="icon-button" id="refresh-devices" type="button" aria-label="刷新设备状态">↻</button>
         </header>
         <div class="notice device-notice" id="notice" role="status" hidden></div>
         <main class="device-content">
-          <aside class="device-security-note">${createElement(Info).outerHTML}<span>查看双方已授权的设备。移除设备后，它将无法接收新消息。</span></aside>
+          <aside class="device-security-note">${createElement(Info).outerHTML}<span>${view==='peer'?'选择对方需要重新进入的设备。新设备连接成功后，只替换所选旧设备。':'管理你在这间密室中使用的设备。最多可添加 3 台设备。'}</span></aside>
           <div class="device-loading">正在验证设备状态…</div>
         </main>
       </section>
@@ -7894,7 +7952,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     const devicePage = this.root.querySelector<HTMLElement>(':scope > .device-shell')!;
     if (!existingPage) {
       devicePage.querySelector('#device-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderChat()));
-      devicePage.querySelector('#refresh-devices')?.addEventListener('click', () => void this.renderDeviceManager());
+      devicePage.querySelector('#refresh-devices')?.addEventListener('click', () => void this.renderDeviceManager(view));
     }
     const request = crypto.randomUUID();
     devicePage.dataset.presentationRequest = request;
@@ -7977,9 +8035,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       heading.innerHTML = `<strong>你的设备</strong><span>${ownDevices.length} / 3 台</span>`;
       toolbar.append(heading);
       if(session.vault.roomArchiveV2){const add=document.createElement('button');add.type='button';add.className='secondary-button';add.id='add-own-device';add.textContent='添加我的设备';add.disabled=ownDevices.length>=3;add.addEventListener('click',()=>void this.startDeviceLink(add));toolbar.append(add);}
-      content.append(toolbar);
+      if(view==='own')content.append(toolbar);
 
-      if (pendingClaims.length > 0) {
+      if (view==='own' && pendingClaims.length > 0) {
         const section = document.createElement('section');
         section.className = 'device-section';
         section.innerHTML = '<h2>等待你批准</h2>';
@@ -8002,7 +8060,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         content.append(section);
       }
 
-      if (pendingRepair && !pendingRepair.admissionSecret && repairClaim?.source && repairClaim.member?.status === 'pending') {
+      if (view==='peer' && pendingRepair && !pendingRepair.admissionSecret && repairClaim?.source && repairClaim.member?.status === 'pending') {
         const section = document.createElement('section');
         section.className = 'device-section';
         section.innerHTML = '<h2>等待你批准修复</h2>';
@@ -8043,7 +8101,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         }
         ownSection.append(card);
       }
-      content.append(ownSection);
+      if(view==='own')content.append(ownSection);
 
       const peerSection = document.createElement('section');
       peerSection.className = 'device-section peer-device-section';
@@ -8052,13 +8110,19 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         const card = this.deviceCard(member, false);
         if (!isChamberVault(session.vault) && member.status !== 'revoked') {
           const repair = document.createElement('button');
-          repair.type = 'button'; repair.className = 'secondary-button compact-button'; repair.textContent = session.vault.roomArchiveV2?'生成此设备的聊天链接':'修复此设备';
-          repair.addEventListener('click', () => void this.startRepairLink(member, repair));
+          repair.type = 'button'; repair.className = 'secondary-button compact-button'; repair.textContent = session.vault.roomArchiveV2?'生成进入链接':'修复此设备';
+          repair.addEventListener('click', () => {
+            if(session.vault.roomArchiveV2){showExplanation(this.root,'生成新的进入链接？',[
+              `对方通过新链接成功进入后，“${member.deviceName??'所选设备'}”将被移出这间密室，无法继续收发消息。`,
+              '对方的其他设备不受影响。取消不会生成链接或改变设备状态。',
+            ],{signal:this.runtimeAbort?.signal,active:current,closeLabel:'取消',action:{label:'确认生成',closeBeforeRun:true,run:()=>this.startRepairLink(member,repair)}});}
+            else void this.startRepairLink(member,repair);
+          });
           card.append(repair);
         }
         peerSection.append(card);
       }
-      content.append(peerSection);
+      if(view==='peer'){content.append(peerSection);if(!peerDevices.length){const empty=document.createElement('p');empty.className='device-empty';empty.textContent='对方尚未加入。请返回聊天页，复制密室加入链接。';content.append(empty);}}
       if (deviceNote) content.append(deviceNote);
       if (!current()) return;
       const origins = positions();
@@ -8174,21 +8238,6 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     }
   }
 
-  private async renderChatLinkPanel():Promise<void> {
-    const session=this.session,epoch=this.runtimeEpoch;if(!session?.vault.roomArchiveV2||!this.runtimeAbort)return;
-    if(!this.peerHasJoined(session)){await this.shareInviteLink(this.participantInviteUrl(session),'聊天链接已复制',true);return;}
-    const state=await getRoomState(session.vault.roomId,session.vault.accessToken,this.runtimeAbort.signal);
-    if(!this.isRuntimeActive(epoch,session))return;await this.applyRoomStateQueued(state);
-    const targets=session.vault.members.filter(member=>member.role!==session.vault.role&&member.status==='active');
-    if(!targets.length){this.showNotice('暂时没有可接替设备，请稍后重试','error');return;}
-    const sheet=document.createElement('section');sheet.className='confirm-overlay space-invite-overlay';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-modal','true');sheet.setAttribute('aria-label','生成聊天链接');
-    sheet.innerHTML='<div class="confirm-dialog"><h2>生成聊天链接</h2><p>选择对方要重新进入的设备。连接成功后，只替换这台旧设备。</p><div data-targets></div><button class="primary-button" data-copy>生成并复制链接</button><button class="text-button" data-cancel>取消</button></div>';
-    for(const [index,target]of targets.entries()){const label=document.createElement('label');label.className='preference-choice';const name=document.createElement('span');name.textContent=target.deviceName??'未命名设备';const input=document.createElement('input');input.type='radio';input.name='replacement-device';input.value=target.deviceId;input.checked=index===0;label.append(name,input);sheet.querySelector('[data-targets]')!.append(label);}
-    this.root.append(sheet);const dialog=mountDialog(sheet,{signal:this.runtimeAbort.signal,isActive:()=>this.isRuntimeActive(epoch,session)});
-    sheet.querySelector('[data-cancel]')!.addEventListener('click',()=>dialog.close());
-    const button=sheet.querySelector<HTMLButtonElement>('[data-copy]')!;button.addEventListener('click',()=>{const id=sheet.querySelector<HTMLInputElement>('input:checked')?.value,target=targets.find(m=>m.deviceId===id);if(target)void this.startRepairLink(target,button);});
-  }
-
   private async startRepairLink(source: RoomMember, button: HTMLButtonElement): Promise<void> {
     const session = this.session; const epoch = this.runtimeEpoch;
     if (!session || !session.vault.mls) return;
@@ -8229,7 +8278,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
           await saveVault(session, mutation);
         }
       });
-      if (this.isRuntimeActive(epoch, session)) { this.showNotice('修复邀请已批准，旧设备已撤销'); await this.renderDeviceManager(); }
+      if (this.isRuntimeActive(epoch, session)) { this.showNotice('修复邀请已批准，旧设备已撤销'); await this.renderDeviceManager('peer'); }
     } catch (cause) {
       if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '修复授权失败');
     } finally {
@@ -9155,7 +9204,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     if(this.roomLockEnabled&&!change){this.renderAutoLockSettings();return;}
     const epoch=this.runtimeEpoch,active=()=>this.isRuntimeActive(epoch,session);
     void(async()=>{
-      if(change){clearBrowserRoomKey();await this.requireBrowserRoomKey();}
+      if(change)await this.verifyRoomOperation();
       if(!active())return;
       let credential:LocalCredentialResult;
       if(platformVaultSetupState()==='unsupported')credential=await this.preparePasswordProtection(active);
@@ -9172,15 +9221,14 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
   }
 
   private renderAutoLockSettings(): void {
-    if(this.session?.vault.roomArchiveV2&&!this.roomLockEnabled){this.renderRoomLockSettings();return;}
-    if (this.privacyCovered || (!this.session && !this.browserProfile && !this.idleDeadline) || this.expireIdleSession()) return;
+        if (this.privacyCovered || (!this.session && !this.browserProfile && !this.idleDeadline) || this.expireIdleSession()) return;
     this.setActiveSurface('away');
     let selected = readIdleSeconds(localStorage), hiddenLock = readHiddenLock(localStorage), blankLock = readBlankDoubleLock();
     const durationChoices = IDLE_DURATIONS.filter(value => value !== 0);
     let durationSheet: HTMLElement | null = null;
     const durationLabel = () => selected < 60 ? `${selected} 秒` : `${selected / 60} 分钟`;
     this.root.innerHTML = `<section class="device-shell auto-lock-page privacy-settings-page" data-authenticated-page>
-      <main class="device-content preference-content"><h1>自动锁定</h1><p class="preference-intro">选择适合你的锁定方式。</p>${this.session?.vault.roomArchiveV2?'<section class="privacy-setting"><div class="privacy-control-row"><div><h2>应用锁</h2><p>保护本机页面和密钥，不改变恢复图片。</p></div><div class="room-lock-actions"><button type="button" class="secondary-button room-lock-change" data-change-room-lock>修改</button><button type="button" class="backup-toggle" data-remove-room-lock role="switch" aria-label="应用锁" aria-checked="true"><span></span></button></div></div></section>':''}
+      <main class="device-content preference-content"><h1>${this.session?.vault.roomArchiveV2?'应用锁与自动锁定':'自动锁定'}</h1><p class="preference-intro">选择适合你的锁定方式。</p>${this.session?.vault.roomArchiveV2?`<section class="privacy-setting"><div class="privacy-control-row"><div><h2>应用锁</h2><p>保护本机页面和密钥，不改变恢复图片。</p></div><div class="room-lock-actions"><button type="button" class="secondary-button room-lock-change" data-change-room-lock ${this.roomLockEnabled?'':'hidden'}>修改</button><button type="button" class="backup-toggle" data-remove-room-lock role="switch" aria-label="应用锁" aria-checked="${this.roomLockEnabled}"><span></span></button></div></div></section>`:''}
       <section class="privacy-setting"><div class="privacy-control-row"><div><h2>离开时锁定</h2><p>息屏或切到后台，回来时验证应用锁</p></div><button type="button" class="backup-toggle" data-hidden-lock role="switch" aria-label="息屏或切到后台时锁定" aria-checked="${hiddenLock}"><span></span></button></div></section>
       <section class="privacy-setting"><div class="privacy-control-row"><div><h2>双击空白区域锁屏</h2><p>连续点按空白处两次，立即锁定</p></div><button type="button" class="backup-toggle" data-blank-lock role="switch" aria-label="双击空白区域锁屏" aria-checked="${blankLock}"><span></span></button></div></section>
       <section class="privacy-setting"><div class="privacy-control-row"><div><h2>闲置时锁定</h2><p>开启后，按所选时间自动锁定</p></div><button type="button" class="backup-toggle" data-idle-toggle role="switch" aria-label="无操作倒计时" aria-checked="${selected !== 0}"><span></span></button></div>
@@ -9191,11 +9239,11 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       <footer class="privacy-page-footer"><button class="text-button" id="auto-lock-back" type="button">返回</button></footer></section>`;
     const page = this.root.querySelector<HTMLElement>('.auto-lock-page')!;
     page.querySelector('[data-change-room-lock]')?.addEventListener('click',()=>this.renderRoomLockSettings(true));
-    page.querySelector('[data-remove-room-lock]')?.addEventListener('click',()=>{void(async()=>{
+    page.querySelector('[data-remove-room-lock]')?.addEventListener('click',()=>{if(!this.roomLockEnabled){this.renderRoomLockSettings();return;}void(async()=>{
       if(!this.confirmSystemAction('关闭应用锁后，打开此浏览器即可访问所有本机密室。聊天传输与云端备份仍然加密。确认关闭？'))return;
-      clearBrowserRoomKey();await this.requireBrowserRoomKey();await removeBrowserRoomProtection();this.roomLockEnabled=false;
+      await this.verifyRoomOperation();await removeBrowserRoomProtection();this.roomLockEnabled=false;
       try{localStorage.setItem('quiet-room:room-protection-change',crypto.randomUUID());}catch{}
-      this.renderChat();this.showNotice('应用锁已关闭');
+      this.renderAutoLockSettings();this.showNotice('应用锁已关闭');
     })().catch(cause=>this.showNotice(cause instanceof Error?cause.message:'关闭失败，请重试','error'));});
 
     const report = (error = '') => {if(error)this.showNotice(error,'error');};
@@ -9277,8 +9325,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     const selected = document.documentElement.dataset.theme, preference = document.documentElement.dataset.colorSchemePreference;
     this.preferencePage('主题外观', 'appearance-page', 'appearance-back', `<div class="appearance-preview" role="img" aria-label="合成聊天预览，不包含真实消息">
       <div class="appearance-preview-header">周末散步<span data-effective-scheme></span></div><div class="appearance-preview-messages"><span>明天一起去散步吧。</span><span>好呀，记得带上相机。</span></div><div class="appearance-preview-composer" aria-hidden="true">消息</div></div>
-      <fieldset class="scheme-options preference-options"><legend>明暗模式</legend>${([['system', '跟随系统'], ['light', '浅色'], ['dark', '深色']] as const).map(([id, name]) => `<label class="scheme-choice"><span class="scheme-swatch scheme-${id}" aria-hidden="true"><i></i><i></i></span><span>${name}</span><input type="radio" name="color-scheme" value="${id}" ${id === preference ? 'checked' : ''}></label>`).join('')}</fieldset>
-      <fieldset class="preference-options theme-options"><legend>主题配色</legend>${THEMES.map(theme => `<label class="preference-choice"><i class="theme-swatch" style="background:${theme.color}" aria-hidden="true"></i><span>${theme.name}</span><input type="radio" name="appearance" value="${theme.id}" ${theme.id === selected ? 'checked' : ''}></label>`).join('')}</fieldset>
+      <h2 id="brightness-heading" class="preference-section-title">明暗模式</h2><fieldset class="scheme-options preference-options" aria-labelledby="brightness-heading">${([['system', '跟随系统'], ['light', '浅色'], ['dark', '深色']] as const).map(([id, name]) => `<label class="scheme-choice"><span class="scheme-swatch scheme-${id}" aria-hidden="true"><i></i><i></i></span><span>${name}</span><input type="radio" name="color-scheme" value="${id}" ${id === preference ? 'checked' : ''}></label>`).join('')}</fieldset>
+      <h2 id="palette-heading" class="preference-section-title">主题配色</h2><fieldset class="preference-options theme-options" aria-labelledby="palette-heading">${THEMES.map(theme => `<label class="preference-choice"><i class="theme-swatch" style="background:${theme.color}" aria-hidden="true"></i><span>${theme.name}</span><input type="radio" name="appearance" value="${theme.id}" ${theme.id === selected ? 'checked' : ''}></label>`).join('')}</fieldset>
       <p class="preference-note">选择后立即生效，仅保存在当前浏览器或应用的数据空间。同一数据空间的标签页会同步，不会同步到其他设备。</p><p class="preference-status" role="status" aria-live="polite"></p><p class="form-error" role="alert"></p>`);
     const page = this.root.querySelector<HTMLElement>('.appearance-page')!;
     this.syncAppearanceSettings();
@@ -11386,6 +11434,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         const status = document.createElement('p'); status.className = 'entry-invite-status';
         status.innerHTML = '<span id="invite-countdown" role="timer" aria-live="off"></span>';
         guidance.append(invite, link);
+        if(this.session.vault.roomArchiveV2){const renew=document.createElement('button');renew.id='renew-room-invite';renew.type='button';renew.className='text-button';renew.textContent='重新生成链接';renew.hidden=true;renew.addEventListener('click',()=>{if(!this.confirmSystemAction('重新生成后，旧链接将失效。继续？'))return;setBusy(renew,true);void this.freshRoomInvitation().then(url=>this.shareInviteLink(url,'新链接已复制',true)).catch(cause=>this.showNotice(cause instanceof Error?cause.message:'生成失败，请重试','error')).finally(()=>setBusy(renew,false));});guidance.append(renew);}
         if (!isChamberVault(this.session.vault) && !this.session.vault.roomArchiveV2) guidance.append(status);
         if (isChamberVault(this.session.vault)) {
           const state = document.createElement('div'); state.id = 'chamber-invite-status'; state.className = 'chamber-invite-status'; state.setAttribute('role', 'status');
@@ -12557,17 +12606,17 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     status(); void refresh(); const tick=()=>{if(!active())return; if(!busy)void refresh();window.setTimeout(tick,5000);};window.setTimeout(tick,5000);
   }
 
-  private renderBackupSettings(startWithCredential=false): void {
+  private renderBackupSettings(startWithCredential=false,startWithRestore=false): void {
     const session = this.session;
     if (!session || this.privacyCovered) return;
     if (session.vault.roomArchiveV2 && this.runtimeAbort) {
       this.captureChatAnchor(false);this.closeVoiceRecorder();this.voicePlayback.stop();this.setActiveSurface('away');
       const epoch=this.runtimeEpoch;let restored=false;
-      mountArchiveSettings({root:this.root,session,startWithCredential,signal:this.runtimeAbort.signal,active:()=>this.isRuntimeActive(epoch,session),
-        notice:(text,error)=>this.showNotice(text,error?'error':'info'),back:()=>{void this.openSession().then(()=>{if(restored&&this.isRuntimeActive(epoch,session))this.root.querySelector('.private-archive-message')?.scrollIntoView({block:'center'});}).catch(cause=>this.operationalError(cause,'返回聊天失败'));},
+      mountArchiveSettings({root:this.root,session,startWithCredential,startWithRestore,name:()=>this.currentSpaceName,verify:()=>this.authorizeArchiveExport(),signal:this.runtimeAbort.signal,active:()=>this.isRuntimeActive(epoch,session),
+        notice:(text,error)=>this.showNotice(text,error?'error':'info'),back:()=>{this.transitionPage('backward',()=>{if(restored){void this.openSession().catch(cause=>this.operationalError(cause,'返回失败'));}else this.renderChat();});},
         beginPick:()=>this.beginNativeHandoff('picker',60_000),finishPick:()=>this.finishNativeHandoff('picker'),
         saveImage:blob=>this.withSystemSurface(()=>downloadBlob(blob,'聊天归档恢复卡.png')),
-        sync:async()=>{await this.runAutomaticBackup(true);if(this.isRuntimeActive(epoch,session)){if(this.backupError)throw new Error(this.backupError);this.showNotice('已执行备份，当前进度见自动备份状态');}},restored:()=>{restored=true;this.settingsReturn=null;this.spaceDrawerOpen=false;}});
+        sync:async()=>{await this.runAutomaticBackup(true);if(this.isRuntimeActive(epoch,session)){if(this.backupError)throw new Error(this.backupError);this.showNotice('已执行备份，当前进度见自动备份状态');}},restored:()=>{restored=true;}});
       return;
     }
     // Consume the compatibility entry once; later returns follow the page flow.
@@ -15862,7 +15911,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
           && this.root.getAttribute('aria-hidden') !== 'true') this.showNotice(queued.message);
       }, motion.menuOut);
       this.noticeTimer = null;
-    }, tone === 'error' ? 5000 : 2600);
+    }, tone === 'error' ? 1860 : 1360);
   }
 
   private showFormError(cause: unknown): void {
