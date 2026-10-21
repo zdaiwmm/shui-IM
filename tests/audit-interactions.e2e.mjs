@@ -248,9 +248,9 @@ try {
   const queued = await f.evaluate(async () => JSON.stringify(await v.loadOutbox(app.session)));
   await a.evaluate(async id => { const member = app.session.vault.members.find(item => item.deviceId === id); const button = document.createElement('button'); document.querySelector('#app').append(button); await app.changeMlsMembership('remove', member, button); }, fId);
   await fEndpoint.context.setOffline(false);
-  await f.locator('#access-failure').waitFor();
-  assert.match(await f.locator('#access-failure').textContent(), /不会自动发送/);
-  assert.equal(await f.locator('#message-input').evaluate(input => input.readOnly), true);
+  await f.locator('.access-denied-page').waitFor();
+  assert.match(await f.locator('.access-denied-page').textContent(), /不会自动转移或发送/);
+  assert.equal(await f.locator('.chat-shell, #message-input, .peer-summary').count(), 0);
   const blocked = await f.evaluate(async () => {
     const before = JSON.stringify(await v.loadOutbox(app.session)), state = app.session.vault.mls.groupState;
     let rejected = false;
@@ -258,10 +258,9 @@ try {
     return { rejected, unchanged: before === JSON.stringify(await v.loadOutbox(app.session)), stateUnchanged: state === app.session.vault.mls.groupState, queued: before };
   });
   assert.equal(blocked.rejected, true); assert.equal(blocked.unchanged, true); assert.equal(blocked.stateUnchanged, true); assert.equal(blocked.queued, queued);
-  assert.equal(await f.locator('#access-failure button').evaluate(button => button.getBoundingClientRect().height >= 44), true);
-  await f.getByRole('button', { name: '查看接入方法' }).click();
-  assert.match(await f.locator('.confirm-dialog').textContent(), /新的浏览器/);
-  await f.getByRole('button', { name: '返回聊天', exact: true }).click();
+  assert.equal(await f.locator('#access-denied-spaces').evaluate(button => button.getBoundingClientRect().height >= 44), true);
+  assert.match(await f.locator('.access-denied-steps').textContent(), /新的浏览器/);
+  assert.equal(await f.getByRole('button', { name: '返回聊天', exact: true }).count(), 0);
   assert.equal(await f.evaluate(async () => JSON.stringify(await v.loadOutbox(app.session))), queued);
   await shot(f, 'access-stopped-390');
   await f.setViewportSize({ width: 320, height: 844 });

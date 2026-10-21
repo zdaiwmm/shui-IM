@@ -143,7 +143,7 @@ import { bindImageViewerGestures } from './lib/image-viewer-gestures';
 import { prepareImageMotion, type ImageMotion } from './lib/image-animation';
 import { createConcealedImage } from './lib/concealed-image';
 import { mountPhotoDetails } from './lib/photo-details';
-import { createElement, Check, Info, Pause, Play, Plus, Camera, Maximize, Volume2, VolumeX, Gauge, Trash2, RotateCcw, RotateCw, Link, Star, KeyRound, FileText, Settings, TriangleAlert, Smartphone, Laptop } from 'lucide';
+import { createElement, Check, Info, Pause, Play, Plus, Camera, Maximize, Volume2, VolumeX, Gauge, Trash2, RotateCcw, RotateCw, Link, Star, KeyRound, LockKeyhole, FileText, Settings, TriangleAlert, Smartphone, Laptop } from 'lucide';
 import { isReadableChatMessage, readMessageIds } from './lib/message-read';
 import { isChatMedia } from './lib/media-read';
 import { bindChatImageConcealGesture } from './lib/chat-image-conceal-gesture';
@@ -4500,6 +4500,11 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     const epoch = this.runtimeEpoch;
     this.runtimeAbort?.abort();
     this.runtimeAbort = new AbortController();
+    if (session.vault.localAccessDeniedDeviceId === session.vault.identity.publicBundle.deviceId) {
+      this.accessFailure = 'denied';
+      this.renderAccessDenied();
+      return;
+    }
     if (this.inlineInviteTimer !== null) window.clearInterval(this.inlineInviteTimer);
     this.inlineInviteTimer = null;
     this.scheduleIdleLock();
@@ -4603,8 +4608,13 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       messageEventsPromise,
     ]);
     if (!this.isRuntimeActive(epoch, session)) return;
-    this.outbox = new Map(outbox.map((item) => [item.clientMsgId, item]));
-    this.pending = new Map(outbox.map((item) => [item.clientMsgId, {
+    // Same-browser replacement retains encrypted local records. Old-device
+    // ciphertext/receipts must stay durable without being replayed as this identity.
+    const ownId = session.vault.identity.publicBundle.deviceId;
+    const activeOutbox = session.vault.roomArchiveV2 ? outbox.filter(item => item.envelope?.senderId === ownId) : outbox;
+    const activeReceipts = session.vault.roomArchiveV2 ? pendingReceipts.filter(receipt => receipt.receiverId === ownId) : pendingReceipts;
+    this.outbox = new Map(activeOutbox.map((item) => [item.clientMsgId, item]));
+    this.pending = new Map(activeOutbox.map((item) => [item.clientMsgId, {
       seq: Number.MAX_SAFE_INTEGER,
       clientMsgId: item.clientMsgId,
       senderId: session.vault.identity.publicBundle.deviceId,
@@ -4612,7 +4622,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       acceptedAt: item.createdAt,
       status: 'pending' as const,
     }]));
-    this.pendingReceipts = new Map(pendingReceipts.map((receipt) => [receipt.clientMsgId, receipt]));
+    this.pendingReceipts = new Map(activeReceipts.map((receipt) => [receipt.clientMsgId, receipt]));
     this.uploadPlans = uploadPlans;
     this.messageEventHistory = new Map(messageEvents.map(message => [message.seq, message]));
     this.restoreChatAnchorOnNextRender = true;
@@ -5283,6 +5293,17 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
           if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
           this.accessFailure = reason;
           for (const id of this.retryTimers.keys()) this.clearRetry(id, false);
+          if (reason === 'denied') {
+            this.renderAccessDenied();
+            void withVaultMutation(session, async mutation => {
+              if (!this.isRuntimeActive(epoch, session) || this.accessFailure !== 'denied') return;
+              session.vault.localAccessDeniedDeviceId = session.vault.identity.publicBundle.deviceId;
+              await saveVault(session, mutation);
+            }).catch(cause => {
+              if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '无法保存本机接入状态，请检查浏览器存储权限');
+            });
+            return;
+          }
           this.updateConnectionStatus();
         },
         connection: (state) => {
@@ -6823,6 +6844,11 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
 
   private renderChat(retiringSettings?: HTMLElement): void {
     if (!this.session) return;
+    if (this.accessFailure === 'denied' || this.session.vault.localAccessDeniedDeviceId === this.session.vault.identity.publicBundle.deviceId) {
+      this.accessFailure = 'denied';
+      this.renderAccessDenied();
+      return;
+    }
     const settings = this.settingsReturn;
     if (settings?.session === this.session && this.runtimeAbort && !this.privacyCovered && !matchMedia(desktopWidth).matches) {
       // A settings child returns directly to its parent. Rebuilding chat first
@@ -15773,7 +15799,56 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     this.updatePeerStatus();
   }
 
+  private renderAccessDenied(): void {
+    const session = this.session;
+    if (!session || this.privacyCovered) return;
+    const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
+    if (input) {
+      this.uiPreferences.composerDraft = input.value;
+      try { this.composerCheckpoint?.write(input.value); } catch { /* Preserve the last durable draft. */ }
+      this.flushUiPreferencesSave();
+    }
+    this.cancelPageTransition?.();
+    this.cancelSpaceNavigation?.();
+    this.settingsReturn = null;
+    this.spaceDrawerOpen = false;
+    this.setActiveSurface('away');
+    this.closeChatTools();
+    this.callController?.destroy(); this.callController = null;
+    this.callView?.destroy(); this.callView = null;
+    this.callVault = null;
+    this.callReturnFocus = null;
+    this.root.inert = this.root.classList.contains('portrait-blocked');
+    if (this.inlineInviteTimer !== null) window.clearInterval(this.inlineInviteTimer);
+    this.inlineInviteTimer = null;
+    document.body.className = 'app-mode';
+    const modern = Boolean(session.vault.roomArchiveV2);
+    this.root.innerHTML = `
+      <section class="access-denied-page" aria-labelledby="access-denied-title">
+        <main class="access-denied-content">
+          <div class="access-denied-symbol" aria-hidden="true">${createElement(LockKeyhole).outerHTML}</div>
+          <h1 id="access-denied-title" tabindex="-1">此设备无法进入密室</h1>
+          <p class="access-denied-intro">这台设备已无法收发消息。${modern ? '请联系对方，按以下步骤重新进入。' : '请在自己的另一台已授权设备上，重新添加此设备。'}</p>
+          <ol class="access-denied-steps">${modern ? `
+            <li><strong>请对方发送新链接</strong><p>请对方打开「设置 → 帮对方进入密室」，选择需要接替的设备，生成新链接发给你。</p></li>
+            <li><strong>在当前浏览器打开链接</strong><p>使用这台设备的当前浏览器打开新链接。</p></li>
+            <li><strong>等待连接完成</strong><p>请对方回到聊天页面并保持打开，连接完成后即可进入。</p></li>
+          ` : `
+            <li><strong>生成添加设备链接</strong><p>在自己的另一台已授权设备中，打开「设置 → 设备管理」，生成添加设备链接。</p></li>
+            <li><strong>在新浏览器打开链接</strong><p>在新的浏览器打开完整链接，按提示完成设备验证。</p></li>
+            <li><strong>核对安全码并批准</strong><p>回到已有设备，核对相同安全码并批准加入。</p></li>
+          `}</ol>
+          ${modern ? '<p class="access-denied-replacement">重新进入后，对方选中的那台设备将被移出密室，无法继续收发消息。请先确认要保留哪台设备。</p>' : ''}
+          <p class="access-denied-note">本机历史、草稿和待发内容保留。待发内容不会自动转移或发送。</p>
+        </main>
+        <footer class="access-denied-footer"><button class="secondary-button" id="access-denied-spaces" type="button">返回密室列表</button></footer>
+      </section>`;
+    this.root.querySelector('#access-denied-spaces')!.addEventListener('click', () => void this.openPrivateSpaces());
+    this.root.querySelector<HTMLElement>('#access-denied-title')?.focus({ preventScroll: true });
+  }
+
   private updateAccessFailure(): void {
+    if (this.accessFailure === 'denied') { this.renderAccessDenied(); return; }
     const host = this.root.querySelector('.system-notices');
     if (!host) return;
     if (!this.accessFailure) { host.querySelector('#access-failure')?.remove(); return; }
@@ -15788,19 +15863,14 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     banner.id = 'access-failure'; banner.className = 'upload-reminder'; banner.setAttribute('role', 'status');
     const reason = this.accessFailure;
     banner.innerHTML = `<div><strong></strong><span></span></div><button type="button"></button>`;
-    banner.querySelector('strong')!.textContent = reason === 'upgrade' ? '需要更新客户端' : reason === 'space-unavailable' ? '此空间已不可用' : '此设备当前无法接入此空间';
+    banner.querySelector('strong')!.textContent = reason === 'upgrade' ? '需要更新客户端' : '此空间已不可用';
     banner.querySelector('span')!.textContent = reason === 'upgrade' ? '更新后再接入；本机历史、草稿和待发内容保留。'
-      : reason === 'space-unavailable' ? '本机历史和待发内容保留。此空间不会自动重连或发送。'
-      : '消息不会自动发送。请在另一已授权设备核对接入状态。本机历史、草稿和待发内容保留。';
+      : '本机历史和待发内容保留。此空间不会自动重连或发送。';
     const button = banner.querySelector('button')!;
-    button.textContent = reason === 'upgrade' ? '重新加载' : reason === 'space-unavailable' ? '返回空间列表' : '查看接入方法';
+    button.textContent = reason === 'upgrade' ? '重新加载' : '返回空间列表';
     button.addEventListener('click', () => {
       if (reason === 'upgrade') { this.flushUiPreferencesSave(); location.reload(); return; }
-      if (reason === 'space-unavailable') { void this.openPrivateSpaces(); return; }
-      const sheet = document.createElement('div'); sheet.className = 'confirm-overlay'; sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', '重新接入此空间');
-      sheet.innerHTML = `<div class="confirm-dialog"><h2>重新接入此空间</h2><p>在另一已授权设备核对此设备的接入状态。需要重新接入时，让已有设备生成“添加设备”链接，在新的浏览器打开完整链接并核对安全码。</p><p>新浏览器生成独立密钥，只能读取获准加入后的消息。保留此浏览器可继续查看本机历史和复制草稿；待发内容不会自动转移或发送。</p><button class="primary-button" type="button">返回聊天</button></div>`;
-      this.root.append(sheet); mountDialog(sheet, { isActive: () => !this.privacyCovered, signal: this.runtimeAbort?.signal });
-      sheet.querySelector('button')!.addEventListener('click', () => closeDialog(sheet));
+      void this.openPrivateSpaces();
     });
     host.prepend(banner);
     this.renderMessages({ scroll: 'preserve' });
@@ -16434,7 +16504,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
   }
 
   private updateCallView(state: CallState): void {
-    if (state.phase === 'idle') {
+    if (state.phase === 'idle' || this.accessFailure === 'denied') {
       this.callView?.destroy();
       this.callView = null;
       this.root.inert = this.root.classList.contains('portrait-blocked');
