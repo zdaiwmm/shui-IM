@@ -2,7 +2,7 @@
 
 ## 身份与确认
 
-- 当前阶段：已通过验收并合并[PR #362](https://github.com/zdaiwmm/shui-IM/pull/362)，应用`8d6256a7b1d9bb783f11fcc85de57284ce1324a2`、版本`2026.10.21.1`。本任务尚未执行生产切换，精确应用main完整CI与只读预检均通过，等待用户确认该SHA。
+- 当前阶段：已通过验收并合并[PR #362](https://github.com/zdaiwmm/shui-IM/pull/362)，应用`8d6256a7b1d9bb783f11fcc85de57284ce1324a2`、版本`2026.10.21.1`。用户已确认该精确SHA发布；固定入口DEPLOY_VERIFIED及独立READBACK_OK均通过（2026-10-21T06:01:31.944Z）；发布事实由[发布记录](../../../RELEASING.md#release-invite-privacy-20261021)拥有。
 - 规则来源：本机main `04ee8e235b45c12376b6e9addc7fa443565465b0`。起始基线：实时GitHub main及origin/main均为`06108c5fb8ec676fb6e5c705b2a6199db77e654c`，本机main落后8提交且干净。
 - 独占工作树：`/Users/zhouding/ss-worktrees/invite-privacy-20261021`；分支`codex/invite-privacy-20261021`，本会话新建。
 - 2026-10-21用户先提供邀请与隐私引导截图，随后将第三步修订为“聊天记录恢复凭证”，新增当前名称作为标签标题及本机`chamberN`命名规则。用户在看到V2方案后明确要求“立即实施，完成后合并发布”。消息无独立permalink；本轮免原型／流程图，授权正式实施、验证及远端交付。生产仍须另行确认精确应用SHA。
@@ -45,6 +45,14 @@
 - 旧gallery-loading出现一次“第三块缩略图尚未退出busy”的计数瞬态，保持原代码和断言重跑一次通过，再补齐剩余7入口。归档卡原图核验、应用锁真实包装／虚拟PRF、24小时边界／重试、具体设备接替、Chromium／WebKit和视觉矩阵均有相应验收；原生iPhone、物理认证器、独立安全审阅缺口保留。
 - 最终[PR CI 39548764053](https://github.com/zdaiwmm/shui-IM/actions/runs/39548764053)最新attempt 2完整通过。首轮仅新WebKit用例结束时后台fetch被取消的原生诊断，日志核实后只原样重跑失败作业一次，未放宽异常过滤或修改运行代码。双架构镜像、依赖审计、凭据扫描及verify均成功。
 - 应用合并后的[main CI 39550197797](https://github.com/zdaiwmm/shui-IM/actions/runs/39550197797)最新attempt 1完整通过，Full application verification成功；发布证据不复用PR CI。验收对账使用独立文档树`invite-privacy-delivery-record-20261021`，其文档SHA不替代应用SHA，不触发生产切换。
-- 本机脱敏逐项映射保存在公共Git元数据`quiet-room-deliveries/evidence/invite-privacy-20261021/local-continuation.json`；原始日志和截图仅本机临时保存。本需求源码、测试和规范均为文本，无二进制、Base64、依赖或构建产物入库。任务工作树在待发布阶段保留。
+- 本机脱敏逐项映射保存在公共Git元数据`quiet-room-deliveries/evidence/invite-privacy-20261021/local-continuation.json`；原始日志和截图仅本机临时保存。本需求源码、测试和规范均为文本，无二进制、Base64、依赖或构建产物入库。任务工作树在待发布阶段曾保留；本轮发布后清理结论见下文。
 
-- 固定只读[云预检39550996742](https://github.com/zdaiwmm/shui-IM/actions/runs/39550996742)以`publish.mjs --cloud --prepare --environment production --sha 8d6256a7b1d9bb783f11fcc85de57284ce1324a2`取得PREFLIGHT_OK。已核对保存请求为doctor模式，依本轮授权通过现有production环境正常审核，未修改保护规则；该预检不执行生产切换。当前仅剩用户对上述精确应用SHA的生产确认，不能用文档提交替代该应用SHA。
+- 固定只读[云预检39550996742](https://github.com/zdaiwmm/shui-IM/actions/runs/39550996742)以`publish.mjs --cloud --prepare --environment production --sha 8d6256a7b1d9bb783f11fcc85de57284ce1324a2`取得PREFLIGHT_OK。已核对保存请求为doctor模式，依本轮授权通过现有production环境正常审核，未修改保护规则；该预检不执行生产切换。用户随后对上述精确应用SHA回复“确认，发布生产”，本轮生产授权已满足，不能用文档提交替代该应用SHA。
+
+## 生产发布与对账
+
+- 2026-10-21用户对已展示的完整应用SHA与版本回复“确认，发布生产”，无独立消息permalink。固定`publish.mjs --cloud --with-readback --environment production --sha 8d6256a7b1d9bb783f11fcc85de57284ce1324a2`只派发请求`eb94385a-d955-4f7d-8140-a890e9c0718c`一次；[云发布39551555627](https://github.com/zdaiwmm/shui-IM/actions/runs/39551555627)取得精确DEPLOY_VERIFIED，从`1efb1fc2d307d36afdfde7038410e42b4b71c366`切换一次。工作流来源cbe2f67与获批应用SHA分开，现有production审核正常完成，未改保护或helper。
+- 首次独立回读仅备份starting失败，应用healthy、维护门absent。只读核对备份于`2026-10-21T05:56:08.259056629Z`启动，既有探针间隔与启动期均5分钟；等待后只续跑相同SHA的readback-only，不重发、不放宽门禁。
+
+- 等待既有启动探针后，只续跑相同SHA只读回读，于`2026-10-21T06:01:31.944Z`取得READBACK_OK；应用／备份healthy，TURN运行且探针none，SHA／实际镜像、公开资源／容器摘要、HTTPS三项健康与新WebSocket均通过，维护门absent。完整事实见[发布记录](../../../RELEASING.md#release-invite-privacy-20261021)。
+- 脱敏证据已保存公共Git元数据`quiet-room-deliveries/evidence/invite-privacy-20261021/`。第二独立文档树在`codex/invite-privacy-release-record-20261021`基于实时main `cbe2f677a1efe0426d8e0166d57b9006e515a865`对账，不复制部署配置。两树仍有当前任务依赖，源树有忽略缓存与专属回执，依清理门禁保留。原生iPhone／iOS27／Safari、真实认证器与独立安全审阅缺口保持。

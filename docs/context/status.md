@@ -1,10 +1,11 @@
 # Quiet Room 当前状态
 
-## 邀请与隐私引导已合并，待发布（2026-10-21）
+## 邀请、隐私引导与密室名称已发布，真机待验收（2026-10-21 14:01）
 
-- [需求V2](../requirements/2026-10-21-invite-privacy/README.md)由用户明确免原型直接实施、合并及准备发布。[PR #362](https://github.com/zdaiwmm/shui-IM/pull/362)合并应用`8d6256a7b1d9bb783f11fcc85de57284ce1324a2`，版本`2026.10.21.1`；与最终源c9a4d98完整文件树一致。24小时加入／设备接替、真实三步隐私状态、恢复凭证直达、应用锁默认30秒闲置与通行密钥自动唤起、本机chamberN及私密标签标题均已实施，长期契约由NEW_ROOM_ARCHIVES与移动视觉V1.20拥有。
-- 本机最终构建／1046项单元通过，74浏览器入口分段逐项对账通过；WebKit鼠标自动滚动夹具改为真实tap，旧相册瞬态原样重跑通过，原始失败与证据映射见需求记录。最终PR完整CI最新attempt 2成功；精确应用[main完整CI 39550197797](https://github.com/zdaiwmm/shui-IM/actions/runs/39550197797) attempt 1成功，Full application verification通过。原生iPhone／iOS27／Safari、真实认证器与独立安全审阅未验证。
-- 本任务尚未执行生产切换；固定只读[云预检39550996742](https://github.com/zdaiwmm/shui-IM/actions/runs/39550996742)已核对doctor模式并取得PREFLIGHT_OK，下一步仅用户确认上述精确应用SHA。独立文档对账只更新验收／待发布事实，文档提交不是线上应用版本；下方保留最近一次已发布事实。
+- 用户确认V2并免原型直接实施、合并，随后确认完整应用`8d6256a7b1d9bb783f11fcc85de57284ce1324a2`、版本`2026.10.21.1`生产发布。[PR #362](https://github.com/zdaiwmm/shui-IM/pull/362)源c9a4d98与应用完整文件树一致。24小时加入／设备接替、三步真实状态与恢复凭证直达、应用锁默认30秒闲置与通行密钥自动唤起、本机chamberN及私密标题由[需求V2](../requirements/2026-10-21-invite-privacy/README.md)拥有，长期契约NEW_ROOM_ARCHIVES及视觉V1.20。
+- 最终本机构建／1046项单元、74浏览器入口分段逐项对账通过；早期失败及有界复验保留。精确PR完整CI最新attempt 2与[应用main完整CI39550197797](https://github.com/zdaiwmm/shui-IM/actions/runs/39550197797) attempt 1成功，Full application verification通过；验收记录[PR #363](https://github.com/zdaiwmm/shui-IM/pull/363)已合并。真机、物理认证器与独立安全审阅未验证。
+- 固定只读预检PREFLIGHT_OK后，唯一[生产云发布39551555627](https://github.com/zdaiwmm/shui-IM/actions/runs/39551555627)核对DEPLOY_VERIFIED，从1efb1fc实际切换一次。首次独立回读仅备份starting；核对既有5分钟启动探针后只续跑同SHA readback-only，于`2026-10-21T06:01:31.944Z`取得READBACK_OK。应用／备份healthy，TURN运行且探针none；SHA／实际镜像、HTTPS／数据库／存储、公开与容器产物及新WebSocket一致，维护门absent。完整事实见[本轮发布记录](../../RELEASING.md#release-invite-privacy-20261021)。
+- 脱敏证据在公共Git元数据`quiet-room-deliveries/evidence/invite-privacy-20261021/`；第二独立文档树只对账，文档提交不替代线上应用。两树仍由当前任务使用，源树有忽略缓存／专属回执，依清理门禁保留；其他任务不处理。下方均为历史状态。
 
 ## 新密室与本人归档已发布，真机待验收（2026-10-20 23:15）
 

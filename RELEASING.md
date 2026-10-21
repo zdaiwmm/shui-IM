@@ -1,5 +1,17 @@
 # Quiet Room 固定发布流程
 
+<a id="release-invite-privacy-20261021"></a>
+## 邀请、隐私引导与密室名称已发布（2026-10-21 14:01）
+
+- 用户确认V2并免原型直接实施、合并，随后对完整应用`8d6256a7b1d9bb783f11fcc85de57284ce1324a2`、版本`2026.10.21.1`回复“确认，发布生产”，无独立消息permalink。[需求记录](docs/requirements/2026-10-21-invite-privacy/README.md)拥有范围、失败历史及验收。[PR #362](https://github.com/zdaiwmm/shui-IM/pull/362)源`c9a4d988cf7fc0bbd34fc279b973488c99f3aa34`与应用完整文件树`e552491cf073fe5de3f348df24617508e25ece2d`一致。
+- [PR完整CI39548764053](https://github.com/zdaiwmm/shui-IM/actions/runs/39548764053)最新attempt 2及[精确main完整CI39550197797](https://github.com/zdaiwmm/shui-IM/actions/runs/39550197797) attempt 1成功，含Full application verification、通话／TURN、依赖审计、凭据扫描及双架构镜像。本机最终构建／135文件1046项通过，74浏览器入口按50+16+1+7逐项对账，初轮失败与有界原样复验保留，不记为单次全套绿色。
+- 新密室加入／对方续入／精确旧设备接替均24小时；邀请文案与倒计时、三步真实状态及主题色、恢复凭证直达、应用锁默认30秒闲置与通行密钥自动一次、标准锁控件、本机chamberN及当前私密标题一并上线。恢复PNG与独立口令仍只在本机读取，服务端不获得恢复口令或种子；长期契约由NEW_ROOM_ARCHIVES与移动视觉V1.20拥有。
+- 固定[只读预检39550996742](https://github.com/zdaiwmm/shui-IM/actions/runs/39550996742)取得PREFLIGHT_OK。唯一[正式云发布39551555627](https://github.com/zdaiwmm/shui-IM/actions/runs/39551555627)由`publish.mjs --cloud --with-readback --environment production --sha 8d6256a7b1d9bb783f11fcc85de57284ce1324a2`核对DEPLOY_VERIFIED，请求`eb94385a-d955-4f7d-8140-a890e9c0718c`只派发一次，从`1efb1fc2d307d36afdfde7038410e42b4b71c366`切换一次，批次`20261021T055050Z`，回执完成于`2026-10-21T05:56:21.445Z`，外层云发布550142毫秒。工作流来源`cbe2f677a1efe0426d8e0166d57b9006e515a865`与获批应用分开，现有production审核正常完成，未改环境保护或helper。
+- linux/amd64镜像`sha256:0d1e92176ec928cb8c5c9e662d15c1bd9c9bfd071fb2e199c25ef82e00d78c0f`，归档摘要`4cf41b5a77ce7876c2a165df621bd4cdce32cf378265e0cd35b341b5627fe104`、209937398字节，绑定精确main CI／attempt 1。首次独立回读仅备份starting；只读核对其启动于`2026-10-21T05:56:08.259056629Z`且既有探针间隔／启动期均5分钟后，只续跑相同SHA的readback-only，未重复切换或放宽门禁。
+- 最终独立回读于`2026-10-21T06:01:31.944Z`取得READBACK_OK，耗时3185毫秒：应用／备份running且healthy，TURN运行且探针none；精确SHA／实际镜像、HTTPS／数据库／存储、公开与容器产物摘要及新WebSocket一致，维护门absent，管理员及通话启用。未读取真实消息、附件或备份内容。
+- 脱敏授权、CI、发布、首次及最终回读与启动探针证据保存在公共Git元数据`quiet-room-deliveries/evidence/invite-privacy-20261021/`，位于任务树及其专属Git目录之外。第二个无部署配置文档树`invite-privacy-delivery-record-20261021`只对账；文档SHA不替代线上应用。本批两个工作树仍由当前任务使用，源树还有依赖／构建缓存及专属回执，依固定清理门禁保留，不处理其他任务。
+- 原生iPhone／iOS27／Safari、物理认证器和独立安全审阅未完成；上线健康不等于真机或安全审计。下方为历史生产快照。
+
 <a id="release-room-archives-20261020"></a>
 ## 新密室与本人归档已发布（2026-10-20 23:15）
 
