@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+<a id="release-device-access-page-20261021"></a>
+## 页面恢复与设备接入失效指引已发布（2026-10-21 21:25）
+
+- 用户在收到[PR #368](https://github.com/zdaiwmm/shui-IM/pull/368)已合并及提交242270b后明确回复「确认，发布生产」，本次授权绑定完整应用`242270bb56e2992f078cb36cd9f85718986f1351`、版本`2026.10.21.3`；无独立消息permalink。发布包含PR #365页面／恢复流程、#366／#367的WebKit兼容及退出请求修复、#368独立设备失效页，未纳入其他未合并任务。范围与早期失败见[页面修订](docs/requirements/2026-10-21-chamber-polish/README.md)及[设备失效页V1](docs/requirements/2026-10-21-device-access-page/README.md)。
+- [精确main完整CI39604665955](https://github.com/zdaiwmm/shui-IM/actions/runs/39604665955) attempt 1成功，包含完整构建／单元及集成、76浏览器入口、通话／TURN、依赖审计、文档／凭据扫描、双架构镜像及Full application verification。设备页本地完整136文件／1050项及76入口通过；PR最终组合137文件／1059项及完整CI通过。原生iPhone／iOS27／Safari与独立安全审阅未验证。
+- 本机只读连接、环境及helper核对通过。发现另一会话已先启动相同SHA的doctor后，撤销本任务尚未执行的重复只读预检39605892274；通过固定`--prepare --resume 39605886930`核对既有[只读预检](https://github.com/zdaiwmm/shui-IM/actions/runs/39605886930)的PREFLIGHT_OK，不重复执行云命令。正式切换前核对没有其他运行中的正式发布。
+- 固定入口`publish.mjs --cloud --with-readback --environment production --sha 242270bb56e2992f078cb36cd9f85718986f1351`正常通过既有production审核，唯一[正式云发布39606425821](https://github.com/zdaiwmm/shui-IM/actions/runs/39606425821)于`2026-10-21T13:19:53.906Z`核对DEPLOY_VERIFIED，从`8d6256a7b1d9bb783f11fcc85de57284ce1324a2`实际切换一次。工作流来源与应用均为获批SHA；云发布入口283744毫秒，未修改环境保护、helper或云权限。
+- linux/amd64镜像`sha256:9f3d13898e3a44c36e6d980d2bf287e9e873554c9f16e6adfbc0901efd2895c5`，归档摘要`217889d6d8ee6371456c83ff36b9dd9bc841b45f0522b17bb0dd4605838f8706`、209961168字节，绑定上述精确main CI／attempt 1。首次独立回读仅因backup starting未通过；应用healthy、SHA／镜像一致、维护门absent。只读核对备份启动`2026-10-21T13:19:40.274070509Z`及原有5分钟探针／启动期后，仅续跑同SHA readback-only，未再次部署、重启或放宽检查。
+- 最终独立回读于`2026-10-21T13:25:03.036Z`启动，3320毫秒取得READBACK_OK：应用／备份running且healthy，TURN运行且探针none；线上SHA、实际镜像、HTTPS／数据库／存储、公开与容器产物及新的WebSocket一致，维护门absent。管理员与通话启用；回读不代表真机或独立安全审阅。
+- 授权、CI身份、预检／部署及两次脱敏回读证据已保存到公共Git元数据`quiet-room-deliveries/evidence/device-access-page-20261021/`。第二个不含部署配置的独立文档树只对账；文档提交不替代线上应用或触发再次部署。本批工作树按固定清理门禁核验，活动资源、忽略缓存及专属回执保留，不处理其他任务。
+
 <a id="release-invite-privacy-20261021"></a>
 ## 邀请、隐私引导与密室名称已发布（2026-10-21 14:01）
 
