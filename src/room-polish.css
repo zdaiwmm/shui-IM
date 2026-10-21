@@ -7,10 +7,10 @@
 #app .appearance-page .appearance-preview + .preference-section-title { margin-top:0; }
 #app .appearance-page .scheme-options { padding:0; background:transparent; gap:10px; margin-bottom:0; }
 #app .appearance-page .theme-options { padding:0 16px; margin:0; }
-#app .danger-text { color:var(--danger); }
+#app .simple-confirm-actions .danger-text { color:var(--danger); }
 #app .simple-confirm [data-copy] { display:grid; gap:12px; }
 #app .simple-confirm [data-copy] p { margin:0; font-size:.875rem; line-height:1.6; }
-#app .confirm-dialog.simple-confirm { width:min(360px,calc(100vw - 40px)); }
+#app .confirm-dialog.simple-confirm { width:min(360px,calc(100vw - 40px)); background:var(--paper-pure); background-image:none; }
 #app .room-unlock-page { width:min(100%,520px); margin:auto; }
 #app .room-unlock-page .gateway-intro-content { display:flex; flex-direction:column; align-items:center; justify-content:center; }
 #app .room-unlock-page .entry-art { margin:0 auto 28px; }

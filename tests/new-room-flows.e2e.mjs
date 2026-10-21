@@ -53,7 +53,10 @@ try{
  await bob.evaluate(async()=>{const k=await import('/src/lib/browser-room-key.ts'),p=await import('/src/lib/password-protection.ts');await k.protectBrowserRoomKey(await p.deriveNumericPasswordCredential('927451'));k.clearBrowserRoomKey();if(await k.browserRoomKey()!==null)throw new Error('Application lock retained automatic access');const v=await import('/src/lib/vault.ts');if('secret'in await v.readRoomProtection())throw new Error('Automatic secret is still durable');});
  await bob.reload();await bob.locator('.numeric-password-page').waitFor();assert.equal(await bob.locator('#message-input').count(),0);
  await bob.locator('[data-numeric-left]').click();await bob.getByRole('dialog',{name:'无法解锁？',exact:true}).waitFor();
- await bob.locator('[data-help-action]').click();await bob.getByRole('dialog',{name:'清除本浏览器数据？',exact:true}).getByRole('button',{name:'取消',exact:true}).click();await bob.getByRole('dialog',{name:'清除本浏览器数据？',exact:true}).waitFor({state:'detached'});
+ const assertDanger=async()=>assert.equal(await bob.locator('[data-help-action]').evaluate(n=>{const probe=document.createElement('span');probe.style.color='var(--danger)';n.append(probe);const matches=getComputedStyle(n).color===getComputedStyle(probe).color;probe.remove();return matches;}),true,'Destructive text must keep the danger color above general dialog styles');
+ await assertDanger();await bob.locator('[data-help-action]').click();await bob.getByRole('dialog',{name:'清除本浏览器数据？',exact:true}).waitFor();
+ assert.equal(await bob.getByRole('dialog',{name:'无法解锁？',exact:true}).count(),0,'The first dialog must close before confirmation appears');await assertDanger();
+ await bob.getByRole('dialog',{name:'清除本浏览器数据？',exact:true}).getByRole('button',{name:'取消',exact:true}).click();await bob.getByRole('dialog',{name:'清除本浏览器数据？',exact:true}).waitFor({state:'detached'});
  assert.equal(await bob.evaluate(async()=>!!await(await import('/src/lib/vault.ts')).readStoredVault()),true,'Cancelling global clear retains locked data');
  assert.equal(await bob.getByRole('dialog',{name:'无法解锁？',exact:true}).count(),0,'Previous help closes before the destructive confirmation');
  await submitPassword(bob,'111111');await bob.locator('.app-toast').waitFor();assert.equal(await bob.locator('.numeric-password-description').textContent(),'');
