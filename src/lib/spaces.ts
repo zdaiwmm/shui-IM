@@ -131,13 +131,13 @@ export async function rememberLocalSpace(session: VaultSession, inheritedCode?: 
       session.vault.spaceRecoveryCode = inheritedCode ?? newSpaceRecoveryCode();
       await saveVault(session, mutation);
     }
-    const code = session.vault.spaceRecoveryCode, spaces = await read(code), vault = session.vault;
+    const code = session.vault.spaceRecoveryCode, directory=await readDirectory(code), spaces = directory.spaces, vault = session.vault;
     let entry = spaces.find(s => s.roomId === vault.roomId);
     let sequence:number|undefined;
     if (!entry) {
       let name=`私密空间 ${spaces.length+1}`;
       if(vault.roomArchiveV2){
-        sequence=Math.max((await readDirectory(code)).roomSequence??0,spaces.length,...spaces.map(space=>Number(/^chamber([1-9][0-9]*)$/.exec(space.name)?.[1]??0)))+1;
+        sequence=Math.max(directory.roomSequence??0,spaces.length)+1;
         if(!Number.isSafeInteger(sequence)||sequence>=Number.MAX_SAFE_INTEGER)throw new Error('密室编号超出范围');
         name=`chamber${sequence}`;
       }
