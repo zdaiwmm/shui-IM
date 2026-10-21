@@ -6,13 +6,14 @@ import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
 import { startServer } from '../server/index.mjs';
 import { fillFormInput } from './helpers/form-input.mjs';
+import { observeExitRequests } from './helpers/webkit-exit-diagnostics.mjs';
 
 const dataDir=await mkdtemp(path.join(tmpdir(),'room-invite-privacy-'));
-let backend,vite;
+let backend,vite,delayNextDocument=false;
 const allErrors=[];
 try {
   backend=await startServer({host:'127.0.0.1',port:0,dataDir,quiet:true});
-  vite=await createServer({root:process.cwd(),configFile:false,logLevel:'error',plugins:[{name:'privacy-test-observer',configureServer(server){server.middlewares.use((req,res,next)=>{if(req.url!=='/__native-keygen-probe')return next();res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Isolated native key generation</title>');});},enforce:'pre',transform(code,id){if(id.endsWith('/src/main.ts'))return code.replace('void app.start();','window.app=app;void app.start();');if(id.endsWith('/src/app.ts'))return code.replace("})().catch(cause => { if (!this.privacyCovered) this.showNotice(cause instanceof Error ? cause.message : '创建失败，请重试', 'error'); })", "})().catch(cause => { window.creationTrace?.push({error:cause?.message,stack:cause?.stack,epoch:this.runtimeEpoch,session:!!this.session,covered:this.privacyCovered}); if (!this.privacyCovered) this.showNotice(cause instanceof Error ? cause.message : '创建失败，请重试', 'error'); })");}}],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${backend.port}`,'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});
+  vite=await createServer({root:process.cwd(),configFile:false,logLevel:'error',plugins:[{name:'privacy-test-observer',configureServer(server){server.middlewares.use((req,res,next)=>{if(delayNextDocument&&req.url==='/'){delayNextDocument=false;setTimeout(next,180);return;}if(req.url!=='/__native-keygen-probe')return next();res.setHeader('Content-Type','text/html');res.end('<!doctype html><title>Isolated native key generation</title>');});},enforce:'pre',transform(code,id){if(id.endsWith('/src/main.ts'))return code.replace('void app.start();','window.app=app;void app.start();');if(id.endsWith('/src/app.ts'))return code.replace("})().catch(cause => { if (!this.privacyCovered) this.showNotice(cause instanceof Error ? cause.message : '创建失败，请重试', 'error'); })", "})().catch(cause => { window.creationTrace?.push({error:cause?.message,stack:cause?.stack,epoch:this.runtimeEpoch,session:!!this.session,covered:this.privacyCovered}); if (!this.privacyCovered) this.showNotice(cause instanceof Error ? cause.message : '创建失败，请重试', 'error'); })");}}],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${backend.port}`,'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});
   await vite.listen();
   for(const [name,engine]of Object.entries(process.env.QR_TRACE_WEBKIT?{webkit}:{chromium,webkit}).flatMap(entry=>entry[0]==='webkit'?Array.from({length:process.env.CI?3:1},()=>entry):[entry])) {
     await backend.close();await rm(dataDir,{recursive:true,force:true});backend=await startServer({host:'127.0.0.1',port:backend.port,dataDir,quiet:true});
@@ -20,9 +21,9 @@ try {
     const browser=await engine.launch(name==='chromium'&&!process.env.CI&&!process.env.CHROME_PATH?{channel:'chrome'}:process.env.CHROME_PATH&&name==='chromium'?{executablePath:process.env.CHROME_PATH}:{});
     try {
       const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'});
-      const page=await context.newPage(),errors=[],teardownFetchDiagnostics=[],canceledResources=new Set();page.on('requestfailed',request=>{if(/cancelled|canceled|abort/i.test(request.failure()?.errorText??''))canceledResources.add(request.url());});page.setDefaultTimeout(20000);page.on('pageerror',error=>{
+      const page=await context.newPage(),exitEvidence=await observeExitRequests(page),errors=[],teardownFetchDiagnostics=[];page.setDefaultTimeout(20000);page.on('pageerror',error=>{
         if(name==='webkit'&&error.name==='Fetch API cannot load http'&&/\/unread\//.test(error.message)&&/renderCover/.test(error.stack??'')&&/lockNow/.test(error.stack??''))teardownFetchDiagnostics.push('pagehide unread resource canceled');
-        else errors.push({name:error.name,message:error.message,stack:error.stack});
+        else errors.push(exitEvidence.capture(error));
       });
       await context.addInitScript(()=>{const generate=SubtleCrypto.prototype.generateKey;SubtleCrypto.prototype.generateKey=function(algorithm,...args){if(window.blockNativeMlsKeyOperations&&['Ed25519','X25519'].includes(typeof algorithm==='string'?algorithm:algorithm.name))return Promise.reject(new DOMException('Injected WebKit Curve25519 generation failure','OperationError'));return Reflect.apply(generate,this,[algorithm,...args]);};const importKey=SubtleCrypto.prototype.importKey;SubtleCrypto.prototype.importKey=function(format,data,algorithm,...args){if(window.blockNativeMlsKeyOperations&&format==='pkcs8'&&(typeof algorithm==='string'?algorithm:algorithm.name)==='Ed25519')return Promise.reject(new DOMException('Injected WebKit Ed25519 private import failure','DataError'));return Reflect.apply(importKey,this,[format,data,algorithm,...args]);};});
       diagnosticPage=page;
@@ -81,9 +82,9 @@ try {
       await page.waitForFunction(()=>document.title==='chamber900');
       await page.locator(`${list} .space-row.is-selected`).dispatchEvent('contextmenu');page.once('dialog',dialog=>dialog.accept());await page.locator('#space-delete').click();await page.waitForFunction(()=>document.title==='chamber1');await page.locator('#copy-invite').waitFor();assert.equal(await page.title(),'chamber1');
       await openList();await createFromList();await page.waitForFunction(()=>document.title==='chamber3').catch(async error=>{console.error('THIRD_CREATE_STATE',await page.evaluate(()=>({trace:window.creationTrace,title:document.title,text:document.querySelector('#app').innerText.slice(0,1800),creating:!!app.spaceCreationAbort,locked:app.privacyCovered})));throw error;});await page.locator('#copy-invite').waitFor();assert.equal(await page.title(),'chamber3','Deleted and renamed rooms do not reuse their sequence');
-      await page.reload();await page.locator('.cover').waitFor();assert.equal(await page.title(),'Chamber','Locked pages do not expose room names');
-      await context.close();for(const error of errors){if(name==='webkit'&&error.name==='Fetch API cannot load http'&&/accessApi|syncBrowserCatalog/.test(error.stack??'')&&[...canceledResources].some(url=>(error.stack??'').includes(url)))teardownFetchDiagnostics.push('confirmed canceled browser-access resource');else allErrors.push(error);}
-      console.log(`${name}: invitation copy, 24-hour display, credential entry, real guide state, themed switches, local numbering and private tab titles passed; ${teardownFetchDiagnostics.length} known pagehide unread diagnostics recorded.`);
+      delayNextDocument=true;await page.reload();await page.locator('.cover').waitFor();assert.equal(await page.title(),'Chamber','Locked pages do not expose room names');
+      await context.close();for(const error of errors){if(name==='webkit'&&exitEvidence.confirmsNativeExit(error))teardownFetchDiagnostics.push('confirmed old-document read rejected during navigation');else allErrors.push(error);}
+      console.log(`${name}: invitation copy, 24-hour display, credential entry, real guide state, themed switches, local numbering and private tab titles passed; ${teardownFetchDiagnostics.length} confirmed native exit diagnostics recorded.`);
     } catch(error){console.error('CREATE_DIAGNOSTIC',JSON.stringify(await diagnosticPage?.evaluate(()=>({trace:window.creationTrace,title:document.title,epoch:app.runtimeEpoch,session:!!app.session,covered:app.privacyCovered,creating:!!app.spaceCreationAbort,notice:document.querySelector('#app-toast')?.textContent})).catch(()=>null)));throw error;} finally { await browser.close(); }
   }
   assert.deepEqual(allErrors,[]);
