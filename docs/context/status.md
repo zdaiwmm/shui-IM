@@ -1,11 +1,11 @@
 # Quiet Room 当前状态
 
-## 重新接入历史归属修复已验证，待生产确认（2026-10-22）
+## 重新接入历史归属修复已发布，真机待核验（2026-10-22 16:05）
 
-- 用户确认未清除数据，只创建了新密室；明确授权[历史归属V1](../requirements/2026-10-22-repair-history-scope/README.md)，优先保留原密室和聊天记录。独占`codex/repair-history-scope-20261022`基于实时main `45977dd0`，I/D授权不包含新版本生产发布。
+- 用户确认未清除数据，只创建了新密室；明确授权[历史归属V1](../requirements/2026-10-22-repair-history-scope/README.md)，优先保留原密室和聊天记录。独占`codex/repair-history-scope-20261022`基于实时main `45977dd0`，I/D交付后，用户对下列完整SHA及版本明确回复「确认，发布生产」。
 - 实际IndexedDB负例复现同序号161报错：新主密钥混读同房间的旧密文。新增独立记录范围；正常本机解锁后完整核验原所有者，在新槽位关联原密钥、聊天／原件、草稿和归档，原保险库及出错槽位保留。缺失、篡改、歧义、跨角色／其他活动设备、陈旧写入和生命周期取消保持拒绝；较早检查点不掩盖同所有者缺失的撤回记录。
 - 完整本地产品源3824c1b干净树通过137文件／1062单元与集成、76/76浏览器入口，0失败。首轮PR新增夹具在本方确认落盘前读取消息，补等确认后桌面／手机定向通过；最终源141934c只修改两行测试等待，应用代码完全相同，[最终PR完整CI39740188666](https://github.com/zdaiwmm/shui-IM/actions/runs/39740188666) attempt 1全绿，Full application verification成功。
-- [PR #377](https://github.com/zdaiwmm/shui-IM/pull/377)已按精确head合并为完整应用`57c0c50a33cafabcf3bb4c1fd5703b4cabcb11e3`／版本2026.10.22.2，完整文件树与最终源相同。[精确main完整CI39741655522](https://github.com/zdaiwmm/shui-IM/actions/runs/39741655522) attempt 1全部成功，`verify`及`Full application verification`通过。实际用户两台设备未接入，不能标记原数据已找回。当前修复尚未发布生产；下方容量修复为已发布的历史证据。
+- [PR #377](https://github.com/zdaiwmm/shui-IM/pull/377)已按精确head合并为完整应用`57c0c50a33cafabcf3bb4c1fd5703b4cabcb11e3`／版本2026.10.22.2，完整文件树与最终源相同。[精确main完整CI39741655522](https://github.com/zdaiwmm/shui-IM/actions/runs/39741655522) attempt 1全部成功，`verify`及`Full application verification`通过。实际用户两台设备未接入，不能标记原数据已找回。唯一[正式云发布39744046759](https://github.com/zdaiwmm/shui-IM/actions/runs/39744046759)成功；本机跟踪连接报错后仅接续原run取得DEPLOY_VERIFIED。首次回读仅备份starting，核对既有5分钟探针后只续跑readback-only，于2026-10-22T08:05:35.112Z取得READBACK_OK，3232毫秒。应用／备份healthy、精确SHA／镜像及公开资源、HTTPS、WebSocket一致，维护门absent；额外公开版本确认2026.10.22.2。完整事实见[本轮发布记录](../../RELEASING.md#release-repair-history-scope-20261022)。独立文档树只对账；本批资源按固定清理门禁保留忽略缓存、专属回执和使用中的记录树，其他任务不处理。下方均为历史生产证据。
 
 ## 自动备份保险库容量修复已发布，真机待核验（2026-10-22 11:48）
 

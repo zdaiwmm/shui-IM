@@ -4,7 +4,7 @@
 
 用户在容量修复上线后反馈：一方刷新恢复正常；另一方未清除浏览器数据，只创建新密室，随后找不到原密室。打开对方生成的进入链接可先进入连接壳，邀请方上线完成接替后报「本机加密历史记录161已损坏」。161为记录序号，不能据此认定用户原记录已物理损坏。
 
-只读调查提出独立存储新端、核验原保险库后关联历史、保留原数据和完整双端回归；用户明确「确认，按这个方案实施修复，优先保留原密室数据和聊天记录」。来源为本会话，无独立消息permalink。本次为I/D，生产仍须最终精确SHA确认。底层存储与接入修复，不新增页面或改变成员／恢复授权，原型及流程图不适用。
+只读调查提出独立存储新端、核验原保险库后关联历史、保留原数据和完整双端回归；用户明确「确认，按这个方案实施修复，优先保留原密室数据和聊天记录」。来源为本会话，无独立消息permalink。本次先完成I/D；列出最终完整SHA及版本后，用户明确回复「确认，发布生产」，授权P仅绑定下列精确应用，不继承上一批生产授权。底层存储与接入修复，不新增页面或改变成员／恢复授权，原型及流程图不适用。
 
 规则与实时main基线为`45977dd067d819c3680f191a290a297f193b41de`。本任务独占`/Users/zhouding/ss-worktrees/repair-history-scope-20261022`、分支`codex/repair-history-scope-20261022`，初始干净。上一轮需求与生产事实保持原记录。
 
@@ -34,6 +34,12 @@
 
 - [最终PR完整CI39740188666](https://github.com/zdaiwmm/shui-IM/actions/runs/39740188666) attempt 1全部成功，所有浏览器分片、通话／TURN、审计、双架构镜像及`verify`／`Full application verification`通过。首轮时序失败单独保留。
 - PR #377按精确head合并为完整应用`57c0c50a33cafabcf3bb4c1fd5703b4cabcb11e3`，已核对其完整文件树与最终源141934c相同。[精确main完整CI39741655522](https://github.com/zdaiwmm/shui-IM/actions/runs/39741655522) attempt 1全部成功，所有浏览器分片、通话／TURN、审计、双架构及`verify`／`Full application verification`通过；文档交付不改变该应用SHA，不自动部署。
-- I/D交付完成。脱敏结构化证据与共享交接记录位于公共Git元数据`quiet-room-deliveries/evidence/repair-history-scope-20261022/`及对应任务分支摘要记录；源码与文档工作树保留待本次精确生产确认，不处理其他任务资源。
+- I/D交付完成。脱敏结构化证据与共享交接记录位于公共Git元数据`quiet-room-deliveries/evidence/repair-history-scope-20261022/`及对应任务分支摘要记录；源码与文档工作树按固定清理门禁核验；忽略缓存、专属回执和使用中的文档资源保留，不处理其他任务资源。
 
-本次尚未发布生产；仅使用一次性本地合成数据，未读取用户真机记录。真实iPhone／iOS27 Safari或Chrome尚未接入，仍不能将合成或CI结果写成实际聊天记录已找回。
+## 精确生产发布与独立回读
+
+- 用户确认版本2026.10.22.2、完整应用`57c0c50a33cafabcf3bb4c1fd5703b4cabcb11e3`。固定只读预检39743870647核对PREFLIGHT_OK；唯一正式云发布39744046759成功，从e870c819实际切换一次。本机跟踪GitHub连接中止后，只接续原run核对精确DEPLOY_VERIFIED，没有再次派发或切换。
+- 首次回读仅备份starting，核对既有5分钟探针／启动期后，只续跑同SHA readback-only。最终2026-10-22T08:05:31.879Z启动、08:05:35.112Z完成，3232毫秒取得READBACK_OK，应用／备份healthy，精确SHA／镜像、HTTPS／数据库／存储、公开及容器产物、新WebSocket一致，维护门absent，公开版本2026.10.22.2。完整回执及计时由[本轮发布记录](../../../RELEASING.md#release-repair-history-scope-20261022)拥有。
+- 独立无部署配置文档树进行事实对账，不部署文档SHA；脱敏证据保存在公共Git元数据`quiet-room-deliveries/evidence/repair-history-scope-20261022/`，不随任务树移除。
+
+本次已发布生产；自动验收仅使用一次性本地合成数据，未读取用户真机记录。真实iPhone／iOS27 Safari或Chrome尚未接入，仍不能将合成或CI结果写成实际聊天记录已找回。

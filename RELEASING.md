@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+<a id="release-repair-history-scope-20261022"></a>
+## 重新接入历史归属修复已发布（2026-10-22 16:05）
+
+- 用户收到完整应用`57c0c50a33cafabcf3bb4c1fd5703b4cabcb11e3`、版本`2026.10.22.2`及完整验证结果后明确回复「确认，发布生产」，无独立消息permalink。[历史归属V1](docs/requirements/2026-10-22-repair-history-scope/README.md)优先保留原密室和聊天记录，对应[PR #377](https://github.com/zdaiwmm/shui-IM/pull/377)；应用完整文件树与最终源141934c相同，交付记录PR #378不替代应用SHA。新本机主密钥使用独立记录范围；正常本机解锁后完整核验原历史所有者，另存当前授权的关联，保留原保险库、出错槽位、聊天密文、原件、草稿及归档，未清理用户数据或放宽撤回校验。
+- 干净产品源3824c1b本地完整检查通过137文件／1062项与76/76浏览器入口，1177136毫秒；最终源141934c只增加两行测试等待，产品源码相同，桌面／合成手机完整定向再次通过。[最终PR完整CI39740188666](https://github.com/zdaiwmm/shui-IM/actions/runs/39740188666)及[精确应用main完整CI39741655522](https://github.com/zdaiwmm/shui-IM/actions/runs/39741655522)均attempt 1成功，所有浏览器分片、通话／TURN、审计、双架构镜像及Full application verification通过。首轮夹具确认时序失败由需求记录保留；用户两台真实设备及独立安全审阅未核验。
+- 固定[只读预检39743870647](https://github.com/zdaiwmm/shui-IM/actions/runs/39743870647)核对PREFLIGHT_OK，71985毫秒。确认没有其他运行中的发布后，固定入口`publish.mjs --cloud --with-readback --environment production --sha 57c0c50a33cafabcf3bb4c1fd5703b4cabcb11e3`通过既有production审核，唯一[正式云发布39744046759](https://github.com/zdaiwmm/shui-IM/actions/runs/39744046759)成功。请求`11fc2936-b029-4eec-9ccd-5e0c0560a55a`只派发一次，从`e870c819ecf9377c5920bdacf8384abb3335601f`实际切换一次，批次`20261022T075752Z`；回执完成于`2026-10-22T08:00:20.028Z`，工作流来源3955b31，应用始终固定获批SHA。未修改环境保护、helper或云权限。
+- 本机初次跟踪因GitHub API连接错误在279909毫秒中止；只读核对原run已success后，通过同run `--resume 39744046759 --with-readback`核对精确DEPLOY_VERIFIED，接续5597毫秒，没有派发第二个工作流或重跑云命令。linux/amd64镜像`sha256:9f63f5f5c0ce07b5b4363c3816cfed8a568cf854249450957449b495162bd1cb`、归档摘要`45463a4329175eab912ef9a3d9ea3b85e3f431a79c1a5ad1509092cb24f4cb4f`、210018886字节，绑定精确main CI／attempt 1。分项计时不冒充无中断总用时。
+- 首次独立回读`2026-10-22T08:04:24.295Z`仅因backup starting未通过，应用healthy、SHA／镜像一致、维护门absent。只读核对备份启动`2026-10-22T08:00:08.062110311Z`及既有5分钟探针／启动期后，仅续跑同SHA readback-only，未再次部署、重启或放宽门禁。最终回读于`2026-10-22T08:05:31.879Z`启动、`08:05:35.112Z`完成，3232毫秒取得READBACK_OK：应用／备份running且healthy，TURN运行且探针none；精确SHA／实际镜像、HTTPS／数据库／存储、公开与容器资源摘要及新WebSocket一致，维护门absent。额外公开Service Worker读取确认版本2026.10.22.2，管理员与通话启用。
+- 授权、精确CI、预检／发布、跟踪接续、首次及最终回读、备份探针和公开版本脱敏证据保存于公共Git元数据`quiet-room-deliveries/evidence/repair-history-scope-20261022/`，位于两任务树及其专属Git目录之外。第二个不含部署配置的文档树只对账，不发布文档SHA；本批按固定资源清理门禁核验，忽略缓存、专属回执和使用中的文档资源保留，其他任务不处理。上线健康不代表用户原聊天已找回，需在原浏览器刷新、正常解锁后核验，保留网站数据。
+
 <a id="release-vault-archive-size-20261022"></a>
 ## 自动备份保险库容量修复已发布（2026-10-22 11:48）
 
