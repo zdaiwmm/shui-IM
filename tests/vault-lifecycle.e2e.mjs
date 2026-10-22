@@ -439,6 +439,104 @@ it('preserves bounded large vaults and rejects oversized ordinary and atomic wri
     atomic: { sameStored: true, sameSessionStored: true, outbox: 0, history: 0, receipts: 0 }, staleRejected: true, reopened: true, platformReopened: true, recoveryReopened: true });
 });
 
+it('isolates independently keyed new-room endpoints without losing the original encrypted history', async () => {
+  const result = await page.evaluate(async () => {
+    const v = await import('/src/lib/vault.ts'), b = await import('/src/lib/browser-room-key.ts');
+    const { generateIdentity } = await import('/src/lib/crypto.ts');
+    const { newArchiveKey } = await import('/src/lib/room-archive-crypto.ts');
+    const identity = await generateIdentity(), roomId = crypto.randomUUID();
+    const vault = { v: 3, roomId, accessToken: 'a'.repeat(43), creatorFingerprint: 'scope-regression', identity, role: 'joiner',
+      pairingSecret: '', members: [], lastSeq: 0, createdAt: new Date().toISOString(), roomArchiveV2: { key: newArchiveKey() } };
+    const original = await v.createVault(vault, '', 'platform', await b.automaticRoomCredential());
+    const message = { seq: 161, clientMsgId: crypto.randomUUID(), senderId: identity.publicBundle.deviceId,
+      payload: { v: 1, kind: 'text', text: 'original-history', sentAt: new Date().toISOString() }, acceptedAt: new Date().toISOString(), status: 'delivered' };
+    await v.saveHistoryMessage(original, message);
+    const before = JSON.stringify(original.stored);
+    const replacement = await v.createVault({ ...vault, identity: await generateIdentity(), lastSeq: 161, historyUnavailableBeforeSeq: 161 }, '', 'platform', await b.automaticRoomCredential());
+    await v.loadMessageEventHistory(replacement);
+    return { replacement: (await v.loadHistory(replacement)).length, original: (await v.loadHistory(original))[0].payload.text,
+      preserved: JSON.stringify((await v.unlockVault(await b.browserRoomKey(), undefined, original.stored)).stored) === before };
+  });
+  expect(result).toEqual({ replacement: 0, original: 'original-history', preserved: true });
+});
+
+it('authenticates the original history owner and forks a repaired session while preserving every source slot', async () => {
+  const result = await page.evaluate(async () => {
+    const v = await import('/src/lib/vault.ts'), b = await import('/src/lib/browser-room-key.ts');
+    const { generateIdentity } = await import('/src/lib/crypto.ts'), { newArchiveKey } = await import('/src/lib/room-archive-crypto.ts');
+    const identity = await generateIdentity(), replacementIdentity = await generateIdentity(), roomId = crypto.randomUUID();
+    const base = { v: 3, roomId, accessToken: 'a'.repeat(43), creatorFingerprint: 'retained-owner', identity, role: 'joiner', pairingSecret: '',
+      members: [], lastSeq: 162, historyUnavailableBeforeSeq: 160, createdAt: new Date().toISOString(), roomArchiveV2: { key: newArchiveKey() } };
+    const owner = await v.createVault(base, '', 'platform', await b.automaticRoomCredential());
+    delete owner.vault.localDataScope; await v.saveVault(owner); // Pre-fix shared-room namespace.
+    const id = crypto.randomUUID(), sentAt = new Date().toISOString();
+    for (const message of [{ seq: 161, clientMsgId: id, payload: { v: 1, kind: 'text', text: 'retained-history', sentAt } },
+      { seq: 162, clientMsgId: crypto.randomUUID(), payload: { v: 1, kind: 'message-delete', target: { clientMsgId: id, serverSeq: 161, senderId: identity.publicBundle.deviceId }, sentAt } }]) {
+      await v.saveHistoryMessage(owner, { ...message, senderId: identity.publicBundle.deviceId, acceptedAt: sentAt, status: 'delivered' });
+    }
+    await v.saveUiPreferences(owner, { composerDraft: 'retained-draft' });
+    const ownerBefore = JSON.stringify(owner.stored);
+    const broken = await v.createVault({ ...base, identity: replacementIdentity, lastSeq: 162, historyUnavailableBeforeSeq: 162,
+      members: [{ ...identity.publicBundle, role: 'joiner', status: 'revoked' }, { ...replacementIdentity.publicBundle, role: 'joiner', status: 'active' }] }, '', 'platform', await b.automaticRoomCredential());
+    delete broken.vault.localDataScope; await v.saveVault(broken); // Already-installed pre-fix replacement.
+    const brokenBefore = JSON.stringify(broken.stored), secret = await b.browserRoomKey();
+    let integrityRejected = false;
+    try { await v.loadMessageEventHistory(broken); } catch (cause) { integrityRejected = cause instanceof v.HistoryIntegrityError; }
+    const found = await v.findArchiveHistoryOwner(broken.vault, secret, () => true);
+    const repaired = await v.createArchiveRepairVault(broken.vault, found, await b.automaticRoomCredential(), () => true, broken);
+    const events = await v.loadMessageEventHistory(repaired);
+    const reread = async stored => JSON.stringify((await v.unlockVault(secret, undefined, stored)).stored);
+    const preserved = await reread(owner.stored) === ownerBefore && await reread(broken.stored) === brokenBefore;
+    let cancelled = false, stale = false, wrongRole = false;
+    try { await v.createArchiveRepairVault(repaired.vault, found, await b.automaticRoomCredential(), () => false); } catch (cause) { cancelled = cause.name === 'AbortError'; }
+    try { await v.createArchiveRepairVault({ ...repaired.vault, role: 'creator' }, found, await b.automaticRoomCredential(), () => true); } catch { wrongRole = true; }
+    const raced = { ...broken }; await v.saveVault(broken);
+    try { await v.createArchiveRepairVault(repaired.vault, found, await b.automaticRoomCredential(), () => true, raced); } catch (cause) { stale = cause.message.includes('其它窗口'); }
+    const wrongCreator = await v.findArchiveHistoryOwner({ ...broken.vault, creatorFingerprint: 'different-creator' }, secret, () => true) === null;
+    const otherActive = await v.findArchiveHistoryOwner({ ...broken.vault, members: broken.vault.members.map(member => ({ ...member, status: 'active' })) }, secret, () => true, crypto.randomUUID()) === null;
+    const db = await new Promise(resolve => { const r = indexedDB.open('quiet-room'); r.onsuccess = () => resolve(r.result); });
+    const count = () => new Promise(resolve => { const tx = db.transaction('vault'), r = tx.objectStore('vault').count(); tx.oncomplete = () => resolve(r.result); });
+    const countBefore = await count();
+    let live = true, lateRejected = false;
+    const encrypt = crypto.subtle.encrypt.bind(crypto.subtle);
+    Object.defineProperty(crypto.subtle, 'encrypt', { configurable: true, value: async (...args) => {
+      const result = await encrypt(...args);
+      if (new TextDecoder().decode(args[0].additionalData) === 'quiet-room-vault-payload-v2') live = false;
+      return result;
+    } });
+    try { await v.createArchiveRepairVault(repaired.vault, found, await b.automaticRoomCredential(), () => live); } catch (cause) { lateRejected = cause.name === 'AbortError'; }
+    finally { Object.defineProperty(crypto.subtle, 'encrypt', { configurable: true, value: encrypt }); }
+    const noPartialSlot = await count() === countBefore;
+    const controller = new AbortController(), put = IDBObjectStore.prototype.put;
+    let transactionCancelled = false;
+    IDBObjectStore.prototype.put = function (...args) {
+      const result = put.apply(this, args);
+      if (this.name === 'vault' && args[0].spaceId !== owner.stored.spaceId) controller.abort();
+      return result;
+    };
+    try { await v.createArchiveRepairVault(repaired.vault, found, await b.automaticRoomCredential(), () => true, undefined, controller.signal); }
+    catch (cause) { transactionCancelled = cause.name === 'AbortError'; }
+    finally { IDBObjectStore.prototype.put = put; }
+    transactionCancelled &&= await count() === countBefore;
+    await v.createArchiveRepairVault({ ...repaired.vault, lastSeq: 161, historyUnavailableBeforeSeq: 160 }, found, await b.automaticRoomCredential(), () => true);
+    await new Promise(resolve => { const tx = db.transaction('history', 'readwrite'), store = tx.objectStore('history'), r = store.get(`${roomId}:162`);
+      r.onsuccess = () => { const record = r.result; record.ciphertext = (record.ciphertext[0] === 'A' ? 'B' : 'A') + record.ciphertext.slice(1); store.put(record); }; tx.oncomplete = resolve; });
+    let tombstoneRejected = false;
+    try { await v.loadMessageEventHistory(repaired); } catch (cause) { tombstoneRejected = cause instanceof v.HistoryIntegrityError; }
+    const noUnverifiedFallback = await v.findArchiveHistoryOwner(broken.vault, secret, () => true) === null;
+    await new Promise(resolve => { const tx = db.transaction('history', 'readwrite'); tx.objectStore('history').delete(`${roomId}:162`); tx.oncomplete = resolve; });
+    const noOlderCheckpointBypass = await v.findArchiveHistoryOwner(broken.vault, secret, () => true) === null; db.close();
+    return { integrityRejected, found: found.stored.spaceId === owner.stored.spaceId, preserved, separateSlot: ![owner.stored.spaceId, broken.stored.spaceId].includes(repaired.stored.spaceId),
+      text: (await v.loadHistory(repaired))[0].payload.text, tombstone: events.some(message => message.payload.kind === 'message-delete'),
+      draft: (await v.loadUiPreferences(repaired)).composerDraft, archive: repaired.vault.roomArchiveV2.key.descriptor.id === owner.vault.roomArchiveV2.key.descriptor.id,
+      currentIdentity: repaired.vault.identity.publicBundle.deviceId === replacementIdentity.publicBundle.deviceId, cancelled, stale, wrongRole,
+      wrongCreator, otherActive, lateRejected, noPartialSlot, transactionCancelled, tombstoneRejected, noUnverifiedFallback, noOlderCheckpointBypass };
+  });
+  expect(result).toEqual({ integrityRejected: true, found: true, preserved: true, separateSlot: true, text: 'retained-history', tombstone: true,
+    draft: 'retained-draft', archive: true, currentIdentity: true, cancelled: true, stale: true, wrongRole: true,
+    wrongCreator: true, otherActive: true, lateRejected: true, noPartialSlot: true, transactionCancelled: true, tombstoneRejected: true, noUnverifiedFallback: true, noOlderCheckpointBypass: true });
+});
+
 try {
   await setup();
   for (const test of cases) { await test.run(); console.log(`PASS ${test.name}`); }

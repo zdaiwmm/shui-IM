@@ -246,6 +246,9 @@ import {
   cloneDeviceCredential,
   releaseDeviceCredential,
   createVault,
+  createArchiveRepairVault,
+  findArchiveHistoryOwner,
+  HistoryIntegrityError,
   commitMlsReceive,
   commitMlsSend,
   deleteOutboxItem,
@@ -3900,9 +3903,16 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       if(this.privacyCovered||this.runtimeEpoch!==epoch)return;
       const own:RoomMember={...identity.publicBundle,role:source.role,joinProof:null,deviceName:this.newDeviceName(),status:'pending',addedBy:invite.initiatorId,joinSeq:0,joinReceiptSeq:0,revokedAt:null,capabilities:NEW_ROOM_CAPABILITIES,createdAt};
       if(original?.vault.roomId===invite.roomId){if(!await this.leaveSpace())return;epoch=this.runtimeEpoch;}
-      const vault:Vault={...(original?.vault.roomId===invite.roomId?original.vault:{}),v:3,...(original?.vault.roomId===invite.roomId?{localPreferenceDeviceId:original.vault.localPreferenceDeviceId??original.vault.identity.publicBundle.deviceId}:{}),roomId:invite.roomId,accessToken,role:source.role,pairingSecret:'',creatorFingerprint:invite.creatorFingerprint,identity,members:[...status.state.members,own],lastSeq:original?.vault.roomId===invite.roomId?original.vault.lastSeq:0,lastReceiptSeq:0,pairingState:'repairing',createdAt,protocol:'mls-rfc9420',mls:{protocol:'mls-rfc9420',phase:'awaiting-welcome',lastEventSeq:status.state.nextMlsEventSeq??0},roomArchiveV2:original?.vault.roomId===invite.roomId?original.vault.roomArchiveV2:{key:newArchiveKey()},pendingRepair:{linkId:invite.linkId,secret:invite.secret,admissionSecret:invite.admissionSecret,sourceDeviceId:invite.sourceDeviceId,initiatorId:invite.initiatorId,expiresAt:invite.expiresAt,checkpointEventSeq:status.state.nextMlsEventSeq??0}};
-      if(original?.vault.roomId===invite.roomId){await withVaultMutation(original,async mutation=>{const before=original.vault;original.vault=vault;try{await saveVault(original,mutation);}catch(cause){original.vault=before;throw cause;}});this.session=original;}
-      else{vault.spaceRecoveryCode=this.newSpaceCollectionCode;this.session=await createVault(vault,'','platform',await automaticRoomCredential(),()=>!this.privacyCovered&&this.runtimeEpoch===epoch);}
+      const operation=new AbortController();this.runtimeAbort=operation;
+      const active=()=>this.runtimeAbort===operation&&!operation.signal.aborted&&!this.privacyCovered&&this.runtimeEpoch===epoch;
+      const vault:Vault={v:3,roomId:invite.roomId,accessToken,role:source.role,pairingSecret:'',creatorFingerprint:invite.creatorFingerprint,identity,members:[...status.state.members,own],lastSeq:0,lastReceiptSeq:0,pairingState:'repairing',createdAt,protocol:'mls-rfc9420',mls:{protocol:'mls-rfc9420',phase:'awaiting-welcome',lastEventSeq:status.state.nextMlsEventSeq??0},roomArchiveV2:{key:newArchiveKey()},pendingRepair:{linkId:invite.linkId,secret:invite.secret,admissionSecret:invite.admissionSecret,sourceDeviceId:invite.sourceDeviceId,initiatorId:invite.initiatorId,expiresAt:invite.expiresAt,checkpointEventSeq:status.state.nextMlsEventSeq??0}};
+      const browserSecret=await browserRoomKey();
+      if(!browserSecret)throw new Error('请先解锁本机');
+      const owner=await findArchiveHistoryOwner(vault,browserSecret,active,invite.sourceDeviceId,operation.signal);
+      if(!active())return;
+      vault.spaceRecoveryCode=this.newSpaceCollectionCode??original?.vault.spaceRecoveryCode??owner?.vault.spaceRecoveryCode;
+      const credential=await automaticRoomCredential();
+      this.session=owner?await createArchiveRepairVault(vault,owner,credential,active,original??undefined,operation.signal):await createVault(vault,'','platform',credential,active);
       this.runtimeAbort=new AbortController();await rememberLocalSpace(this.session,this.newSpaceCollectionCode);this.renderArchiveRepairPending();
     }catch(cause){if(!this.privacyCovered&&this.runtimeEpoch===epoch){if(original){this.session=original;await this.openSession();}else this.renderFirstRun(null);this.showNotice(cause instanceof Error?cause.message:'暂时无法进入，请重试','error');}}
   }
@@ -4441,6 +4451,29 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     if (this.isRuntimeActive(epoch, session)) this.showNotice('设备恢复已批准，原设备将立即撤销');
   }
 
+  /** Old clients could install a fresh key over the room's shared record namespace. */
+  private async recoverArchiveHistoryOwner(session:VaultSession):Promise<boolean> {
+    const lifetime=this.runtimeAbort??new AbortController();this.runtimeAbort=lifetime;
+    let failure:HistoryIntegrityError;
+    try{await loadMessageEventHistory(session,{signal:lifetime.signal});return false;}
+    catch(cause){if(!(cause instanceof HistoryIntegrityError))throw cause;failure=cause;}
+    let epoch=this.runtimeEpoch;
+    const active=()=>!this.privacyCovered&&this.runtimeEpoch===epoch;
+    const secret=await browserRoomKey();
+    if(!secret)throw failure;
+    const owner=await findArchiveHistoryOwner(session.vault,secret,()=>active()&&this.session===session,undefined,lifetime.signal);
+    if(!owner)throw failure; // No authenticated owner means the original integrity gate stays closed.
+    if(!active()||!await this.leaveSpace())return true;
+    epoch=this.runtimeEpoch;
+    const operation=new AbortController();this.runtimeAbort=operation;
+    const installing=()=>active()&&this.runtimeAbort===operation&&!operation.signal.aborted&&this.session===null;
+    const next=await createArchiveRepairVault({...session.vault},owner,await automaticRoomCredential(),installing,session,operation.signal);
+    if(!installing())return true;
+    this.session=next;
+    await this.openSession();
+    return true;
+  }
+
   private async openSession(): Promise<void> {
     if (this.session) this.rememberDeviceCredential(this.session);
     const session = this.session;
@@ -4449,6 +4482,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     let invitation = classifyInviteHash(location.hash);
     let jointEntry = parseJointRecoveryLink(location.href);
     let hasIncomingIntent = invitation.kind !== 'invalid' || Boolean(jointEntry) || /^#(?:j|invite|device|repair|recover)(?:=|&|$)/.test(location.hash);
+    if(!hasIncomingIntent&&session.vault.roomArchiveV2&&!session.vault.localDataScope&&session.vault.pairingState==='ready'&&
+        (session.vault.historyUnavailableBeforeSeq??0)>0&&await this.recoverArchiveHistoryOwner(session))return;
     const openingEpoch = this.runtimeEpoch;
     const spaces = await rememberLocalSpace(session, this.newSpaceCollectionCode);
     if (!this.isRuntimeActive(openingEpoch, session)) return;
