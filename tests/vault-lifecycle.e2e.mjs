@@ -554,6 +554,17 @@ it('finds only authenticated same-history local successors and fences selection 
     const secret = await b.browserRoomKey();
     const candidates = await v.findLocalArchiveSuccessors(owner, secret, () => true);
     const one = candidates.length === 1 && candidates[0].stored.spaceId === next.stored.spaceId;
+    const database = await new Promise(resolve => { const r = indexedDB.open('quiet-room'); r.onsuccess = () => resolve(r.result); });
+    const put = value => new Promise((resolve, reject) => {
+      const tx = database.transaction('vault', 'readwrite'); tx.objectStore('vault').put(value, value.spaceId);
+      tx.oncomplete = resolve; tx.onabort = reject;
+    });
+    const ciphertext = next.stored.payload.ciphertext;
+    await put({ ...next.stored, payload: { ...next.stored.payload, ciphertext: (ciphertext[0] === 'A' ? 'B' : 'A') + ciphertext.slice(1) } });
+    let sameMasterCorruptionRejected = false;
+    try { await v.findLocalArchiveSuccessors(owner, secret, () => true); }
+    catch (cause) { sameMasterCorruptionRejected = cause.message.includes('同历史保险库无法验证'); }
+    finally { await put(next.stored); database.close(); }
     const wrongSecret = (await v.findLocalArchiveSuccessors(owner, 'wrong secret', () => true)).length === 0;
     const wrongRole = (await v.findLocalArchiveSuccessors({ ...owner, vault: { ...owner.vault, role: 'creator' } }, secret, () => true)).length === 0;
     const wrongCreator = (await v.findLocalArchiveSuccessors({ ...owner, vault: { ...owner.vault, creatorFingerprint: 'other' } }, secret, () => true)).length === 0;
@@ -568,10 +579,10 @@ it('finds only authenticated same-history local successors and fences selection 
     await v.selectVerifiedArchiveSuccessor(owner, fresh, () => true);
     const selection = v.currentSpaceId() === next.stored.spaceId && sessionStorage.getItem('quiet-room:space') === next.stored.spaceId;
     const old = await v.unlockVault(secret, undefined, owner.stored);
-    return { one, wrongSecret, wrongRole, wrongCreator, wrongScope, cancelled, noLateSelection, stale, selection,
+    return { one, sameMasterCorruptionRejected, wrongSecret, wrongRole, wrongCreator, wrongScope, cancelled, noLateSelection, stale, selection,
       originalBytes: JSON.stringify(old.stored) === oldBytes };
   });
-  expect(result).toEqual({ one: true, wrongSecret: true, wrongRole: true, wrongCreator: true, wrongScope: true,
+  expect(result).toEqual({ one: true, sameMasterCorruptionRejected: true, wrongSecret: true, wrongRole: true, wrongCreator: true, wrongScope: true,
     cancelled: true, noLateSelection: true, stale: true, selection: true, originalBytes: true });
 });
 

@@ -1163,14 +1163,20 @@ export async function findLocalArchiveSuccessors(source: VaultSession, secret: s
       const stored = await withVaultLifecycle(() => readStoredVaultUnlocked(id));
       if (!stored || stored.v !== 3 || stored.unlockMethod !== 'password' || !stored.browserRoomKey) continue;
       let candidate: VaultSession;
+      let sharedMaster = false;
       try {
         const raw = await unwrapPasswordMaster(stored, secret);
         try {
           if (raw.length !== master.length || !raw.every((byte, i) => byte === master[i])) continue;
+          sharedMaster = true;
           const key = await importMasterKey(raw);
           candidate = { stored, key, vault: await decryptPayload(stored.payload, key) };
         } finally { raw.fill(0); }
-      } catch { check(); continue; }
+      } catch {
+        check();
+        if (sharedMaster) throw new Error('本机同历史保险库无法验证，原数据已保留');
+        continue;
+      }
       check();
       const vault = candidate.vault, before = source.vault, oldId = before.identity.publicBundle.deviceId;
       const own = vault.identity.publicBundle.deviceId;
