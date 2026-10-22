@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+<a id="release-vault-archive-size-20261022"></a>
+## 自动备份保险库容量修复已发布（2026-10-22 11:48）
+
+- 用户收到完整应用`e870c819ecf9377c5920bdacf8384abb3335601f`、版本`2026.10.22.1`及本地／完整CI通过结果后明确回复「确认，发布生产」，无独立消息permalink。本批仅发布[容量修复V1](docs/requirements/2026-10-22-vault-archive-size/README.md)，对应[PR #374](https://github.com/zdaiwmm/shui-IM/pull/374)，与源82f4493完整文件树相同；交付记录PR #375不替代应用SHA。修复完整附件分块自动备份后保险库可写不可读及由此引起的跨窗口更新误报，保留原应用锁、密钥、认证和有效记录，不清理用户数据。
+- 精确[PR完整CI39714894308](https://github.com/zdaiwmm/shui-IM/actions/runs/39714894308)和[应用main完整CI39716597665](https://github.com/zdaiwmm/shui-IM/actions/runs/39716597665)均attempt 1成功，含137文件／1062项、76浏览器入口、通话／TURN、审计、文档／凭据扫描及双架构镜像，Full application verification通过。本地干净源check:full全部通过，1148.875秒；Chromium／WebKit完整分块、中断重开同ID续传及原件逐字节恢复、桌面／合成手机双端备份和设备接替均通过。真实iPhone与用户两端实际记录、独立安全审阅仍未核验。
+- 固定[只读预检39717892831](https://github.com/zdaiwmm/shui-IM/actions/runs/39717892831)核对PREFLIGHT_OK，预检耗时67797毫秒；确认没有其他运行中的正式发布后，固定入口`publish.mjs --cloud --with-readback --environment production --sha e870c819ecf9377c5920bdacf8384abb3335601f`正常通过既有production审核。唯一[正式云发布39718034225](https://github.com/zdaiwmm/shui-IM/actions/runs/39718034225)核对精确DEPLOY_VERIFIED，请求`938b70c8-44bc-47a2-98e8-9fb70dd28576`只派发一次，从`d6367caf9dd7b9066d966e0431bc87b7b34d7d49`切换一次，批次`20261022T034039Z`。回执完成于`2026-10-22T03:43:15.859Z`，云发布244231毫秒；工作流来源bffc1d1，应用始终固定获批SHA，没有修改环境保护、helper或云权限。
+- linux/amd64镜像`sha256:9bde0480619e17bbc385c3150aa1991339cb09c60f34b85d4cd97cd83c1cea30`，归档摘要`04847b4207ab98fabd3c333071faf5889feeb0fa84fa5cf4cf8b053208152b08`、210012310字节，绑定上述精确main CI／attempt 1。首次独立回读于`2026-10-22T03:43:29.229Z`仅因backup starting未通过，应用healthy、SHA／镜像一致、维护门absent；只读核对备份启动`2026-10-22T03:43:02.336433634Z`及其既有5分钟探针／启动期，等待后只执行同SHA readback-only，没有再次部署或重启。
+- 最终独立回读于`2026-10-22T03:48:26.708Z`启动、`03:48:30.709Z`完成，3997毫秒取得READBACK_OK：应用／备份running且healthy，TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物、新WebSocket全部一致，维护门absent。额外公开Service Worker读取确认版本2026.10.22.1。管理员与通话启用；上线健康不等于用户两台真机已恢复。
+- 授权、精确CI、预检／部署、首次及最终回读、探针周期与公开版本脱敏证据保存于公共Git元数据`quiet-room-deliveries/evidence/vault-archive-size-20261022/`。独立文档树只对账，不发布文档SHA；本批资源按固定清理门禁核验，忽略缓存、专属回执及使用中的记录资源保留，其他任务不处理。
+
 <a id="release-chamber-24-polish-20261022"></a>
 ## Chamber 24项精修已发布（2026-10-22 02:39）
 
