@@ -1146,6 +1146,58 @@ export async function findArchiveHistoryOwner(target: Vault, secret: string,
   check(); return chosen;
 }
 
+/** Discover already-installed successors; neither links nor storage selection grant membership. */
+export async function findLocalArchiveSuccessors(source: VaultSession, secret: string,
+  isActive: () => boolean, signal?: AbortSignal): Promise<VaultSession[]> {
+  const check = () => { signal?.throwIfAborted(); if (!isActive()) throw new DOMException('本机接入核验已结束', 'AbortError'); };
+  check();
+  if (!source.vault.roomArchiveV2 || !secret) return [];
+  const ids = await transaction<IDBValidKey[]>('vault', 'readonly', store => store.getAllKeys(undefined, 257));
+  if (ids.length > 256) throw new Error('本机保险库数量超出自动核验范围，原数据已保留');
+  const master = new Uint8Array(await crypto.subtle.exportKey('raw', source.key));
+  const result: VaultSession[] = [];
+  try {
+    for (const id of ids) {
+      check();
+      if (typeof id !== 'string' || id === vaultSpaceId(source.stored)) continue;
+      const stored = await withVaultLifecycle(() => readStoredVaultUnlocked(id));
+      if (!stored || stored.v !== 3 || stored.unlockMethod !== 'password' || !stored.browserRoomKey) continue;
+      let candidate: VaultSession;
+      try {
+        const raw = await unwrapPasswordMaster(stored, secret);
+        try {
+          if (raw.length !== master.length || !raw.every((byte, i) => byte === master[i])) continue;
+          const key = await importMasterKey(raw);
+          candidate = { stored, key, vault: await decryptPayload(stored.payload, key) };
+        } finally { raw.fill(0); }
+      } catch { check(); continue; }
+      check();
+      const vault = candidate.vault, before = source.vault, oldId = before.identity.publicBundle.deviceId;
+      const own = vault.identity.publicBundle.deviceId;
+      if (!vault.roomArchiveV2 || vault.roomId !== before.roomId || vault.role !== before.role || vault.creatorFingerprint !== before.creatorFingerprint ||
+        localDataScope(vault) !== localDataScope(before) || canonicalStringify(vault.roomArchiveV2.key) !== canonicalStringify(before.roomArchiveV2!.key) ||
+        own === oldId || vault.pairingState !== 'ready' || vault.mls?.phase !== 'active') continue;
+      const previous = vault.members.find(m => m.deviceId === oldId), current = vault.members.find(m => m.deviceId === own);
+      if (previous?.status !== 'revoked' || previous.role !== before.role || current?.status !== 'active' || current.role !== before.role ||
+        canonicalStringify(previous.signingKey) !== canonicalStringify(before.identity.publicBundle.signingKey) ||
+        canonicalStringify(previous.encryptionKey) !== canonicalStringify(before.identity.publicBundle.encryptionKey) ||
+        previous.mlsKeyPackage !== before.identity.publicBundle.mlsKeyPackage) continue;
+      result.push(candidate);
+    }
+    check(); return result;
+  } finally { master.fill(0); }
+}
+
+/** Move only the selection after both immutable encrypted snapshots and lifetime are rechecked. */
+export async function selectVerifiedArchiveSuccessor(source: VaultSession, target: VaultSession, isActive: () => boolean): Promise<void> {
+  await withVaultLifecycle(async () => {
+    if (!sameStoredVault(await readStoredVaultUnlocked(vaultSpaceId(source.stored)), source.stored) ||
+      !sameStoredVault(await readStoredVaultUnlocked(vaultSpaceId(target.stored)), target.stored)) throw staleVaultError();
+    if (!isActive()) throw new DOMException('本机接入核验已结束', 'AbortError');
+    selectedSpace = vaultSpaceId(target.stored); rememberSpace(selectedSpace);
+  });
+}
+
 /** Fork an authenticated local owner without overwriting either original slot or its records. */
 export async function createArchiveRepairVault(vault: Vault, owner: VaultSession, credential: LocalCredentialResult,
   isActive: () => boolean, current?: VaultSession, signal?: AbortSignal): Promise<VaultSession> {

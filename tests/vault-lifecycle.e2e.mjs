@@ -537,6 +537,44 @@ it('authenticates the original history owner and forks a repaired session while 
     wrongCreator: true, otherActive: true, lateRejected: true, noPartialSlot: true, transactionCancelled: true, tombstoneRejected: true, noUnverifiedFallback: true, noOlderCheckpointBypass: true });
 });
 
+it('finds only authenticated same-history local successors and fences selection changes', async () => {
+  const result = await page.evaluate(async () => {
+    const v = await import('/src/lib/vault.ts'), b = await import('/src/lib/browser-room-key.ts');
+    const { generateIdentity } = await import('/src/lib/crypto.ts');
+    const { newArchiveKey } = await import('/src/lib/room-archive-crypto.ts');
+    const identity = await generateIdentity(), replacement = await generateIdentity();
+    const base = { v: 3, roomId: crypto.randomUUID(), accessToken: 'c'.repeat(43), creatorFingerprint: 'reentry-owner',
+      identity, role: 'joiner', pairingSecret: '', members: [{ ...identity.publicBundle, role: 'joiner', status: 'active' }],
+      lastSeq: 0, createdAt: new Date().toISOString(), pairingState: 'ready', protocol: 'mls-rfc9420',
+      mls: { protocol: 'mls-rfc9420', phase: 'active' }, roomArchiveV2: { key: newArchiveKey() } };
+    const owner = await v.createVault(base, '', 'platform', await b.automaticRoomCredential());
+    const oldBytes = JSON.stringify(owner.stored), nextVault = { ...owner.vault, identity: replacement,
+      members: [{ ...identity.publicBundle, role: 'joiner', status: 'revoked' }, { ...replacement.publicBundle, role: 'joiner', status: 'active' }] };
+    const next = await v.createArchiveRepairVault(nextVault, owner, await b.automaticRoomCredential(), () => true);
+    const secret = await b.browserRoomKey();
+    const candidates = await v.findLocalArchiveSuccessors(owner, secret, () => true);
+    const one = candidates.length === 1 && candidates[0].stored.spaceId === next.stored.spaceId;
+    const wrongSecret = (await v.findLocalArchiveSuccessors(owner, 'wrong secret', () => true)).length === 0;
+    const wrongRole = (await v.findLocalArchiveSuccessors({ ...owner, vault: { ...owner.vault, role: 'creator' } }, secret, () => true)).length === 0;
+    const wrongCreator = (await v.findLocalArchiveSuccessors({ ...owner, vault: { ...owner.vault, creatorFingerprint: 'other' } }, secret, () => true)).length === 0;
+    const wrongScope = (await v.findLocalArchiveSuccessors({ ...owner, vault: { ...owner.vault, localDataScope: crypto.randomUUID() } }, secret, () => true)).length === 0;
+    let cancelled = false, stale = false;
+    const selected = v.currentSpaceId();
+    try { await v.selectVerifiedArchiveSuccessor(owner, candidates[0], () => false); } catch (cause) { cancelled = cause.name === 'AbortError'; }
+    const noLateSelection = v.currentSpaceId() === selected;
+    await v.saveVault(next);
+    try { await v.selectVerifiedArchiveSuccessor(owner, candidates[0], () => true); } catch (cause) { stale = cause.message.includes('其它窗口'); }
+    const fresh = (await v.findLocalArchiveSuccessors(owner, secret, () => true))[0];
+    await v.selectVerifiedArchiveSuccessor(owner, fresh, () => true);
+    const selection = v.currentSpaceId() === next.stored.spaceId && sessionStorage.getItem('quiet-room:space') === next.stored.spaceId;
+    const old = await v.unlockVault(secret, undefined, owner.stored);
+    return { one, wrongSecret, wrongRole, wrongCreator, wrongScope, cancelled, noLateSelection, stale, selection,
+      originalBytes: JSON.stringify(old.stored) === oldBytes };
+  });
+  expect(result).toEqual({ one: true, wrongSecret: true, wrongRole: true, wrongCreator: true, wrongScope: true,
+    cancelled: true, noLateSelection: true, stale: true, selection: true, originalBytes: true });
+});
+
 try {
   await setup();
   for (const test of cases) { await test.run(); console.log(`PASS ${test.name}`); }

@@ -469,7 +469,10 @@ export class RoomSocket {
       if (this.socket !== socket) return;
       if (this.connectionDeadline) clearTimeout(this.connectionDeadline);
       this.connectionDeadline = null;
-      if ([4401, 4403].includes(event.code)) {
+      // A suspended page can miss the initial authentication window. This is
+      // a connection timeout, not evidence that its device was removed.
+      const authenticationTimeout = event.code === 4401 && event.reason === 'Authentication required' && !this.authenticated;
+      if ([4401, 4403].includes(event.code) && !authenticationTimeout) {
         this.closed = true;
         this.callSignals.close();
         // Transport feedback is not a signed membership event. Never infer who

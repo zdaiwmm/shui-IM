@@ -248,6 +248,8 @@ import {
   createVault,
   createArchiveRepairVault,
   findArchiveHistoryOwner,
+  findLocalArchiveSuccessors,
+  selectVerifiedArchiveSuccessor,
   HistoryIntegrityError,
   commitMlsReceive,
   commitMlsSend,
@@ -4474,6 +4476,73 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     return true;
   }
 
+  /** Reuse only this browser's already-authorized endpoint, never revive the replaced identity. */
+  private async recoverArchiveAccess(session: VaultSession): Promise<'none' | 'current' | 'successor'> {
+    if (!session.vault.roomArchiveV2 || session.vault.pairingState !== 'ready') return 'none';
+    let epoch = this.runtimeEpoch;
+    const lifetime = this.runtimeAbort ?? new AbortController(); this.runtimeAbort = lifetime;
+    const active = () => this.isRuntimeActive(epoch, session) && !lifetime.signal.aborted;
+    const inspect = async (candidate: VaultSession): Promise<boolean> => {
+      try {
+        const state = await getRoomState(candidate.vault.roomId, candidate.vault.accessToken,
+          AbortSignal.any([lifetime.signal, AbortSignal.timeout(10_000)]));
+        if (!active()) return false;
+        const own = state.members.find(m => m.deviceId === candidate.vault.identity.publicBundle.deviceId);
+        if (state.roomId !== session.vault.roomId || !own || own.status !== 'active' || own.role !== session.vault.role ||
+          canonicalStringify(memberBundle(own)) !== canonicalStringify(candidate.vault.identity.publicBundle)) return false;
+        // Do not repair a presentation flag around a substituted known identity.
+        for (const known of candidate.vault.members) {
+          const remote = state.members.find(m => m.deviceId === known.deviceId);
+          if (remote && (remote.role !== known.role || (remote.addedBy ?? null) !== (known.addedBy ?? null) ||
+            canonicalStringify(memberBundle(remote)) !== canonicalStringify(memberBundle(known)))) return false;
+        }
+        return true;
+      } catch (cause) {
+        if (cause instanceof ApiError && [401, 403].includes(cause.status)) return false;
+        throw cause; // Offline/unknown responses cannot select a different owner.
+      }
+    };
+    try {
+      const ownStored = session.vault.members.find(m => m.deviceId === session.vault.identity.publicBundle.deviceId);
+      if (session.vault.localAccessDeniedDeviceId === session.vault.identity.publicBundle.deviceId && ownStored?.status === 'active' &&
+        session.vault.mls?.phase === 'active' && await inspect(session)) {
+        await withVaultMutation(session, async mutation => {
+          if (!active()) throw new DOMException('本机接入核验已结束', 'AbortError');
+          const previous = session.vault.localAccessDeniedDeviceId;
+          delete session.vault.localAccessDeniedDeviceId;
+          try { await saveVault(session, mutation); }
+          catch (cause) { session.vault.localAccessDeniedDeviceId = previous; throw cause; }
+        });
+        if (active()) this.accessFailure = null;
+        return active() ? 'current' : 'none';
+      }
+      const secret = await browserRoomKey();
+      if (!secret || !active()) return 'none';
+      const candidates = await findLocalArchiveSuccessors(session, secret, active, lifetime.signal);
+      const live: VaultSession[] = [];
+      for (const candidate of candidates) {
+        if (!active()) return 'none';
+        if (await inspect(candidate)) live.push(candidate);
+      }
+      // Multiple snapshots may carry different MLS ratchets/outboxes. Never choose by age.
+      if (live.length !== 1 || !active()) return 'none';
+      const next = live[0]!;
+      await loadMessageEventHistory(next, { signal: lifetime.signal });
+      if (!active() || !await this.leaveSpace()) return 'none';
+      epoch = this.runtimeEpoch;
+      const operation = new AbortController(); this.runtimeAbort = operation;
+      const installing = () => !this.privacyCovered && this.runtimeEpoch === epoch && this.runtimeAbort === operation && !operation.signal.aborted && !this.session;
+      await selectVerifiedArchiveSuccessor(session, next, installing);
+      if (!installing()) return 'none';
+      this.session = next;
+      await this.openSession();
+      return 'successor';
+    } catch (cause) {
+      if (active() && !(cause instanceof DOMException && cause.name === 'AbortError')) this.operationalError(cause, '本机接入核验暂未完成，原数据已保留');
+      return 'none';
+    }
+  }
+
   private async openSession(): Promise<void> {
     if (this.session) this.rememberDeviceCredential(this.session);
     const session = this.session;
@@ -4482,6 +4551,12 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     let invitation = classifyInviteHash(location.hash);
     let jointEntry = parseJointRecoveryLink(location.href);
     let hasIncomingIntent = invitation.kind !== 'invalid' || Boolean(jointEntry) || /^#(?:j|invite|device|repair|recover)(?:=|&|$)/.test(location.hash);
+    const localReentryIntent = !hasIncomingIntent || invitation.kind === 'participant' && invitation.invite.roomId === session.vault.roomId &&
+      invitation.invite.creatorFingerprint === session.vault.creatorFingerprint;
+    if (localReentryIntent && session.vault.localAccessDeniedDeviceId === session.vault.identity.publicBundle.deviceId) {
+      const recovered = await this.recoverArchiveAccess(session);
+      if (recovered === 'successor' || this.session !== session || this.privacyCovered) return;
+    }
     if(!hasIncomingIntent&&session.vault.roomArchiveV2&&!session.vault.localDataScope&&session.vault.pairingState==='ready'&&
         (session.vault.historyUnavailableBeforeSeq??0)>0&&await this.recoverArchiveHistoryOwner(session))return;
     const openingEpoch = this.runtimeEpoch;
@@ -5339,11 +5414,17 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
           for (const id of this.retryTimers.keys()) this.clearRetry(id, false);
           if (reason === 'denied') {
             this.renderAccessDenied();
-            void withVaultMutation(session, async mutation => {
+            void (async () => {
+              const recovered = await this.recoverArchiveAccess(session);
+              if (!this.isRuntimeActive(epoch, session) || this.accessFailure !== 'denied') return;
+              if (recovered === 'current') { await this.openSession(); return; }
+              if (recovered === 'successor') return;
+              await withVaultMutation(session, async mutation => {
               if (!this.isRuntimeActive(epoch, session) || this.accessFailure !== 'denied') return;
               session.vault.localAccessDeniedDeviceId = session.vault.identity.publicBundle.deviceId;
               await saveVault(session, mutation);
-            }).catch(cause => {
+              });
+            })().catch(cause => {
               if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '无法保存本机接入状态，请检查浏览器存储权限');
             });
             return;
