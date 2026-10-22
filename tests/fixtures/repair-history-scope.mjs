@@ -97,20 +97,14 @@ export async function repairHistoryScopeJourney({ origin, newPage, send, errors 
       await v.saveVault(app.session, mutation);
     });
   });
-  await recipient.goto(initialInvite); await ready(recipient);
+  await recipient.goto(`${origin}/favicon.svg`);
+  await recipient.goto(`${origin}/?saved-room=1`); await ready(recipient);
   assert.equal(await recipient.evaluate(() => app.session.vault.localAccessDeniedDeviceId), undefined);
   assert.equal(await recipient.evaluate(() => app.session.vault.identity.publicBundle.deviceId), activeDevice);
   // Exercise a real browser WebSocket close before authentication, then reconnect.
   let missedAuthentication = false;
   await recipient.addInitScript(() => {
-    const NativeWebSocket = window.WebSocket;
     window.reentrySocketCloses = [];
-    window.WebSocket = class extends NativeWebSocket {
-      constructor(url, protocols) {
-        super(url, protocols);
-        this.addEventListener('close', event => window.reentrySocketCloses.push({ code: event.code, reason: event.reason }));
-      }
-    };
   });
   await recipient.routeWebSocket('**/ws', route => {
     const upstream = route.connectToServer();
