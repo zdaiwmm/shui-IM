@@ -6,10 +6,11 @@ export async function repairHistoryScopeJourney({ origin, newPage, send, errors 
   let helper = await newPage();
   const helperContext = helper.context(), recipient = await newPage();
   for (const page of [helper, recipient]) page.on('pageerror', cause => errors.push(cause.message));
-  const ready = page => page.waitForFunction(() => window.app?.session?.vault.pairingState === 'ready' && document.querySelector('#message-input')?.disabled === false);
+  const ready = page => page.waitForFunction(() => window.app?.session?.vault.pairingState === 'ready' && app.connectionState === 'connected' && document.querySelector('#message-input')?.disabled === false);
   await helper.goto(origin); await helper.locator('#create-room').click(); await helper.locator('#copy-invite').click();
   await helper.locator('.app-toast').filter({ hasText: '已复制' }).waitFor();
-  await recipient.goto(await helper.evaluate(() => navigator.clipboard.readText())); await ready(recipient); await ready(helper);
+  const initialInvite = await helper.evaluate(() => navigator.clipboard.readText());
+  await recipient.goto(initialInvite); await ready(recipient); await ready(helper);
   await recipient.evaluate(async () => {
     const source = app.session;
     await app.leaveSpace();
@@ -74,6 +75,49 @@ export async function repairHistoryScopeJourney({ origin, newPage, send, errors 
       originalBytes: restored !== null && await restored.text() === 'original file bytes' };
   }, { original, newRoom, sourceId });
   assert.deepEqual(recovered, { archive: true, original: true, newRoom: true, slot: true, draftOwner: true, originalBytes: true });
+  const activeDevice = await recipient.evaluate(() => app.session.vault.identity.publicBundle.deviceId);
+  // A saved home opened in an old tab retains its own sessionStorage selection,
+  // even though this browser's durable selection points at the repaired slot.
+  const staleTab = await recipient.context().newPage();
+  staleTab.on('pageerror', cause => errors.push(cause.message));
+  await staleTab.goto(`${origin}/favicon.svg`);
+  await staleTab.evaluate(id => sessionStorage.setItem('quiet-room:space', id), JSON.parse(original.stored).spaceId);
+  await recipient.evaluate(() => app.leaveSpace()); await recipient.goto(`${origin}/favicon.svg`);
+  await staleTab.goto(origin); await ready(staleTab);
+  assert.equal(await staleTab.evaluate(() => app.session.vault.identity.publicBundle.deviceId), activeDevice);
+  await staleTab.getByText('original local history', { exact: true }).waitFor();
+  assert.equal(await staleTab.getByText('must remain retracted', { exact: true }).count(), 0);
+  await staleTab.evaluate(() => app.leaveSpace()); await staleTab.close();
+  await recipient.goto(origin); await ready(recipient);
+  // Existing clients could durably misclassify an initial auth timeout as denial.
+  await recipient.evaluate(async () => {
+    const v = await import('/src/lib/vault.ts');
+    await v.withVaultMutation(app.session, async mutation => {
+      app.session.vault.localAccessDeniedDeviceId = app.session.vault.identity.publicBundle.deviceId;
+      await v.saveVault(app.session, mutation);
+    });
+  });
+  await recipient.goto(`${origin}/favicon.svg`);
+  await recipient.goto(`${origin}/?saved-room=1`); await ready(recipient);
+  assert.equal(await recipient.evaluate(() => app.session.vault.localAccessDeniedDeviceId), undefined);
+  assert.equal(await recipient.evaluate(() => app.session.vault.identity.publicBundle.deviceId), activeDevice);
+  // Exercise a real browser WebSocket close before authentication, then reconnect.
+  let missedAuthentication = false;
+  await recipient.addInitScript(() => {
+    window.reentrySocketCloses = [];
+  });
+  await recipient.routeWebSocket('**/ws', route => {
+    const upstream = route.connectToServer();
+    if (missedAuthentication) return;
+    route.onMessage(() => {
+      missedAuthentication = true;
+      route.close({ code: 4401, reason: 'Authentication required' }); upstream.close();
+    });
+  });
+  await recipient.reload(); await ready(recipient);
+  assert.equal(missedAuthentication, true);
+  assert.ok(await recipient.evaluate(() => window.reentrySocketCloses.some(event => event.code === 4401 && event.reason === 'Authentication required')));
+  assert.equal(await recipient.evaluate(() => app.session.vault.localAccessDeniedDeviceId), undefined);
   await send(recipient, 'live after restoring owner'); await helper.getByText('live after restoring owner', { exact: true }).waitFor();
   await recipient.reload(); await ready(recipient); await recipient.getByText('original local history', { exact: true }).waitFor();
   assert.equal(await recipient.getByText('must remain retracted', { exact: true }).count(), 0);
@@ -97,5 +141,5 @@ export async function repairHistoryScopeJourney({ origin, newPage, send, errors 
   await send(helper, 'peer after automatic local repair'); await recipient.getByText('peer after automatic local repair', { exact: true }).waitFor();
   await helper.reload(); await ready(helper); await recipient.reload(); await ready(recipient);
   await recipient.getByText('original local history', { exact: true }).waitFor();
-  console.log('Repair history owner journey passed: orphaned original, new room, offline helper, replacement, tombstone, preserved slots and already-installed bad session.');
+  console.log('Repair history owner journey passed: orphaned original, preserved slots, stale home tab, cached false denial, auth timeout reconnect, tombstone and already-installed bad session.');
 }

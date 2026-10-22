@@ -72,6 +72,16 @@ describe('RoomSocket membership ordering', () => {
     vi.advanceTimersByTime(60000); expect(FakeWebSocket.instances).toHaveLength(1);
     socket.close();
   });
+  it('retries a missed initial authentication window without marking the device denied', () => {
+    vi.useFakeTimers(); environment(); const callbacks = { ...handlers(), accessFailure: vi.fn(), callTransport: vi.fn() };
+    const socket = new RoomSocket('room', 'token', () => 0, () => 0, callbacks);
+    socket.connect(); const transport = FakeWebSocket.instances[0]!; transport.emit('open');
+    transport.emit('close', undefined, 4401, 'Authentication required');
+    expect(callbacks.accessFailure).not.toHaveBeenCalled();
+    expect(callbacks.callTransport).not.toHaveBeenCalledWith('WS_AUTH_FAILED');
+    vi.advanceTimersByTime(60_000); expect(FakeWebSocket.instances).toHaveLength(2);
+    socket.close();
+  });
   it('preserves server cooldown metadata for recovery and device status retry', async () => {
     const error = await responseError(new Response(JSON.stringify({ error: 'busy', code: 'RATE_LIMITED' }), { status: 429, headers: { 'Retry-After': '60' } }));
     expect(error.retryable).toBe(true); expect(error.retryAfterMs).toBe(60000); expect(error.code).toBe('RATE_LIMITED');
