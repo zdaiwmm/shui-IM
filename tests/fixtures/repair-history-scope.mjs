@@ -20,6 +20,8 @@ export async function repairHistoryScopeJourney({ origin, newPage, send, errors 
   await ready(recipient);
   await send(recipient, 'original local history'); await helper.getByText('original local history', { exact: true }).waitFor();
   await send(recipient, 'must remain retracted'); await helper.getByText('must remain retracted', { exact: true }).waitFor();
+  await recipient.waitForFunction(() => [...app.messages.values()].some(message => message.payload.text === 'must remain retracted'
+    && Number.isSafeInteger(message.seq) && message.seq < Number.MAX_SAFE_INTEGER && message.status !== 'pending'));
   await recipient.evaluate(async () => {
     const target = [...app.messages.values()].find(message => message.payload.text === 'must remain retracted');
     await app.sendPayload({ v: 1, kind: 'message-delete', sentAt: new Date().toISOString(),
