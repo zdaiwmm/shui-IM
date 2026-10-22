@@ -137,21 +137,30 @@ function putCurrentVault(tx: IDBTransaction, next: StoredVault, expected?: Store
   };
 }
 
-async function installStoredVault(next: StoredVault, expected?: StoredVault, roomProtectionRevision?: string): Promise<void> {
+async function installStoredVault(next: StoredVault, expected?: StoredVault, roomProtectionRevision?: string,
+  guards: StoredVault[] = [], isActive: () => boolean = () => true, signal?: AbortSignal): Promise<void> {
   if (!validateStoredVault(next)) throw new Error('本机保险库格式不受支持，本次更改未保存');
   const database = await openDatabase();
+  if (!isActive() || signal?.aborted) { database.close(); throw new DOMException('保险库创建流程已经结束', 'AbortError'); }
   await new Promise<void>((resolve, reject) => {
     const tx = database.transaction(roomProtectionRevision ? ['vault', 'security'] : ['vault'], 'readwrite');
+    const abort = () => { try { tx.abort(); } catch { /* Already committed. */ } };
+    const release = () => { signal?.removeEventListener('abort', abort); database.close(); };
+    signal?.addEventListener('abort', abort, { once: true });
+    for (const guard of guards) {
+      const request = tx.objectStore('vault').get(vaultSpaceId(guard));
+      request.onsuccess = () => { if (!isActive() || !sameStoredVault(request.result, guard)) tx.abort(); };
+    }
     if (roomProtectionRevision) {
       const request = tx.objectStore('security').get('room-protection-v2');
       request.onsuccess = () => {
-        if (request.result?.revision !== roomProtectionRevision) { tx.abort(); return; }
+        if (!isActive() || request.result?.revision !== roomProtectionRevision) { tx.abort(); return; }
         putCurrentVault(tx, next, expected);
       };
     } else putCurrentVault(tx, next, expected);
-    tx.oncomplete = () => { database.close(); resolve(); };
-    tx.onabort = () => { database.close(); reject(tx.error ?? staleVaultError()); };
-    tx.onerror = () => reject(tx.error ?? new Error('保险库写入失败'));
+    tx.oncomplete = () => { release(); resolve(); };
+    tx.onabort = () => { release(); reject(signal?.reason ?? tx.error ?? staleVaultError()); };
+    tx.onerror = () => { release(); reject(signal?.reason ?? tx.error ?? new Error('保险库写入失败')); };
   });
 }
 
@@ -1070,6 +1079,100 @@ export async function createVault(
   });
 }
 
+/** Discover only locally authenticated owners; a live-room link grants no history key. */
+export async function findArchiveHistoryOwner(target: Vault, secret: string,
+  isActive: () => boolean, sourceDeviceId = target.identity.publicBundle.deviceId, signal?: AbortSignal): Promise<VaultSession | null> {
+  if (!target.roomArchiveV2 || !secret) return null;
+  const check = () => { signal?.throwIfAborted(); if (!isActive()) throw new DOMException('历史核验流程已经结束', 'AbortError'); };
+  check();
+  const ids = await transaction<IDBValidKey[]>('vault', 'readonly', store => store.getAllKeys(undefined, 257));
+  if (ids.length > 256) throw new Error('本机保险库数量超出自动核验范围，原数据已保留');
+  let preferred: VaultSession | null = null, fallback: VaultSession | null = null, preferredAmbiguous = false, fallbackAmbiguous = false;
+  const damagedOwners = new Set<string>();
+  const ownerTag = async (session: VaultSession) => {
+    const raw = new Uint8Array(await crypto.subtle.exportKey('raw', session.key));
+    const scope = encoder.encode(localDataScope(session.vault)), material = new Uint8Array(raw.length + scope.length);
+    try { material.set(raw); material.set(scope, raw.length); return toBase64Url(await crypto.subtle.digest('SHA-256', material)); }
+    finally { raw.fill(0); material.fill(0); }
+  };
+  const sameOwner = async (left: VaultSession, right: VaultSession) => {
+    if (localDataScope(left.vault) !== localDataScope(right.vault) ||
+        canonicalStringify(left.vault.roomArchiveV2!.key) !== canonicalStringify(right.vault.roomArchiveV2!.key)) return false;
+    const a = new Uint8Array(await crypto.subtle.exportKey('raw', left.key)), b = new Uint8Array(await crypto.subtle.exportKey('raw', right.key));
+    try { return a.length === b.length && a.every((byte, index) => byte === b[index]); }
+    finally { a.fill(0); b.fill(0); }
+  };
+  for (const id of ids) {
+    check();
+    if (typeof id !== 'string') continue;
+    const stored = await withVaultLifecycle(() => readStoredVaultUnlocked(id));
+    if (!stored || stored.v !== 3 || stored.unlockMethod !== 'password' || !stored.browserRoomKey) continue;
+    let candidate: VaultSession;
+    try {
+      const master = await unwrapPasswordMaster(stored, secret);
+      try { const key = await importMasterKey(master); candidate = { stored, key, vault: await decryptPayload(stored.payload, key) }; }
+      finally { master.fill(0); }
+    } catch { check(); continue; } // Another protection or invalid envelope remains untouched.
+    check();
+    const vault = candidate.vault, own = vault.identity.publicBundle.deviceId;
+    if (!vault.roomArchiveV2 || vault.roomId !== target.roomId || vault.role !== target.role || vault.creatorFingerprint !== target.creatorFingerprint) continue;
+    if (own !== sourceDeviceId && target.members.some(m => m.deviceId === own && m.status === 'active')) continue;
+    try {
+      await loadMessageEventHistory(candidate, { signal });
+      check();
+      const rows = await Promise.all((['history', 'galleryHistory', 'restoredGallery'] as const).map(store =>
+        loadHistoryRecordsAfter(candidate, { limit: 1, afterSeq: 0, signal }, store)));
+      if (!rows.some(page => page.length) && own !== sourceDeviceId) continue;
+    } catch (cause) {
+      check();
+      if (cause instanceof HistoryIntegrityError) { damagedOwners.add(await ownerTag(candidate)); continue; }
+      throw cause; // A raced owner or storage failure is not permission to choose another key.
+    }
+    if (own === sourceDeviceId) {
+      if (preferred && !await sameOwner(preferred, candidate)) preferredAmbiguous = true;
+      preferred ??= candidate;
+    } else {
+      if (fallback && !await sameOwner(fallback, candidate)) fallbackAmbiguous = true;
+      fallback ??= candidate;
+    }
+  }
+  // Multiple snapshots of the same key/scope are one owner. Distinct owners
+  // are ambiguous, so retain all of them rather than choosing by timestamp.
+  check();
+  const chosen = preferred ? (preferredAmbiguous ? null : preferred) : (fallbackAmbiguous ? null : fallback);
+  // A lower/older checkpoint cannot conceal a missing tombstone required by
+  // another authenticated snapshot of this same local key and namespace.
+  if (chosen && damagedOwners.has(await ownerTag(chosen))) return null;
+  check(); return chosen;
+}
+
+/** Fork an authenticated local owner without overwriting either original slot or its records. */
+export async function createArchiveRepairVault(vault: Vault, owner: VaultSession, credential: LocalCredentialResult,
+  isActive: () => boolean, current?: VaultSession, signal?: AbortSignal): Promise<VaultSession> {
+  return withVaultMutation(owner, async mutation => {
+    if (!isActive()) throw new DOMException('历史关联流程已经结束', 'AbortError');
+    if (!vault.roomArchiveV2 || !owner.vault.roomArchiveV2 || vault.roomId !== owner.vault.roomId || vault.role !== owner.vault.role ||
+        vault.creatorFingerprint !== owner.vault.creatorFingerprint || !isPasswordCredential(credential) || !credential.roomProtectionRevision) {
+      throw new Error('本机历史归属不一致，原数据已保留');
+    }
+    const guards = [owner.stored, ...(current ? [current.stored] : [])];
+    for (const guard of guards) if (!sameStoredVault(await readStoredVaultUnlocked(vaultSpaceId(guard)), guard)) throw staleVaultError();
+    await loadMessageEventHistory(owner, { mutation, signal });
+    const next: Vault = { ...vault, localDataScope: localDataScope(owner.vault),
+      localPreferenceDeviceId: owner.vault.localPreferenceDeviceId ?? owner.vault.identity.publicBundle.deviceId,
+      roomArchiveV2: structuredClone(owner.vault.roomArchiveV2), archiveState: structuredClone(owner.vault.archiveState) };
+    const id = crypto.randomUUID(), master = new Uint8Array(await crypto.subtle.exportKey('raw', owner.key));
+    try {
+      const stored: StoredPasswordVault = { v: 3, unlockMethod: 'password', browserRoomKey: true, spaceId: id,
+        kdf: credential.kdf, ...(credential.passwordFormat ? { passwordFormat: credential.passwordFormat } : {}),
+        wrappedKey: await wrapPasswordMaster(master, credential, id), payload: await encryptPayload(next, owner.key) };
+      await installStoredVault(stored, undefined, credential.roomProtectionRevision, guards, isActive, signal);
+      selectedSpace = id; rememberSpace(id);
+      return { vault: next, key: owner.key, stored };
+    } finally { master.fill(0); }
+  });
+}
+
 /** Explicitly replace this browser's inaccessible vault after the recovery screen's confirmation. */
 export async function createJointRecoveryVault(vault: Vault, credential: LocalCredentialResult, expected: StoredVault | null, signal: AbortSignal): Promise<VaultSession> {
   return withVaultLifecycle(async () => {
@@ -1138,6 +1241,9 @@ async function createVaultLocked(
   expected?: StoredVault,
 ): Promise<VaultSession> {
   if (!isActive()) throw new DOMException('保险库创建流程已经结束', 'AbortError');
+  // Every new master owns its own record namespace, even when the live room
+  // already exists in another local slot. Ordinary same-key saves retain it.
+  if (vault.roomArchiveV2) vault = { ...vault, localDataScope: crypto.randomUUID() };
   if (unlockMethod === 'password' || (preparedPlatformCredential && isPasswordCredential(preparedPlatformCredential))) {
     const credential = preparedPlatformCredential && isPasswordCredential(preparedPlatformCredential)
       ? preparedPlatformCredential : await derivePasswordCredential(legacySecret);
@@ -2036,6 +2142,8 @@ async function loadHistoryRecordsAfter(
   return records;
 }
 
+export class HistoryIntegrityError extends Error {}
+
 /**
  * Rebuild timeline projection events beyond the visible history page without
  * a plaintext index. All ciphertext is strictly verified, including paged-out ordinary rows;
@@ -2062,7 +2170,7 @@ export async function loadMessageEventHistory(
   const throughSeq = session.vault.lastSeq;
   const coverage = Number.isSafeInteger(throughSeq) && throughSeq >= boundary;
   let expected = boundary + 1;
-  const missing = () => { throw new Error(`本机加密历史记录 ${expected} 缺失，已停止显示以避免撤回内容重新出现`); };
+  const missing = () => { throw new HistoryIntegrityError(`本机加密历史记录 ${expected} 缺失，已停止显示以避免撤回内容重新出现`); };
   async function* stream(storeName: 'history' | 'galleryHistory' | 'restoredGallery') {
     let afterSeq = 0;
     for (;;) {
@@ -2219,7 +2327,7 @@ async function decryptHistoryRecords(
       );
       messages.push(JSON.parse(decoder.decode(plaintext)) as DecryptedMessage);
     } catch {
-      if (strict) throw new Error(`本机加密历史记录 ${record.seq} 已损坏，已停止显示以避免撤回内容重新出现`);
+      if (strict) throw new HistoryIntegrityError(`本机加密历史记录 ${record.seq} 已损坏，已停止显示以避免撤回内容重新出现`);
       // Ordinary bounded history pages may omit a damaged cache row. The
       // strict full projection scan above still blocks every chat/Safe first
       // frame because encrypted payload kind cannot reveal whether it was a

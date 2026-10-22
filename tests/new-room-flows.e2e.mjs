@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {fillFormInput} from './helpers/form-input.mjs';
 import {submitPassword} from './helpers/password.mjs';
+import {repairHistoryScopeJourney} from './fixtures/repair-history-scope.mjs';
 import {mkdtemp,rm,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -10,7 +11,7 @@ import {startServer} from '../server/index.mjs';
 const dataDir=await mkdtemp(path.join(tmpdir(),'quiet-new-room-ui-'));let service,vite,browser,debugPage;
 try{
  service=await startServer({port:0,host:'127.0.0.1',dataDir,quiet:true});
- vite=await createServer({root:process.cwd(),configFile:false,logLevel:'error',server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${service.port}`,'/ws':{target:`ws://127.0.0.1:${service.port}`,ws:true}}}});await vite.listen();
+ vite=await createServer({root:process.cwd(),configFile:false,logLevel:'error',plugins:[{name:'repair-history-observer',enforce:'pre',transform(code,id){if(id.endsWith('/src/main.ts'))return code.replace('void app.start();','window.app=app;void app.start();');}}],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${service.port}`,'/ws':{target:`ws://127.0.0.1:${service.port}`,ws:true}}}});await vite.listen();
  browser=await chromium.launch(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
  const origin=`http://127.0.0.1:${vite.httpServer.address().port}`,contexts=[],mobile=process.env.QR_MOBILE==='1',list='.is-space-list-page:not(.space-sidebar)';
  const newPage=async(asMobile=mobile)=>{const context=await browser.newContext({permissions:['clipboard-read','clipboard-write'],...(asMobile?{viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1'}:{})});contexts.push(context);return context.newPage();};
@@ -141,5 +142,6 @@ try{
  await bob.reload();await bob.locator('.numeric-password-page').waitFor();await bob.locator('[data-numeric-left]').click();await bob.locator('[data-help-action]').click();await bob.getByRole('dialog',{name:'清除本浏览器数据？',exact:true}).getByRole('button',{name:'确认清除',exact:true}).click();await bob.locator('#create-room').waitFor();
  assert.equal(await bob.evaluate(async()=>{const v=await import('/src/lib/vault.ts');return !!await v.readStoredVault()||!!await v.readRoomProtection();}),false,'Confirmed global clear removes room data and protection');
  assert.equal((await fetch(`http://127.0.0.1:${service.port}/api/rooms/${creator.roomId}`,{headers:{Authorization:`Bearer ${creator.token}`}})).status,200,'Local reset leaves the peer room intact');
+ await repairHistoryScopeJourney({origin,newPage,send,errors});
  assert.equal(creationResponsesLost,1);assert.deepEqual(errors,[]);console.log('New-room UI passed: no-lock create/join/refresh, short single-use link, exact replacement preserving local history/card, live chat and application-lock toast.');
 }catch(error){console.error('UI_FAILURE_STATE',await debugPage?.locator('body').innerText());throw error;}finally{await browser?.close();await vite?.close();await service?.close();await rm(dataDir,{recursive:true,force:true});}

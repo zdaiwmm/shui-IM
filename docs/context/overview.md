@@ -19,6 +19,8 @@ Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请�
 
 # Quiet Room 项目地图
 
+重新接入历史归属：`vault.ts`为新本机主密钥分配独立记录范围，逐槽核验原历史所有者并在新槽位关联；`app.ts`覆盖原目录不可见的接替与旧错误会话刷新，保留两份来源槽位。`vault-lifecycle`验证缺失／篡改投影、较早检查点、取消及陈旧守卫；`new-room-flows/mobile`共享`fixtures/repair-history-scope.mjs`覆盖新建另一密室、邀请方离线后上线、原历史／附件／撤回及旧故障会话。边界及阶段见[历史归属V1](../requirements/2026-10-22-repair-history-scope/README.md)。
+
 自动备份容量：`src/lib/vault.ts`统一v2/v3载荷读写的8 MiB字符上限，并在加密前阻止超限普通／MLS原子写入；旧限制误拒的完整记录可按原材料打开。`vault-lifecycle`验证精确边界、认证及原子保留，`room-archive-lifecycle`以Chromium／WebKit验证完整附件分块及中断续传，`new-room-flows/mobile`覆盖双端自动备份后刷新及设备接替。证据及限制见[容量修复V1](../requirements/2026-10-22-vault-archive-size/README.md)。
 
 设备接入失效独立页（2026-10-21）：`src/app.ts`及`src/room-polish.css`管理终止接入呈现、三步指引与刷新／列表守卫，`Vault.localAccessDeniedDeviceId`仅为加密本机设备绑定提示。真实服务及重入专项`tests/device-access-page.e2e.mjs`已注册浏览器门禁，旧格式撤销继续由audit-interactions验证；范围与证据见[需求V1](../requirements/2026-10-21-device-access-page/README.md)。
