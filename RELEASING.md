@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+<a id="release-repair-reentry-20261022"></a>
+## 同浏览器重新进入续修已发布（2026-10-23 06:26）
+
+- 用户收到完整应用`1d7500ff784f2ae14637125876284d1511ccaf60`、版本`2026.10.22.3`与完整验证／只读预检结果后明确回复「确认，发布生产」，随后回复「继续」，无独立消息permalink。延续[原数据保留及重新进入修复](docs/requirements/2026-10-22-repair-history-scope/README.md#同一故障的重新进入续修2026-10-22)，对应[PR #380](https://github.com/zdaiwmm/shui-IM/pull/380)，完整文件树与最终源9cb9c84相同。正常本机解锁后验证同历史的唯一当前有效接替端；当前活跃身份核验后解除误报；初次认证超时重试。原保险库、历史、原件、草稿与旧身份待发保留，实际撤销仍拒绝，旧待发不重放。
+- 最终干净源9cb9c84完整本地检查通过137文件／1063项、76/76浏览器入口，0失败、0未运行，总1182477毫秒。[精确PR完整CI39771529282](https://github.com/zdaiwmm/shui-IM/actions/runs/39771529282)与[精确应用main完整CI39774081400](https://github.com/zdaiwmm/shui-IM/actions/runs/39774081400)均attempt1成功，含Full application verification、全部浏览器分片、通话／TURN、审计及双架构镜像。桌面与合成iPhone双端流程、真实IndexedDB负例由需求记录拥有；用户真机和独立安全审阅未验证。
+- 固定[只读预检39775308627](https://github.com/zdaiwmm/shui-IM/actions/runs/39775308627)核对PREFLIGHT_OK，86646毫秒。唯一[正式云发布39776526944](https://github.com/zdaiwmm/shui-IM/actions/runs/39776526944)的请求`962e4acf-8b60-4c2d-9f66-2320544160b6`仅派发一次；暂停期间原run一直停在production环境审核、未切换。用户要求继续后，由现有配置审核账号通过正常审核，未修改保护、云权限或helper。固定入口取得精确DEPLOY_VERIFIED，从`57c0c50a33cafabcf3bb4c1fd5703b4cabcb11e3`实际切换一次，批次`20261022T221835Z`，云回执开始`2026-10-22T22:17:57.808Z`、完成`22:21:09.307Z`；工作流来源d04eef3，应用固定获批1d7500f。
+- linux/amd64镜像`sha256:130976889a10e26929eb29335239f5534bb3d5bfe2f59b718ce7a2f1d6450477`，镜像归档SHA-256 `950f946479daf717367860f0cf0022fbe7c20d0aecf0bc48cdd9279b1c8eb2e4`、210012046字节，绑定精确main CI39774081400／attempt1。入口cloud-publish计时36504220毫秒含约10小时环境审核等待，不作为实际切换耗时；云部署步骤192秒，工作流执行3分24秒。分项有嵌套，不相加或冒充无等待总耗时。
+- 首次独立回读`2026-10-22T22:21:23.356Z`仅backup starting未通过，828毫秒；应用healthy、SHA／实际镜像一致、维护门absent。只读核对备份启动`2026-10-22T22:20:55.429295226Z`及既有5分钟探针／启动期后，只续跑同SHA readback-only，不重启、不放宽门禁、不再次部署。最终只读回读于`2026-10-22T22:26:16.535Z`启动、`22:26:19.652Z`完成，3116毫秒取得READBACK_OK：应用／备份running且healthy，TURN运行且探针none；精确SHA／实际镜像、HTTPS／数据库／存储、公开与容器资源摘要及新WebSocket一致，维护门absent。额外公开Service Worker确认版本2026.10.22.3；管理员与通话启用。
+- 授权、原run接续、精确CI、预检／发布回执、初次／最终回读及探针、公开版本脱敏证据保存在公共Git元数据`quiet-room-deliveries/evidence/repair-reentry-20261022/`，位于两任务树及其专属Git目录之外。第二个无部署配置文档树只对账，不部署文档SHA。本批两树含忽略缓存、专属回执及使用中的对账资源，保留并按固定清理入口记录原因；其他任务不处理。实际用户记录未接入，不能宣称原聊天已找回；保留原浏览器网站数据。
+
 <a id="release-repair-history-scope-20261022"></a>
 ## 重新接入历史归属修复已发布（2026-10-22 16:05）
 
