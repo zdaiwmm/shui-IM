@@ -342,6 +342,103 @@ it('upgrades payload-only legacy retries once and never sends when their ciphert
   expect(result).toEqual({ injected: true, before: { sent: 0, hasEnvelope: false }, deferredBeforeSync: true, syncRequests: 1, samePendingItem: true, sent: 2, oneEnvelope: true, missingDoesNotRecreate: true });
 });
 
+it('preserves bounded large vaults and rejects oversized ordinary and atomic writes without partial records', async () => {
+  const result = await page.evaluate(async () => {
+    const v = await import('/src/lib/vault.ts');
+    const { generateIdentity } = await import('/src/lib/crypto.ts');
+    const { createCreatorMlsState } = await import('/src/lib/mls.ts');
+    const { deriveNumericPasswordCredential } = await import('/src/lib/password-protection.ts');
+    const identity = await generateIdentity(), roomId = crypto.randomUUID();
+    const members = [{ ...identity.publicBundle, role: 'creator', joinProof: null, status: 'active' }];
+    const base = { v: 3, roomId, accessToken: 'a'.repeat(43), role: 'creator', pairingSecret: '', creatorFingerprint: 'synthetic',
+      identity, members, lastSeq: 0, lastReceiptSeq: 0, pairingState: 'ready', createdAt: new Date().toISOString(), protocol: 'mls-rfc9420',
+      mls: await createCreatorMlsState(roomId, identity, members) };
+    const session = await v.createVault(base, '', 'password', await deriveNumericPasswordCredential('012345'));
+    const writeRaw = stored => new Promise((resolve, reject) => {
+      const request = indexedDB.open('quiet-room');
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => {
+        const db = request.result, tx = db.transaction('vault', 'readwrite');
+        tx.objectStore('vault').put(stored, v.vaultSpaceId(session.stored));
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onabort = () => { db.close(); reject(tx.error); };
+      };
+    });
+    session.vault.archiveState = { cursor: 0, revision: 0, preparing: { itemId: 'synthetic', media: [], next: {
+      v: 2, archiveId: 'A'.repeat(43), id: crypto.randomUUID(), enc: 'A'.repeat(43), signature: 'A'.repeat(86), ciphertext: '',
+    } } };
+    // Fill an authenticated payload to the exact supported base64url ceiling.
+    // The padding is synthetic; real chunk/signature validation is covered by
+    // room-archive-lifecycle using an actual multi-chunk PNG and real service.
+    const maximum = 8 * 1024 * 1024;
+    const overhead = new TextEncoder().encode(JSON.stringify(session.vault)).length;
+    session.vault.archiveState.preparing.next.ciphertext = 'A'.repeat(maximum * 3 / 4 - 16 - overhead);
+    await v.saveVault(session);
+    const stored = await v.readStoredVault(), before = JSON.stringify(stored);
+    if (stored.payload.ciphertext.length !== maximum) throw new Error('Fixture missed the exact ciphertext boundary');
+    let wrongPassword = false;
+    try { await v.unlockVault('111111', undefined, stored); } catch { wrongPassword = true; }
+    const reopened = await v.unlockVault('012345', undefined, stored);
+    const tampered = structuredClone(stored);
+    tampered.payload.ciphertext = (tampered.payload.ciphertext[0] === 'A' ? 'B' : 'A') + tampered.payload.ciphertext.slice(1);
+    await writeRaw(tampered);
+    let tamperingRejected = false;
+    try { await v.unlockVault('012345'); } catch { tamperingRejected = true; }
+    const tamperingPreserved = JSON.stringify(await v.readStoredVault()) === JSON.stringify(tampered);
+    await writeRaw(stored);
+    const invalidRecords = [
+      { ...stored, payload: { ...stored.payload, ciphertext: stored.payload.ciphertext + 'A' } },
+      { ...stored, spaceId: 'another-slot' },
+      { ...stored, wrappedKey: { ...stored.wrappedKey, ciphertext: stored.wrappedKey.ciphertext + 'A' } },
+    ];
+    let invalidRejected = true;
+    for (const invalid of invalidRecords) { await writeRaw(invalid); invalidRejected &&= await v.readStoredVault() === null; }
+    await writeRaw(stored);
+    // One extra ASCII byte and one extra multibyte code point each exceed the
+    // same reader ceiling; neither can replace the valid durable checkpoint.
+    const padding = reopened.vault.archiveState.preparing.next.ciphertext;
+    const failures = [];
+    for (const extra of ['A', '密']) {
+      reopened.vault.archiveState.preparing.next.ciphertext = extra === '密' ? padding.slice(0, -1) + extra : padding + extra;
+      try { await v.saveVault(reopened); failures.push('accepted'); }
+      catch (cause) { failures.push(cause.message); }
+    }
+    const sentAt = new Date().toISOString(), clientMsgId = crypto.randomUUID();
+    const payload = { v: 1, kind: 'text', text: 'synthetic capacity guard', sentAt };
+    for (const operation of [
+      mutation => v.commitMlsSend(reopened, { clientMsgId, payload, createdAt: sentAt }, reopened.vault.mls.groupState, mutation),
+      mutation => v.commitMlsReceive(reopened, { seq: 1, clientMsgId, senderId: identity.publicBundle.deviceId, payload, acceptedAt: sentAt, status: 'stored' }, reopened.vault.mls.groupState, undefined, mutation),
+    ]) {
+      try { await v.withVaultMutation(reopened, operation); failures.push('accepted'); }
+      catch (cause) { failures.push(cause.message); }
+    }
+    const atomic = { sameStored: JSON.stringify(await v.readStoredVault()) === before, sameSessionStored: JSON.stringify(reopened.stored) === before,
+      outbox: (await v.loadOutbox(reopened)).length, history: (await v.loadHistory(reopened)).length, receipts: (await v.loadPendingReceipts(reopened)).length };
+    reopened.vault.archiveState.preparing.next.ciphertext = padding;
+    const stale = { ...reopened };
+    delete reopened.vault.archiveState;
+    await v.saveVault(reopened);
+    let staleRejected = false;
+    try { await v.saveVault(stale); } catch (cause) { staleRejected = cause.message.includes('其它窗口'); }
+    const reopenedSameRoom = (await v.unlockVault('012345')).vault.roomId === roomId;
+    const platform = await v.createVault({ ...base, archiveState: { cursor: 0, revision: 0, preparing: {
+      itemId: 'platform-capacity', media: [], next: { ...session.vault.archiveState.preparing.next, ciphertext: 'A'.repeat(2 * 1024 * 1024) },
+    } } });
+    const platformStored = await v.readStoredVault();
+    const platformReopened = await v.unlockVault();
+    const exported = await v.prepareRecoveryPackage(platformReopened);
+    await v.importRecoveryPackage(new File([exported.blob], 'synthetic-recovery.json', { type: 'application/json' }));
+    const recoveryStored = await v.readStoredVault(), recovered = await v.unlockRecoveryVault(exported.recoveryCode);
+    return { boundary: stored.payload.ciphertext.length === maximum, wrongPassword, tamperingRejected, tamperingPreserved, invalidRejected,
+      limitRejected: failures.length === 4 && failures.every(message => message.includes('容量超过支持上限')), atomic, staleRejected,
+      reopened: reopenedSameRoom,
+      platformReopened: platformStored.payload.ciphertext.length > 2 * 1024 * 1024 && platformReopened.vault.roomId === platform.vault.roomId,
+      recoveryReopened: recoveryStored.payload.ciphertext.length > 2 * 1024 * 1024 && recovered.vault.roomId === platform.vault.roomId };
+  });
+  expect(result).toEqual({ boundary: true, wrongPassword: true, tamperingRejected: true, tamperingPreserved: true, invalidRejected: true, limitRejected: true,
+    atomic: { sameStored: true, sameSessionStored: true, outbox: 0, history: 0, receipts: 0 }, staleRejected: true, reopened: true, platformReopened: true, recoveryReopened: true });
+});
+
 try {
   await setup();
   for (const test of cases) { await test.run(); console.log(`PASS ${test.name}`); }

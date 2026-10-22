@@ -2,14 +2,15 @@ import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {chromium} from 'playwright';
+import {chromium,webkit} from 'playwright';
 import {createServer} from 'vite';
 import {startServer} from '../server/index.mjs';
+for(const engine of [chromium,webkit]){
 const dataDir=await mkdtemp(path.join(tmpdir(),'quiet-private-archive-'));let service,vite,browser;
 try{
  service=await startServer({port:0,host:'127.0.0.1',dataDir,quiet:true});
  vite=await createServer({root:process.cwd(),configFile:false,appType:'custom',logLevel:'error',server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${service.port}`}},plugins:[{name:'archive-fixture',configureServer(s){s.middlewares.use('/__archive',(_q,r)=>{r.setHeader('Content-Type','text/html');r.end('<!doctype html><title>Private archive regression</title>');});}}]});await vite.listen();
- browser=await chromium.launch(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
+ browser=await engine.launch(engine===webkit?{}:process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
  const page=await browser.newPage();await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/__archive`);
  const result=await page.evaluate(async()=>{
   const v=await import('/src/lib/vault.ts'),a=await import('/src/lib/room-archive.ts'),c=await import('/src/lib/room-archive-crypto.ts'),k=await import('/src/lib/browser-room-key.ts'),api=await import('/src/lib/api.ts'),cryptoLib=await import('/src/lib/crypto.ts'),fileCrypto=await import('/src/lib/file-crypto.ts'),cardImage=await import('/src/lib/archive-card-image.ts');
@@ -28,12 +29,37 @@ try{
   const now=new Date().toISOString();
   const text={seq:1,clientMsgId:crypto.randomUUID(),senderId:first.vault.identity.publicBundle.deviceId,payload:{v:1,kind:'text',text:'Only my restored history',sentAt:now},acceptedAt:now,status:'stored'};
   await v.saveHistoryMessage(first,text);
-  const canvas=document.createElement('canvas');canvas.width=3;canvas.height=3;canvas.getContext('2d').fillRect(0,0,3,3);
+  const canvas=document.createElement('canvas');canvas.width=1024;canvas.height=768;
+  const pixels=canvas.getContext('2d').createImageData(canvas.width,canvas.height);
+  for(let offset=0;offset<pixels.data.length;offset+=65536)crypto.getRandomValues(pixels.data.subarray(offset,Math.min(offset+65536,pixels.data.length)));
+  for(let offset=3;offset<pixels.data.length;offset+=4)pixels.data[offset]=255;
+  canvas.getContext('2d').putImageData(pixels,0,0);
   const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png')),file=new File([blob],'original.png',{type:'image/png'}),chunks=new Map();
+  if(file.size<=2*1024*1024)throw new Error('Regression needs a full-sized attachment chunk');
   const manifest=await fileCrypto.encryptImageFile(file,{reserve:async()=>{},status:async()=>({uploadedIndexes:[],completed:false}),upload:async(id,index,bytes)=>{chunks.set(index,bytes);},complete:async()=>{},savePlan:async()=>{}});
   for(const [index,bytes] of chunks)await v.saveCachedMediaChunk(first,manifest.blobId,index,bytes);
   await v.saveHistoryMessage(first,{...text,seq:2,clientMsgId:crypto.randomUUID(),payload:{v:1,kind:'image',image:manifest,sentAt:now}});
-  first.vault.lastSeq=2;await v.saveVault(first);await a.syncRoomArchive(first,signal);
+  first.vault.lastSeq=2;await v.saveVault(first);
+  const interruptedUpload=new AbortController(),fetch=window.fetch.bind(window);let uploadAccepted=false;
+  window.fetch=async(input,init)=>{
+   const response=await fetch(input,init);
+   if(init?.method==='PUT'&&String(input).includes('/private-archives/')&&typeof init.body==='string'){
+    const object=JSON.parse(init.body);
+    if(response.ok&&object.ciphertext?.length>3_000_000){uploadAccepted=true;interruptedUpload.abort();}
+   }
+   return response;
+  };
+  try{await a.syncRoomArchive(first,interruptedUpload.signal);}catch(cause){if(!interruptedUpload.signal.aborted)throw cause;}finally{window.fetch=fetch;}
+  if(!uploadAccepted||!first.vault.archiveState?.preparing?.next)throw new Error('Upload interruption did not retain the pending object');
+  const pendingId=first.vault.archiveState.preparing.next.id,stored=await v.readStoredVault();
+  if(!stored||stored.payload.ciphertext.length<=2*1024*1024)throw new Error('Full-sized backup checkpoint must remain readable above the old limit');
+  const reopened=await v.unlockVault(await k.browserRoomKey(),undefined,stored);
+  if(reopened.vault.archiveState.preparing.next.id!==pendingId)throw new Error('Reopening changed the pending upload identity');
+  let reused=false;
+  window.fetch=async(input,init)=>{if(init?.method==='PUT'&&String(input).includes('/private-archives/')&&typeof init.body==='string'&&JSON.parse(init.body).id===pendingId)reused=true;return fetch(input,init);};
+  try{await a.syncRoomArchive(reopened,signal);}finally{window.fetch=fetch;}
+  if(!reused)throw new Error('Resume must retry the exact persisted archive object');
+  Object.assign(first,reopened);
   if(first.vault.roomArchiveV2.cardVerified)throw new Error('Automatic backup must precede card verification');
   const sourceBackup=first.vault.archiveState.revision;
   const second=await create();const interrupted=new AbortController();let interruption=false;
@@ -68,5 +94,6 @@ try{
   return {sourceBackup,privateCount:privateItems.length,sharedCount:shared.length,outboxCount:outbox.length,receiptCount:receipts.length,finalCount:finalItems.length,originalsEqual,deleted,deletedItems:afterDeleteItems.length,deletedMedia:afterDeleteMedia===null,cloudSurvivesDelete,cardIsPng:png.type==='image/png'};
  });
  assert.deepEqual(result,{sourceBackup:2,privateCount:2,sharedCount:0,outboxCount:0,receiptCount:0,finalCount:2,originalsEqual:true,deleted:true,deletedItems:0,deletedMedia:true,cloudSurvivesDelete:2,cardIsPng:true});
- console.log('Private archive lifecycle passed: default backup, PNG card, independent restore, private merge/rebackup, originals, idempotence and local deletion.');
+ console.log(`Private archive lifecycle passed (${engine.name()}): full-sized chunks, interrupted upload/reopen/idempotent resume, default backup, PNG card, private restore/rebackup, original bytes and local deletion.`);
 }finally{await browser?.close();await vite?.close();await service?.close();await rm(dataDir,{recursive:true,force:true});}
+}

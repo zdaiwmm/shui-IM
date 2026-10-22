@@ -19,6 +19,8 @@ Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请�
 
 # Quiet Room 项目地图
 
+自动备份容量：`src/lib/vault.ts`统一v2/v3载荷读写的8 MiB字符上限，并在加密前阻止超限普通／MLS原子写入；旧限制误拒的完整记录可按原材料打开。`vault-lifecycle`验证精确边界、认证及原子保留，`room-archive-lifecycle`以Chromium／WebKit验证完整附件分块及中断续传，`new-room-flows/mobile`覆盖双端自动备份后刷新及设备接替。证据及限制见[容量修复V1](../requirements/2026-10-22-vault-archive-size/README.md)。
+
 设备接入失效独立页（2026-10-21）：`src/app.ts`及`src/room-polish.css`管理终止接入呈现、三步指引与刷新／列表守卫，`Vault.localAccessDeniedDeviceId`仅为加密本机设备绑定提示。真实服务及重入专项`tests/device-access-page.e2e.mjs`已注册浏览器门禁，旧格式撤销继续由audit-interactions验证；范围与证据见[需求V1](../requirements/2026-10-21-device-access-page/README.md)。
 
 聊天与设置修订：`app.ts`／`chat-visuals.ts`管理媒体回复、渐变和导航，`passkey-management.ts`、`space-drawer.ts`与`chamber-refinements.css`管理名称／遮蔽／在线样式；`meme-picker.ts`即时Emoji、`voice-recorder.ts`实时裁剪。范围与授权由[本轮V1](../requirements/2026-10-19-mobile-settings-chat-fixes/README.md)拥有，视觉V1.18；主回归为mobile-settings-chat-fixes及原聊天／身份／媒体专项。
