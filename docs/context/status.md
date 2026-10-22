@@ -1,10 +1,11 @@
 # Quiet Room 当前状态
 
-## 自动备份保险库容量修复已合并，未发布（2026-10-22）
+## 自动备份保险库容量修复已发布，真机待核验（2026-10-22 11:48）
 
 - 用户确认[容量修复V1](../requirements/2026-10-22-vault-archive-size/README.md)并授权实施及固定D交付。[PR #374](https://github.com/zdaiwmm/shui-IM/pull/374)已合并为完整应用`e870c819ecf9377c5920bdacf8384abb3335601f`，版本2026.10.22.1，与源82f4493完整文件树相同。修复v2/v3附件归档检查点可写不可读、继而误报跨窗口更新的问题；兼容旧限制误拒的完整密文，不清理数据或重置密钥。
 - 旧实现真实浏览器负例已复现。Chromium／WebKit完整分块、中断重开及同ID续传、原文件恢复；精确边界与认证／原子保留；桌面及合成手机双端附件备份后刷新／进入链接／精确接替均通过。最终干净源本地完整137文件／1062项及76/76浏览器入口通过；精确PR CI39714894308与[精确应用main完整CI39716597665](https://github.com/zdaiwmm/shui-IM/actions/runs/39716597665)均attempt 1全部成功，`Full application verification`通过。最终证据由需求记录拥有。
-- 独立文字对账不改变应用SHA，不发布生产。尚未读取用户两台设备实际记录，真机和生产恢复未验证；下方最新生产记录仍为应用d6367ca，不能把候选视为已上线。两任务树保留供本批接续，其他任务不处理。
+- 用户在完整应用SHA及版本列出后明确回复「确认，发布生产」。固定只读预检PREFLIGHT_OK后，唯一[正式云发布39718034225](https://github.com/zdaiwmm/shui-IM/actions/runs/39718034225)核对精确DEPLOY_VERIFIED，从d6367ca切换一次。首次独立回读仅备份starting，核对其既有5分钟探针／启动期后只续跑同SHA readback-only；于`2026-10-22T03:48:26.708Z`启动并在3997毫秒取得READBACK_OK。应用／备份running且healthy，TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物、新WebSocket一致，维护门absent。额外公开Service Worker确认版本2026.10.22.1，完整事实见[本轮发布记录](../../RELEASING.md#release-vault-archive-size-20261022)。
+- 脱敏证据在公共Git元数据`quiet-room-deliveries/evidence/vault-archive-size-20261022/`，独立文字对账不改变线上应用SHA、不再次部署。本批工作树按固定清理门禁核验，忽略缓存、专属回执和使用中的记录资源保留，其他任务不处理。尚未读取用户两台设备实际记录，真机恢复仍待用户核验；下方均为历史生产状态。
 
 ## Chamber 24项精修已发布，真机待验收（2026-10-22 02:39）
 

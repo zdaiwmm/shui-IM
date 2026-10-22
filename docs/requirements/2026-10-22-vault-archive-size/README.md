@@ -3,10 +3,10 @@
 ## 身份、授权与阶段
 
 - 2026-10-22，用户报告聊天中双方先后进入「本机数据需要恢复」，中间生成进入链接报「本机会话已在其它窗口或设备流程中更新」。只读调查提出统一读写容量边界、兼容受影响记录并补齐大附件／双端备份／重开／恢复链接验证；用户明确回复「实施修复」。来源为本会话，未提供消息链接。
-- 范围为底层存储修复和回归，不新增页面或改变恢复、设备授权流程，原型和流程图不适用。授权进入I/D并按固定流程交付；没有本次生产发布授权。
+- 范围为底层存储修复和回归，不新增页面或改变恢复、设备授权流程，原型和流程图不适用。初次授权进入I/D；随后完整应用SHA与版本列出后，用户明确回复「确认，发布生产」，授权本次精确应用的P阶段。来源为本会话，无独立消息permalink。
 - 规则来源为本机main `f1c61a2be73016d3c73e0cff703e9dc3f7c8f502`；开工本机main仍为该值，origin/main已同步并与实时GitHub main／任务基线 `f69d71169354e050162bbe9b3405dbcfa0b66957`一致。规则文件未变。
 - 本任务新建独占目录 `/Users/zhouding/ss-worktrees/vault-archive-size-20261022`，分支 `codex/vault-archive-size-20261022`。接续时重新核对HEAD及归属。
-- 当前阶段：完整本地、PR和精确main CI全部通过，[PR #374](https://github.com/zdaiwmm/shui-IM/pull/374)已合并，版本2026.10.22.1；未发布生产。
+- 当前阶段：完整本地、PR和精确main CI全部通过，[PR #374](https://github.com/zdaiwmm/shui-IM/pull/374)已合并，版本2026.10.22.1／应用e870c819已发布生产并独立回读通过；用户两台真机恢复待核验。
 
 ## 根因与实现
 
@@ -38,4 +38,11 @@
 - 该源提交干净树的`check:full`通过：137个文件／1062项单元与集成，76/76注册浏览器入口，0失败／0未运行，1148.875秒。登记证据位于任务Git元数据的`quiet-room-delivery-evidence/`，不提交原始日志或合成二进制。
 - [精确PR完整CI39714894308](https://github.com/zdaiwmm/shui-IM/actions/runs/39714894308) attempt 1全部通过，包括全部浏览器分片、原生通话与TURN、依赖审计、凭据扫描及双架构镜像。
 - [精确应用main完整CI39716597665](https://github.com/zdaiwmm/shui-IM/actions/runs/39716597665) attempt 1全部通过，`verify`及`Full application verification`成功；已核对head SHA为上述完整应用提交。
-- 交付记录由本任务独立分支`codex/vault-archive-size-delivery-20261022`在同根目录的同名工作树维护；仅文字状态对账，不改变上述应用SHA或触发生产部署。开发树与记录树为待发布候选及证据保留，不清理其他任务。
+- 交付及发布记录由本任务独立分支`codex/vault-archive-size-delivery-20261022`在同根目录的同名工作树维护；仅文字状态对账，不改变上述应用SHA或触发再次部署。任务资源按固定门禁核验，其他任务不处理。
+
+## 生产发布与独立回读
+
+- 用户本次精确确认后，通过固定入口取得PREFLIGHT_OK，唯一正式云发布39718034225取得DEPLOY_VERIFIED；原生产d6367ca切换为完整应用`e870c819ecf9377c5920bdacf8384abb3335601f`，版本2026.10.22.1。
+- 首次独立回读仅备份starting；只读核对原5分钟探针／启动期后，仅续跑同SHA readback-only，于`2026-10-22T03:48:30.709Z`完成READBACK_OK，3997毫秒。未再次部署、重启或放宽门禁。
+- 应用和备份healthy、SHA／镜像／公开产物及新WebSocket一致，公开版本为2026.10.22.1。完整生产证据由[发布记录](../../../RELEASING.md#release-vault-archive-size-20261022)拥有，脱敏原始结构化证据位于公共Git元数据`quiet-room-deliveries/evidence/vault-archive-size-20261022/`。
+- 尚未接入用户两台实际设备，不能把上线与合成测试当作真机数据已恢复；刷新原浏览器并按原方式解锁后再核验，不要求清除本机数据。
