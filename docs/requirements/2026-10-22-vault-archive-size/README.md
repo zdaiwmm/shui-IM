@@ -6,7 +6,7 @@
 - 范围为底层存储修复和回归，不新增页面或改变恢复、设备授权流程，原型和流程图不适用。授权进入I/D并按固定流程交付；没有本次生产发布授权。
 - 规则来源为本机main `f1c61a2be73016d3c73e0cff703e9dc3f7c8f502`；开工本机main仍为该值，origin/main已同步并与实时GitHub main／任务基线 `f69d71169354e050162bbe9b3405dbcfa0b66957`一致。规则文件未变。
 - 本任务新建独占目录 `/Users/zhouding/ss-worktrees/vault-archive-size-20261022`，分支 `codex/vault-archive-size-20261022`。接续时重新核对HEAD及归属。
-- 当前阶段：定向验证完成，准备版本2026.10.22.1及完整本地／远端验证；尚未合并或发布，实际交付证据由本需求及PR拥有。
+- 当前阶段：完整本地、PR和精确main CI全部通过，[PR #374](https://github.com/zdaiwmm/shui-IM/pull/374)已合并，版本2026.10.22.1；未发布生产。
 
 ## 根因与实现
 
@@ -22,12 +22,20 @@
 | 验收项 | 验证入口 | 证据／状态 |
 | --- | --- | --- |
 | 完整2 MiB附件分块、上传中断、重新解锁、同ID续传、恢复原文件逐字节一致 | `tests/room-archive-lifecycle.e2e.mjs`，Chromium与WebKit | 双引擎通过；旧实现负例已确认 |
-| 8 MiB精确边界、ASCII／UTF-8超限、普通保存及MLS原子记录无半写 | `tests/vault-lifecycle.e2e.mjs` | 边界及原子保护通过；UTF-8补充断言随最终完整回归核对 |
+| 8 MiB精确边界、ASCII／UTF-8超限、普通保存及MLS原子记录无半写 | `tests/vault-lifecycle.e2e.mjs` | 定向及最终完整回归通过 |
 | 错误密码、密文篡改、超限读、错误空间、包装密钥格式及真实陈旧写入拒绝 | 同上 | 定向通过 |
 | 密码、通行密钥、恢复包装的大记录兼容 | 同上 | 定向通过 |
 | 双端真实传输及自动备份、刷新后原记录、生成进入链接及精确设备接替 | `tests/new-room-flows.e2e.mjs`及`new-room-mobile.e2e.mjs` | 桌面及合成iPhone参数均通过 |
-| 完整应用回归及精确PR／main CI | `npm run check:full`及GitHub完整流水线 | 未运行 |
+| 完整应用回归及精确PR／main CI | `npm run check:full`及GitHub完整流水线 | 本地、PR与精确main完整CI全部通过 |
 
 真实iPhone／iOS27 Safari或Chrome尚未连接；桌面WebKit及合成手机参数不能标记为真机通过。测试只使用临时本地数据，不包含用户消息、密钥、邀请或恢复材料。提交材料仅为源码、测试、版本说明与必要文字记录。
 
 首轮双端用例直接设置文件输入，未经过产品的选择器调用归属校验，附件没有发送；改用实际文件选择器事件后定向复验。不改变产品选择器保护或成功断言。
+
+## 最终交付证据
+
+- 应用源提交`82f44933dcc2ffba68cb11d3dfc6141054a5ea21`，经PR #374合并为完整应用`e870c819ecf9377c5920bdacf8384abb3335601f`；已核对两个提交完整文件树相同，tree为`4a67022809452f196ec6bbdef85361cab43b9edd`。
+- 该源提交干净树的`check:full`通过：137个文件／1062项单元与集成，76/76注册浏览器入口，0失败／0未运行，1148.875秒。登记证据位于任务Git元数据的`quiet-room-delivery-evidence/`，不提交原始日志或合成二进制。
+- [精确PR完整CI39714894308](https://github.com/zdaiwmm/shui-IM/actions/runs/39714894308) attempt 1全部通过，包括全部浏览器分片、原生通话与TURN、依赖审计、凭据扫描及双架构镜像。
+- [精确应用main完整CI39716597665](https://github.com/zdaiwmm/shui-IM/actions/runs/39716597665) attempt 1全部通过，`verify`及`Full application verification`成功；已核对head SHA为上述完整应用提交。
+- 交付记录由本任务独立分支`codex/vault-archive-size-delivery-20261022`在同根目录的同名工作树维护；仅文字状态对账，不改变上述应用SHA或触发生产部署。开发树与记录树为待发布候选及证据保留，不清理其他任务。
