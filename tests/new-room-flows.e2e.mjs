@@ -30,6 +30,19 @@ try{
  await send(bob,'before-replacement');await alice.getByText('before-replacement',{exact:true}).waitFor();
  const previous=await snapshot(bob),creator=await snapshot(alice);
  await bob.reload();await bob.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);await bob.getByText('before-replacement',{exact:true}).waitFor();
+ // Both endpoints automatically archive the same full-sized attachment. Their
+ // own durable checkpoints must remain usable before device repair and reload.
+ await bob.bringToFront();
+ const [capacityChooser]=await Promise.all([bob.waitForEvent('filechooser'),bob.locator('#file-input').evaluate(input=>input.click())]);
+ await capacityChooser.setFiles({name:'capacity-regression.bin',mimeType:'application/octet-stream',buffer:Buffer.alloc(2*1024*1024+125,90)});
+ for(const page of [alice,bob]){
+  await page.locator('.file-attachment').filter({hasText:'capacity-regression.bin'}).waitFor();
+  await page.waitForFunction(async()=>{
+   const v=await import('/src/lib/vault.ts'),k=await import('/src/lib/browser-room-key.ts');
+   try{const stored=await v.readStoredVault();if(!stored)return false;const s=await v.unlockVault(await k.browserRoomKey(),undefined,stored),file=(await v.loadHistory(s)).find(m=>m.payload.kind==='file'&&m.payload.file.originalName==='capacity-regression.bin');return file&&s.vault.archiveState?.cursor>=file.seq&&!!s.vault.archiveState?.completeAt;}catch{return false;}
+  },{},{timeout:40000});
+ }
+ await bob.reload();await bob.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);await bob.locator('.file-attachment').filter({hasText:'capacity-regression.bin'}).waitFor();
  const stranger=await newPage();await stranger.goto(invite);await stranger.locator('#create-room').waitFor();await stranger.locator('.app-toast').filter({hasText:'失效'}).waitFor();assert.equal(await stranger.locator('#message-input').count(),0);
  // An independently keyed second device of the same person survives replacement.
  await bob.bringToFront();await bob.locator('#chat-settings').click();await bob.locator('#manage-devices').click();await bob.locator('#add-own-device').click();await bob.locator('.app-toast').filter({hasText:'设备链接已复制'}).waitFor();

@@ -46,6 +46,11 @@ const DB_VERSION = 15;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const PLATFORM_PAYLOAD_AAD = encoder.encode('quiet-room-vault-payload-v2');
+const MAX_LEGACY_VAULT_CIPHERTEXT_LENGTH = 2 * 1024 * 1024;
+// A crash-safe archive checkpoint can contain one full 2 MiB attachment chunk,
+// encoded and encrypted again inside the vault (~5 MiB of base64url). Leave
+// bounded room for its manifest, MLS state and other existing vault metadata.
+const MAX_VAULT_PAYLOAD_CIPHERTEXT_LENGTH = 8 * 1024 * 1024;
 
 const SPACE_SELECTION = 'quiet-room:space';
 function savedSpace(): string {
@@ -133,6 +138,7 @@ function putCurrentVault(tx: IDBTransaction, next: StoredVault, expected?: Store
 }
 
 async function installStoredVault(next: StoredVault, expected?: StoredVault, roomProtectionRevision?: string): Promise<void> {
+  if (!validateStoredVault(next)) throw new Error('本机保险库格式不受支持，本次更改未保存');
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const tx = database.transaction(roomProtectionRevision ? ['vault', 'security'] : ['vault'], 'readwrite');
@@ -715,7 +721,7 @@ export async function deleteCachedMediaBlob(session: VaultSession, blobId: strin
   });
 }
 
-function isBoundedBase64(value: unknown, minimum = 16, maximum = 2 * 1024 * 1024): value is string {
+function isBoundedBase64(value: unknown, minimum = 16, maximum = MAX_LEGACY_VAULT_CIPHERTEXT_LENGTH): value is string {
   return typeof value === 'string' && value.length >= minimum && value.length <= maximum && /^[A-Za-z0-9_-]+$/.test(value);
 }
 
@@ -771,7 +777,7 @@ function validatePlatformStoredVault(value: unknown): value is StoredPlatformVau
     isBoundedBase64(stored.wrappedKey?.iv, 16, 128) &&
     isBoundedBase64(stored.wrappedKey?.ciphertext, 48, 256) &&
     isBoundedBase64(stored.payload?.iv, 16, 128) &&
-    isBoundedBase64(stored.payload?.ciphertext)
+    isBoundedBase64(stored.payload?.ciphertext, 16, MAX_VAULT_PAYLOAD_CIPHERTEXT_LENGTH)
   );
 }
 
@@ -782,7 +788,7 @@ function validateRecoveryStoredVault(value: unknown): value is StoredRecoveryVau
     (stored.v === 2 || stored.v === 3) && stored.unlockMethod === 'recovery' &&
     typeof stored.exportedAt === 'string' && Number.isFinite(Date.parse(stored.exportedAt)) &&
     isBoundedBase64(stored.payload?.iv, 16, 128) &&
-    isBoundedBase64(stored.payload?.ciphertext) &&
+    isBoundedBase64(stored.payload?.ciphertext, 16, MAX_VAULT_PAYLOAD_CIPHERTEXT_LENGTH) &&
     isBoundedBase64(stored.recovery?.salt, 20, 128) &&
     isBoundedBase64(stored.recovery?.iv, 16, 128) &&
     isBoundedBase64(stored.recovery?.ciphertext, 48, 256)
@@ -794,7 +800,7 @@ function validateStoredVault(value: unknown): value is StoredVault {
   const password = stored?.v === 3 && stored.unlockMethod === 'password' && validPasswordKdf(stored.kdf) &&
     (stored.passwordFormat === undefined || stored.passwordFormat === 'numeric-6') &&
     isBoundedBase64(stored.wrappedKey?.iv, 16, 16) && isBoundedBase64(stored.wrappedKey?.ciphertext, 64, 64) &&
-    isBoundedBase64(stored.payload?.iv, 16, 16) && isBoundedBase64(stored.payload?.ciphertext);
+    isBoundedBase64(stored.payload?.iv, 16, 16) && isBoundedBase64(stored.payload?.ciphertext, 16, MAX_VAULT_PAYLOAD_CIPHERTEXT_LENGTH);
   return Boolean(password) || validateLegacyStoredVault(value) || validatePlatformStoredVault(value) || validateRecoveryStoredVault(value);
 }
 
@@ -869,12 +875,25 @@ function wrapperAad(platform: PlatformCredentialRecord, version: 2 | 3): Uint8Ar
   return encoder.encode(`quiet-room-master-key-v${version}:${platform.credentialId}`);
 }
 
+function encodeVaultPlaintext(vault: Vault, maximum: number): Uint8Array<ArrayBuffer> {
+  // All vault writers, including atomic MLS/history/outbox commits, pass here
+  // before opening their write transaction. Never commit a payload the reader
+  // would later reject. AES-GCM adds a 16-byte tag; base64url omits padding.
+  const text = JSON.stringify(vault);
+  const maximumBytes = Math.floor(maximum * 3 / 4) - 16;
+  if (text.length > maximumBytes) throw new Error('本机保险库容量超过支持上限，本次更改未保存');
+  const plaintext = encoder.encode(text);
+  if (plaintext.length > maximumBytes) throw new Error('本机保险库容量超过支持上限，本次更改未保存');
+  return plaintext;
+}
+
 async function encryptPayload(vault: Vault, key: CryptoKey): Promise<StoredPlatformVault['payload']> {
+  const plaintext = encodeVaultPlaintext({ ...vault, v: 3 }, MAX_VAULT_PAYLOAD_CIPHERTEXT_LENGTH);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv, additionalData: PLATFORM_PAYLOAD_AAD, tagLength: 128 },
     key,
-    encoder.encode(JSON.stringify({ ...vault, v: 3 })),
+    plaintext,
   );
   return { iv: toBase64Url(iv), ciphertext: toBase64Url(ciphertext) };
 }
@@ -932,11 +951,12 @@ async function encryptLegacyVault(
   kdf: VaultKdf,
   unlockMethod: 'password' | 'gesture',
 ): Promise<LegacyStoredVault> {
+  const plaintext = encodeVaultPlaintext(vault, MAX_LEGACY_VAULT_CIPHERTEXT_LENGTH);
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv, additionalData: encoder.encode('quiet-room-vault-v1'), tagLength: 128 },
     key,
-    encoder.encode(JSON.stringify(vault)),
+    plaintext,
   );
   return { v: 1, unlockMethod, kdf, iv: toBase64Url(iv), ciphertext: toBase64Url(ciphertext) };
 }
