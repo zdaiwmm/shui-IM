@@ -1,12 +1,12 @@
 # Quiet Room 当前状态
 
-## 22项界面修复已合并，生产发布阻塞（2026-10-24）
+## 22项界面修复已发布（2026-10-24 06:43）
 
-- [22项V1](../requirements/2026-10-24-ui-22-refinements/README.md)获用户免原型直接实施、合并及发布授权，并明确不再因重复授权中断。产品[PR #393](https://github.com/zdaiwmm/shui-IM/pull/393)已合并为`1492ec87a2fa8503ee421156a5d21af911e63f62`，候选版本2026.10.23.7；最终源`84037b060215dc668f0b3a3131ce1613b8b70b34`与合并提交完整文件树均为`c92af1c81bbe2803556efc3a3aa0b774319b80cd`。
-- 本机80项浏览器经定向修复、分段续跑逐项通过；最终源另通过完整双端主流程及弱网回归。单元有两类备份测试因本机94%磁盘使用率触发80%安全门槛而阻塞，未放宽门槛；完整单元／集成由CI通过。iPhone/iOS27/Safari真机未验证。
-- [PR完整CI39998487797](https://github.com/zdaiwmm/shui-IM/actions/runs/39998487797) attempt2通过。首轮主流程出现相册返回锚点差异，本机精确源复验通过；通话环境安装耗时8分20秒，20个弱网场景通过后触及整项10分钟时限。仅失败任务重跑一次后全部通过，正常main规则合并。
-- [精确main CI40000861350](https://github.com/zdaiwmm/shui-IM/actions/runs/40000861350)再次在`tests/browser.e2e.mjs:984`报告相册返回前后消息锚点不一致（偏移-16.328125与100.5），不能以PR绿色或本机通过替代。相同历史记录见设置V1.4需求；稳定根因未确认。按有界重试停止继续重跑该类，不绕过verify，不把未通过的main发布。
-- 本轮只读`release.mjs --doctor --environment production`通过，读到生产`c3fa0761fa7b97005e4515568333493759cd7243`／2026.10.23.6；未派发生产切换，因此没有本批DEPLOY_VERIFIED或READBACK_OK。现有生产证据仍以下方已发布记录为准。源工作树及脱敏交付证据保留供接续；不触发发布后清理。
+- 用户确认[22项V1](../requirements/2026-10-24-ui-22-refinements/README.md)免原型直接实施，随后多次明确继续发布、无需重复授权。本批原产品[PR #393](https://github.com/zdaiwmm/shui-IM/pull/393)及必要续修[PR #395](https://github.com/zdaiwmm/shui-IM/pull/395)均已合并，应用固定`c87c3ba65f121bec9c3841c8556b6c1a41aea541`／2026.10.23.7，与最终源0c2028c完整文件树同为`bf3b85cba08993a07ddfa7be1276e90156e8adbc`。
+- 相册返回阻塞已定位为退出动画中迟到回执刷新旧聊天，提前消耗位置恢复意图；确定性用例修复前保存message-38／-7.5px、返回message-1／100.5px，修复后保持原位。只允许活跃且不在退出层内的聊天渲染，模型及加密持久化不变；当前聊天被临时交互遮挡时仍更新。
+- 最终源本机构建与80/80浏览器单次完整通过，0失败／0未运行，1291.18秒。完整单元本机138文件／1064项通过，2文件／11项受磁盘94%触发80%容量门槛阻塞，未降低门槛；独立CI全部140文件／1075项通过。[精确PR CI40031955493](https://github.com/zdaiwmm/shui-IM/actions/runs/40031955493)及[精确main CI40033087998](https://github.com/zdaiwmm/shui-IM/actions/runs/40033087998)均attempt1完整成功。
+- [固定云预检40034094110](https://github.com/zdaiwmm/shui-IM/actions/runs/40034094110)取得PREFLIGHT_OK；唯一[正式发布40034460194](https://github.com/zdaiwmm/shui-IM/actions/runs/40034460194)取得精确DEPLOY_VERIFIED，从c3fa076／2026.10.23.6切换一次。首次独立回读仅备份容器starting，应用healthy、精确SHA／镜像一致、维护门absent；按既有5分钟探针只续做同SHA回读，不重发。
+- 最终独立回读于2026-10-23T22:43:32.048Z取得READBACK_OK，22669ms：应用／备份running且healthy，TURN运行且探针none；精确SHA／实际镜像、HTTPS／数据库／存储、公开及容器产物摘要与新WebSocket一致，维护门absent。公网Service Worker版本2026.10.23.7。完整事实见[本轮发布记录](../../RELEASING.md#release-ui-22-20261024)，脱敏证据保存在公共Git元数据quiet-room-deliveries/evidence/ui-22-release-20261024/；原始失败及诊断限制由需求记录保留。源树仍用于发布／回读并有忽略缓存及专属回执，对账树正在使用，按清理门禁保留，其他任务不处理。iPhone／iOS27／Safari真机及独立安全审阅未验证。
 
 ## 附件紧凑状态与主线组合已发布（2026-10-23 20:44）
 
