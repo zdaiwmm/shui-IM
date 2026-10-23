@@ -389,6 +389,15 @@ try {
   await assertVisibility(5, 1, 'Tap while downloading does not reveal unverified media');
   assert.match(await delayed.locator('.media-load-capsule > .media-capsule-content > .media-load-status').textContent(), /^下载中 · \d+%$/, 'Pending thumbnail did not explain its download state');
   assert.equal(await delayed.getAttribute('aria-busy'), 'true', 'Pending thumbnail was not exposed as busy');
+  const pendingPositions = await delayed.evaluate(button => {
+    const receipt = button.closest('.image-bubble').querySelector(':scope > .message-meta').getBoundingClientRect();
+    const bubble = button.closest('.image-bubble').getBoundingClientRect();
+    const caption = button.querySelector('.media-load-capsule').getBoundingClientRect();
+    return { receiptInset: bubble.bottom - receipt.bottom, captionInset: button.getBoundingClientRect().bottom - caption.bottom,
+      separation: receipt.top - caption.bottom };
+  });
+  assert.ok(Math.abs(pendingPositions.receiptInset - 7) < 1, 'Loading must not move the independent receipt');
+  assert.ok(pendingPositions.separation >= 3, 'Processing and receipt facts must not overlap');
   if (visualQaDirectory) {
     await mkdir(visualQaDirectory, { recursive: true });
     await delayed.screenshot({ path: path.join(visualQaDirectory, `chat-image-loading-${browserName}-390.png`), animations: 'disabled' });
@@ -397,6 +406,14 @@ try {
   await page.evaluate(() => { const gate = window.chatPrivacy.gate; gate.blobId = null; gate.release(); });
   await delayed.locator('img').waitFor();
   const loadedBox = await delayed.boundingBox();
+  const readyPositions = await delayed.evaluate(button => {
+    const bubble = button.closest('.image-bubble').getBoundingClientRect();
+    const receipt = button.closest('.image-bubble').querySelector(':scope > .message-meta').getBoundingClientRect();
+    const hint = button.querySelector('.media-ready-hint').getBoundingClientRect();
+    return { receiptInset: bubble.bottom - receipt.bottom, captionInset: button.getBoundingClientRect().bottom - hint.bottom };
+  });
+  assert.ok(Math.abs(readyPositions.receiptInset - pendingPositions.receiptInset) < 1, 'Ready must preserve the receipt anchor');
+  assert.ok(Math.abs(readyPositions.captionInset - pendingPositions.captionInset) < 1, 'Ready hint keeps the processing anchor');
   assert(pendingBox && loadedBox && Math.abs(pendingBox.width - loadedBox.width) < 1 && Math.abs(pendingBox.height - loadedBox.height) < 1,
     `Known media dimensions shifted the placeholder: ${JSON.stringify({ pendingBox, loadedBox })}`);
   await assertVisibility(5, 0, 'Pull before delayed decryption resolves');
