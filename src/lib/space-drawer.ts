@@ -67,10 +67,22 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
   sheet.addEventListener('click', e => { if (e.target === sheet && !busy) close(); });
   function page(title: string, body: string, footer = '', back?: () => void) {
     pageLifetime.abort(); pageLifetime = new AbortController();
-    if (sheet.querySelector('.space-list')) listScrollTop = sheet.querySelector('.space-drawer-scroll')!.scrollTop;
-    const priorTitle = sheet.getAttribute('aria-label');
-    if (priorTitle === '设置') settingsScrollTop = sheet.querySelector('.space-drawer-scroll')?.scrollTop ?? settingsScrollTop;
     const previousPage = sheet.querySelector<HTMLElement>(':scope > .space-drawer');
+    const previousScrollTop=previousPage?.querySelector('.space-drawer-scroll')?.scrollTop??0;
+    if (previousPage?.querySelector('.space-list')) listScrollTop = previousPage.querySelector('.space-drawer-scroll')!.scrollTop;
+    const priorTitle = sheet.getAttribute('aria-label');
+    if (priorTitle === '设置') settingsScrollTop = previousPage?.querySelector('.space-drawer-scroll')?.scrollTop ?? settingsScrollTop;
+    // Snapshot the old family before changing its ancestor classes. Reparenting
+    // the live panel under the new family resizes/reflows it during the slide.
+    const previousCanvas=previousPage?sheet.cloneNode(true) as HTMLElement:null;
+    if(previousCanvas&&previousPage){
+      previousCanvas.querySelectorAll('.local-page-outgoing').forEach(node=>node.remove());
+      previousCanvas.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;transition:none;';
+      const panel=previousCanvas.querySelector<HTMLElement>(':scope > .space-drawer')!,rect=previousPage.getBoundingClientRect(),owner=sheet.getBoundingClientRect();
+      panel.classList.add('local-page-outgoing');
+      Object.assign(panel.style,{position:'absolute',left:`${rect.left-owner.left}px`,top:`${rect.top-owner.top}px`,right:'auto',bottom:'auto',width:`${rect.width}px`,height:`${rect.height}px`,maxHeight:'none',transform:'none',transition:'none'});
+      panel.querySelector('.space-drawer-scroll')!.scrollTop=previousPage.querySelector('.space-drawer-scroll')!.scrollTop;
+    }
     sheet.setAttribute('aria-label', title);
     sheet.classList.toggle('is-settings-page', title === '设置');
     sheet.classList.toggle('is-space-list-page', title === '切换密室');
@@ -94,7 +106,10 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
     handle?.addEventListener('pointercancel',clearDrag);
 
     bindSpaceAvatarPlayback(sheet, AbortSignal.any([signal, pageLifetime.signal]));
-    if (previousPage && priorTitle !== title && (!settingsSheet || priorTitle === '在线状态样式' || priorTitle === '切换密室')) animatePageReplacement(sheet, previousPage, sheet.querySelector<HTMLElement>(':scope > .space-drawer')!, title === '设置', signal);
+    if (previousCanvas && priorTitle !== title && (!settingsSheet || priorTitle === '在线状态样式' || priorTitle === '切换密室')) {
+      animatePageReplacement(sheet, previousCanvas, panel, title === '设置', signal, true);
+      previousCanvas.querySelector('.space-drawer-scroll')!.scrollTop=previousScrollTop;
+    }
     sheet.querySelector('.space-close')?.addEventListener('click', close);
     sheet.querySelector('.space-back')?.addEventListener('click', () => { back!(); sheet.querySelector<HTMLButtonElement>('.space-back,.space-close')?.focus(); });
   }

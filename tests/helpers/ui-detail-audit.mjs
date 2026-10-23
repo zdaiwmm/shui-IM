@@ -141,7 +141,7 @@ export async function auditUiDetails(page, out) {
           assert.equal(await page.locator('.entry-protection,.entry-support,.recovery-explanation,#new-device-alias').count(),0,'creation uses the confirmed compact protection layout');
           const fields=await page.locator('#new-passkey-name').evaluateAll(es=>es.map(e=>({height:e.getBoundingClientRect().height,font:parseFloat(getComputedStyle(e).fontSize)})));
           if(fields.length) { assert.equal(fields.length,1);assert.ok(fields.every(e=>e.height>=44&&e.font>=16),'passkey name retains readable size and touch target');assert.equal(await page.locator('[data-device-verify]').textContent(),'设置应用锁并创建密室'); }
-          else { assert.equal(await page.locator('[data-device-verify]').textContent(),'设置应用锁并创建密室');assert.match(await page.locator('.gateway-heading').textContent(),/使用密码保护您的空间隐私/); }
+          else { assert.equal(await page.locator('[data-device-verify]').textContent(),'设置应用锁并创建密室');assert.match(await page.locator('.gateway-heading').textContent(),/使用密码保护您的密室隐私/); }
         }
         if(name==='spaceInvite') { assert.equal(await page.locator('.space-invite-sheet').count(),0);assert.ok((await page.locator('#invite-url').inputValue()).includes('#'));assert.equal(await page.locator('#copy-invite').count(),1); }
         if(name==='coverConfirm') {

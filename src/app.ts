@@ -8661,8 +8661,10 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     let outgoing = !reducedMotion && this.root.firstElementChild instanceof HTMLElement
       ? source ?? this.root.querySelector<HTMLElement>(':scope > .space-drawer-overlay:not(.is-closing)') ?? this.root.firstElementChild : null;
     const sourceForeground = outgoing;
+    const leavingSettings=Boolean(outgoing?.matches('.is-settings-page,.desktop-settings-page'));
     if (outgoing && (source || outgoing.classList.contains('space-drawer-overlay'))) {
       const clone = outgoing.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll('.local-page-outgoing').forEach(node=>node.remove());
       clone.removeAttribute('id'); clone.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
       const scroll = clone.querySelector('.space-drawer-scroll');
       if (scroll) scroll.scrollTop = outgoing.querySelector('.space-drawer-scroll')?.scrollTop ?? 0;
@@ -8712,10 +8714,11 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       this.root.append(outgoingFrame);
       const reverse = previousDirection && previousDirection !== direction;
       const width = incoming.getBoundingClientRect().width;
-      const enteringX = reverse && backgroundFrom ? new DOMMatrixReadOnly(backgroundFrom.transform).m41
+      const returningSettings=direction==='backward'&&incoming.matches('.is-settings-page,.desktop-settings-page');
+      const enteringX = returningSettings?0:reverse && backgroundFrom ? new DOMMatrixReadOnly(backgroundFrom.transform).m41
         : direction === 'forward' ? width : -.18 * width;
-      const leavingX = foregroundFrom ? new DOMMatrixReadOnly(foregroundFrom.transform).m41 : 0;
-      const targetX = direction === 'forward' ? -.18 * width : width;
+      const leavingX = leavingSettings?0:foregroundFrom ? new DOMMatrixReadOnly(foregroundFrom.transform).m41 : 0;
+      const targetX = direction === 'forward' ? leavingSettings?0:-.18 * width : width;
       const remaining = Math.max(Math.abs(enteringX), Math.abs(targetX - leavingX));
       const duration = Math.round(Math.min(motion.page, Math.max(140, motion.page * Math.sqrt(remaining / Math.max(1, width)))));
       const entering = travelMotion(incoming, enteringX, 0, reverse ? backgroundVelocity : 0, duration,
