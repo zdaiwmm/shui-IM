@@ -116,6 +116,22 @@ try {
     assert.doesNotMatch(await page.locator('#upload-progress output').innerText(), /\d+%/, 'Hidden composer must not inherit attachment progress');
     assert.equal(await draft.getAttribute('data-upload-state'), 'uploading', 'First in-flight chunk is uploading, not preparing');
     assert.doesNotMatch(await draft.locator('.media-upload-status').innerText(), /\d+%/, 'No fabricated percentage before first completed chunk');
+    if (variant === 'photo') {
+      const snapshot = await draft.evaluate(row => {
+        const f = window.mediaFixture, view = f.app.mediaUploads.get(row.dataset.clientMsgId).view;
+        const status = row.querySelector('.media-upload-status');
+        const before = status.querySelector(':scope > .media-capsule-content').offsetWidth;
+        // A component-only motion probe: unknown -> known text must not stretch
+        // the outgoing snapshot to the incoming label's longer width.
+        view.update('uploading', 1 / 3);
+        const outgoing = status.querySelector(':scope > .media-capsule-retiring > .media-capsule-content').offsetWidth;
+        view.update('uploading');
+        return { before, outgoing, layers: status.querySelectorAll(':scope > .media-capsule-retiring').length,
+          nested: status.querySelectorAll('.media-capsule-retiring .media-capsule-retiring').length };
+      });
+      assert.equal(snapshot.outgoing, snapshot.before, 'Retiring label retains its intrinsic width');
+      assert.equal(snapshot.layers, 1); assert.equal(snapshot.nested, 0);
+    }
     assert.equal(await draft.locator('.message-delivery').count(), 0, 'Upload is not a sent message');
     const width = await draft.locator('img').first().evaluate(image => image.naturalWidth);
     assert.equal(width <= 128, !variant.includes('expression') || variant === 'hidden-expression', 'Only concealed derivatives may be painted for private media');

@@ -1715,7 +1715,7 @@ button:disabled {
   border: 0; border-radius: 12px; background: var(--surface-raised); color: var(--ink);
   font-size: .75rem; line-height: 1.4; font-weight: 400; transform-origin: right center;
 }
-.media-capsule-content { display: flex; align-items: center; justify-content: center; gap: 6px; height: inherit; min-height: inherit; padding: 0 8px; width: max-content; min-width: 100%; white-space: nowrap; transform-origin: inherit; }
+.media-capsule-content { display: flex; align-items: center; justify-content: center; gap: 6px; height: inherit; min-height: inherit; padding: 0 8px; width: max-content; min-width: 0; white-space: nowrap; transform-origin: inherit; }
 .media-capsule-retiring { position: absolute; inset: 0; pointer-events: none; transform-origin: right center; }
 .media-capsule-retiring > * { position: absolute; inset: 0 0 auto auto; }
 .media-upload-copy { display: flex; align-items: center; gap: 4px; }
