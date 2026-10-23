@@ -4,7 +4,7 @@
 
 - 规则／起始基线：`d0a997d4c03d04be3157c976dfe7c53cb32668ce`；本机 main、origin/main、核验时 GitHub main 一致。
 - 本任务新建独占工作树：`/Users/zhouding/ss-worktrees/media-playback-viewer-20261023`；分支 `codex/media-playback-viewer-20261023`。
-- 当前阶段：D 正式实现及候选验证完成，PR #387 已合并；用户确认的原型与流程仍为 V1。主线 CI 与交付记录见末节，生产未授权。
+- 当前阶段：主修复及记录已由PR #387／#389交付；收尾发现的倍速大字溢出在同一V1范围内续修，见末节。生产未授权。
 
 ## 已确认的目标与方案
 
@@ -74,3 +74,9 @@
 - [PR #387](https://github.com/zdaiwmm/shui-IM/pull/387) 按精确head合并为应用 `759f2a40480bd055470ef507fed0d7efb3b05645`／2026.10.23.3。回取核对合并提交包含最终源，完整文件树与上述源相同；未强推、未直接推main、未绕过保护。
 - 主线[精确完整CI39941779517](https://github.com/zdaiwmm/shui-IM/actions/runs/39941779517) attempt1全部成功，`Full application verification`通过；已独立核对head为上述完整应用SHA、无失败job，不能用PR绿色替代此证据。
 - 对账工作树 `codex/media-playback-viewer-delivery-20261023` 基于上述应用SHA，只更新本需求与状态两份文本；不改产品、依赖、版本或生产配置。原实现树及活动V1预览保留，生产发布、实际编码矩阵及iPhone Safari真机未完成。
+
+## 收尾：倍速数值的大字体适配
+
+- 同一已授权V1范围的视觉复核发现，旧圆形按钮在32px根字体时，1.5×为26px文字，内容宽57px超过按钮内容宽42px。正式组件在Codex浏览器复现；将既有视频几何用例保留在1.5×后，未修复CSS准确失败，不能记为回归通过。
+- 倍速控件沿用原色、字体及44px最小热区，只增加左右8px内距、自然宽度和圆端形状，1×仍保持圆形。实际1.5×文字完整显示，内容／滚动宽均73px；更新后的完整video-flow专项首次修复验证通过，包括聊天／Safe、320px、横屏、200%文字、解码、键盘、缓存、原件及隐私清理，已目检正式截图。此为已确认设计的文字容纳修正，不改变业务流程、动作或视觉方向，不重做确认。
+- 独占原任务目录转入`codex/media-rate-accessibility-20261023`，基于文档main `8a8c458ae886346a201f7a41ef5186591e0fe485`；临时组件入口已清理，截图在仓库外`rate-200-before.png`／`rate-200-after.png`。本次候选版本2026.10.23.4；正式冻结及精确CI结果由续修PR拥有，不以第一批绿色替代。
