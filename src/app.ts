@@ -5834,7 +5834,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       for (const message of page) this.serverQueue.set(message.seq, message);
       const before = session.vault.lastSeq;
       await withVaultMutation(session, async mutation => { if(this.isRuntimeActive(epoch,session))await this.drainServerQueueLocked(false, mutation, state.nextSeq); });
-      if (session.vault.lastSeq <= before) throw new Error('当前消息尚未同步完成，暂不能更新密钥');
+      // Incoming delivery may have caught up while the HTTP request was pending.
+      if (session.vault.lastSeq <= before && session.vault.lastSeq < state.nextSeq) throw new Error('当前消息尚未同步完成，暂不能更新密钥');
     }
     const pending = await withVaultMutation(session, async mutation => {
       if (!this.isRuntimeActive(epoch, session) || !session.vault.mls) return;
