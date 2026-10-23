@@ -24,6 +24,7 @@ export class MediaUploadView {
   private readonly tile = document.createElement('div');
   private readonly kind: string;
   private readonly actions = document.createElement('div');
+  private uploadState?: UploadState;
 
   constructor(id: string, files: File[], expression: boolean, autoHide: boolean,
     retry: () => void, remove: () => void, changed: () => void, gif = false) {
@@ -84,11 +85,11 @@ export class MediaUploadView {
     } else this.tile.append(previews, this.status);
     this.element.append(this.tile, this.actions);
     this.element.tabIndex = 0;
-    const showActions = () => { if (this.element.dataset.uploadState === 'failed') { this.actions.hidden = false; this.cancel.focus({preventScroll:true}); } };
-    this.element.addEventListener('contextmenu', event => { if (this.element.dataset.uploadState === 'failed') { event.preventDefault(); showActions(); } });
+    const showActions = () => { if (this.uploadState === 'failed') { this.actions.hidden = false; this.cancel.focus({preventScroll:true}); } };
+    this.element.addEventListener('contextmenu', event => { if (this.uploadState === 'failed') { event.preventDefault(); showActions(); } });
     this.element.addEventListener('keydown', event => { if (event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey) { event.preventDefault(); showActions(); } if (event.key === 'Escape') this.actions.hidden = true; });
     let hold: ReturnType<typeof setTimeout> | undefined;
-    this.tile.addEventListener('pointerdown', event => { if (!(event.target instanceof Element && event.target.closest('button')) && event.isPrimary && event.button === 0 && this.element.dataset.uploadState === 'failed') hold = setTimeout(showActions,500); },{signal:this.abort.signal});
+    this.tile.addEventListener('pointerdown', event => { if (!(event.target instanceof Element && event.target.closest('button')) && event.isPrimary && event.button === 0 && this.uploadState === 'failed') hold = setTimeout(showActions,500); },{signal:this.abort.signal});
     for(const event of ['pointerup','pointercancel','pointermove'])this.tile.addEventListener(event,()=>clearTimeout(hold),{signal:this.abort.signal});
     this.abort.signal.addEventListener('abort',()=>clearTimeout(hold),{once:true});
     this.update('preparing');
@@ -127,7 +128,11 @@ export class MediaUploadView {
     if (this.abort.signal.aborted) return;
     const hasPercent = state === 'uploading' && ratio !== undefined;
     const contentChanged = this.element.dataset.uploadState !== state || this.percent.hidden === hasPercent;
-    if (state === 'failed' && this.element.dataset.uploadState !== 'failed') this.element.dataset.failureStage = this.element.dataset.uploadState === 'finishing' ? 'message' : 'upload';
+    // Display may still be completing an earlier transition. Retry semantics
+    // must follow the actual operation, including states coalesced before paint.
+    if (state === 'failed' && this.uploadState !== 'failed') this.element.dataset.failureStage = this.uploadState === 'finishing' ? 'message' : 'upload';
+    this.uploadState = state;
+    this.retry.disabled = state !== 'failed';
     if (state !== 'failed') this.actions.hidden = true;
     transitionMediaCapsule(this.status, () => {
     this.element.dataset.uploadState = state;
@@ -143,10 +148,10 @@ export class MediaUploadView {
     if (state === 'uploading' && ratio !== undefined) this.ring.setAttribute('aria-valuenow', String(value));
     else this.ring.removeAttribute('aria-valuenow');
     this.retry.hidden = this.cancel.hidden = state !== 'failed';
-    this.retry.disabled = state !== 'failed';
+    this.retry.disabled = this.uploadState !== 'failed';
     }, contentChanged, this.abort.signal);
     this.element.setAttribute('aria-busy', String(state !== 'failed'));
-    this.element.setAttribute('aria-label', state === 'failed' ? `${this.kind}${this.label.textContent}，可重试或打开操作菜单移除未发送媒体` : `正在发送${this.kind}`);
+    this.element.setAttribute('aria-label', state === 'failed' ? `${this.kind}${this.element.dataset.failureStage === 'message' ? '发送失败' : '上传失败'}，可重试或打开操作菜单移除未发送媒体` : `正在发送${this.kind}`);
   }
 
   private url(blob: Blob): string {

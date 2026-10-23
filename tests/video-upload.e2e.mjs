@@ -94,6 +94,7 @@ try {
   assert.equal(await page.evaluate(() => document.querySelector('.video-upload') === window.uploadFixture.row), true);
   await page.evaluate(() => { const gate = window.uploadFixture.gate; gate.release(); gate.release = null; });
   await page.waitForFunction(() => window.uploadFixture.gate.requests === 2 && window.uploadFixture.gate.release);
+  await draft.locator('.media-upload-status > .media-capsule-content').filter({hasText:/33%[\s\S]*上传中/}).waitFor();
   assert.match(await draft.innerText(), /33%[\s\S]*上传中/);
   await page.waitForFunction(() => {
     const rect = document.querySelector('.video-upload').getBoundingClientRect();
@@ -146,6 +147,8 @@ try {
   await retryPreview.scrollIntoViewIfNeeded();
   await retryPreview.click();
   await page.waitForFunction(() => window.uploadFixture.gate.downloadRelease);
+  await retryPreview.locator('.media-load-capsule > .media-capsule-content > .media-load-progress').waitFor();
+  await retryPreview.locator('.is-error').waitFor({state:'detached'});
   assert.equal(await retryPreview.locator('.media-load-capsule > .media-capsule-content > .media-load-progress').count(), 1);
   assert.equal(await retryPreview.locator('.is-error').count(), 0);
   await page.evaluate(() => { const g = window.uploadFixture.gate; g.holdDownload = false; g.downloadRelease(); });

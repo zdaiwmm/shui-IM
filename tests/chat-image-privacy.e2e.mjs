@@ -387,6 +387,7 @@ try {
   });
   await delayed.click();
   await assertVisibility(5, 1, 'Tap while downloading does not reveal unverified media');
+  await delayed.locator('.media-load-capsule > .media-capsule-content > .media-load-status').filter({hasText:/^下载中 · \d+%$/}).waitFor();
   assert.match(await delayed.locator('.media-load-capsule > .media-capsule-content > .media-load-status').textContent(), /^下载中 · \d+%$/, 'Pending thumbnail did not explain its download state');
   assert.equal(await delayed.getAttribute('aria-busy'), 'true', 'Pending thumbnail was not exposed as busy');
   const pendingPositions = await delayed.evaluate(button => {
