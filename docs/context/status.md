@@ -1,9 +1,11 @@
 # Quiet Room 当前状态
 
-## 媒体播放与查看器 V1 实施候选（2026-10-23）
+## 媒体播放与查看器 V1 已合并，未发布（2026-10-23）
 
 - 用户已确认[媒体V1原型与流程](../requirements/2026-10-23-media-playback-viewer/README.md)，授权正式实施、完整回归及固定D交付；独占任务`codex/media-playback-viewer-20261023`，基线`d0a997d4c03d04be3157c976dfe7c53cb32668ce`。修复JPEG预览条目未升级为视频来源，保留封面／遮蔽与原件；控件分区、错误状态、数值倍速、键盘及图片高对比样式按V1实现。
-- 未修复源码负例已准确失败；正式开发专项及最终完整门禁、PR／CI的证据由需求记录拥有。必要整合已合入main的语音PR #385，媒体候选版本2026.10.23.3；初代本地78/78及完整CI通过，最终组合另验，证据见需求记录。生产未授权、未发布，iPhone Safari真机未接入。下方生产事实保持其原应用SHA。
+- [PR #387](https://github.com/zdaiwmm/shui-IM/pull/387)按最终源`5d3d31a8ba0bcd3e3e0a77f9e81b91075dce772c`合并为应用`759f2a40480bd055470ef507fed0d7efb3b05645`／2026.10.23.3，完整文件树相同。已整合先行进入main的语音PR #385，原型仍V1、规范V1.25；未纳入尚未合并的设置PR #386。
+- 初代真实缓存负例准确失败，初代本地78/78通过；最终干净组合构建／类型、140文件／1073项及6项媒体／语音／隐私／完整双端浏览器全部通过。[最终PR完整CI39940501341](https://github.com/zdaiwmm/shui-IM/actions/runs/39940501341) attempt1全绿、Full application verification通过（79个浏览器入口及全量门禁）。初代清理测试超时与旧恢复面板CI超时、各一次定向复验的历史保留于需求记录。
+- [精确main完整CI39941779517](https://github.com/zdaiwmm/shui-IM/actions/runs/39941779517) attempt1全绿、Full application verification通过，已独立核对完整应用SHA。独立文档树仅对账；生产未授权、未发布，iPhone Safari真机及实际编码矩阵未验证。原实现树有活动V1预览，保留待后续验收／发布；下方生产事实保持其原应用SHA。
 
 ## 系统审计四项修复已发布（2026-10-23 09:42）
 
