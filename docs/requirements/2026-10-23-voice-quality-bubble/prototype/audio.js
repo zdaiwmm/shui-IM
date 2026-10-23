@@ -43,7 +43,7 @@ async function trial(name,{synthetic=true,bitrate=64000,echoOff=false,duration=1
 }
 export async function runQualitySuite({synthetic=true,preferOpus=false,echoOff=false}={}){
  if(running)throw new Error('已有对照运行中');running=true;cancelled=false;cleanupPlayback();delete window.__qualityReport;$('#results').replaceChildren();$('#run-synthetic').disabled=true;$('#capture-real').disabled=true;$('#stop-capture').disabled=false;
- const report={baseline:'d0a997d4c03d04be3157c976dfe7c53cb32668ce',codecExperiment:preferOpus?'force internal WebM/Opus; product recorder unchanged':'baseline codec selection',scope:synthetic?'synthetic-stream; no physical microphone or iPhone audio session':'physical microphone; local memory only',ua:navigator.userAgent,trials:[],limits:['无iPhone真机证据','合成流不触发真实getUserMedia系统音频会话','指标不能代替主观语音清晰度及真机路由验证']};
+ const report={baseline:'d0a997d4c03d04be3157c976dfe7c53cb32668ce',codecExperiment:preferOpus?'force internal WebM/Opus; product recorder unchanged':'baseline codec selection',scope:synthetic?'synthetic-stream; no physical microphone or iPhone audio session':'physical microphone; local memory only',ua:navigator.userAgent,trials:[],limits:synthetic?['合成流不触发真实getUserMedia系统音频会话','不能由合成流推断物理录放音质','指标不能代替主观语音清晰度及真机路由验证']:['仅覆盖当前设备本轮短录音','不覆盖间歇性问题、长录音或真实聊天发送路径','指标须与用户试听及设备核验结合']};
  try{
   const variants=synthetic?[['现状 64k',{}],['采集 128k',{bitrate:128000}]]:[['本机麦克风',{duration:4000}]];
   for(const [name,options]of variants){$('#lab-status').textContent=`正在对照：${name}…`;report.trials.push(await trial(name,{synthetic,echoOff,...options,...(preferOpus?{mimeOverride:'audio/webm;codecs=opus'}:{})}));if(cancelled)throw new DOMException('已取消','AbortError');}
