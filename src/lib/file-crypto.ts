@@ -46,6 +46,7 @@ async function encryptAttachmentFile(
     upload: (blobId: string, index: number, bytes: ArrayBuffer) => Promise<void>;
     complete: (blobId: string) => Promise<void>;
     savePlan: (plan: ImageUploadPlan) => Promise<void>;
+    started?: () => void;
     progress?: (ratio: number) => void;
     signal?: AbortSignal;
     includeDimensions?: boolean;
@@ -116,6 +117,7 @@ async function encryptAttachmentFile(
   if (ivPrefix.length !== 8) throw new Error(`${fileLabel}续传参数已损坏`);
   await callbacks.savePlan(plan);
   callbacks.signal?.throwIfAborted();
+  callbacks.started?.();
   await callbacks.reserve(plan.blobId, chunkCount, plan.encryptedSize);
   callbacks.signal?.throwIfAborted();
   const remote = await callbacks.status(plan.blobId);

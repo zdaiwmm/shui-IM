@@ -13,20 +13,35 @@ try {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__upload`);
   await page.evaluate(async () => {
-    for (const style of ['styles', 'chat-layout', 'chat-interactions', 'cover', 'gallery']) await import(`/src/${style}.css`);
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const { QuietRoomApp } = await import('/src/app.ts');
     const { createVault, loadOutbox } = await import('/src/lib/vault.ts');
     const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180;
     const ctx = canvas.getContext('2d'); ctx.fillStyle = '#668eac'; ctx.fillRect(0, 0, 320, 180);
     ctx.fillStyle = '#c9b281'; ctx.fillRect(25, 25, 100, 90);
     const stream = canvas.captureStream(10);
-    const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+    const mimeType = ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm'].find(type => MediaRecorder.isTypeSupported(type));
+    if (!mimeType) throw Error('This browser cannot generate the video regression fixture');
+    const recorder = new MediaRecorder(stream, { mimeType });
     const parts = [];
     const done = new Promise(resolve => { recorder.ondataavailable = e => parts.push(e.data); recorder.onstop = resolve; });
-    recorder.start(); await new Promise(resolve => setTimeout(resolve, 300)); recorder.stop(); await done;
+    recorder.start();
+    // Reuse video-flow's bounded continuous-frame fixture, rather than relying
+    // on a single static frame or the recorder's unspecified default codec.
+    for (let frame = 0; frame < 30; frame++) {
+      ctx.fillStyle = '#668eac'; ctx.fillRect(0, 0, 320, 180);
+      ctx.fillStyle = '#c9b281'; ctx.fillRect(25 + frame, 25, 100, 90);
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    recorder.stop(); await done;
     stream.getTracks().forEach(track => track.stop());
     // Padding gives three real encrypted chunks while retaining a decodable first frame.
     const file = new File([...parts, new Uint8Array(4 * 1024 * 1024)], '拍摄视频.webm', { type: 'video/webm', lastModified: 1 });
+    const fixtureUrl = URL.createObjectURL(file);
+    try {
+      const poster = await (await import('/src/lib/video-poster.ts')).createVideoPoster(fixtureUrl);
+      if (poster.width !== 320 || poster.height !== 180) throw Error('Video fixture has no expected decodable frame');
+    } finally { URL.revokeObjectURL(fixtureUrl); }
     const app = new QuietRoomApp(document.querySelector('#app'));
     const own = { deviceId: crypto.randomUUID(), role: 'creator', status: 'active', capabilities: ['file-message-v1'] };
     const peer = { ...own, deviceId: crypto.randomUUID(), role: 'joiner' };
@@ -38,7 +53,7 @@ try {
     app.retryOperation = operation => operation(); // One failed request per explicit test retry.
     Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
     const chunks = new Map();
-    const gate = { release: null, requests: 0, fail: false, hold: true, completed: false };
+    const gate = { release: null, requests: 0, fail: false, hold: true, completed: false, failDownload: false, holdDownload: false, downloadRelease: null };
     const realFetch = window.fetch.bind(window);
     window.fetch = async (input, init = {}) => {
       const url = new URL(typeof input === 'string' ? input : input.url, location.href);
@@ -51,6 +66,11 @@ try {
         if (gate.fail) throw Error('Synthetic upload failure');
         chunks.set(Number(match[2]), new Uint8Array(init.body));
         return Response.json({ ok: true });
+      }
+      if (match) {
+        if (gate.failDownload) throw Error('Synthetic video download failure');
+        if (gate.holdDownload) await new Promise(resolve => { gate.downloadRelease = resolve; });
+        return new Response(chunks.get(Number(match[2])));
       }
       if (url.pathname.endsWith('/complete')) { gate.completed = true; return Response.json({ ok: true }); }
       return Response.json({ uploadedIndexes: [...chunks.keys()], completed: gate.completed });
@@ -109,6 +129,30 @@ try {
   assert.ok(Math.abs(loadedBox.width - liftedBox.width) < 1 && Math.abs(loadedBox.height - liftedBox.height) < 1, 'Long press keeps the full video height');
   assert.equal(await lifted.evaluate(node => { const s = getComputedStyle(node); return new Set([s.borderTopLeftRadius, s.borderTopRightRadius, s.borderBottomLeftRadius, s.borderBottomRightRadius]).size; }), 1);
   await page.evaluate(() => window.uploadFixture.app.closeMessageActions(false, false));
+  // Retry restores feedback after the failure removed the original ring.
+  await page.evaluate(async id => {
+    const f = window.uploadFixture, manifest = f.app.pending.get(id).payload.file;
+    const cached = f.app.imageCache.get(manifest.blobId);
+    for (const key of ['url','posterUrl','concealedUrl']) if (cached[key]) URL.revokeObjectURL(cached[key]);
+    // A cold receiver has neither the sender's URL nor its encrypted poster.
+    await (await import('/src/lib/vault.ts')).deleteCachedMediaBlob(f.session, manifest.blobId);
+    f.app.imageCache.delete(manifest.blobId); f.app.renderedMessages.delete(id);
+    f.gate.failDownload = true; f.app.renderMessages();
+    void f.app.hydrateImagePreview(document.querySelector(`[data-client-msg-id="${id}"] .image-preview`), manifest);
+  }, id);
+  const retryPreview = message.locator('.image-preview');
+  await page.waitForFunction(id => document.querySelector(`[data-client-msg-id="${id}"] .image-preview`)?.dataset.imageState === 'error', id);
+  await page.evaluate(() => { const g = window.uploadFixture.gate; g.failDownload = false; g.holdDownload = true; });
+  await retryPreview.scrollIntoViewIfNeeded();
+  await retryPreview.click();
+  await page.waitForFunction(() => window.uploadFixture.gate.downloadRelease);
+  assert.equal(await retryPreview.locator('.media-load-capsule > .media-capsule-content > .media-load-progress').count(), 1);
+  assert.equal(await retryPreview.locator('.is-error').count(), 0);
+  await page.evaluate(() => { const g = window.uploadFixture.gate; g.holdDownload = false; g.downloadRelease(); });
+  await page.waitForFunction(id => document.querySelector(`[data-client-msg-id="${id}"] .image-preview`)?.dataset.imageState === 'loaded', id);
+  assert.equal(await retryPreview.getAttribute('aria-busy'), 'false');
+  assert.equal(await retryPreview.getAttribute('data-revealed'), 'false');
+  assert.equal(await retryPreview.locator('.media-ready-hint').textContent(), '轻点显示');
   // A second upload must disappear immediately on lock, with no late resurrection.
   await page.evaluate(() => { const f = window.uploadFixture; f.chunks.clear(); f.gate.completed = false; f.gate.hold = true; f.gate.release = null; f.start(); });
   await page.waitForFunction(() => window.uploadFixture.gate.release);

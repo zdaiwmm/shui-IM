@@ -519,7 +519,7 @@ export class QuietRoomApp {
   private messages = new Map<number, DecryptedMessage>();
   private messageEventHistory = new Map<number, DecryptedMessage>();
   private readCompatibility = '';
-  private mediaUploads = new Map<string, { view: MediaUploadView; files: File[]; expression: boolean; autoHide: boolean; expressionKind?: 'gifs' | 'stickers'; reply: DecryptedMessage | null; sentAt: string; busy: boolean }>();
+  private mediaUploads = new Map<string, { view: MediaUploadView; files: File[]; expression: boolean; autoHide: boolean; expressionKind?: 'gifs' | 'stickers'; reply: DecryptedMessage | null; sentAt: string; busy: boolean; prepared?: { payload: MessagePayload; manifests: ImageManifest[] } }>();
   private selectedMessageId: string | null = null;
   private privacyCurtain: HTMLElement;
   private unreadCounter: UnreadCounter;
@@ -5438,6 +5438,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
           this.callController?.setConnection(state === 'connected');
           if (state !== 'connected') this.rolePresence = null;
           this.updateConnectionStatus();
+          if ([...this.pending.values()].some(message => message.status === 'pending'
+            && (isChatMedia(message) || message.payload.kind === 'file'))) this.renderMessages({ scroll: 'preserve' });
         },
         presence: (roles, lastSeen) => {
           if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
@@ -10329,7 +10331,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       this.showNotice('不能发送空文件', 'error');
       return false;
     }
-    const inlineMedia = destination === 'chat' && (!isFile || isVideoFile({ mimeType: files[0]!.type, originalName: files[0]!.name }));
+    const inlineMedia = destination === 'chat';
     if (!mediaRetryId && inlineMedia
       && (this.mediaUploads.size >= 3 || [...this.mediaUploads.values()].reduce((size, draft) => size + draft.files.reduce((sum, file) => sum + file.size, 0), files.reduce((sum, file) => sum + file.size, 0)) > MAX_IMAGE_BYTES)) {
       this.showNotice('请先重试或移除列表中未发送的媒体，最多保留 3 条、共 256 MiB', 'error');
@@ -10348,6 +10350,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       control.disabled = true;
     });
     if (progress) progress.hidden = inlineMedia;
+    // A shared track belongs only to this attempt; inline drafts own their UI.
+    if (output) output.textContent = '正在准备附件…';
+    if (bar) bar.style.transform = 'scaleX(0)';
     const existingMedia = mediaRetryId ? this.mediaUploads.get(mediaRetryId) : undefined;
     const replyTarget = existingMedia ? existingMedia.reply : destination === 'chat' ? this.replyTarget : null;
     const requestedKind = existingMedia ? existingMedia.expressionKind : expressionKind;
@@ -10380,12 +10385,13 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         this.mediaUploads.set(clientMsgId, mediaUpload);
       }
       mediaUpload.busy = true;
-      mediaUpload.view.update('preparing');
+      mediaUpload.view.update(mediaUpload.prepared ? 'finishing' : 'preparing');
       if (progress) progress.hidden = true; // Each media bubble owns its progress.
     }
     const totalBytes = files.reduce((sum, file) => sum + Math.max(file.size, 1), 0);
     let completedBytes = 0;
-    const manifests: ImageManifest[] = [];
+    const manifests: ImageManifest[] = mediaUpload?.prepared?.manifests ?? [];
+    let payload = mediaUpload?.prepared?.payload;
     const usedUploadPlanIds = new Set<string>();
     const encryptFile = isFile ? encryptFileAttachment : encryptImageFile;
     try {
@@ -10410,86 +10416,94 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         this.renderMessages({ scroll: followMediaSend ? 'send' : 'preserve' });
       }
       const vault = session.vault;
-      for (const [index, file] of files.entries()) {
-        const matchingPlans = this.uploadPlans.filter((plan) =>
-          plan.originalSize === file.size &&
-          plan.originalName === file.name &&
-          plan.mimeType === file.type &&
-          plan.lastModified === file.lastModified,
-        );
-        for (const legacy of matchingPlans.filter((plan) => plan.v === 1)) {
-          await deleteUploadPlan(session, legacy.blobId);
-          if (!this.isRuntimeActive(epoch, session)) return false;
-          this.uploadPlans = this.uploadPlans.filter((plan) => plan.blobId !== legacy.blobId);
-        }
-        const uploadCallbacks: Parameters<typeof encryptImageFile>[1] = {
-          includeDimensions: this.activeDevicesSupport('media-dimensions-v1'),
-          reserve: (blobId, chunkCount, encryptedSize) => this.retryOperation(
-            () => reserveBlob(vault.roomId, vault.accessToken, blobId, chunkCount, encryptedSize, signal), 3, signal),
-          status: (blobId) => this.retryOperation(
-            () => getBlobStatus(vault.roomId, vault.accessToken, blobId, signal), 3, signal),
-          upload: (blobId, chunkIndex, bytes) => this.retryOperation(
-            () => uploadBlobChunk(vault.roomId, vault.accessToken, blobId, chunkIndex, bytes, signal),
-            3,
-            signal,
-          ),
-          complete: (blobId) => this.retryOperation(
-            () => completeBlob(vault.roomId, vault.accessToken, blobId, signal), 3, signal),
-          savePlan: async (plan) => {
-            await saveUploadPlan(session, plan);
-            if (!this.isRuntimeActive(epoch, session)) return;
-            const planIndex = this.uploadPlans.findIndex((item) => item.blobId === plan.blobId);
-            if (planIndex >= 0) this.uploadPlans[planIndex] = plan;
-            else this.uploadPlans.push(plan);
-          },
-          progress: (ratio) => {
-            if (!this.isRuntimeActive(epoch, session)) return;
-            const overall = (completedBytes + Math.max(file.size, 1) * ratio) / totalBytes;
-            mediaUpload?.view.update('uploading', overall);
-            if (bar) bar.style.transform = `scaleX(${overall})`;
-            if (output) output.textContent = files.length > 1
-              ? `正在处理第 ${index + 1}/${files.length} 张 · ${Math.round(overall * 100)}%`
-              : `正在加密上传${isFile ? '文件' : '原图'} ${Math.round(overall * 100)}%`;
-          },
-          signal,
-        };
-        let manifest: ImageManifest | undefined;
-        const resumablePlans = matchingPlans.filter((plan) => plan.v === 2 && !usedUploadPlanIds.has(plan.blobId));
-        for (const existingPlan of resumablePlans) {
-          try {
-            manifest = await encryptFile(file, uploadCallbacks, existingPlan);
-            break;
-          } catch (cause) {
-            if (!(cause instanceof Error) || !['所选图片内容与待续传文件不一致', '所选文件内容与待续传文件不一致'].includes(cause.message)) throw cause;
+      if (!payload) {
+        for (const [index, file] of files.entries()) {
+          const matchingPlans = this.uploadPlans.filter((plan) =>
+            plan.originalSize === file.size &&
+            plan.originalName === file.name &&
+            plan.mimeType === file.type &&
+            plan.lastModified === file.lastModified,
+          );
+          for (const legacy of matchingPlans.filter((plan) => plan.v === 1)) {
+            await deleteUploadPlan(session, legacy.blobId);
+            if (!this.isRuntimeActive(epoch, session)) return false;
+            this.uploadPlans = this.uploadPlans.filter((plan) => plan.blobId !== legacy.blobId);
           }
+          const uploadCallbacks: Parameters<typeof encryptImageFile>[1] = {
+            includeDimensions: this.activeDevicesSupport('media-dimensions-v1'),
+            started: () => {
+              if (!this.isRuntimeActive(epoch, session)) return;
+              mediaUpload?.view.update('uploading', completedBytes > 0 ? completedBytes / totalBytes : undefined);
+              if (!mediaUpload && output) output.textContent = '上传中';
+            },
+            reserve: (blobId, chunkCount, encryptedSize) => this.retryOperation(
+              () => reserveBlob(vault.roomId, vault.accessToken, blobId, chunkCount, encryptedSize, signal), 3, signal),
+            status: (blobId) => this.retryOperation(
+              () => getBlobStatus(vault.roomId, vault.accessToken, blobId, signal), 3, signal),
+            upload: (blobId, chunkIndex, bytes) => this.retryOperation(
+              () => uploadBlobChunk(vault.roomId, vault.accessToken, blobId, chunkIndex, bytes, signal),
+              3,
+              signal,
+            ),
+            complete: (blobId) => this.retryOperation(
+              () => completeBlob(vault.roomId, vault.accessToken, blobId, signal), 3, signal),
+            savePlan: async (plan) => {
+              await saveUploadPlan(session, plan);
+              if (!this.isRuntimeActive(epoch, session)) return;
+              const planIndex = this.uploadPlans.findIndex((item) => item.blobId === plan.blobId);
+              if (planIndex >= 0) this.uploadPlans[planIndex] = plan;
+              else this.uploadPlans.push(plan);
+            },
+            progress: (ratio) => {
+              if (!this.isRuntimeActive(epoch, session)) return;
+              const overall = (completedBytes + Math.max(file.size, 1) * ratio) / totalBytes;
+              mediaUpload?.view.update('uploading', overall);
+              if (!mediaUpload && bar) bar.style.transform = `scaleX(${overall})`;
+              if (!mediaUpload && output) output.textContent = files.length > 1
+                ? `正在处理第 ${index + 1}/${files.length} 张 · ${Math.round(overall * 100)}%`
+                : `正在加密上传${isFile ? '文件' : '原图'} ${Math.round(overall * 100)}%`;
+            },
+            signal,
+          };
+          let manifest: ImageManifest | undefined;
+          const resumablePlans = matchingPlans.filter((plan) => plan.v === 2 && !usedUploadPlanIds.has(plan.blobId));
+          for (const existingPlan of resumablePlans) {
+            try {
+              manifest = await encryptFile(file, uploadCallbacks, existingPlan);
+              break;
+            } catch (cause) {
+              if (!(cause instanceof Error) || !['所选图片内容与待续传文件不一致', '所选文件内容与待续传文件不一致'].includes(cause.message)) throw cause;
+            }
+          }
+          manifest ??= await encryptFile(file, uploadCallbacks);
+          if (!this.isRuntimeActive(epoch, session)) return false;
+          manifests.push(manifest);
+          usedUploadPlanIds.add(manifest.blobId);
+          if (!isFile || isVideoFile(manifest)) this.cacheLocalImage(manifest, file);
+          completedBytes += Math.max(file.size, 1);
         }
-        manifest ??= await encryptFile(file, uploadCallbacks);
-        if (!this.isRuntimeActive(epoch, session)) return false;
-        manifests.push(manifest);
-        usedUploadPlanIds.add(manifest.blobId);
-        if (!isFile || isVideoFile(manifest)) this.cacheLocalImage(manifest, file);
-        completedBytes += Math.max(file.size, 1);
-      }
-      const sentAt = mediaUpload?.sentAt ?? new Date().toISOString();
-      const payload: MessagePayload = isFile
-        ? destination === 'gallery'
-          ? { v: 1, kind: 'gallery-file', file: manifests[0]!, sentAt }
-          : replyTarget
-            ? { v: 2, kind: 'file', file: manifests[0]!, sentAt, replyTo: this.replyReference(replyTarget) }
-            : { v: 1, kind: 'file', file: manifests[0]!, sentAt }
-        : destination === 'gallery'
-          ? { v: 1, kind: 'gallery-image', image: manifests[0]!, sentAt }
-          : manifests.length > 1
-            ? replyTarget
-              ? { v: 2, kind: 'image-album', images: manifests, sentAt, replyTo: this.replyReference(replyTarget) }
-              : { v: 1, kind: 'image-album', images: manifests, sentAt }
+        const sentAt = mediaUpload?.sentAt ?? new Date().toISOString();
+        payload = isFile
+          ? destination === 'gallery'
+            ? { v: 1, kind: 'gallery-file', file: manifests[0]!, sentAt }
             : replyTarget
-              ? { v: 2, kind: 'image', image: manifests[0]!, sentAt, replyTo: this.replyReference(replyTarget) }
-              : { v: 1, kind: 'image', image: manifests[0]!, sentAt };
-      if (expression && payload.kind === 'image') {
-        payload.presentation = expressionAutoHide ? 'expression-hidden' : 'expression';
-        payload.expressionAutoHide = Boolean(expressionAutoHide);
-        if (expressionKind) payload.expressionKind = expressionKind;
+              ? { v: 2, kind: 'file', file: manifests[0]!, sentAt, replyTo: this.replyReference(replyTarget) }
+              : { v: 1, kind: 'file', file: manifests[0]!, sentAt }
+          : destination === 'gallery'
+            ? { v: 1, kind: 'gallery-image', image: manifests[0]!, sentAt }
+            : manifests.length > 1
+              ? replyTarget
+                ? { v: 2, kind: 'image-album', images: manifests, sentAt, replyTo: this.replyReference(replyTarget) }
+                : { v: 1, kind: 'image-album', images: manifests, sentAt }
+              : replyTarget
+                ? { v: 2, kind: 'image', image: manifests[0]!, sentAt, replyTo: this.replyReference(replyTarget) }
+                : { v: 1, kind: 'image', image: manifests[0]!, sentAt };
+        if (expression && payload.kind === 'image') {
+          payload.presentation = expressionAutoHide ? 'expression-hidden' : 'expression';
+          payload.expressionAutoHide = Boolean(expressionAutoHide);
+          if (expressionKind) payload.expressionKind = expressionKind;
+        }
+        if (mediaUpload) mediaUpload.prepared = { payload, manifests: [...manifests] };
       }
       signal?.throwIfAborted();
       mediaUpload?.view.update('finishing');
@@ -10530,6 +10544,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       });
       if (progress) progress.hidden = true;
       if (bar) bar.style.transform = 'scaleX(0)';
+      if (output) output.textContent = '';
     }
   }
 
@@ -11696,19 +11711,19 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         const keepContent = Boolean(cached && (selecting || samePayload));
         const element = keepContent ? cached!.element : this.createMessageElement(message, deletedForEveryone);
         if (!keepContent && this.runtimeAbort) this.mediaUploads.get(key)?.view.handoff(element, this.runtimeAbort.signal);
-        if (keepContent && !unchanged) {
+        if (keepContent && (!unchanged || message.status === 'pending' && (isChatMedia(message) || message.payload.kind === 'file'))) {
           // A delivery receipt updates decoration only. Preserve decoded media,
           // in-flight downloads, playback, focus and any send-motion layer.
           const meta = element.querySelector<HTMLElement>('.message-meta');
           const updated = this.createMessageMeta(message);
           if (meta) {
             const liveContent = meta.querySelector(':scope > .media-capsule-content') ?? meta;
-            if (meta.closest('.image-bubble') && (meta.className !== updated.className || liveContent.innerHTML !== updated.innerHTML)) {
+            if (meta.matches('.attachment-meta') && (meta.className !== updated.className || liveContent.innerHTML !== updated.innerHTML)) {
               transitionMediaCapsule(meta, () => {
                 meta.querySelector('.media-capsule-content')!.replaceChildren(...updated.childNodes);
                 meta.className = updated.className;
               }, true, this.runtimeAbort?.signal);
-            } else if (!meta.closest('.image-bubble')) {
+            } else if (!meta.matches('.attachment-meta')) {
               meta.replaceChildren(...updated.childNodes);
               meta.className = updated.className;
             }
@@ -12033,6 +12048,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       bubble.append(player.element);
     } else if (message.payload.kind === 'file') {
       if (isVideoFile(message.payload.file)) {
+        article.classList.add('has-media');
         bubble.classList.add('image-bubble');
         bubble.append(this.createImagePreview(message.payload.file, [message.payload.file], 0, message.clientMsgId));
       } else {
@@ -12091,7 +12107,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     const own = this.isOwnMessage(message);
     const meta = document.createElement('div');
     meta.className = 'message-meta';
-    const sendingMedia = own && isChatMedia(message) && (message.status === 'pending' || message.status === 'failed');
+    const attachment = isChatMedia(message) || message.payload.kind === 'file';
+    const sendingMedia = own && attachment && (message.status === 'pending' || message.status === 'failed' && !this.expiredOutboxIds.has(message.clientMsgId));
+    if (attachment) meta.classList.add('attachment-meta');
     if (sendingMedia) meta.classList.add('media-send-meta');
     const read = this.readMessageIds.has(message.clientMsgId);
     const status = own
@@ -12099,7 +12117,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         ? ' · 等待发送'
         : message.status === 'stored' || message.status === 'sent' || message.status === 'delivered'
           ? read ? '已读' : '已发送'
-          : ' · 发送失败'
+          : attachment ? this.accessFailure ? '发送暂停' : this.expiredOutboxIds.has(message.clientMsgId) ? '无法发送' : '发送失败' : ' · 发送失败'
       : '';
     const time = document.createElement('time');
     time.dateTime = message.payload.sentAt;
@@ -12123,7 +12141,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       waiting.innerHTML = '<svg aria-hidden="true" viewBox="0 0 22 16"><circle cx="11" cy="8" r="6"/><path d="M11 4.5V8l2.5 1.5"/></svg>';
       const label = document.createElement('span');
       label.className = sendingMedia ? 'media-send-label' : 'sr-only';
-      label.textContent = this.accessFailure ? '发送暂停' : sendingMedia ? '发送中' : '等待发送';
+      label.textContent = this.accessFailure ? '发送暂停' : sendingMedia ? this.connectionState === 'connected' ? '发送中' : '等待连接' : '等待发送';
       waiting.append(label);
       meta.append(waiting);
     } else if (status) meta.append(document.createTextNode(status));
@@ -12201,7 +12219,27 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     }
     button.querySelector<HTMLElement>('.file-attachment-name')!.textContent = filename;
     const meta = button.querySelector<HTMLElement>('.file-attachment-meta')!;
-    meta.textContent = `${size} · ${actionLabel}`;
+    const capsule = document.createElement('span'); capsule.className = 'file-load-capsule';
+    capsule.setAttribute('role', 'status');
+    const loadRing = document.createElement('span'); loadRing.className = 'media-load-progress';
+    loadRing.setAttribute('role', 'progressbar'); loadRing.setAttribute('aria-label', '文件下载与校验进度');
+    loadRing.setAttribute('aria-valuemin', '0'); loadRing.setAttribute('aria-valuemax', '100');
+    const loadLabel = document.createElement('span');
+    const paintStatus = (text: string, state: 'idle' | 'loading' | 'error', ratio?: number) => {
+      transitionMediaCapsule(capsule, () => {
+        capsule.dataset.state = state;
+        loadRing.hidden = state !== 'loading'; loadRing.dataset.indeterminate = String(ratio === undefined);
+        if (ratio === undefined) loadRing.removeAttribute('aria-valuenow');
+        else {
+          const percent = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
+          loadRing.setAttribute('aria-valuenow', String(percent)); loadRing.style.setProperty('--media-load-progress', `${percent}%`);
+        }
+        loadLabel.textContent = text;
+        capsule.querySelector('.media-capsule-content')!.replaceChildren(loadRing, loadLabel);
+      }, capsule.dataset.state !== state, this.runtimeAbort?.signal);
+    };
+    meta.append(document.createTextNode(size), capsule);
+    paintStatus(actionLabel, 'idle');
     if (!allowExport) {
       button.setAttribute('aria-label', `${filename}，${size}，收藏操作`);
       meta.textContent = size;
@@ -12237,13 +12275,13 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       button.disabled = true;
       button.dataset.fileState = 'loading';
       button.setAttribute('aria-busy', 'true');
-      meta.textContent = `${size} · 正在读取`;
+      paintStatus('下载中', 'loading');
       void (async () => {
         try {
           this.assertImageManifestIdentity(manifest);
           const blob = await this.loadVerifiedFile(session, manifest, signal,
             ratio => {
-              if (this.isRuntimeActive(epoch, session) && button.isConnected) meta.textContent = `${size} · 正在读取 ${Math.round(ratio * 100)}%`;
+              if (this.isRuntimeActive(epoch, session) && button.isConnected) paintStatus(`下载并校验 · ${Math.round(ratio * 100)}%`, 'loading', ratio);
               reader?.progress(ratio);
             });
           if (!this.isRuntimeActive(epoch, session) || !button.isConnected || signal?.aborted) return;
@@ -12257,27 +12295,27 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
           }
           if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
           button.dataset.fileState = 'idle';
-          meta.textContent = `${size} · ${readableType ? '再次打开' : '再次下载'}`;
+          paintStatus(readableType ? '再次打开' : '再次下载', 'idle');
         } catch (cause) {
           if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
           if (reader) {
             if (!reader.signal.aborted) reader.fail();
-            button.dataset.fileState = 'idle';
-            meta.textContent = `${size} · ${actionLabel}`;
+            button.dataset.fileState = reader.signal.aborted ? 'idle' : 'error';
+            paintStatus(reader.signal.aborted ? actionLabel : '读取失败 · 重试', reader.signal.aborted ? 'idle' : 'error');
             return;
           }
           this.finishFileExport();
           if (cause instanceof DOMException && cause.name === 'AbortError') {
             button.dataset.fileState = 'idle';
-            meta.textContent = `${size} · ${actionLabel}`;
+            paintStatus(actionLabel, 'idle');
           } else {
             button.dataset.fileState = 'error';
-            meta.textContent = `${size} · 下载失败，点按重试`;
+            paintStatus('下载失败 · 重试', 'error');
             this.operationalError(cause, '文件下载失败，请重试');
           }
         } finally {
           if (this.isRuntimeActive(epoch, session) && button.isConnected) {
-            if (signal?.aborted) { button.dataset.fileState = 'idle'; meta.textContent = `${size} · ${actionLabel}`; }
+            if (signal?.aborted) { button.dataset.fileState = 'idle'; paintStatus(actionLabel, 'idle'); }
             button.disabled = false;
             button.setAttribute('aria-busy', 'false');
           }
@@ -14055,6 +14093,15 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     }
     button.dataset.revealed = String(revealed);
     button.setAttribute('aria-label', (revealed ? button.dataset.openLabel : button.dataset.revealLabel)!);
+    let hint = button.querySelector<HTMLElement>(':scope > .media-ready-hint');
+    const text = button.dataset.posterUnavailable === 'true'
+      ? revealed ? '轻点播放' : '封面不可用 · 轻点继续'
+      : !revealed ? '轻点显示' : '';
+    if (button.dataset.imageState === 'loaded' && text && !this.privacyCovered) {
+      if (!hint) { hint = document.createElement('span'); hint.className = 'media-ready-hint'; button.append(hint); }
+      hint.textContent = text;
+      if (button.dataset.posterUnavailable === 'true') button.setAttribute('aria-label', text);
+    } else hint?.remove();
   }
 
   private setChatImagePreviewSource(button: HTMLButtonElement, source: string): void {
@@ -14272,9 +14319,11 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     if (button.dataset.imageState === 'loading' || button.dataset.imageState === 'loaded') return;
     button.dataset.imageState = 'loading';
     button.setAttribute('aria-busy', 'true');
-    if (!button.querySelector('.media-load-status')) this.mountChatImageLoadingFeedback(button, isVideoFile(manifest));
-    this.renderChatImageLoadFeedback(button, isVideoFile(manifest), this.imageLoadStatus.get(manifest.blobId) ?? { stage: 'queued' });
     try {
+      delete button.dataset.loadStage;
+      button.removeAttribute('title');
+      if (!button.querySelector('.media-load-capsule > .media-capsule-content > .media-load-progress')) this.mountChatImageLoadingFeedback(button, isVideoFile(manifest));
+      this.renderChatImageLoadFeedback(button, isVideoFile(manifest), { stage: 'queued' });
       const cached = await this.loadImage(manifest, true);
       if (!button.isConnected || this.privacyCovered) return;
       await this.renderImageIntoButton(button, manifest, cached);
@@ -14366,6 +14415,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       }
       const decrypt = isVideoFile(manifest) ? decryptFileAttachment : decryptImageFile;
       let usedPersistentCiphertext = false;
+      let networkDownload = false;
       const decryptWithCiphertextCache = (allowCache: boolean) => decrypt(
           manifest,
           async (blobId, chunkIndex) => {
@@ -14380,20 +14430,20 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
               signal?.throwIfAborted();
               if (cachedChunk) {
                 usedPersistentCiphertext = true;
-                this.updateChatImageLoadFeedback(manifest, 'decrypt', chunkIndex / manifest.chunkCount);
+                this.updateChatImageLoadFeedback(manifest, networkDownload ? 'download' : 'decrypt', chunkIndex / manifest.chunkCount);
                 return cachedChunk;
               }
             }
+            networkDownload = true;
             this.updateChatImageLoadFeedback(manifest, 'download', chunkIndex / manifest.chunkCount);
             const chunk = await fetchBlobChunk(roomId, accessToken, blobId, chunkIndex, signal);
             signal?.throwIfAborted();
             // Cache only the already encrypted server chunk. A lock still
             // revokes every plaintext object URL and clears decoded media.
             if (!isVideoFile(manifest) && manifest.originalSize <= MEDIA_CACHE_FILE_BYTES) await saveCachedMediaChunk(session, blobId, chunkIndex, chunk, signal).catch(() => undefined);
-            this.updateChatImageLoadFeedback(manifest, 'decrypt', chunkIndex / manifest.chunkCount);
             return chunk;
           },
-          ratio => this.updateChatImageLoadFeedback(manifest, 'decrypt', ratio),
+          ratio => this.updateChatImageLoadFeedback(manifest, networkDownload && ratio < 1 ? 'download' : 'decrypt', ratio < 1 ? ratio : undefined),
           signal,
         );
       let blob: Blob;
@@ -14453,6 +14503,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     status: { stage: 'queued' | 'download' | 'decrypt' | 'decode'; ratio?: number },
   ): void {
     if (button.dataset.imageState === 'loaded' || button.dataset.imageState === 'error') return;
+    if (!button.querySelector('.media-load-capsule > .media-capsule-content > .media-load-progress')) this.mountChatImageLoadingFeedback(button, video);
     const percent = status.ratio === undefined ? undefined : Math.round(Math.max(0, Math.min(1, status.ratio)) * 100);
     const text = status.stage === 'queued' ? '等待加载'
       : status.stage === 'download' ? `下载中${percent === undefined ? '' : ` · ${percent}%`}`
@@ -14462,10 +14513,10 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     const capsule = button.querySelector<HTMLElement>('.media-load-capsule')!;
     transitionMediaCapsule(capsule, () => {
       button.dataset.loadStage = status.stage;
-      button.querySelector<HTMLElement>('.media-load-status')!.textContent = text;
-      const progress = button.querySelector<HTMLElement>('.media-load-progress')!;
+      capsule.querySelector<HTMLElement>(':scope > .media-capsule-content > .media-load-status')!.textContent = text;
+      const progress = capsule.querySelector<HTMLElement>(':scope > .media-capsule-content > .media-load-progress')!;
       if (percent === undefined || status.stage === 'decode') {
-        progress.removeAttribute('aria-valuenow'); progress.dataset.indeterminate = 'true';
+        progress.removeAttribute('aria-valuenow'); progress.dataset.indeterminate = String(status.stage !== 'queued');
       } else {
         progress.setAttribute('aria-valuenow', String(percent)); delete progress.dataset.indeterminate;
         progress.style.setProperty('--media-load-progress', `${percent}%`);
@@ -14475,7 +14526,17 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
   }
 
   private mountChatImageLoadingFeedback(button: HTMLButtonElement, video: boolean): void {
-    button.innerHTML = `${video ? icons.video : icons.image}<span class="media-load-capsule"><span class="media-load-progress" role="progressbar" aria-label="媒体准备进度" aria-valuemin="0" aria-valuemax="100"><i></i></span><span class="media-load-status" role="status" aria-live="polite"></span></span>`;
+    let capsule = button.querySelector<HTMLElement>('.media-load-capsule');
+    if (!capsule) {
+      button.innerHTML = video ? icons.video : icons.image;
+      capsule = document.createElement('span'); button.append(capsule);
+    }
+    const host = capsule;
+    transitionMediaCapsule(host, () => {
+      host.className = 'media-load-capsule';
+      button.dataset.loadStage = 'queued';
+      host.querySelector('.media-capsule-content')!.innerHTML = '<span class="media-load-progress" data-indeterminate="false" role="progressbar" aria-label="媒体准备进度" aria-valuemin="0" aria-valuemax="100"><i></i></span><span class="media-load-status" role="status" aria-live="polite">等待加载</span>';
+    }, true, this.runtimeAbort?.signal);
   }
 
   private updateChatImageLoadFeedback(
