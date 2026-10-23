@@ -144,7 +144,7 @@ import { bindImageViewerGestures } from './lib/image-viewer-gestures';
 import { prepareImageMotion, type ImageMotion } from './lib/image-animation';
 import { createConcealedImage } from './lib/concealed-image';
 import { mountPhotoDetails } from './lib/photo-details';
-import { createElement, Check, Info, Pause, Play, Plus, Camera, Maximize, Volume2, VolumeX, Gauge, Trash2, RotateCcw, RotateCw, Link, Star, KeyRound, LockKeyhole, FileText, Settings, TriangleAlert, Smartphone, Laptop } from 'lucide';
+import { createElement, Check, Info, Pause, Play, Plus, Camera, Maximize, Volume2, VolumeX, Trash2, RotateCcw, RotateCw, Link, Star, KeyRound, LockKeyhole, FileText, Settings, TriangleAlert, Smartphone, Laptop } from 'lucide';
 import { isReadableChatMessage, readMessageIds } from './lib/message-read';
 import { isChatMedia } from './lib/media-read';
 import { bindChatImageConcealGesture } from './lib/chat-image-conceal-gesture';
@@ -10550,19 +10550,39 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
 
   private cacheLocalImage(manifest: ImageManifest, blob: Blob, previewOnly = false, displayCopy = false): void {
     this.assertImageManifestIdentity(manifest);
-    if (this.imageCache.has(manifest.blobId)) return;
-    this.evictUnusedImages(blob.size);
+    const previous = this.imageCache.get(manifest.blobId);
+    if (previous && !(previous.previewOnly && !previewOnly)
+      && !(previous.displayCopy && !displayCopy && !previewOnly)) return;
     const type = previewOnly ? undefined : blob.type.startsWith('video/') ? blob.type : videoMimeType(manifest);
     const displayBlob = type ? blob.slice(0, blob.size, type) : blob;
+    if (previous) {
+      // Keep the entry and its poster/concealed URLs: mounted thumbnails and
+      // pending poster work still own them. Only a replaced playback URL dies.
+      const releasedBytes = previous.previewOnly || previous.url === previous.posterUrl ? 0 : previous.blob.size;
+      this.evictUnusedImages(blob.size - releasedBytes, manifest.blobId);
+      const url = URL.createObjectURL(displayBlob);
+      if (previous.previewOnly) previous.posterUrl ??= previous.url;
+      else if (previous.url !== previous.posterUrl) URL.revokeObjectURL(previous.url);
+      previous.url = url;
+      previous.blob = blob;
+      previous.previewOnly = previewOnly;
+      previous.displayCopy = displayCopy;
+      previous.lastUsedAt = Date.now();
+      previous.bytes += blob.size - releasedBytes;
+      this.imageCacheBytes += blob.size - releasedBytes;
+      return;
+    }
+    this.evictUnusedImages(blob.size);
     const cached: CachedImage = { blob, url: URL.createObjectURL(displayBlob), bytes: blob.size, lastUsedAt: Date.now(), previewOnly, displayCopy };
     if (previewOnly && isVideoFile(manifest)) cached.posterUrl = cached.url;
     this.imageCache.set(manifest.blobId, cached);
     this.imageCacheBytes += cached.bytes;
   }
 
-  private evictUnusedImages(incomingBytes = 0): void {
+  private evictUnusedImages(incomingBytes = 0, retainedBlobId?: string): void {
     if (this.imageCacheBytes + incomingBytes <= MAX_IMAGE_CACHE_BYTES) return;
     const protectedIds = new Set<string>();
+    if (retainedBlobId) protectedIds.add(retainedBlobId);
     this.root.querySelectorAll<HTMLElement>('[data-blob-id]').forEach(node => {
       const blobId = node.dataset.blobId;
       if (blobId && (!node.classList.contains('gallery-tile')
@@ -13827,7 +13847,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     const viewer = stage.closest<HTMLElement>('.image-viewer')!;
     const safeInline = Boolean(onDelete);
     const setControlsVisible = (visible: boolean) => {
-      if (safeInline && live()) viewer.dataset.videoControls = visible ? 'visible' : 'hidden';
+      if (safeInline && live()) viewer.dataset.videoControls = visible || viewer.querySelector(':focus-visible') ? 'visible' : 'hidden';
     };
     video.controls = requestNative;
     video.autoplay = autoplay;
@@ -13840,10 +13860,19 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     video.setAttribute('controlslist', 'nodownload noremoteplayback');
     video.setAttribute('aria-label', `播放视频 ${manifest.originalName}`);
     if (cached.posterUrl) video.poster = cached.posterUrl;
-    const feedback = document.createElement('button');
-    feedback.type = 'button';
+    const feedback = document.createElement('div');
     feedback.className = 'viewer-video-feedback';
+    feedback.setAttribute('role', 'status');
+    feedback.setAttribute('aria-live', 'polite');
     feedback.hidden = true;
+    const feedbackText = document.createElement('p');
+    const feedbackDetail = document.createElement('p');
+    feedbackDetail.className = 'viewer-video-feedback-detail';
+    const feedbackAction = document.createElement('button');
+    feedbackAction.type = 'button';
+    feedbackAction.textContent = '播放视频';
+    feedbackAction.hidden = true;
+    feedback.replaceChildren(feedbackText, feedbackDetail, feedbackAction);
     const controls = document.createElement('div');
     controls.className = `viewer-video-controls${onDelete ? ' has-delete' : ''}`;
     controls.innerHTML = onDelete ? `
@@ -13865,17 +13894,20 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         </div>
       </div>` : `
       <div class="viewer-video-center" aria-label="视频播放控制">
-        <button class="viewer-control" type="button" data-video-skip-back aria-label="后退 10 秒" title="后退 10 秒"></button>
-        <button class="viewer-control viewer-video-center-play" type="button" data-video-center-play aria-label="播放视频" title="播放视频"></button>
-        <button class="viewer-control" type="button" data-video-skip-forward aria-label="前进 10 秒" title="前进 10 秒"></button>
+        <button class="viewer-control viewer-video-skip" type="button" data-video-skip-back aria-label="后退 10 秒" title="后退 10 秒"></button>
+        <button class="viewer-control viewer-video-center-play" type="button" data-video-play data-video-center-play aria-label="播放视频" title="播放视频"></button>
+        <button class="viewer-control viewer-video-skip" type="button" data-video-skip-forward aria-label="前进 10 秒" title="前进 10 秒"></button>
       </div>
-      <input class="viewer-video-seek" type="range" min="0" max="0" value="0" step="0.1" aria-label="视频进度" disabled>
-      <div class="viewer-video-transport">
-        <button class="viewer-control" type="button" data-video-play></button>
-        <span class="viewer-video-time" aria-live="off">0:00 / 0:00</span>
-        <button class="viewer-control" type="button" data-video-mute></button>
-        <button class="viewer-control" type="button" data-video-speed aria-label="播放速度" title="播放速度"></button>
-        <button class="viewer-control" type="button" data-video-fullscreen aria-label="全屏播放" title="全屏播放"></button>
+      <div class="viewer-video-bottom">
+        <div class="viewer-video-actions">
+          <button class="viewer-control" type="button" data-video-mute></button>
+          <button class="viewer-control" type="button" data-video-speed aria-label="播放速度" title="播放速度"></button>
+          <button class="viewer-control" type="button" data-video-fullscreen aria-label="全屏播放" title="全屏播放"></button>
+        </div>
+        <div class="viewer-video-timeline">
+          <span class="viewer-video-time" aria-live="off">0:00 / 0:00</span>
+          <input class="viewer-video-seek" type="range" min="0" max="0" value="0" step="0.1" aria-label="视频进度" disabled>
+        </div>
       </div>`;
     const playButton = controls.querySelector<HTMLButtonElement>('[data-video-play]')!;
     const centerPlayButton = controls.querySelector<HTMLButtonElement>('[data-video-center-play]')!;
@@ -13889,13 +13921,13 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     const time = controls.querySelector<HTMLElement>('.viewer-video-time')!;
     const events = new AbortController();
     fullscreenButton?.append(createElement(Maximize));
-    speedButton.append(createElement(Gauge));
     skipBackButton.append(createElement(RotateCcw));
     skipForwardButton.append(createElement(RotateCw));
     deleteVideoButton?.append(createElement(Trash2));
     let speed = 1;
     const updateSpeed = () => {
       video.playbackRate = speed;
+      speedButton.textContent = `${speed}×`;
       speedButton.setAttribute('aria-label', `播放速度 ${speed} 倍`);
       speedButton.title = `播放速度 ${speed} 倍`;
     };
@@ -13914,7 +13946,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       const current = formatTime(video.currentTime);
       const duration = formatTime(video.duration);
       const full = `${current} / ${duration}`;
-      time.textContent = onDelete || controls.clientWidth < 300 || window.innerWidth <= 360 ? current : full;
+      time.textContent = full;
       const remaining = controls.querySelector('.viewer-video-remaining');
       if (remaining) remaining.textContent = `−${formatTime(video.duration - video.currentTime)}`;
       time.setAttribute('aria-label', full);
@@ -13949,8 +13981,20 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       video.playsInline = true;
       video.controls = false;
     };
+    const exitNativeForFeedback = () => {
+      // Native full screen is a top layer: page feedback cannot cover it.
+      // Clear the entered flag before exit so its event does not close the viewer.
+      nativeEntered = false;
+      if (nativePendingTimer !== null) window.clearTimeout(nativePendingTimer);
+      revealFallback();
+      if (document.fullscreenElement === video) void document.exitFullscreen().catch(() => undefined);
+      if (nativeVideo.webkitDisplayingFullscreen) {
+        try { nativeVideo.webkitExitFullscreen?.(); } catch { /* The inline message remains available after native exit. */ }
+      }
+    };
     const nativeBegan = () => {
       if (!live()) return;
+      if (viewer.dataset.videoState) { exitNativeForFeedback(); return; }
       nativeEntered = true;
       viewer.dataset.nativeVideo = 'active';
       if (nativePendingTimer !== null) window.clearTimeout(nativePendingTimer);
@@ -13964,23 +14008,25 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         updateControls();
       }
     };
-    const showError = () => {
+    const showFeedback = (needsActivation: boolean) => {
       if (!live()) return;
-      revealFallback();
-      feedback.textContent = '此浏览器无法播放该视频';
-      feedback.disabled = true;
+      viewer.dataset.videoState = needsActivation ? 'needs-activation' : 'error';
+      exitNativeForFeedback();
+      feedbackText.textContent = needsActivation ? '点按播放视频' : '此浏览器无法播放该视频';
+      feedbackDetail.textContent = needsActivation ? '浏览器需要你再次确认播放。' : '可关闭查看器，或切换到其他媒体。';
+      feedbackAction.hidden = !needsActivation;
       feedback.hidden = false;
+      setControlsVisible(true);
     };
+    const showError = () => showFeedback(false);
     const play = () => {
       if (!live()) return;
       feedback.hidden = true;
+      delete viewer.dataset.videoState;
       void video.play().catch(cause => {
         if (!live()) return;
         if (cause instanceof DOMException && cause.name === 'NotAllowedError') {
-          revealFallback();
-          feedback.textContent = '点按播放视频';
-          feedback.disabled = false;
-          feedback.hidden = false;
+          showFeedback(true);
         } else if (!(cause instanceof DOMException && cause.name === 'AbortError')) showError();
       });
     };
@@ -14001,6 +14047,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
             // A closing/locked viewer may outlive the native request briefly.
             // Its event listeners are already removed, so undo a late entry.
             if (!live() && document.fullscreenElement === video) void document.exitFullscreen().catch(() => undefined);
+            else if (live() && viewer.dataset.videoState) exitNativeForFeedback();
           }, revealFallback);
         } else revealFallback();
       } catch {
@@ -14008,7 +14055,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         // already open its system player; retry its API once after metadata.
         if (video.readyState === 0 && typeof nativeVideo.webkitEnterFullscreen === 'function') {
           video.addEventListener('loadedmetadata', () => {
-            if (!live() || nativeEntered) return;
+            if (!live() || nativeEntered || viewer.dataset.videoState) return;
             try { nativeVideo.webkitEnterFullscreen!(); } catch { revealFallback(); }
           }, { once: true, signal: events.signal });
         } else revealFallback();
@@ -14025,6 +14072,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     video.addEventListener('playing', () => {
       video.dataset.actualPlayback = 'true'; this.scheduleIdleLock();
       feedback.hidden = true;
+      delete viewer.dataset.videoState;
       setControlsVisible(false);
     }, { signal: events.signal });
     for (const type of ['pause', 'waiting', 'stalled', 'ended', 'error', 'emptied']) video.addEventListener(type, () => { delete video.dataset.actualPlayback; this.scheduleIdleLock(); }, { signal: events.signal });
@@ -14033,6 +14081,16 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     viewer.querySelector<HTMLElement>('.viewer-stage')!.addEventListener('click', event => {
       if (!safeInline || video.paused || event.target instanceof Element && event.target.closest('button, input')) return;
       setControlsVisible(viewer.dataset.videoControls === 'hidden');
+    }, { signal: events.signal });
+    viewer.addEventListener('keydown', () => setControlsVisible(true), { signal: events.signal });
+    viewer.addEventListener('focusin', event => {
+      if (event.target instanceof HTMLElement && event.target.matches(':focus-visible')) setControlsVisible(true);
+    }, { signal: events.signal });
+    viewer.querySelector<HTMLElement>('.viewer-stage')!.addEventListener('keydown', event => {
+      if (event.key === ' ' && event.target === event.currentTarget && !viewer.dataset.videoState) {
+        event.preventDefault();
+        if (video.paused) play(); else video.pause();
+      }
     }, { signal: events.signal });
     for (const event of ['play', 'pause', 'ended', 'volumechange', 'durationchange', 'loadedmetadata', 'timeupdate']) {
       video.addEventListener(event, updateControls, { signal: events.signal });
@@ -14054,10 +14112,16 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     seek.addEventListener('input', () => {
       if (!seek.disabled && live()) video.currentTime = Number(seek.value);
     }, { signal: events.signal });
-    feedback.addEventListener('click', () => { if (requestNative) requestNativePlayer(); play(); }, { signal: events.signal });
+    feedbackAction.addEventListener('click', () => {
+      delete viewer.dataset.videoState;
+      feedback.hidden = true;
+      if (requestNative) requestNativePlayer();
+      play();
+    }, { signal: events.signal });
     const cleanup = () => {
       active = false;
       delete viewer.dataset.videoControls;
+      delete viewer.dataset.videoState;
       deleteCleanup?.();
       events.abort();
       if (nativePendingTimer !== null) window.clearTimeout(nativePendingTimer);
@@ -14466,18 +14530,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         }
       }
       if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
-      const previous = this.imageCache.get(manifest.blobId);
-      if (previous?.displayCopy) {
-        if (previous.url !== previous.posterUrl) URL.revokeObjectURL(previous.url);
-        this.imageCacheBytes -= previous.bytes;
-        this.imageCache.delete(manifest.blobId);
-      }
-      if (previous && !previous.displayCopy && previous.previewOnly) {
-        const original = videoMimeType(manifest) ? blob.slice(0, blob.size, videoMimeType(manifest) ?? undefined) : blob;
-        previous.posterUrl ??= previous.url;
-        previous.url = URL.createObjectURL(original); previous.blob = blob; previous.previewOnly = false;
-        previous.bytes += blob.size; this.imageCacheBytes += blob.size;
-      } else this.cacheLocalImage(manifest, blob);
+      this.cacheLocalImage(manifest, blob);
       if (!isVideoFile(manifest)) {
         const preview = await createMediaPreview(blob, signal).catch(() => null)
           ?? await createAnimatedDisplayCopy(blob, signal).catch(() => null);
@@ -14703,6 +14756,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         favoriteButton.title = saved ? '取消收藏' : '收藏';
       }
       viewer.classList.toggle('video-viewer', video);
+      stage.tabIndex = video ? 0 : -1;
+      if (video) stage.setAttribute('aria-label', '视频画面，空格播放或暂停');
+      else stage.removeAttribute('aria-label');
       viewer.setAttribute('aria-label', video ? '视频播放器' : '图片查看器');
       viewer.querySelector<HTMLElement>('[data-viewer-name]')!.textContent = manifest.originalName || (video ? '视频' : '原图');
       const available = manifests.map((_, candidate) => candidate)
@@ -14988,8 +15044,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         void render(current + 1, { direction: 1, reason: 'control' });
       }
       if (event.key === 'Tab') {
-        const buttons = [...viewer.querySelectorAll<HTMLElement>('button:not([hidden]):not(:disabled), video[controls], .photo-details-content')]
-          .filter(element => element.tabIndex >= 0 && element.getClientRects().length > 0 && !element.closest('[inert], [aria-hidden="true"]'));
+        const buttons = [...viewer.querySelectorAll<HTMLElement>('button:not([hidden]):not(:disabled), input:not(:disabled), .viewer-stage[tabindex="0"], video[controls], .photo-details-content')]
+          .filter(element => element.tabIndex >= 0 && element.getClientRects().length > 0
+            && getComputedStyle(element).visibility !== 'hidden' && !element.closest('[inert], [aria-hidden="true"]'));
         const first = buttons[0];
         const last = buttons.at(-1);
         if (event.shiftKey && document.activeElement === first) {
