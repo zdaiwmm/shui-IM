@@ -499,13 +499,17 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .media-ready-hint { display: flex; align-items: center; position: absolute; left: 7px; right: auto; bottom: 31px; padding: 0 8px; width: max-content; max-width: calc(100vw - 56px); background: var(--surface-raised); color: var(--ink); font-size: .6875rem; line-height: 1.4; pointer-events: none; z-index: 2; }
 #app .image-bubble:not(.expression-bubble):has(.media-load-capsule) > .attachment-meta:not(.media-send-meta) { bottom: 39px; }
 #app .expression-bubble .media-ready-hint { bottom: 7px; }
-#app .message .file-bubble { min-height: 108px; width: 288px; max-width: 100%; }
+#app .message .file-bubble { min-height: 108px; width: min(288px, calc(100vw - 68px)); max-width: 100%; }
 #app .message.outgoing .file-upload-tile { position: relative; padding: 8px 12px 36px; background: var(--outgoing); color: var(--on-accent); border-radius: var(--radius-bubble); }
 #app .file-upload-tile .file-attachment { grid-template-columns: 32px minmax(0,1fr); cursor: default; }
 #app .file-load-capsule { display: inline-flex; width: max-content; max-width: 100%; background: var(--surface-raised); color: var(--ink); font-size: .75rem; line-height: 1.4; transform-origin: left center; }
 #app .file-load-capsule[data-state='idle'] { background: transparent; color: inherit; font-size: .6875rem; }
 #app .file-load-capsule[data-state='error'] { background: var(--danger-soft); color: var(--danger); }
 #app .file-attachment-meta:has(.file-load-capsule) { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; opacity: 1; }
+/* Keep the 44px target inside the media while its visible text stays centered
+   in the 24px shell at the approved 7px bottom inset. */
+#app :is(.media-upload-retry,.attachment-meta .message-retry) { position: relative; top: -3px; }
+#app :is(.media-upload-retry,.attachment-meta .message-retry) > span { position: relative; top: 3px; }
 #app .message-list, #app .message-list[data-keyboard-gesture='true'] { touch-action: pan-y pinch-zoom; }
 #app :is(.gateway-form input:not([type='checkbox']):not([type='radio']), .gateway-form textarea,
   .password-form input:not([type='checkbox']), .recovery-flow-input, .backup-code-page textarea,

@@ -12158,7 +12158,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       const retry = document.createElement('button');
       retry.type = 'button';
       retry.className = 'message-retry';
-      retry.textContent = '重试';
+      const caption = document.createElement('span');
+      caption.textContent = '重试';
+      retry.append(caption);
       retry.addEventListener('click', () => {
         message.status = 'pending';
         this.renderMessages();
