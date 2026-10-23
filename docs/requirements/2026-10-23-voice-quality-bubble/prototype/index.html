@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN" data-color-scheme="light">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>语音消息 · 微信式气泡 V1</title>
+  <link rel="stylesheet" href="/src/design-tokens.css">
+  <link rel="stylesheet" href="./prototype.css">
+</head>
+<body>
+  <header class="workbench-header"><div><p class="eyebrow">QUIET ROOM / DESIGN REVIEW</p><h1>轻一点，听得见。</h1><p class="intro">微信式语音气泡 <span class="version">V1 · 待设计确认</span></p></div><nav><a href="./flow.html">查看流程</a><a href="./audio.html">音频对照</a><button id="theme-toggle" aria-label="切换深色主题">深色</button></nav></header>
+  <main class="workbench">
+    <section class="preview-area" aria-label="聊天原型预览">
+      <div class="preview-caption"><span>聊天列表</span><span id="preview-size">390 px · 合成示例</span></div>
+      <div class="chat-screen" id="chat-screen">
+        <header class="chat-header"><div class="peer-capsule"><span class="avatar small">日</span><span>日常</span><i aria-hidden="true"></i></div><button id="lock-demo" class="icon-button" aria-label="锁定演示"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></button></header>
+        <div class="message-list" id="message-list" aria-label="合成聊天记录"></div>
+        <div class="composer"><button id="add-sample" class="icon-button" aria-label="添加一条演示语音"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M7 12h10"/></svg></button><div class="composer-field">点击语音，体验播放状态</div><span class="mic"><svg viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/></svg></span></div>
+        <div class="privacy-cover" id="privacy-cover" hidden><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg><h2>演示已锁定</h2><p>播放与加载已停止。</p><button id="unlock-demo">返回演示</button></div>
+      </div>
+      <p class="preview-note">仅演示交互与计时，不播放真实声音，不连接聊天数据。</p>
+    </section>
+    <aside class="inspector" aria-label="原型控制">
+      <p class="eyebrow">细节与状态</p><h2>短语音，短气泡。</h2><p class="description">声波靠近说话一侧，秒数在气泡外。整条气泡都可点击，播放时只让声波动起来。</p>
+      <div class="control-group"><label for="duration">试试不同时长 <output id="duration-value">12 秒</output></label><input id="duration" type="range" min="1" max="300" value="12"><div class="presets" aria-label="语音时长"><button data-seconds="1">1 秒</button><button data-seconds="6">6 秒</button><button data-seconds="30">30 秒</button><button data-seconds="60">60 秒</button><button data-seconds="300">5 分钟</button></div></div>
+      <fieldset class="control-group"><legend>方向</legend><label class="choice"><input type="radio" name="direction" value="outgoing" checked> 我发送的</label><label class="choice"><input type="radio" name="direction" value="incoming"> 对方发来的</label></fieldset>
+      <div class="control-group"><label for="state">演示状态</label><select id="state"><option value="idle">未播放</option><option value="loading">加载中，可点击取消</option><option value="playing">播放中</option><option value="paused">已暂停</option><option value="ended">已播完</option><option value="error">加载失败，可点击重试</option><option value="pending">发送中</option><option value="send-error">发送失败，可重试</option></select><label class="choice reply-toggle"><input id="show-reply" type="checkbox"> 带引用的语音</label></div>
+      <dl class="specs"><div><dt>气泡主体</dt><dd>40 px 高 / ≥44 px 点击区</dd></div><div><dt>自适应长度</dt><dd>84–220 px，60 秒后封顶</dd></div><div><dt>保留的信息</dt><dd>时长、时间、真实发送回执</dd></div></dl>
+      <p class="boundary">本次调整仅针对聊天语音气泡。录音阶段的波形、试听与裁剪保留；聊天气泡内不再显示波形和拖动条。长按或右键可演示回复与删除。</p>
+      <div class="review-links"><a href="../README.md">需求与确认记录 ↗</a><button id="reset-demo">重置演示</button></div>
+    </aside>
+  </main>
+  <div id="message-menu" class="message-menu" hidden role="menu" aria-label="演示消息操作"><button role="menuitem" id="reply-action">回复</button><button role="menuitem" id="delete-action">仅在演示中删除</button><button role="menuitem" id="cancel-action">取消</button></div>
+  <p id="announcement" class="sr-only" role="status" aria-live="polite"></p>
+  <script type="module" src="./prototype.js"></script>
+</body></html>
