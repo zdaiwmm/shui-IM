@@ -6,6 +6,7 @@
 - [PR #387](https://github.com/zdaiwmm/shui-IM/pull/387)按最终源`5d3d31a8ba0bcd3e3e0a77f9e81b91075dce772c`合并为应用`759f2a40480bd055470ef507fed0d7efb3b05645`／2026.10.23.3，完整文件树相同。已整合先行进入main的语音PR #385，原型仍V1、规范V1.25；未纳入尚未合并的设置PR #386。
 - 初代真实缓存负例准确失败，初代本地78/78通过；最终干净组合构建／类型、140文件／1073项及6项媒体／语音／隐私／完整双端浏览器全部通过。[最终PR完整CI39940501341](https://github.com/zdaiwmm/shui-IM/actions/runs/39940501341) attempt1全绿、Full application verification通过（79个浏览器入口及全量门禁）。初代清理测试超时与旧恢复面板CI超时、各一次定向复验的历史保留于需求记录。
 - [精确main完整CI39941779517](https://github.com/zdaiwmm/shui-IM/actions/runs/39941779517) attempt1全绿、Full application verification通过，已独立核对完整应用SHA。独立文档树仅对账；生产未授权、未发布，iPhone Safari真机及实际编码矩阵未验证。原实现树有活动V1预览，保留待后续验收／发布；下方生产事实保持其原应用SHA。
+- 收尾在同一V1范围发现200%文字的1.5×数值超出固定圆形按钮，正式组件及原CSS负例已复现。`codex/media-rate-accessibility-20261023`基于文档main `8a8c458`将倍速按文字自然加宽，保持44px最小热区；完整视频专项首次修复验证通过。候选2026.10.23.4待精确完整CI与交付，第一批证据不能代替续修结果，证据由同需求末节拥有。
 
 ## 系统审计四项修复已发布（2026-10-23 09:42）
 

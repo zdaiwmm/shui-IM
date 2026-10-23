@@ -425,6 +425,8 @@ try {
     });
     assert.equal(await page.locator('.image-viewer').evaluate(viewer => viewer.classList.contains('is-transitioning')), false, 'Seeking paged the viewer');
     assert(await page.locator('.viewer-stage video').evaluate(video => Math.abs(video.currentTime - video.duration / 2) < 0.15));
+    // Keep the longest rate label visible through large-text layouts.
+    await page.locator('[data-video-speed]').click();
     for (const [width, height, font] of [[320,844,16], [390,844,16], [1024,844,16], [844,390,32], [320,640,32]]) {
       await page.setViewportSize({ width, height });
       await page.waitForFunction(([width,height])=>innerWidth===width&&innerHeight===height,[width,height]);
@@ -448,6 +450,7 @@ try {
       if (!safe) assert(await page.locator('[data-video-fullscreen]').evaluate(button => getComputedStyle(button).color === getComputedStyle(document.querySelector('[data-viewer-close]')).color), 'Video buttons did not follow the viewer theme');
       await capture(`inline-video-controls-${width}-${height}-${font}`);
     }
+    await page.locator('[data-video-speed]').click(); await page.locator('[data-video-speed]').click();
     await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ colorScheme: 'dark' });
