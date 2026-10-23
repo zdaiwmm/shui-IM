@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { isAudioManifest, isImageManifest, isMessagePayload, MAX_AUDIO_BYTES, MAX_AUDIO_DURATION_MS } from '../src/lib/message-payload';
 import { encryptAudioFile, decryptAudioFile, encryptImageFile } from '../src/lib/file-crypto';
-import { encodeVoiceWav, voiceTime, voiceWaveform, VOICE_SAMPLE_RATE, MAX_VOICE_SAMPLES } from '../src/lib/voice-audio';
+import { encodeVoiceWav, voiceTime, voiceWaveform, voiceMessageSeconds, voiceMessageWidth, VOICE_SAMPLE_RATE, MAX_VOICE_SAMPLES } from '../src/lib/voice-audio';
 import { randomBase64Url } from '../src/lib/base64';
 import type { ImageUploadPlan } from '../src/lib/types';
 
@@ -48,6 +48,17 @@ describe('encrypted voice payload', () => {
 });
 
 describe('portable local voice encoding', () => {
+  it('keeps subsecond messages visible and caps compact geometry at one minute', () => {
+    expect(voiceMessageSeconds(500)).toBe(1);
+    expect(voiceMessageSeconds(1001)).toBe(2);
+    expect(voiceMessageSeconds(300_000)).toBe(300);
+    expect(voiceMessageWidth(500)).toBe(84);
+    expect(voiceMessageWidth(1000)).toBe(84);
+    expect(voiceMessageWidth(30_000)).toBeGreaterThan(voiceMessageWidth(6000));
+    expect(voiceMessageWidth(60_000)).toBe(220);
+    expect(voiceMessageWidth(300_000)).toBe(220);
+    expect(voiceMessageWidth(NaN)).toBe(84);
+  });
   it('writes mono PCM WAV with clipping and exact lengths', async () => {
     const blob = encodeVoiceWav(new Float32Array([-2, -1, 0, 1, 2, NaN]));
     const bytes = await blob.arrayBuffer(); const view = new DataView(bytes);

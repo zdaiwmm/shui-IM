@@ -66,12 +66,16 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   const incoming = joiner.locator('.message.incoming .voice-player').last();
   await incoming.waitFor();
   await creator.locator('.message.outgoing:has(.voice-player).is-delivered').waitFor();
-  assert.equal(await incoming.locator('.voice-waveform i').count(), 48);
+  assert.equal(await incoming.locator('.voice-sound path').count(), 3);
+  assert.equal(await incoming.locator('input').count(), 0, 'Compact voice messages must not render a seek slider');
+  assert.match(await incoming.locator('.voice-time').textContent(), /^\d+″$/);
   await incoming.getByRole('button', { name: '播放语音', exact: true }).click();
   await incoming.getByRole('button', { name: '暂停语音', exact: true }).waitFor();
   await incoming.getByRole('button', { name: '暂停语音', exact: true }).click();
-  assert.equal(await incoming.locator('input').isEnabled(), true);
-  await incoming.locator('input').fill('1000');
+  await incoming.getByRole('button', { name: '播放语音', exact: true }).waitFor();
+  assert.equal(await incoming.getAttribute('data-playback-state'), 'paused');
+  const resumedAt = await incoming.getByRole('button', { name: '播放语音', exact: true }).getAttribute('aria-description');
+  assert(resumedAt.includes('已播放'), 'Paused voice must retain accessible playback position');
   if (visualQaDirectory) {
     await joiner.screenshot({ path: path.join(visualQaDirectory, 'voice-message-mobile.png') });
     await joiner.emulateMedia({ colorScheme: 'dark' });
@@ -235,5 +239,5 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await creator.evaluate(() => { navigator.mediaDevices.getUserMedia = window.__voiceWrappedGetUserMedia; });
   creator.off('pageerror', onError); joiner.off('pageerror', onError);
   assert.deepEqual(errors, []);
-  process.stdout.write('Voice E2E passed: record, pause, resume, preview, held-release encrypted delivery, playback, seek, reply, cancel, upload retry, history and privacy cleanup.\n');
+  process.stdout.write('Voice E2E passed: record, pause, resume, preview, held-release encrypted delivery, playback, reply, cancel, upload retry, history and privacy cleanup.\n');
 }
