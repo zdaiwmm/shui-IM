@@ -1,5 +1,17 @@
 # Quiet Room 固定发布流程
 
+<a id="release-ui-22-20261024"></a>
+## 22项界面与交互修复已发布（2026-10-24 06:43）
+
+- 用户在本聊天确认V1、免交互原型及流程图直接实施、合并和发布，随后多次要求继续生产发布并不再因重复授权中断。[22项V1](docs/requirements/2026-10-24-ui-22-refinements/README.md)拥有范围与确认；原产品[PR #393](https://github.com/zdaiwmm/shui-IM/pull/393)与发布阻塞续修[PR #395](https://github.com/zdaiwmm/shui-IM/pull/395)均已合并。实际应用固定`c87c3ba65f121bec9c3841c8556b6c1a41aea541`／2026.10.23.7，源`0c2028c276aa42c877f6917fc113df1a1e80b069`与其完整文件树均为`bf3b85cba08993a07ddfa7be1276e90156e8adbc`；前一生产c3fa076／2026.10.23.6。
+- 页面进退与设置位置、设备／凭证布局、toast／输入背景锁定、在线及媒体状态、弱网立即显示和表情返回恢复由V1验收映射拥有。首轮main CI40000861350的相册返回失败经确定性复现定位：退出动画中的迟到回执刷新旧聊天，提前消耗返回位置意图。仅活跃且不在退出层内的列表渲染，模型、密文与原子持久化不变；原严格断言及失败历史保留。
+- 最终干净源构建与80浏览器单次完整通过，0失败／0未运行，1291.18秒。完整单元本机138文件／1064项通过，2文件／11项受既有磁盘容量门槛阻塞，未降低门槛；独立CI全部140文件／1075项通过。[精确PR完整CI40031955493](https://github.com/zdaiwmm/shui-IM/actions/runs/40031955493)与[精确main完整CI40033087998](https://github.com/zdaiwmm/shui-IM/actions/runs/40033087998)均attempt1成功，含全部分组、通话／TURN、审计、双架构镜像及Full application verification。新迟到回执／临时交互遮挡用例在Chromium和WebKit定向通过；可选完整WebKit旧键盘间距11.5px／12px差异及首轮输入高度时序失败由需求证据保留，未放宽断言；真机未验证。
+- 固定[只读云预检40034094110](https://github.com/zdaiwmm/shui-IM/actions/runs/40034094110)取得PREFLIGHT_OK，84605ms。唯一[正式云发布40034460194](https://github.com/zdaiwmm/shui-IM/actions/runs/40034460194)正常通过既有production审核，固定publish.mjs核对精确DEPLOY_VERIFIED；请求`be3a0878-1b88-4a0b-a700-9d5259f4f2c5`只派发一次，批次`20261023T223521Z`，工作流来源与应用均为本批SHA。没有修改环境保护、helper、云权限或健康门槛。
+- 云回执开始`2026-10-23T22:34:45.104Z`、完成`22:38:01.929Z`；外层cloud-publish242475ms含正常审核等待。linux/amd64实际镜像`sha256:34494a45f12da06666b1e8e62309d3370abdce78fecbcb28d736fa45a3f60c3d`，归档摘要`cc3f263d78d0452a481bbb257fd740143920696bc68b90777679e45d57617122`、210062182字节，绑定精确main CI40033087998／attempt1。
+- 初次独立回读`22:38:14.768Z`开始、`22:38:20.510Z`结束，仅备份starting未通过，5740ms；应用healthy、精确SHA及实际镜像一致，维护门absent。核对compose既有5分钟探针及启动期后，只等待并续做同SHA readback-only，不重启、不降低检查、不再次切换。最终仅执行同SHA readback-only，于`2026-10-23T22:43:09.378Z`开始、`22:43:32.048Z`完成，22669ms取得READBACK_OK：应用／备份running且healthy，TURN运行且探针none；精确提交及实际镜像、HTTPS／数据库／存储、公开及容器资源摘要和新WebSocket一致，维护门absent。额外公网Service Worker核对版本2026.10.23.7，管理员及通话启用。
+- 脱敏预检／发布及首次／最终回读回执、确定性复现与最终验证摘要保存在公共Git元数据quiet-room-deliveries/evidence/ui-22-release-20261024/。第二个无部署配置工作树只对账，不部署文档SHA；源树仍用于本次发布／回读并有忽略缓存与专属回执，当前对账树在用，按固定清理入口核验并保留，其他任务不处理。真实iPhone／iOS27／Safari及独立安全审阅仍未验证，上线检查不替代高安全公开声明门槛。
+
+
 <a id="release-media-status-compact-20261023"></a>
 ## 附件紧凑状态与主线组合已发布（2026-10-23 20:44）
 
