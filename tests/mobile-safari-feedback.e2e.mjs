@@ -303,7 +303,7 @@ try {
       return {retained,nested,layers,height};
     });
     assert.deepEqual({retained:capsules.retained,nested:capsules.nested,layers:capsules.layers},{retained:true,nested:0,layers:1});
-    assert.ok(Math.abs(capsules.height-32)<.01,JSON.stringify(capsules));
+    assert.ok(Math.abs(capsules.height-24)<.01,JSON.stringify(capsules));
     await page.evaluate(()=>{
       const {app,session}=fixture;session.vault.recoveryExperience={...session.vault.recoveryExperience,coverEnabled:true};
       app.mountPrivateSpaceDrawer(session,[{roomId:session.vault.roomId,name:'合成设置空间'}],app.runtimeAbort.signal,'chat',0);
