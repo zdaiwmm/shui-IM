@@ -221,7 +221,7 @@ try {
     await f.setup();
     let conflict = false, wrongRoom = false;
     try { await f.restore(`${f.code}\n${await f.extraCode({ conflict: true })}`); } catch (error) { conflict = error.message.includes('冲突'); }
-    try { await f.restore(await f.extraCode({ wrongRoom: true })); } catch (error) { wrongRoom = error.message.includes('不是你在当前空间'); }
+    try { await f.restore(await f.extraCode({ wrongRoom: true })); } catch (error) { wrongRoom = error.message.includes('不是你在当前密室'); }
     return { result, count, conflict, wrongRoom, noPartialWrites: (await f.history()).length === 0 };
   });
   assert.equal(merged.count, 6); assert.equal(merged.result.gallery.total, 4);

@@ -1,4 +1,3 @@
-import {uiNotice} from './ui-notice';
 import { mountDialog } from './dialog';
 import { layoutViewport } from './form-input';
 import type { PasswordRequestOptions } from './password-dialog';
@@ -31,20 +30,21 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
     const dots = [...sheet.querySelectorAll('.numeric-password-dots i')];
     const keys = [...sheet.querySelectorAll<HTMLButtonElement>('[data-digit]')];
     const left = sheet.querySelector<HTMLButtonElement>('[data-numeric-left]')!, right = sheet.querySelector<HTMLButtonElement>('[data-numeric-right]')!;
-    sheet.querySelector('[data-numeric-context]')!.textContent = `${options.spaceName ?? '私密空间'}。${options.operation ? `${options.operation}。` : ''}${options.context}${options.create ? '。这是本机应用锁，与手机锁屏密码不同。' : ''}`;
+    sheet.querySelector('[data-numeric-context]')!.textContent = `${options.spaceName ?? '密室'}。${options.operation ? `${options.operation}。` : ''}${options.context}${options.create ? '。这是本机应用锁，与手机锁屏密码不同。' : ''}`;
     sheet.setAttribute('aria-describedby', sheet.querySelector('[data-numeric-context]')!.id = `${id}-context`);
     let digits = '', first = '', confirmation = false, busy = false, verifying = false, waitUnavailable = false, settled = false, waitUntil = 0;
-    let waitTimer: ReturnType<typeof setInterval> | undefined;
-    let shake: Animation | undefined;
+    let waitTimer: ReturnType<typeof setInterval> | undefined, shakeTimer:ReturnType<typeof setTimeout>|undefined;
+    let shake: Animation | undefined, failureText = '', shaking = false;
     const active = () => !signal.aborted && sheet.isConnected && options.isActive() && !document.hidden;
     const paint = () => {
       heading.textContent = confirmation ? '确认应用锁' : options.create ? '设置应用锁' : '输入密码';
       const seconds = Math.max(0, Math.ceil((waitUntil - Date.now()) / 1000));
-      description.textContent = seconds ? `请 ${seconds} 秒后再试` : busy ? options.create ? '正在设置应用锁…' : '正在验证…' : (confirmation ? '再次输入你的 6 位数字' : options.create ? '设置 6 位数字，用于本机日常解锁' : options.operation ? `继续${options.operation}` : '');
-      dots.forEach((dot, index) => dot.classList.toggle('filled', index < (verifying ? 6 : digits.length)));
+      description.classList.toggle('is-error', Boolean(failureText));
+      description.textContent = failureText || (seconds ? `请 ${seconds} 秒后再试` : busy ? options.create ? '正在设置应用锁…' : '正在验证…' : (confirmation ? '再次输入你的 6 位数字' : options.create ? '设置 6 位数字，用于本机日常解锁' : options.operation ? `继续${options.operation}` : ''));
+      dots.forEach((dot, index) => dot.classList.toggle('filled', index < (verifying || shaking ? 6 : digits.length)));
       progress.textContent = seconds ? `请 ${seconds} 秒后重试` : busy ? '正在验证' : `已输入 ${digits.length} 位，共 6 位`;
       form.setAttribute('aria-busy', String(busy));
-      keys.forEach(key => { key.disabled = busy || seconds > 0 || waitUnavailable; });
+      keys.forEach(key => { key.disabled = busy || shaking || seconds > 0 || waitUnavailable; });
       left.textContent = options.create || !(options.forgot || options.help) ? '取消' : '忘记密码？';
       left.hidden = Boolean(options.mandatory && !(options.forgot || options.help));
       left.toggleAttribute('data-password-cancel', Boolean(options.create || !(options.forgot || options.help)));
@@ -53,7 +53,7 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
       right.disabled = busy && Boolean(digits.length);
       right.toggleAttribute('data-password-cancel', !digits.length && !options.create && Boolean(options.forgot));
     };
-    const clear = () => { digits = ''; first = ''; waitUntil = 0; busy = false; verifying = false; clearInterval(waitTimer); shake?.cancel(); progress.textContent = ''; error.textContent = ''; form.setAttribute('aria-busy', 'false'); };
+    const clear = () => { digits = ''; first = ''; failureText = ''; shaking = false; waitUntil = 0; busy = false; verifying = false; clearInterval(waitTimer); clearTimeout(shakeTimer);shake?.cancel(); progress.textContent = ''; error.textContent = ''; form.setAttribute('aria-busy', 'false'); };
     const cancel = () => { clear(); if (!settled) { settled = true; reject(new DOMException('验证已取消', 'AbortError')); } controller.abort(); };
     root.append(sheet);
     const viewport = layoutViewport();
@@ -72,12 +72,15 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
       if (!options.create && options.help) { digits = ''; paint(); options.help(); }
       else leave(!options.create && Boolean(options.forgot));
     }, { signal });
-    right.addEventListener('click', () => { if (!digits.length) leave(); else if (!busy) { digits = digits.slice(0, -1); error.textContent = ''; paint(); } }, { signal });
+    right.addEventListener('click', () => { if (!digits.length) leave(); else if (!busy && !shaking) { digits = digits.slice(0, -1); error.textContent = ''; paint(); } }, { signal });
     const failure = (text: string) => {
-      digits = ''; error.textContent = '';uiNotice(root,text);
-      if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        shake?.cancel(); shake = sheet.querySelector('.numeric-password-dots')!.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-10px)' }, { transform: 'translateX(9px)' }, { transform: 'translateX(-6px)' }, { transform: 'translateX(0)' }], { duration: 360, easing: 'ease-out' });
-      }
+      digits = ''; failureText = text; error.textContent = text; shaking = true;
+      shake?.cancel();
+      const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+      shake=sheet.querySelector('.numeric-password-dots')!.animate(reduced
+        ? [{opacity:1},{opacity:.55},{opacity:1}]
+        : [{transform:'translateX(0)'},{transform:'translateX(-10px)'},{transform:'translateX(9px)'},{transform:'translateX(-6px)'},{transform:'translateX(4px)'},{transform:'translateX(0)'}],{duration:360,easing:'ease-out'});
+      void shake.finished.catch(()=>{});clearTimeout(shakeTimer);shakeTimer=setTimeout(()=>{shaking=false;if(active())paint();},360);
       paint();
     };
     const readWait = async () => {
@@ -88,7 +91,7 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
       if (milliseconds > 0) waitTimer = setInterval(() => { if (!active()) { cancel(); return; } if (Date.now() >= waitUntil) { waitUntil = 0; clearInterval(waitTimer); error.textContent = ''; } paint(); }, 200);
     };
     const submit = async () => {
-      if (!active() || busy || waitUnavailable || waitUntil > Date.now() || digits.length !== 6) return;
+      if (!active() || busy || shaking || waitUnavailable || waitUntil > Date.now() || digits.length !== 6) return;
       if (options.create && !confirmation) { first = digits; digits = ''; confirmation = true; error.textContent = ''; paint(); return; }
       if (options.create && digits !== first) { first = ''; confirmation = false; failure('两次输入不一致，请重新设置'); return; }
       let secret = digits; digits = ''; first = ''; busy = true; verifying = true; error.textContent = ''; paint();
@@ -103,18 +106,18 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
         if (!active()) { cancel(); return; }
         if (options.create) confirmation = false;
         verifying = false; failure(cause instanceof Error ? cause.message : '验证失败，请重试');
-        try { await readWait(); } catch { if (active()) { uiNotice(root,'暂时无法读取重试状态，请重新进入'); waitUnavailable = true; } else cancel(); }
+        try { await readWait(); } catch { if (active()) { failureText='暂时无法读取重试状态，请重新进入';error.textContent=failureText; waitUnavailable = true; } else cancel(); }
       } finally { secret = ''; if (!settled) { busy = false; verifying = false; if (active()) paint(); } }
     };
-    const enter = (digit: string) => { if (!active() || busy || waitUnavailable || waitUntil > Date.now() || digits.length >= 6) return; digits += digit; error.textContent = ''; paint(); if (digits.length === 6) void submit(); };
+    const enter = (digit: string) => { if (!active() || busy || shaking || waitUnavailable || waitUntil > Date.now() || digits.length >= 6) return; digits += digit; failureText = ''; error.textContent = ''; paint(); if (digits.length === 6) void submit(); };
     keys.forEach(key => key.addEventListener('click', () => enter(key.dataset.digit!), { signal }));
     sheet.addEventListener('keydown', event => {
       if (event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return;
       if (/^[0-9]$/.test(event.key)) { event.preventDefault(); if (!event.repeat) enter(event.key); }
-      else if (event.key === 'Backspace') { event.preventDefault(); if (!busy && !waitUnavailable && waitUntil <= Date.now()) { digits = digits.slice(0, -1); error.textContent = ''; paint(); } }
+      else if (event.key === 'Backspace') { event.preventDefault(); if (!busy && !shaking && !waitUnavailable && waitUntil <= Date.now()) { digits = digits.slice(0, -1); error.textContent = ''; paint(); } }
     }, { signal });
     form.addEventListener('submit', event => { event.preventDefault(); void submit(); }, { signal });
     paint();
-    if (options.retryAfterMs) { busy = true; paint(); void readWait().catch(() => { if (active()) { uiNotice(root,'暂时无法读取重试状态，请重新进入'); waitUnavailable = true; } }).finally(() => { busy = false; if (active()) paint(); }); }
+    if (options.retryAfterMs) { busy = true; paint(); void readWait().catch(() => { if (active()) { failureText='暂时无法读取重试状态，请重新进入';error.textContent=failureText; waitUnavailable = true; } }).finally(() => { busy = false; if (active()) paint(); }); }
   });
 }

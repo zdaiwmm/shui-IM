@@ -236,7 +236,7 @@ export async function verifyMembershipEnvelope(vault: Vault, envelope: MlsMember
     if (envelope.action !== 'add' || !source || !envelope.target || sender.role === source.role ||
       envelope.target.role !== source.role || envelope.target.addedBy !== source.deviceId ||
       canonicalStringify(memberBundleForMls(envelope.target)) !== canonicalStringify(proof.request.target) ||
-      !await verifyAccessProof(proof, vault.roomId, source)) throw new Error('空间接入身份授权不正确');
+      !await verifyAccessProof(proof, vault.roomId, source)) throw new Error('密室接入身份授权不正确');
   }
   if (envelope.personalAccess) {
     const a = envelope.personalAccess, request = a.request;
@@ -261,36 +261,36 @@ export async function browserAccessCheckpoint(vault: Vault, state: RoomState, pr
   let sequence = vault.mls?.lastEventSeq ?? 0;
   for (const {eventSeq,event} of [...(state.mlsEvents ?? [])].sort((a,b) => a.eventSeq-b.eventSeq)) {
     if(eventSeq <= sequence) continue;
-    if(eventSeq !== sequence+1 || event.previousEventSeq !== sequence || !trusted.has(event.senderId)) throw new Error('空间身份签名链不连续');
+    if(eventSeq !== sequence+1 || event.previousEventSeq !== sequence || !trusted.has(event.senderId)) throw new Error('密室身份签名链不连续');
     const members=[...trusted.values()];
     const sender=await verifyMembershipEnvelope({...vault,members},event);
     if(event.browserAccess && !trusted.has(event.browserAccess.certificate.sourceDeviceId)) throw new Error('原设备授权已撤销');
     if(event.action==='add') {
-      if(!event.target || trusted.has(event.targetId) || (!event.browserAccess && (event.target.role!==sender.role || event.target.addedBy!==sender.deviceId))) throw new Error('空间成员加入授权不正确');
+      if(!event.target || trusted.has(event.targetId) || (!event.browserAccess && (event.target.role!==sender.role || event.target.addedBy!==sender.deviceId))) throw new Error('密室成员加入授权不正确');
       if(event.targetId===vault.identity.publicBundle.deviceId) {
-        if(canonicalStringify(event.browserAccess)!==canonicalStringify(proof)) throw new Error('空间授权与本机请求不一致');
+        if(canonicalStringify(event.browserAccess)!==canonicalStringify(proof)) throw new Error('密室授权与本机请求不一致');
         vault.mls!.lastEventSeq=sequence;
         return members;
       }
       trusted.set(event.targetId,{...event.target,status:'active'});
     } else if(event.action==='remove') {
-      if(trusted.get(event.targetId)?.role!==sender.role || event.targetId===sender.deviceId) throw new Error('空间成员移除授权不正确');
+      if(trusted.get(event.targetId)?.role!==sender.role || event.targetId===sender.deviceId) throw new Error('密室成员移除授权不正确');
       trusted.delete(event.targetId);
     } else if (event.action === 'replace') {
       verifyReplacementTarget(event,members);
       if(event.recoveryRequest) await verifyRecoveryRequest({...vault,members},event.recoveryRequest);
       else if(event.repairRequest) await verifyRepairRequest({...vault,members},event.repairRequest);
-      else throw new Error('空间恢复授权缺失');
+      else throw new Error('密室恢复授权缺失');
       trusted.delete(event.replacedDeviceId!);trusted.set(event.targetId,{...event.target!,status:'active'});
     }
     sequence=eventSeq;
   }
-  throw new Error('空间加入尚未完成');
+  throw new Error('密室加入尚未完成');
 }
 
 /** Build a ready vault in memory; no half-joined endpoint is persisted on crash. */
 export async function completeBrowserAccessJoin(vault: Vault, state: RoomState, proof: AccessProof): Promise<void> {
-  if(state.roomId!==vault.roomId || state.protocol!=='mls-rfc9420') throw new Error('空间状态不匹配');
+  if(state.roomId!==vault.roomId || state.protocol!=='mls-rfc9420') throw new Error('密室状态不匹配');
   const checkpoint=await browserAccessCheckpoint(vault,state,proof);
   const trusted=new Map(checkpoint.map(m=>[m.deviceId,m]));
   for(const {eventSeq,event} of [...(state.mlsEvents??[])].sort((a,b)=>a.eventSeq-b.eventSeq)) {
@@ -298,17 +298,17 @@ export async function completeBrowserAccessJoin(vault: Vault, state: RoomState, 
     // Finish the authenticated join first. Subsequent window epochs must be
     // interleaved with application messages by the durable sync pipeline.
     if(vault.mls?.groupState && event.retention) break;
-    if(!trusted.has(event.senderId) || event.browserAccess&&!trusted.has(event.browserAccess.certificate.sourceDeviceId)) throw new Error('空间成员授权已撤销');
+    if(!trusted.has(event.senderId) || event.browserAccess&&!trusted.has(event.browserAccess.certificate.sourceDeviceId)) throw new Error('密室成员授权已撤销');
     const sender=trusted.get(event.senderId)!;
-    if(event.action==='add'&&(!event.target||trusted.has(event.targetId)||!event.browserAccess&&(event.target.role!==sender.role||event.target.addedBy!==sender.deviceId)))throw new Error('空间成员加入授权不正确');
-    if(event.action==='remove'&&(trusted.get(event.targetId)?.role!==sender.role||event.targetId===sender.deviceId))throw new Error('空间成员移除授权不正确');
+    if(event.action==='add'&&(!event.target||trusted.has(event.targetId)||!event.browserAccess&&(event.target.role!==sender.role||event.target.addedBy!==sender.deviceId)))throw new Error('密室成员加入授权不正确');
+    if(event.action==='remove'&&(trusted.get(event.targetId)?.role!==sender.role||event.targetId===sender.deviceId))throw new Error('密室成员移除授权不正确');
     vault.members=[...trusted.values(),...(event.target?[event.target]:[])];
     if(!vault.mls?.groupState) vault.mls=await joinMlsMembership(vault,event,eventSeq);
     else {vault.mls.groupState=await processMlsMembership(vault,event,eventSeq);vault.mls.lastEventSeq=eventSeq;if(event.retention)vault.mls.window={fromSeq:event.retention.afterSeq+1,controls:[],generated:0};}
     if(event.action==='remove')trusted.delete(event.targetId);
     else if(event.action !== 'update') {if(event.replacedDeviceId)trusted.delete(event.replacedDeviceId);trusted.set(event.targetId,{...event.target!,status:'active'});}
   }
-  if(vault.mls?.phase!=='active')throw new Error('空间加入尚未完整提交');
+  if(vault.mls?.phase!=='active')throw new Error('密室加入尚未完整提交');
   const caughtUp=vault.mls.lastEventSeq===state.nextMlsEventSeq;
   if(caughtUp)assertAuthenticatedRoomRoster([...trusted.values()],state.members);
   const own=state.members.find(m=>m.deviceId===vault.identity.publicBundle.deviceId);

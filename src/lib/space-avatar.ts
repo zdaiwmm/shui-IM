@@ -27,7 +27,7 @@ export function validSpaceAvatar(value: unknown): value is SpaceAvatar {
 }
 export const defaultSpaceAvatar = (): SpaceAvatar => ({ v: 1, kind: 'emoji', emoji: 'fluent-slightly_smiling_face', background: 0 });
 const escape = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-export function spaceAvatarMarkup(avatar?: SpaceAvatar, name = '空间'): string {
+export function spaceAvatarMarkup(avatar?: SpaceAvatar, name = '密室'): string {
   if (avatar?.kind === 'image' && validSpaceAvatar(avatar)) return `<span class="space-avatar is-image" aria-hidden="true"><img src="${avatar.data}" alt="" draggable="false"></span>`;
   if (avatar?.kind === 'emoji' && validSpaceAvatar(avatar)) {
     const item = catalog.find(item => item.id === avatar.emoji)!;

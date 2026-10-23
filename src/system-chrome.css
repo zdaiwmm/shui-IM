@@ -40,7 +40,7 @@ html:has(.document-reader [data-presentation='sheet']) {
 }
 html:has(.call-view) { --chrome-top-surface: var(--paper); --chrome-bottom-surface: var(--paper); }
 html:has(.call-has-remote-video) { --chrome-top-surface: #141214; --chrome-bottom-surface: #141214; }
-html:has(#app .cover), html.privacy-obscured { --chrome-top-surface: var(--paper-pure); --chrome-bottom-surface: var(--paper-pure); }
+html:has(#app .cover:not(.cover-preview-canvas)), html.privacy-obscured { --chrome-top-surface: var(--paper-pure); --chrome-bottom-surface: var(--paper-pure); }
 html:has(#app) {
   background-color: var(--chrome-bottom-surface);
   background-image: linear-gradient(var(--chrome-top-surface),var(--chrome-top-surface));
@@ -53,3 +53,8 @@ body:has(#app) { background: transparent; }
 @media (forced-colors: active) {
   html:has(#app), body:has(#app) { background: Canvas; }
 }
+
+/* Settings pages own the top canvas, including a sheet over the chat wallpaper. */
+html:not(.privacy-obscured):has(#app :is(.is-settings-sheet,.is-settings-subpage,.is-space-list-page,.cover-settings-page,.device-management-page,.archive-page)):not(:has(#app > .confirm-overlay:not(.password-page))) { --chrome-top-surface:var(--paper); }
+html:not(.privacy-obscured):has(#app .numeric-password-page) { --chrome-top-surface:light-dark(#edf0f4,#1c2028); --chrome-bottom-surface:light-dark(#edf0f4,#1c2028); }
+html:not(.privacy-obscured):has(#app .room-creation-page) { --chrome-top-surface:var(--paper); --chrome-bottom-surface:var(--paper); }

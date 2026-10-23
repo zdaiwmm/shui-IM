@@ -99,14 +99,14 @@ try {
   assert.match(await a.locator('#joint-progress .recovery-flow-lead').textContent() ?? '', /核对双方页面的编号与结果/);
   assert.equal(await a.locator('.joint-request-code').count(), 1);
   assert.equal(await a.locator('#joint-scope-summary').count(), 1);
-  assert.match(await a.locator('#joint-scope').textContent(), /空间恢复码保持不变/);
+  assert.match(await a.locator('#joint-scope').textContent(), /密室恢复码保持不变/);
   assert.doesNotMatch(await a.locator('#joint-scope').textContent(), /保存新恢复码/);
   assert.equal(await a.evaluate(() => session.vault.recoveryExperience.jointMaterial), 'retained');
   assert.equal(await a.locator('#joint-participant-badge').count(), 1);
   assert.equal(await a.locator('#joint-retire, #joint-retry').count(), 0);
   assert.equal(await a.locator('#joint-qr').evaluate(canvas => canvas.getAttribute('width')), '248');
   await a.setViewportSize({ width: 390, height: 844 });
-  await a.getByRole('button', { name: '确认并找回空间', exact: true }).waitFor();
+  await a.getByRole('button', { name: '确认并找回密室', exact: true }).waitFor();
   if (process.argv[2]) { await mkdir(process.argv[2], { recursive: true }); await a.screenshot({ path: path.join(process.argv[2], 'F01-auto-recovery-390.png'), animations: 'disabled' }); }
   assert.equal(await a.locator('#joint-qr').isVisible(), false, 'Invitation is secondary to the verified result');
   assert.equal(await a.locator('.recovery-steps').count(), 0);

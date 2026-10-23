@@ -18,7 +18,7 @@ export function createSpaceProfile(root: HTMLElement, options: {
   return new Promise(resolve => {
     const lifetime = new AbortController(), signal = AbortSignal.any([options.signal, lifetime.signal]);
     const overlay = document.createElement('div'); overlay.className = 'space-profile-overlay';
-    overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', options.avatarOnly ? '修改空间头像' : '创建私密空间');
+    overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', options.avatarOnly ? '修改密室头像' : '创建密室');
     let sourceChosen = false;
     let name = options.initialProfile?.name ?? '', avatar = options.initialProfile?.avatar ?? defaultSpaceAvatar(), result: SpaceProfile | null = null;
     let pageLifetime = new AbortController();
@@ -45,7 +45,7 @@ export function createSpaceProfile(root: HTMLElement, options: {
       const pageSignal = AbortSignal.any([signal, pageLifetime.signal]);
       overlay.innerHTML = `<section class="space-profile-page"><header class="space-profile-header"><button class="icon-button" id="profile-back" type="button" aria-label="${cancel ? '取消编辑头像' : '返回'}">${icon(ArrowLeft)}</button><h2>${title}</h2><span></span></header><div class="space-profile-scroll"><div class="space-profile-content">${body}<p class="form-error" role="alert"></p></div></div><footer class="space-profile-footer"><button class="primary-button" id="profile-done" type="button">${action}</button></footer></section>`;
       mountEditor();
-      animatePageReplacement(overlay, previous, overlay.querySelector<HTMLElement>(':scope > .space-profile-page')!, title === '创建私密空间', signal);
+      animatePageReplacement(overlay, previous, overlay.querySelector<HTMLElement>(':scope > .space-profile-page')!, title === '创建密室', signal);
       overlay.querySelector('#profile-back')!.addEventListener('click', back, { signal: pageSignal });
       overlay.querySelector<HTMLElement>('#profile-back')!.focus({ preventScroll: true });
       return { signal: pageSignal, playback: bindSpaceAvatarPlayback(overlay, pageSignal) };
@@ -59,7 +59,7 @@ export function createSpaceProfile(root: HTMLElement, options: {
       finally { controls.forEach(b => b.disabled = false); }
     };
     const details = () => {
-      const view = page(options.avatarOnly ? '修改空间头像' : '创建私密空间', `<div class="space-profile-identity"><div id="space-profile-avatar">${spaceAvatarMarkup(avatar)}</div><button class="text-button" id="change-space-avatar" type="button">更改头像</button></div><form id="create-space-profile" novalidate><label class="space-profile-label" for="new-space-name">空间名称</label><input id="new-space-name" name="name" maxlength="40" value="${escape(name)}" autocomplete="off" placeholder="给这个空间起个名字" aria-describedby="space-profile-hint"><p class="field-hint" id="space-profile-hint">头像和名称仅自己这一侧可见。</p></form>`, options.hasCredential ? '创建空间' : '下一步', () => dialog!.close());
+      const view = page(options.avatarOnly ? '修改密室头像' : '创建密室', `<div class="space-profile-identity"><div id="space-profile-avatar">${spaceAvatarMarkup(avatar)}</div><button class="text-button" id="change-space-avatar" type="button">更改头像</button></div><form id="create-space-profile" novalidate><label class="space-profile-label" for="new-space-name">密室名称</label><input id="new-space-name" name="name" maxlength="40" value="${escape(name)}" autocomplete="off" placeholder="给这个密室起个名字" aria-describedby="space-profile-hint"><p class="field-hint" id="space-profile-hint">头像和名称仅自己这一侧可见。</p></form>`, options.hasCredential ? '创建密室' : '下一步', () => dialog!.close());
       if (options.avatarOnly) {
         overlay.querySelector('#create-space-profile')!.remove();
         overlay.querySelector('#profile-done')!.textContent = '选择头像';
@@ -73,7 +73,7 @@ export function createSpaceProfile(root: HTMLElement, options: {
       const submit = () => {
         if (!active()) return;
         name = input.value.trim();
-        if (!name || name.length > 40 || /[\u0000-\u001f\u007f]/.test(name)) { uiNotice(root,'请输入 1–40 个字符的空间名称'); input.setAttribute('aria-invalid', 'true'); input.focus(); return; }
+        if (!name || name.length > 40 || /[\u0000-\u001f\u007f]/.test(name)) { uiNotice(root,'请输入 1–40 个字符的密室名称'); input.setAttribute('aria-invalid', 'true'); input.focus(); return; }
         result = { name, avatar }; options.submitted?.(overlay); dialog!.close({ animate: false, restoreFocus: false });
       };
       overlay.querySelector('#profile-done')!.addEventListener('click', submit, { signal: view.signal });

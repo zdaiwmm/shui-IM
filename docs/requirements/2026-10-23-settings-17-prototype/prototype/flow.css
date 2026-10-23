@@ -1,0 +1,22 @@
+.flows { max-width:1160px; margin:auto; padding:48px 32px; }
+.flows-heading { margin-bottom:56px; }
+.flows-heading h1 { font-size:30px; line-height:1.4; font-weight:600; letter-spacing:-.03em; margin-bottom:16px; }
+.flows-heading>p:last-child { color:var(--ink-muted); font-size:14px; }
+.flow-section { display:grid; grid-template-columns:210px 1fr; gap:40px; padding:36px 0; border-top:1px solid var(--line); }
+.flow-label>span { font-size:12px; color:var(--ink-faint); }
+.flow-label h2 { font-size:20px; margin:12px 0; font-weight:600; }
+.flow-label p { color:var(--ink-muted); font-size:13px; line-height:1.8; }
+.flow-canvas { background:var(--surface); border-radius:16px; padding:28px; min-width:0; }
+.flow-line { max-width:660px; margin:auto; }
+.flow-line>a,.flow-line>.flow-node,.flow-decision { width:100%; max-width:360px; margin-inline:auto; }
+.flow-canvas a,.flow-node,.flow-decision { display:block; background:var(--surface-raised); padding:16px; border-radius:10px; text-align:center; font-size:13px; border:1px solid var(--line-subtle); line-height:1.7; }
+.flow-canvas a:hover { outline:1px solid var(--accent); }
+.flow-canvas small { display:block; color:var(--ink-muted); font-size:11px; margin-top:5px; }
+.flow-canvas i { display:block; text-align:center; color:var(--ink-faint); font-size:18px; line-height:36px; font-style:normal; }
+.flow-decision { border:1px dashed var(--line-strong); background:transparent; }
+.flow-branches { display:grid; grid-template-columns:1fr 1fr; gap:24px; margin-top:16px; align-items:start; }
+.branch-label { display:block; text-align:center; font-size:11px; color:var(--ink-muted); margin:4px 0 12px; }
+.flow-accent { background:var(--accent-soft) !important; color:var(--accent); }
+.flow-boundary { font-size:11px; color:var(--ink-muted); padding-top:20px; margin-top:24px; border-top:1px solid var(--line); line-height:1.8; }
+.flows-footer { color:var(--ink-faint); margin-top:48px; font-size:11px; text-align:center; }
+@media(max-width:760px) { .flows { padding:32px 16px; }.flow-section { grid-template-columns:1fr; gap:20px; }.flow-label { max-width:none; }.flow-canvas { padding:20px 12px; }.flow-branches { gap:12px; }.flow-canvas a,.flow-node,.flow-decision { padding:12px 8px; font-size:12px; }.flow-canvas small { font-size:10px; }.flows-heading h1 { font-size:24px; } }

@@ -109,7 +109,7 @@ export function attachHistoryRestore(options: Options): () => void {
       }
     }
     const detail = progressSheet.querySelector<HTMLElement>('[data-detail]')!;
-    detail.textContent = approve ? `${view?.unavailableSources ? `还有 ${view.unavailableSources} 份旧备份暂不可用，未计入下方范围。可以先恢复已找到的记录；关闭后可重新输入恢复码。` : '已找到你在这个空间的备份。'}重复记录不会再次添加，删除和隐藏状态保留。照片和文件需要原文件仍可下载。`
+    detail.textContent = approve ? `${view?.unavailableSources ? `还有 ${view.unavailableSources} 份旧备份暂不可用，未计入下方范围。可以先恢复已找到的记录；关闭后可重新输入恢复码。` : '已找到你在这个密室的备份。'}重复记录不会再次添加，删除和隐藏状态保留。照片和文件需要原文件仍可下载。`
       : error ? `${error}。${reading ? '本次尚未开始恢复，之前找回的记录会保留。' : '已找回的记录会保留。'}重试只补缺失内容。` : complete
       ? '已检查恢复结果。回到聊天，往前翻就能看到记录；删除或隐藏的内容仍保持原样。'
       : `${reading ? '正在检查备份并对比已有记录。' : '正在保存找回的记录。'}关闭弹窗会取消本次恢复，已找回的记录会保留。`;
@@ -193,7 +193,7 @@ export function attachHistoryRestore(options: Options): () => void {
   const openInput = () => {
     if (!active() || inputSheet?.isConnected) return;
     const { sheet, dialog } = mount('验证恢复码', `<form class="history-restore-form"><div class="history-restore-fields"><label for="history-restore-code">恢复码（多个旧码请分行）</label>
-      <div class="history-restore-input"><textarea id="history-restore-code" name="code" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="粘贴空间恢复码" required></textarea></div>
+      <div class="history-restore-input"><textarea id="history-restore-code" name="code" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="粘贴密室恢复码" required></textarea></div>
       <p class="field-hint">只恢复你原本能阅读的内容。</p></div><button class="primary-button" type="submit" disabled>查找备份</button></form>`, 'textarea');
     inputSheet = sheet;
     const input = sheet.querySelector('textarea')!;

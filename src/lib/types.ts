@@ -111,6 +111,8 @@ export type MlsVaultState = {
 };
 
 export type PendingDeviceLink = {
+  /** Independent link-only capability, never sent to the server. */
+  admissionSecret?: string;
   linkId: string;
   secret: string;
   expiresAt: string;

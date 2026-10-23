@@ -177,7 +177,7 @@ async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal
         if(media.kind!=='media'||media.v!==2||media.blobId!==manifest.blobId||media.index!==index||typeof media.bytes!=='string')throw new Error('原图片分块归属不正确');
         const raw=fromBase64Url(media.bytes);
         if(pass===0){await verifier.chunk(index,raw.buffer);if(index===parts.length-1)verifier.finish();}
-        else {await savePrivateMediaChunk(destination,manifest.blobId,index,raw.buffer,signal);const saved=await loadPrivateMediaChunk(destination,manifest.blobId,index,raw.length);if(!saved||toBase64Url(saved)!==media.bytes)throw new Error('本机空间不足，请腾出空间后重试');}
+        else {await savePrivateMediaChunk(destination,manifest.blobId,index,raw.buffer,signal);const saved=await loadPrivateMediaChunk(destination,manifest.blobId,index,raw.length);if(!saved||toBase64Url(saved)!==media.bytes)throw new Error('本机密室不足，请腾出密室后重试');}
       }
     }
     for(const {manifest} of payload.media){const kind=manifest.mimeType?.startsWith('image/')?'images':manifest.mimeType?.startsWith('video/')?'videos':manifest.mimeType?.startsWith('audio/')?'audio':'files';state[kind]++;}

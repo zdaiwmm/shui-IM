@@ -29,7 +29,7 @@ async function api<T>(session:VaultSession,path:string,signal:AbortSignal,body?:
 export const listChamberHistoryRequests = (session:VaultSession,signal:AbortSignal) => api<ChamberHistorySummary[]>(session,base(session),signal);
 export const readChamberHistoryRequest = (session:VaultSession,id:string,signal:AbortSignal) => api<ChamberHistoryRequest>(session,`${base(session)}/${id}?manifest=1`,signal);
 function participants(session:VaultSession) {
-  if (!isChamberVault(session.vault)) throw new Error('此空间使用原有备份与恢复方式');
+  if (!isChamberVault(session.vault)) throw new Error('此密室使用原有备份与恢复方式');
   const owner = session.vault.personalBinding?.identity, peer = session.vault.personalPeers?.find(p=>p.identity.id !== owner?.id)?.identity;
   if (!owner || !peer) throw new Error('双方身份尚未确认'); return {owner,peer};
 }
@@ -171,7 +171,7 @@ export async function completeChamberHistoryRecovery(session:VaultSession,reques
           else {
             await saveChamberRecoveredMediaChunk(destination,manifest.blobId,index,raw.buffer,signal);
             const readback=await loadCachedMediaChunk(destination,manifest.blobId,index,raw.length);
-            if(!readback||new Uint8Array(readback).some((byte,i)=>byte!==raw[i]))throw new Error('本机容量不足，原文件未能完整回读。已保留经过验证的旧记录，请腾出空间后继续恢复');
+            if(!readback||new Uint8Array(readback).some((byte,i)=>byte!==raw[i]))throw new Error('本机容量不足，原文件未能完整回读。已保留经过验证的旧记录，请腾出密室后继续恢复');
           }
         }
       }

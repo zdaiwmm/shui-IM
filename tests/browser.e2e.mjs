@@ -1562,7 +1562,9 @@ try {
   // publishes the signed MLS replacement event.
   await recovery.evaluate(()=>window.legacyDeviceTestApp.renderDeviceManager('peer'));
   const peerSection = recovery.locator('.peer-device-section');
-  await peerSection.getByRole('button', { name: '修复此设备', exact: true }).click();
+  await peerSection.getByRole('radio').first().click();
+  await peerSection.locator('.peer-device-continue').click();
+  await recovery.locator('[data-help-action]').click();
   const repairUrl = await recovery.locator('.device-link-sheet input[aria-label="设备链接"]').inputValue();
   invariant(repairUrl.includes('#repair='), 'Repair invitation did not use the repair discriminator');
   await recovery.locator('.device-link-sheet [data-close]').click();

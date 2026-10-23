@@ -7,17 +7,19 @@ import { showExplanation } from './explanation-dialog';
 import { mountDialog } from './dialog';
 import { authorizedFetch } from './api';
 import { toBase64Url } from './base64';
+import { animatePageReplacement } from './motion';
 
 type Options = { startWithCredential?: boolean; startWithRestore?: boolean; name:()=>string; verify:()=>Promise<void>; root:HTMLElement; session:VaultSession; signal:AbortSignal; active:()=>boolean; notice:(text:string,error?:boolean)=>void; back:()=>void; sync:()=>Promise<void>; restored:()=>void; beginPick:()=>boolean; finishPick:()=>Promise<boolean>; saveImage:(blob:Blob)=>Promise<void> };
 const escape = (text:string) => text.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]!));
 const icon = (value:Parameters<typeof createElement>[0]) => createElement(value).outerHTML;
 export function mountArchiveSettings(o:Options):void {
-  let pageAbort:AbortController|undefined, previewAuthorized=false;
+  let pageAbort:AbortController|undefined, initial=true, requiresOperationProof=false;
   const begin=()=>{pageAbort?.abort();pageAbort=new AbortController();return AbortSignal.any([o.signal,pageAbort.signal]);};
   const active=()=>o.active()&&!o.signal.aborted;
   const shell=(title:string,content:string)=>`<main class="backup-page archive-page"><header class="subpage-header backup-header"><button class="icon-button" id="archive-back" data-back type="button" aria-label="返回">‹</button><div class="backup-heading"><h1>${title}</h1></div><span class="backup-header-spacer" aria-hidden="true"></span></header><section class="backup-content">${content}</section></main>`;
-  const report=(cause:unknown)=>{if(active()&&!(cause instanceof DOMException&&cause.name==='AbortError'))o.notice(cause instanceof Error?cause.message:'操作未完成，请重试',true);};
-  const leave=()=>{previewAuthorized=false;pageAbort?.abort();o.back();};
+  const report=(cause:unknown)=>{if(active()&&!(cause instanceof DOMException&&cause.name==='AbortError')){const text=cause instanceof Error?cause.message:'操作未完成，请重试',error=o.root.querySelector<HTMLElement>(':scope > .archive-page [data-archive-error]');if(error)error.textContent=text;else o.notice(text,true);}};
+  const show=(html:string,backward=false)=>{const previous=initial?null:o.root.querySelector<HTMLElement>(':scope > .archive-page');initial=false;o.root.innerHTML=html;animatePageReplacement(o.root,previous,o.root.firstElementChild as HTMLElement,backward,o.signal);};
+  const leave=()=>{pageAbort?.abort();o.back();};
   const protectTask=(button:HTMLButtonElement,task:()=>Promise<void>)=>{
     if(button.disabled)return;button.disabled=true;button.setAttribute('aria-busy','true');
     void task().catch(report).finally(()=>{if(button.isConnected){button.disabled=false;button.removeAttribute('aria-busy');}});
@@ -46,7 +48,7 @@ export function mountArchiveSettings(o:Options):void {
   }
   function settings() {
     const signal=begin();
-    o.root.innerHTML=shell('备份与恢复',`<p class="backup-intro">聊天记录和原文件会在联网、解锁时自动加密备份。</p><div class="backup-settings-group"><section class="backup-setting"><div class="backup-setting-copy"><span class="backup-setting-icon">${icon(Upload)}</span><div><h2>自动备份</h2><p data-archive-status>正在读取备份状态…</p></div></div><button class="secondary-button" data-sync>立即备份</button></section><button class="archive-entry" data-card>${icon(KeyRound)}<span>恢复凭证<small>设置密码，保存恢复卡片</small></span><b>›</b></button><button class="archive-entry" data-restore>${icon(Download)}<span>聊天记录恢复<small>用已保存的凭证找回记录</small></span><b>›</b></button></div>`);
+    show(shell('备份与恢复',`<p class="backup-intro">聊天记录和原文件会在联网、解锁时自动加密备份。</p><div class="backup-settings-group"><section class="backup-setting"><div class="backup-setting-copy"><span class="backup-setting-icon">${icon(Upload)}</span><div><h2>自动备份</h2><p data-archive-status>正在读取备份状态…</p></div></div><button class="secondary-button" data-sync>立即备份</button></section><button class="archive-entry" data-card>${icon(KeyRound)}<span>恢复凭证<small>设置密码，保存恢复卡片</small></span><b>›</b></button><button class="archive-entry" data-restore>${icon(Download)}<span>聊天记录恢复<small>用已保存的凭证找回记录</small></span><b>›</b></button></div>`));
     bindBack();
     const status=o.root.querySelector<HTMLElement>('[data-archive-status]')!;
     void loadPrivateArchiveItems(o.session).then(items=>{if(!status.isConnected)return;const state=o.session.vault.archiveState;
@@ -95,12 +97,12 @@ export function mountArchiveSettings(o:Options):void {
   function card(editing=false) {
     if(!active())return;const signal=begin(),archive=o.session.vault.roomArchiveV2!;
     if(archive.rotation){
-      o.root.innerHTML=shell('正在完成密码修改','<p class="backup-intro">正在核对上次修改结果，请保持联网。新凭证已在本浏览器加密保留。</p><button class="primary-button" data-resume>继续完成修改</button>');bindBack();
+      show(shell('正在完成密码修改','<p class="backup-intro">正在核对上次修改结果，请保持联网。新凭证已在本浏览器加密保留。</p><button class="primary-button" data-resume>继续完成修改</button>'));bindBack();
       const button=o.root.querySelector<HTMLButtonElement>('[data-resume]')!;const resume=()=>protectTask(button,async()=>{await resumeRotation(signal);if(active()&&!signal.aborted)card();});button.addEventListener('click',resume);resume();return;
     }
     const credential=archive.credential;
     if(!credential||editing){
-      o.root.innerHTML=shell(editing?'修改凭证密码':'恢复凭证',`${editing?'':steps(1)}${editing?'':'<h2 class="archive-form-title">先设置凭证密码</h2>'}<p class="backup-intro">${editing?'输入原密码后设置新密码。修改成功后，需要重新保存并验证新凭证。':'凭证密码仅用于本浏览器加密，不上传服务器。完成密码设置、导出和原图回验后，隐私引导才会显示「已设置」。'}</p><form class="archive-password-form" data-card-form novalidate>${editing?field('original','原凭证密码','输入当前凭证密码','current-password'):''}${field('password',editing?'新凭证密码':'凭证密码','12–128 个字符')}${field('confirm','确认凭证密码','再次输入凭证密码')}<p class="archive-form-note">凭证密码与应用锁独立，请分开保管。</p><button class="primary-button" type="submit">${editing?'保存新密码':'下一步：导出凭证'}</button></form>`);
+      show(shell(editing?'修改凭证密码':'恢复凭证',`${editing?'':steps(1)}${editing?'':'<h2 class="archive-form-title">先设置凭证密码</h2>'}<p class="backup-intro">${editing?'输入原密码后设置新密码。修改成功后，需要重新保存并验证新凭证。':'凭证密码仅用于本浏览器加密，不上传服务器。完成密码设置、导出和原图回验后，隐私引导才会显示「已设置」。'}</p><form class="archive-password-form" data-card-form autocomplete="off" novalidate>${editing?field('original','原凭证密码','输入当前凭证密码','current-password'):''}${field('password',editing?'新凭证密码':'凭证密码','12–128 个字符')}${field('confirm','确认凭证密码','再次输入凭证密码')}<p class="archive-inline-error" data-archive-error role="alert"></p><p class="archive-form-note">凭证密码与应用锁独立，请分开保管。</p><button class="primary-button" type="submit">${editing?'保存新密码':'下一步：导出凭证'}</button></form>`));
       bindBack(editing?()=>card():o.startWithCredential?leave:settings);eyes(o.root,signal);
       const form=o.root.querySelector<HTMLFormElement>('[data-card-form]')!;
       signal.addEventListener('abort',()=>form.reset(),{once:true});
@@ -112,7 +114,7 @@ export function mountArchiveSettings(o:Options):void {
           const old=await unlockArchiveCard(credential!,(form.elements.namedItem('original') as HTMLInputElement).value);
           if(old.descriptor.id!==archive.key.descriptor.id||archiveAccessToken(old)!==archiveAccessToken(archive.key))throw new Error('原凭证与当前状态不一致');
           if(signal.aborted||!active()||!await confirmRotation(signal))return;
-          await o.verify();if(signal.aborted||!active())return;
+          await o.verify();requiresOperationProof=true;if(signal.aborted||!active())return;
           // Ensure an empty archive is registered before rotating its read authority.
           await o.sync();if(signal.aborted||!active())return;
           const key={...archive.key,readToken:toBase64Url(crypto.getRandomValues(new Uint8Array(32)))},expected=archiveAccessHash(archiveAccessToken(archive.key)),next=archiveAccessHash(key.readToken);
@@ -122,94 +124,93 @@ export function mountArchiveSettings(o:Options):void {
         }else{
           const envelope=await protectArchiveCard(archive.key,password);if(signal.aborted||!active())return;await saveCredential(envelope,signal);
         }
-        form.reset();if(!signal.aborted&&active()){card();o.notice(editing?'密码已修改，请导出并回验新凭证':'密码已保存，还需导出并回验原图');}
+        form.reset();if(!signal.aborted&&active()){exportPage();}
       });});return;
     }
-    const current=archive.cardVerified?4:archive.exported?3:2;
-    o.root.innerHTML=shell('恢复凭证',`${archive.cardVerified?'':steps(current)}${archive.cardVerified?'':`<p class="archive-step-note">${current===2?'第 2 步：导出凭证并保存原图，随后验证是否可用。':'第 3 步：选取已保存的凭证原图，输入密码完成回验。'}</p>`}<figure class="archive-image-preview" aria-label="恢复凭证原图"><img data-card-image alt="${escape(o.name())}的恢复凭证，内容与导出原图一致"><p data-card-loading role="status">验证应用锁后显示完整凭证…</p></figure><div class="archive-card-status" data-card-status>${archive.cardVerified?'已保存并验证':'尚未完成 · 导出并回验后显示已设置'}</div><div class="archive-card-actions"><button class="primary-button" data-download type="button">${icon(Download)}导出凭证</button>${current===3?'<button class="secondary-button" data-verify-saved type="button">回验已保存的原图</button>':''}</div>`);
-    o.root.querySelector('main')!.classList.add('archive-credential-page');
-    const header=o.root.querySelector('header')!,change=document.createElement('button');change.className='text-button archive-change-password';change.type='button';change.dataset.changePassword='';change.textContent='修改凭证密码';header.append(change);
+
+    if(!archive.cardVerified){if(archive.exported)verifySaved(credential);else exportPage();return;}
+    requiresOperationProof=true;
+    show(shell('恢复凭证',`<div class="archive-managed-status">${icon(Check)}<h2>凭证已设置</h2><p>已保存并验证，可用于找回聊天记录。</p></div><div class="backup-settings-group"><button class="archive-entry" data-change-password>${icon(KeyRound)}<span>修改凭证密码<small>需要当前凭证密码</small></span><b>›</b></button><button class="archive-entry" data-download>${icon(Download)}<span>导出凭证<small>保存当前恢复凭证原图</small></span><b>›</b></button></div><p class="archive-inline-error" data-archive-error role="alert"></p>`));
     bindBack(o.startWithCredential?leave:settings);
-    let blob:Blob|undefined,url:string|undefined;
-    signal.addEventListener('abort',()=>{if(url)URL.revokeObjectURL(url);blob=undefined;},{once:true});
-    const preview=async()=>{if(!previewAuthorized){await o.verify();if(signal.aborted||!active())return;previewAuthorized=true;}const generated=await createArchiveCardImage(credential,o.name());if(signal.aborted||!active())return;blob=generated;url=URL.createObjectURL(blob);o.root.querySelector<HTMLImageElement>('[data-card-image]')!.src=url;o.root.querySelector('[data-card-loading]')?.remove();};
-    const ready=preview().catch(report);
-    change.addEventListener('click',()=>card(true));
-    o.root.querySelector('[data-verify-saved]')?.addEventListener('click',()=>verifySaved(signal,credential));
+    o.root.querySelector('[data-change-password]')!.addEventListener('click',()=>card(true));
     o.root.querySelector<HTMLButtonElement>('[data-download]')!.addEventListener('click',event=>protectTask(event.currentTarget as HTMLButtonElement,async()=>{
-      await ready;if(!blob){await preview();}if(!blob||signal.aborted||!active())return;
-      await o.verify();if(signal.aborted||!active())return;await o.saveImage(blob);
-      if(signal.aborted||!active())return;await changeArchive(signal,current=>{current.exported=true;});
-      // System handoff alone is not evidence that a file was saved.
-      verifySaved(signal,credential);
+      await o.verify();if(signal.aborted||!active())return;
+      const blob=await createArchiveCardImage(credential,o.name());if(signal.aborted||!active())return;await o.saveImage(blob);
     }));
   }
-  function verifySaved(signal:AbortSignal,credential:string){
-    const sheet=document.createElement('section');sheet.className='confirm-overlay archive-verification-overlay';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-modal','true');sheet.setAttribute('aria-label','验证已保存的凭证');
-    sheet.innerHTML=`<div class="confirm-dialog archive-dialog">${steps(3)}<h2>确认凭证已保存</h2><p>选择刚保存的原图，验证后即可放心保管。</p><form data-verify novalidate><label class="archive-upload">选择凭证原图<input name="image" type="file" accept="image/png" required></label>${field('password','凭证密码','输入这张凭证的密码','off')}<button class="primary-button" type="submit">验证已保存的凭证</button></form><button class="text-button" data-close type="button">稍后验证</button></div>`;
-    o.root.append(sheet);const form=sheet.querySelector<HTMLFormElement>('form')!;
-    const dialog=mountDialog(sheet,{signal,isActive:active,onClose:()=>form.reset()});eyes(sheet,signal);
-    sheet.querySelector('[data-close]')!.addEventListener('click',()=>dialog.close());
-    bindFile(form.querySelector('input[type=file]')!,signal,()=>{});
-    form.addEventListener('submit',event=>{event.preventDefault();protectTask(form.querySelector<HTMLButtonElement>('button[type=submit]')!,async()=>{
-      const file=(form.elements.namedItem('image') as HTMLInputElement).files?.[0];if(!file)throw new Error('请选择刚保存的凭证原图');
-      const text=await readArchiveCardImage(file);if(text!==credential)throw new Error('这不是本次导出的凭证，请重新选择');
-      const key=await unlockArchiveCard(text,(form.elements.namedItem('password') as HTMLInputElement).value);
-      if(signal.aborted||!active()||!sheet.isConnected)return;
-      if(key.descriptor.id!==o.session.vault.roomArchiveV2!.key.descriptor.id)throw new Error('这张凭证不属于当前密室');
-      await saveCredential(credential,signal,true);dialog.dispose();card();o.notice('凭证已保存并验证');
-    });});
+  function exportPage(){
+    const signal=begin(),credential=o.session.vault.roomArchiveV2!.credential!;
+    show(shell('导出恢复凭证',`${steps(2)}<h2 class="archive-form-title">保存凭证原图</h2><p class="backup-intro">请保存原图，并单独保管凭证密码。</p><figure class="archive-image-preview" aria-label="恢复凭证原图"><img data-card-image alt="${escape(o.name())}的恢复凭证，内容与导出原图一致"><p data-card-loading role="status">正在准备凭证…</p></figure><p class="archive-inline-error" data-archive-error role="alert"></p><div class="archive-card-actions"><button class="primary-button" data-download type="button">${icon(Download)}导出凭证</button>${o.session.vault.roomArchiveV2!.exported?'<button class="secondary-button" data-verify-saved type="button">回验已保存的原图</button>':''}</div>`));
+    o.root.querySelector('main')!.classList.add('archive-credential-page');bindBack(o.startWithCredential?leave:settings);
+    let blob:Blob|undefined,url:string|undefined;
+    signal.addEventListener('abort',()=>{if(url)URL.revokeObjectURL(url);blob=undefined;},{once:true});
+    const ready=createArchiveCardImage(credential,o.name()).then(generated=>{if(signal.aborted||!active())return;blob=generated;url=URL.createObjectURL(blob);o.root.querySelector<HTMLImageElement>(':scope > .archive-page [data-card-image]')!.src=url;o.root.querySelector(':scope > .archive-page [data-card-loading]')?.remove();});
+    void ready.catch(report);
+    o.root.querySelector('[data-verify-saved]')?.addEventListener('click',()=>verifySaved(credential));
+    o.root.querySelector<HTMLButtonElement>('[data-download]')!.addEventListener('click',event=>protectTask(event.currentTarget as HTMLButtonElement,async()=>{
+      await ready;if(!blob||signal.aborted||!active())return;
+      if(requiresOperationProof){await o.verify();if(signal.aborted||!active())return;}
+      await o.saveImage(blob);if(signal.aborted||!active())return;
+      await changeArchive(signal,current=>{current.exported=true;});if(signal.aborted||!active())return;verifySaved(credential);
+    }));
   }
-  function restore() {
-    const signal=begin();let envelope:string|undefined,selection=0,previewUrl:string|undefined;
-    o.root.innerHTML=shell('聊天记录恢复',`<p class="backup-intro">选择凭证原图，输入对应密码，将历史恢复到当前密室，仅自己可见。</p><form data-restore-form novalidate><label class="archive-upload archive-upload-main">${icon(Upload)}<strong data-upload-title>上传恢复凭证</strong><span>选择已保存的 PNG 原图</span><input name="image" type="file" accept="image/png" required></label><progress class="archive-file-progress" max="100" value="0" aria-label="凭证读取进度" hidden></progress><div class="archive-selected" hidden><img alt="所选凭证预览"><div><strong data-card-label></strong><p data-selected-status role="status"></p></div></div>${field('password','凭证密码','输入这张凭证的密码','off')}<button class="primary-button" data-restore-submit type="submit" disabled>恢复聊天记录</button></form>`);
-    bindBack(o.startWithRestore?leave:settings);eyes(o.root,signal);
-    const form=o.root.querySelector<HTMLFormElement>('form')!,button=form.querySelector<HTMLButtonElement>('[data-restore-submit]')!,progress=form.querySelector<HTMLProgressElement>('progress')!;
+  const selectionMarkup=()=>`<label class="archive-upload archive-upload-main">${icon(Upload)}<strong data-upload-title>选择凭证原图</strong><span>已保存的 PNG 原图</span><input name="image" type="file" accept="image/png" required></label><progress class="archive-file-progress" max="100" value="0" aria-label="凭证读取进度" hidden></progress><div class="archive-selected" hidden><img alt="所选凭证预览"><div><strong data-card-label></strong><p data-selected-status role="status"></p></div></div>`;
+  function selection(form:HTMLFormElement,signal:AbortSignal,selected:(text:string|undefined)=>void){
+    let attempt=0,url:string|undefined;
+    const button=form.querySelector<HTMLButtonElement>('button[type=submit]')!,progress=form.querySelector<HTMLProgressElement>('progress')!;
     bindFile(form.querySelector('input[type=file]')!,signal,file=>{
-      const attempt=++selection;envelope=undefined;button.disabled=true;progress.hidden=true;progress.value=0;if(previewUrl)URL.revokeObjectURL(previewUrl);form.querySelector<HTMLElement>('.archive-selected')!.hidden=true;
-      if(!file)return;
-      if(file.size>4*1024*1024){report(new Error('请选择 4 MB 以内的凭证原图'));return;}
-      progress.hidden=false;progress.value=0;
-      const reader=new FileReader(),abortRead=()=>reader.abort();signal.addEventListener('abort',abortRead,{once:true});reader.onloadend=()=>signal.removeEventListener('abort',abortRead);
-      reader.onprogress=event=>{if(attempt===selection&&!signal.aborted&&event.lengthComputable)progress.value=event.loaded/event.total*90;};
-      reader.onerror=()=>{if(attempt===selection&&!signal.aborted){progress.hidden=true;report(new Error('图片读取失败，请重新选择'));}};
-      reader.onload=()=>void(async()=>{
-        try{
-          const image=new Blob([reader.result as ArrayBuffer],{type:'image/png'}),text=await readArchiveCardImage(image),label=await archiveCardLabel(image);
-          if(attempt!==selection||signal.aborted||!active())return;
-          envelope=text;progress.value=100;previewUrl=URL.createObjectURL(image);
-          form.querySelector<HTMLImageElement>('.archive-selected img')!.src=previewUrl;form.querySelector<HTMLElement>('.archive-selected')!.hidden=false;
-          form.querySelector('[data-card-label]')!.textContent=label||'恢复凭证原图';form.querySelector('[data-selected-status]')!.textContent='图片已就绪 · 凭证名称仅供辨认，待密码验证';
-          form.querySelector('[data-upload-title]')!.textContent='重新选择凭证';button.disabled=false;
-        }catch(cause){if(attempt===selection&&!signal.aborted){progress.hidden=true;report(cause);}}
-      })();reader.readAsArrayBuffer(file);
+      const id=++attempt;selected(undefined);button.disabled=true;progress.hidden=true;progress.value=0;if(url)URL.revokeObjectURL(url);url=undefined;
+      form.querySelector<HTMLElement>('.archive-selected')!.hidden=true;form.querySelector<HTMLElement>('[data-archive-error]')!.textContent='';
+      if(!file)return;if(file.size>4*1024*1024||file.type!=='image/png'){report(new Error('请选择 4 MB 以内的 PNG 凭证原图'));return;}
+      progress.hidden=false;
+      const reader=new FileReader(),abort=()=>reader.abort();signal.addEventListener('abort',abort,{once:true});reader.onloadend=()=>signal.removeEventListener('abort',abort);
+      reader.onprogress=event=>{if(id===attempt&&!signal.aborted&&event.lengthComputable)progress.value=event.loaded/event.total*90;};
+      reader.onerror=()=>{if(id===attempt&&!signal.aborted){progress.hidden=true;report(new Error('图片读取失败，请重新选择'));}};
+      reader.onload=()=>void(async()=>{try{
+        const image=new Blob([reader.result as ArrayBuffer],{type:'image/png'}),text=await readArchiveCardImage(image),label=await archiveCardLabel(image);
+        if(id!==attempt||signal.aborted||!active())return;
+        selected(text);progress.value=100;url=URL.createObjectURL(image);form.querySelector<HTMLImageElement>('.archive-selected img')!.src=url;form.querySelector<HTMLElement>('.archive-selected')!.hidden=false;
+        form.querySelector('[data-card-label]')!.textContent=file.name||label||'恢复凭证原图';form.querySelector('[data-selected-status]')!.textContent='图片已就绪 · 等待密码验证';form.querySelector('[data-upload-title]')!.textContent='重新选择凭证';button.disabled=false;
+      }catch(cause){if(id===attempt&&!signal.aborted){progress.hidden=true;report(cause);}}})();reader.readAsArrayBuffer(file);
     });
-    signal.addEventListener('abort',()=>{selection++;envelope=undefined;form.reset();if(previewUrl)URL.revokeObjectURL(previewUrl);},{once:true});
-    form.addEventListener('submit',event=>{event.preventDefault();if(!envelope)return;protectTask(button,async()=>{
-      const key=await unlockArchiveCard(envelope!,(form.elements.namedItem('password') as HTMLInputElement).value);
-      if(signal.aborted||!active())return;
-      (form.elements.namedItem('password') as HTMLInputElement).value='';(document.activeElement as HTMLElement|null)?.blur();
-      await runRestore(key,signal);
+    signal.addEventListener('abort',()=>{attempt++;selected(undefined);form.reset();if(url)URL.revokeObjectURL(url);},{once:true});
+  }
+  function verifySaved(credential:string){
+    const signal=begin();let envelope:string|undefined;
+    show(shell('回验凭证原图',`${steps(3)}<h2 class="archive-form-title">确认凭证真的可用</h2><p class="backup-intro">选择刚保存的原图，并输入对应的凭证密码。</p><form data-verify novalidate>${selectionMarkup()}${field('password','凭证密码','输入这张凭证的密码','off')}<p class="archive-inline-error" data-archive-error role="alert"></p><button class="primary-button" type="submit" disabled>验证凭证</button></form>`));
+    bindBack(exportPage);const form=o.root.querySelector<HTMLFormElement>('[data-verify]')!;eyes(form,signal);selection(form,signal,text=>{envelope=text;});
+    form.addEventListener('submit',event=>{event.preventDefault();protectTask(form.querySelector<HTMLButtonElement>('button[type=submit]')!,async()=>{
+      if(!envelope)throw new Error('请选择刚保存的凭证原图');if(envelope!==credential)throw new Error('这不是本次导出的凭证，请重新选择');
+      const key=await unlockArchiveCard(envelope,(form.elements.namedItem('password') as HTMLInputElement).value);
+      if(signal.aborted||!active())return;if(key.descriptor.id!==o.session.vault.roomArchiveV2!.key.descriptor.id)throw new Error('这张凭证不属于当前密室');
+      await saveCredential(credential,signal,true);if(signal.aborted||!active())return;card();o.notice('凭证已保存并验证');
     });});
   }
-  async function runRestore(key:Parameters<typeof restoreRoomArchive>[1],pageSignal:AbortSignal){
-    const abort=new AbortController(),signal=AbortSignal.any([pageSignal,abort.signal]);
-    const sheet=document.createElement('section');sheet.className='confirm-overlay archive-progress-overlay';sheet.setAttribute('role','dialog');sheet.setAttribute('aria-modal','true');sheet.setAttribute('aria-label','恢复进度');
+  function restore(){
+    const signal=begin();let envelope:string|undefined;
+    show(shell('聊天记录恢复',`<h2 class="archive-form-title">找回你的聊天记录</h2><p class="backup-intro">选择凭证原图，输入对应密码。恢复的历史仅自己可见。</p><form data-restore-form novalidate>${selectionMarkup()}${field('password','凭证密码','输入这张凭证的密码','off')}<p class="archive-inline-error" data-archive-error role="alert"></p><button class="primary-button" data-restore-submit type="submit" disabled>恢复聊天记录</button></form>`));
+    bindBack(o.startWithRestore?leave:settings);const form=o.root.querySelector<HTMLFormElement>('form')!;eyes(form,signal);selection(form,signal,text=>{envelope=text;});
+    form.addEventListener('submit',event=>{event.preventDefault();if(!envelope)return;protectTask(form.querySelector<HTMLButtonElement>('[data-restore-submit]')!,async()=>{
+      const key=await unlockArchiveCard(envelope!,(form.elements.namedItem('password') as HTMLInputElement).value);if(signal.aborted||!active())return;
+      (form.elements.namedItem('password') as HTMLInputElement).value='';(document.activeElement as HTMLElement|null)?.blur();await runRestore(key);
+    });});
+  }
+  async function runRestore(key:Parameters<typeof restoreRoomArchive>[1]){
+    const pageSignal=begin(),abort=new AbortController(),signal=AbortSignal.any([pageSignal,abort.signal]);let complete=false,failed=false;
     const kinds=[['messages','聊天记录',MessageSquare],['images','图片',Image],['videos','视频',Video],['files','文件',FileText],['audio','语音',AudioLines]] as const;
-    sheet.innerHTML=`<div class="confirm-dialog archive-dialog"><h2 data-progress-title>正在恢复</h2><p data-progress role="status">正在读取备份目录…</p><progress max="100" aria-label="恢复进度"></progress><dl class="archive-restore-details">${kinds.map(([id,label,symbol])=>`<div>${icon(symbol)}<dt>${label}</dt><dd data-count="${id}">0</dd></div>`).join('')}</dl><p class="archive-inline-note" data-progress-note>正在本机校验，完成后统一显示。</p><button class="secondary-button" data-finish type="button">取消恢复</button></div>`;
-    o.root.append(sheet);let complete=false,failed=false;
-    const dialog=mountDialog(sheet,{signal:pageSignal,isActive:active,onClose:()=>abort.abort()});
-    sheet.querySelector('[data-finish]')!.addEventListener('click',()=>{dialog.dispose();if(complete)leave();});
+    show(shell('聊天记录恢复',`<div class="archive-restoration-symbol">${icon(Download)}</div><h2 data-progress-title>正在恢复</h2><p data-progress role="status">正在读取备份目录…</p><progress max="100" aria-label="恢复进度"></progress><dl class="archive-restore-details">${kinds.map(([id,label,symbol])=>`<div>${icon(symbol)}<dt>${label}</dt><dd data-count="${id}">0 / 统计中</dd></div>`).join('')}</dl><p class="archive-inline-note" data-progress-note>正在本机校验，完成后统一显示。</p><button class="secondary-button" data-finish type="button">取消恢复</button><button class="text-button" data-again type="button" hidden>重新选择凭证</button>`));
+    const page=o.root.querySelector<HTMLElement>(':scope > .archive-page')!;
+    const cancel=()=>{if(complete){leave();return;}if(failed){restore();return;}showExplanation(o.root,'取消本次恢复？',['尚未完成的内容不会导入。你可以稍后使用同一凭证重新恢复。'],{signal:pageSignal,active,closeLabel:'继续恢复',action:{label:'取消恢复',closeBeforeRun:true,run:async()=>{abort.abort();restore();}}});};
+    bindBack(cancel);page.querySelector('[data-finish]')!.addEventListener('click',()=>{if(failed)void runRestore(key);else cancel();});page.querySelector('[data-again]')!.addEventListener('click',restore);
     const update=(state:ArchiveRestoreProgress)=>{
-      if(signal.aborted||!active()||!sheet.isConnected)return;
-      const progress=sheet.querySelector('progress')!;
+      if(signal.aborted||!active()||!page.isConnected)return;const progress=page.querySelector('progress')!;
       if(state.stage==='complete')progress.value=100;else if(state.stage!=='reading'&&state.totalObjects>0)progress.value=Math.min(99,Math.floor(state.objects/state.totalObjects*100));else progress.removeAttribute('value');
-      sheet.querySelector('[data-progress]')!.textContent=state.stage==='reading'?'正在读取备份目录…':state.stage==='committing'?'正在整理并保存记录…':state.stage==='complete'?'聊天记录和原文件已恢复':state.totalObjects>0?`正在校验内容 · ${progress.value}%`:`正在校验内容 · 已读取 ${state.objects} 项`;
-      for(const [id]of kinds)sheet.querySelector(`[data-count="${id}"]`)!.textContent=state.totals?`${state[id]} / ${state.totals[id]}`:`${state[id]} / 统计中`;
+      page.querySelector('[data-progress]')!.textContent=state.stage==='reading'?'正在读取备份目录…':state.stage==='committing'?'正在整理并保存记录…':state.stage==='complete'?'聊天记录和原文件已恢复':state.totalObjects>0?`正在校验内容 · ${progress.value}%`:`正在校验内容 · 已读取 ${state.objects} 项`;
+      for(const [id]of kinds)page.querySelector(`[data-count="${id}"]`)!.textContent=state.totals?`${state[id]} / ${state.totals[id]}`:`${state[id]} / 统计中`;
     };
-    try{await restoreRoomArchive(o.session,key,signal,()=>{},update);if(signal.aborted||!active())return;complete=true;o.restored();sheet.querySelector('[data-progress-title]')!.textContent='恢复完成';sheet.querySelector('[data-progress-note]')!.textContent='已保存到当前密室，仅自己可见。自动备份将在联网时继续。';}
-    catch(cause){if(signal.aborted||!active())return;failed=true;sheet.querySelector('[data-progress-title]')!.textContent='恢复未完成';sheet.querySelector('[data-progress]')!.textContent=cause instanceof Error?cause.message:'请检查网络后重试';sheet.querySelector('[data-progress-note]')!.textContent='尚未导入任何不完整记录。关闭后可重新恢复。';}
-    finally{if(sheet.isConnected&&(complete||failed))sheet.querySelector('[data-finish]')!.textContent=complete?'完成':'关闭并重试';}
+    try{await restoreRoomArchive(o.session,key,signal,()=>{},update);if(signal.aborted||!active())return;complete=true;o.restored();page.querySelector('[data-progress-title]')!.textContent='恢复完成';page.querySelector('[data-progress-note]')!.textContent='已保存到当前密室，仅自己可见。';}
+    catch(cause){if(signal.aborted||!active())return;failed=true;page.querySelector('[data-progress-title]')!.textContent='恢复未完成';page.querySelector('[data-progress]')!.textContent=cause instanceof Error?cause.message:'请检查网络后重试';page.querySelector('[data-progress-note]')!.textContent='尚未导入不完整记录，可以重新尝试。';}
+    finally{if(page.isConnected&&(complete||failed)){page.querySelector('[data-finish]')!.textContent=complete?'回聊天查看':'重新尝试';(page.querySelector('[data-again]') as HTMLElement).hidden=!failed;}}
   }
   if(o.startWithCredential)card();else if(o.startWithRestore)restore();else settings();
 }
