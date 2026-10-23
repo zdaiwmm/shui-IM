@@ -175,7 +175,7 @@ try {
     };
     await b.route('**/chamber-invitation',loseRefresh);
     await b.locator('#chamber-refresh-code').click();
-    await b.waitForFunction(()=>document.querySelector('.chamber-code-card .form-error')?.textContent);
+    await b.waitForFunction(()=>document.querySelector('.app-toast[data-tone=error]')?.textContent);
     await b.locator('#chamber-refresh-code').click();
     await b.locator('[data-code-active]').waitFor();
     assert.equal(refreshes.length,2);assert.equal(refreshes[0],refreshes[1]);
@@ -279,7 +279,7 @@ try {
     catch (cause) {
       console.error('Synthetic activation diagnostic', index, await page.evaluate(() => ({
         pairing: app.session?.vault.pairingState, phase: app.session?.vault.mls?.phase,
-        error: document.querySelector('.chamber-code-card .form-error')?.textContent,
+        error: document.querySelector('.app-toast[data-tone=error]')?.textContent,
         notice: document.querySelector('#app-toast')?.textContent, gateway: document.querySelector('.gateway h1')?.textContent,
         failure: app.accessFailure, fatal: document.querySelector('#fatal-message')?.textContent,
       })), errors); throw cause;
@@ -399,7 +399,7 @@ try {
     if(++downloads===2&&!interrupted){interrupted=true;await route.abort('connectionreset');return;}await route.continue();
   });
   await c.getByRole('button',{name:'解锁身份并恢复'}).click(); await submitPassword(c,'112233');
-  await c.waitForFunction(()=>/fetch|网络|连接/i.test(document.querySelector('.backup-page .form-error')?.textContent??''));
+  await c.waitForFunction(()=>/fetch|网络|连接/i.test(document.querySelector('.app-toast[data-tone=error]')?.textContent??''));
   assert.equal(interrupted,true);assert.equal(await c.getByText(/已验证并恢复/).count(),0);
   await c.waitForFunction(()=>!document.querySelector('#chamber-history-requests button')?.disabled);
   await c.getByRole('button',{name:'解锁身份并恢复'}).click();await submitPassword(c,'112233');

@@ -111,7 +111,7 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
       previousCanvas.querySelector('.space-drawer-scroll')!.scrollTop=previousScrollTop;
     }
     sheet.querySelector('.space-close')?.addEventListener('click', close);
-    sheet.querySelector('.space-back')?.addEventListener('click', () => { back!(); sheet.querySelector<HTMLButtonElement>('.space-back,.space-close')?.focus(); });
+    sheet.querySelector('.space-back')?.addEventListener('click', () => { back!(); sheet.querySelector<HTMLButtonElement>('.space-back,.space-close')?.focus({ preventScroll: true }); });
   }
   async function run(action: () => Promise<void>) {
     if (busy || signal.aborted) return;
@@ -133,13 +133,13 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
     overlay.querySelector('form')!.addEventListener('submit', async e => {
       e.preventDefault(); if (saving) return;
       const name = input.value.trim();
-      if (!name || name.length > 40) { uiNotice(root,'请输入 1–40 个字符的密室名称'); input.focus(); return; }
+      if (!name || name.length > 40) { uiNotice(root,'请输入 1–40 个字符的密室名称'); input.focus({ preventScroll: true }); return; }
       saving = true; overlay.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.disabled = true);
       try {
         await options.rename(space, name);
         if (signal.aborted) return;
         space.name = name; modal.close({ animate: false, restoreFocus: false }); list();
-        sheet.querySelector<HTMLButtonElement>(`[data-space="${options.spaces.indexOf(space)}"]`)?.focus();
+        sheet.querySelector<HTMLButtonElement>(`[data-space="${options.spaces.indexOf(space)}"]`)?.focus({ preventScroll: true });
       } catch (cause) { if (!signal.aborted) uiNotice(root,cause instanceof Error ? cause.message : '名称未保存，请重试'); }
       finally { saving = false; overlay.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.disabled = false); }
     });
@@ -187,7 +187,7 @@ const removable = Boolean(options.remove && (space.waiting || space.roomArchiveV
     };
     sheet.querySelectorAll<HTMLButtonElement>('[data-style]').forEach(button => {
       button.addEventListener('click', () => choose(button));
-      button.addEventListener('keydown', e => { if (['ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Home','End'].includes(e.key)) { e.preventDefault(); const buttons = [...sheet.querySelectorAll<HTMLButtonElement>('[data-style]')]; const next = e.key === 'Home' ? buttons[0]! : e.key === 'End' ? buttons.at(-1)! : buttons.find(b => b !== button)!; choose(next); next.focus(); } });
+      button.addEventListener('keydown', e => { if (['ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Home','End'].includes(e.key)) { e.preventDefault(); const buttons = [...sheet.querySelectorAll<HTMLButtonElement>('[data-style]')]; const next = e.key === 'Home' ? buttons[0]! : e.key === 'End' ? buttons.at(-1)! : buttons.find(b => b !== button)!; choose(next); next.focus({ preventScroll: true }); } });
     });
   }
   function settings() {
@@ -209,7 +209,7 @@ const removable = Boolean(options.remove && (space.waiting || space.roomArchiveV
     if (other) cards.push(`<div class="space-setting-card">${other}</div>`);
     page('设置', `<div class="space-settings-list">${cards.join('')}</div>`, '', options.presentation === 'settings' ? close : list);
     sheet.querySelector('.space-drawer-scroll')!.scrollTop = settingsScrollTop;
-    sheet.querySelector('#presence-style-setting')!.addEventListener('click', () => { styles(); sheet.querySelector<HTMLButtonElement>('[aria-checked=true]')?.focus(); });
+    sheet.querySelector('#presence-style-setting')!.addEventListener('click', () => { styles(); sheet.querySelector<HTMLButtonElement>('[aria-checked=true]')?.focus({ preventScroll: true }); });
     for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { if (typeof action.keepOpen === 'function' ? action.keepOpen() : action.keepOpen) void run(async () => { await action.run(list); }); else { options.onSettingsLeave?.(sheet.querySelector('.space-drawer-scroll')!.scrollTop); handingOff = true; void action.run(list); } });
   }
   function authorizations() {
@@ -242,7 +242,7 @@ const expiry = pendingSpaceExpiry(s);
     if (focusedRoom) sheet.querySelector<HTMLButtonElement>(`[data-space="${options.spaces.findIndex(s => s.roomId === focusedRoom)}"]`)?.focus({ preventScroll: true });
     else if (focusedId) sheet.querySelector<HTMLElement>(`#${CSS.escape(focusedId)}`)?.focus({ preventScroll: true });
     sheet.querySelectorAll<HTMLButtonElement>('[data-access]').forEach(button=>button.addEventListener('click',()=>{const space=options.spaces[Number(button.dataset.access)]!;const action=options.authorization?.(space);if(action&&action.deadline>performance.now()){dialog.close({animate:false});void action.open();}}));
-    sheet.querySelector('#space-settings')?.addEventListener('click', () => { if (options.openSettings) options.openSettings(); else { settings(); sheet.querySelector<HTMLButtonElement>('.space-back')?.focus(); } });
+    sheet.querySelector('#space-settings')?.addEventListener('click', () => { if (options.openSettings) options.openSettings(); else { settings(); sheet.querySelector<HTMLButtonElement>('.space-back')?.focus({ preventScroll: true }); } });
     sheet.querySelector('#space-create')?.addEventListener('click', () => void run(async () => { await options.create(); }));
     sheet.querySelectorAll<HTMLButtonElement>('[data-space]').forEach(button => {
       const space = options.spaces[Number(button.dataset.space)]!;

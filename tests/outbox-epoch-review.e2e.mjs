@@ -64,10 +64,7 @@ try {
         for (let i=0;i<count;i++) await enqueuePreviousClient(`old-${i}`);
       }, oldCount);
       // The other active device performs an ordinary authenticated MLS update.
-      await a.evaluate(async () => {
-        const v = await import('/src/lib/vault.ts');
-        await v.withVaultMutation(reviewApp.session, mutation => reviewApp.ensureMessageWindow(mutation, true));
-      });
+      await a.evaluate(() => reviewApp.ensureMessageWindow(true));
       await b.waitForFunction(seq => reviewApp.session.vault.mls.lastEventSeq > seq && reviewApp.session.vault.mls.window.generated === 0, before.nextMlsEventSeq);
       await b.evaluate(async count => {
         for (let i = 0; i < count; i++) await enqueuePreviousClient(`fresh-${i}`);

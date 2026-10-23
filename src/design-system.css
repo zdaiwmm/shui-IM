@@ -192,7 +192,7 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .gateway-mark { border-radius: 14px; background: var(--accent-soft); margin-bottom: 24px; }
 #app .gateway-form { gap: 14px; margin-top: 28px; }
 #app :is(.gateway-heading > p:last-child, .welcome-copy, .welcome-privacy, .setup-follow-hint, .recovery-flow-lead, .credential-only-step > .field-hint) { font-size: .875rem; line-height: 1.6; }
-#app :is(.gateway-form input, .gateway-form textarea, .gateway-form select, .invite-link input, .password-form input:not([type='checkbox']), .backup-page input, .backup-code-page textarea, .recovery-flow-input, #space-name, #passkey-name) { min-height: 44px; padding: 10px 12px; border-radius: 12px; background: var(--surface); color: var(--ink); font-size: 16px; line-height: 1.4; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+#app :is(.gateway-form input, .gateway-form textarea, .gateway-form select, .invite-link input, .password-form input:not([type='checkbox']), .backup-page:not(.archive-page) input, .backup-code-page textarea, .recovery-flow-input, #space-name, #passkey-name) { min-height: 44px; padding: 10px 12px; border-radius: 12px; background: var(--surface); color: var(--ink); font-size: 16px; line-height: 1.4; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
 #app .backup-code-page textarea { min-height: 88px; border: 1px solid transparent; }
 #app .backup-code-page :is(.gateway-intro-content > p, form > label) { font-size: .875rem; line-height: 1.6; }
 #app :is(.gateway-form > .primary-button, .credential-only-step > .primary-button, .welcome-actions .primary-button, .recovery-code-actions > button, .recovery-confirm, .recovery-code-view > button, .recovery-code-panel > .primary-button, .recovery-flow-footer button, .recovery-flow-wide, .joint-progress button, .backup-content > button) { min-height: 44px; padding-block: 10px; line-height: 1.4; }
@@ -517,7 +517,7 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .message-list, #app .message-list[data-keyboard-gesture='true'] { touch-action: pan-y pinch-zoom; }
 #app :is(.gateway-form input:not([type='checkbox']):not([type='radio']), .gateway-form textarea,
   .password-form input:not([type='checkbox']), .recovery-flow-input, .backup-code-page textarea,
-  .backup-page input:not([type='checkbox']):not([type='radio']), #space-name, #passkey-name, #new-space-name) {
+  .backup-page:not(.archive-page) input:not([type='checkbox']):not([type='radio']), #space-name, #passkey-name, #new-space-name) {
   border: 0; outline: 0; box-shadow: none; background: var(--field-surface, var(--surface));
   border-radius: var(--radius-control); font-size: 1rem; line-height: 1.375; min-height: 44px;
 }

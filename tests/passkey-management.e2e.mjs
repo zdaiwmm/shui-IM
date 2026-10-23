@@ -81,13 +81,13 @@ try {
   await page.locator('#passkey-rename').click(); await page.locator('#passkey-name').fill('再改一次');
   await page.evaluate(() => { rejectSignal = true; });
   await page.locator('.passkey-name-overlay [type=submit]').click();
-  await page.waitForFunction(() => document.querySelector('.passkey-name-overlay .form-error')?.textContent.includes('提供方'));
+  await page.waitForFunction(() => document.querySelector('.app-toast[data-tone=error]')?.textContent.includes('提供方'));
   assert.equal(await page.locator('#passkey-name').inputValue(), '再改一次');
   assert.equal(await page.locator('#passkey-current-name').textContent(), '新的密钥名称');
   // Accepted signal plus stale local vault is reported as partial, with same-name retry.
   await page.evaluate(() => { rejectSignal = false; failStorage = true; });
   await page.locator('.passkey-name-overlay [type=submit]').click();
-  await page.waitForFunction(() => document.querySelector('.passkey-name-overlay .form-error')?.textContent.includes('结果待确认'));
+  await page.waitForFunction(() => document.querySelector('.app-toast[data-tone=error]')?.textContent.includes('结果待确认'));
   assert.equal(await page.locator('#passkey-name').evaluate(e => e.readOnly), true);
   await page.evaluate(() => { failStorage = false; session.stored = originalStored; });
   await page.locator('.passkey-name-overlay [type=submit]').click();

@@ -89,6 +89,7 @@ export class MemePicker {
   private favorites: MemeFavorite[] = [];
   private packs: StickerPack[] = [];
   private kind: PickerKind = 'emoji';
+  private searchReturn?: {kind: PickerKind; favorite: boolean; emojiGroup: number};
   private emojiPlayback: AbortController | null = null;
   private emojiGroup = 0;
   private emojiOffset = 0;
@@ -715,7 +716,7 @@ export class MemePicker {
       button.dataset.shortcut = key;
       button.addEventListener('click', action); bar.append(button); return button;
     };
-    control('add', '添加贴纸', memeIcons.add, () => { void this.switchKind('stickers').then(() => this.openSearch()); });
+    control('add', '添加贴纸', memeIcons.add, () => { this.rememberView(); this.searchReturn={kind:this.kind,favorite:this.favoriteView,emojiGroup:this.emojiGroup}; void this.switchKind('stickers').then(() => this.openSearch()); });
     control('emoji', 'Emoji', memeIcons.smile, () => { void this.switchKind('emoji'); }).setAttribute('aria-pressed', String(this.kind === 'emoji' && !this.favoriteView));
     control('favorites', '收藏表情', memeIcons.star, () => { void this.switchKind('stickers', true); }).setAttribute('aria-pressed', String(this.favoriteView));
     for (const node of bar.querySelectorAll<HTMLElement>('[data-shortcut^="pack:"]')) {
@@ -741,7 +742,7 @@ export class MemePicker {
   }
   private async local() {
     this.restoringPosition = false;
-    this.clear(); this.panel.dataset.view = 'local'; const generation = this.generation;
+    this.clear(); this.panel.dataset.view = 'local'; this.panel.dataset.kind=this.kind; const generation = this.generation;
     const immediateEmoji = this.kind === 'emoji' && !this.favoriteView;
     if (immediateEmoji) { this.shortcuts(); this.query = ''; this.emojiOffset = 0; this.renderEmoji(); }
     try {
@@ -824,7 +825,10 @@ export class MemePicker {
     (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = true;
     (this.panel.querySelector('.meme-page-back') as HTMLElement).hidden = true;
     closeDialog(overlay, { animate: false, restoreFocus: false });
-    if (!preserve) void this.local();
+    if (!preserve) {
+      if (this.searchReturn) { this.kind=this.searchReturn.kind;this.favoriteView=this.searchReturn.favorite;this.emojiGroup=this.searchReturn.emojiGroup;this.searchReturn=undefined; }
+      void this.local();
+    }
     this.panel.querySelector<HTMLButtonElement>('[data-shortcut="add"]')?.focus({ preventScroll: true });
   }
   private async submit() {

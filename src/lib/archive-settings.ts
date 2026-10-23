@@ -17,7 +17,7 @@ export function mountArchiveSettings(o:Options):void {
   const begin=()=>{pageAbort?.abort();pageAbort=new AbortController();return AbortSignal.any([o.signal,pageAbort.signal]);};
   const active=()=>o.active()&&!o.signal.aborted;
   const shell=(title:string,content:string)=>`<main class="backup-page archive-page"><header class="subpage-header backup-header"><button class="icon-button" id="archive-back" data-back type="button" aria-label="返回">‹</button><div class="backup-heading"><h1>${title}</h1></div><span class="backup-header-spacer" aria-hidden="true"></span></header><section class="backup-content">${content}</section></main>`;
-  const report=(cause:unknown)=>{if(active()&&!(cause instanceof DOMException&&cause.name==='AbortError')){const text=cause instanceof Error?cause.message:'操作未完成，请重试',error=o.root.querySelector<HTMLElement>(':scope > .archive-page [data-archive-error]');if(error)error.textContent=text;else o.notice(text,true);}};
+  const report=(cause:unknown)=>{if(active()&&!(cause instanceof DOMException&&cause.name==='AbortError'))o.notice(cause instanceof Error?cause.message:'操作未完成，请重试',true);};
   const show=(html:string,backward=false)=>{const previous=initial?null:o.root.querySelector<HTMLElement>(':scope > .archive-page');initial=false;o.root.innerHTML=html;animatePageReplacement(o.root,previous,o.root.firstElementChild as HTMLElement,backward,o.signal);};
   const leave=()=>{pageAbort?.abort();o.back();};
   const protectTask=(button:HTMLButtonElement,task:()=>Promise<void>)=>{
@@ -154,30 +154,29 @@ export function mountArchiveSettings(o:Options):void {
       await changeArchive(signal,current=>{current.exported=true;});if(signal.aborted||!active())return;verifySaved(credential);
     }));
   }
-  const selectionMarkup=()=>`<label class="archive-upload archive-upload-main">${icon(Upload)}<strong data-upload-title>选择凭证原图</strong><span>已保存的 PNG 原图</span><input name="image" type="file" accept="image/png" required></label><progress class="archive-file-progress" max="100" value="0" aria-label="凭证读取进度" hidden></progress><div class="archive-selected" hidden><img alt="所选凭证预览"><div><strong data-card-label></strong><p data-selected-status role="status"></p></div></div>`;
+  const selectionMarkup=()=>`<label class="archive-upload archive-upload-main">${icon(Upload)}<strong data-upload-title>选择凭证原图</strong><input name="image" type="file" accept="image/png" required></label><div class="archive-selected" hidden><img alt="所选凭证预览"><div><strong data-card-label></strong><p data-selected-status role="status"></p></div></div>`;
   function selection(form:HTMLFormElement,signal:AbortSignal,selected:(text:string|undefined)=>void){
     let attempt=0,url:string|undefined;
-    const button=form.querySelector<HTMLButtonElement>('button[type=submit]')!,progress=form.querySelector<HTMLProgressElement>('progress')!;
+    const button=form.querySelector<HTMLButtonElement>('button[type=submit]')!,upload=form.querySelector<HTMLElement>('.archive-upload')!;
     bindFile(form.querySelector('input[type=file]')!,signal,file=>{
-      const id=++attempt;selected(undefined);button.disabled=true;progress.hidden=true;progress.value=0;if(url)URL.revokeObjectURL(url);url=undefined;
+      const id=++attempt;selected(undefined);button.disabled=true;upload.hidden=false;if(url)URL.revokeObjectURL(url);url=undefined;
       form.querySelector<HTMLElement>('.archive-selected')!.hidden=true;form.querySelector<HTMLElement>('[data-archive-error]')!.textContent='';
       if(!file)return;if(file.size>4*1024*1024||file.type!=='image/png'){report(new Error('请选择 4 MB 以内的 PNG 凭证原图'));return;}
-      progress.hidden=false;
-      const reader=new FileReader(),abort=()=>reader.abort();signal.addEventListener('abort',abort,{once:true});reader.onloadend=()=>signal.removeEventListener('abort',abort);
-      reader.onprogress=event=>{if(id===attempt&&!signal.aborted&&event.lengthComputable)progress.value=event.loaded/event.total*90;};
-      reader.onerror=()=>{if(id===attempt&&!signal.aborted){progress.hidden=true;report(new Error('图片读取失败，请重新选择'));}};
+      upload.setAttribute('aria-busy','true');
+      const reader=new FileReader(),abort=()=>reader.abort();signal.addEventListener('abort',abort,{once:true});reader.onloadend=()=>{signal.removeEventListener('abort',abort);upload.removeAttribute('aria-busy');};
+      reader.onerror=()=>{if(id===attempt&&!signal.aborted){report(new Error('图片读取失败，请重新选择'));}};
       reader.onload=()=>void(async()=>{try{
         const image=new Blob([reader.result as ArrayBuffer],{type:'image/png'}),text=await readArchiveCardImage(image),label=await archiveCardLabel(image);
         if(id!==attempt||signal.aborted||!active())return;
-        selected(text);progress.value=100;url=URL.createObjectURL(image);form.querySelector<HTMLImageElement>('.archive-selected img')!.src=url;form.querySelector<HTMLElement>('.archive-selected')!.hidden=false;
-        form.querySelector('[data-card-label]')!.textContent=file.name||label||'恢复凭证原图';form.querySelector('[data-selected-status]')!.textContent='图片已就绪 · 等待密码验证';form.querySelector('[data-upload-title]')!.textContent='重新选择凭证';button.disabled=false;
-      }catch(cause){if(id===attempt&&!signal.aborted){progress.hidden=true;report(cause);}}})();reader.readAsArrayBuffer(file);
+        selected(text);upload.hidden=true;url=URL.createObjectURL(image);form.querySelector<HTMLImageElement>('.archive-selected img')!.src=url;form.querySelector<HTMLElement>('.archive-selected')!.hidden=false;
+        form.querySelector('[data-card-label]')!.textContent=file.name||label||'恢复凭证原图';form.querySelector('[data-selected-status]')!.textContent='图片已就绪 · 等待密码验证';button.disabled=false;
+      }catch(cause){if(id===attempt&&!signal.aborted){report(cause);}}})();reader.readAsArrayBuffer(file);
     });
     signal.addEventListener('abort',()=>{attempt++;selected(undefined);form.reset();if(url)URL.revokeObjectURL(url);},{once:true});
   }
   function verifySaved(credential:string){
     const signal=begin();let envelope:string|undefined;
-    show(shell('回验凭证原图',`${steps(3)}<h2 class="archive-form-title">确认凭证真的可用</h2><p class="backup-intro">选择刚保存的原图，并输入对应的凭证密码。</p><form data-verify novalidate>${selectionMarkup()}${field('password','凭证密码','输入这张凭证的密码','off')}<p class="archive-inline-error" data-archive-error role="alert"></p><button class="primary-button" type="submit" disabled>验证凭证</button></form>`));
+    show(shell('回验凭证原图',`${steps(3)}<h2 class="archive-form-title">确认凭证真的可用</h2><p class="backup-intro">选择刚保存的原图，并输入对应的凭证密码。</p><form data-verify novalidate><div class="archive-material-card">${selectionMarkup()}${field('password','凭证密码','输入这张凭证的密码','off')}</div><p class="archive-inline-error" data-archive-error role="alert"></p><button class="primary-button" type="submit" disabled>验证凭证</button></form>`));
     bindBack(exportPage);const form=o.root.querySelector<HTMLFormElement>('[data-verify]')!;eyes(form,signal);selection(form,signal,text=>{envelope=text;});
     form.addEventListener('submit',event=>{event.preventDefault();protectTask(form.querySelector<HTMLButtonElement>('button[type=submit]')!,async()=>{
       if(!envelope)throw new Error('请选择刚保存的凭证原图');if(envelope!==credential)throw new Error('这不是本次导出的凭证，请重新选择');
@@ -188,7 +187,7 @@ export function mountArchiveSettings(o:Options):void {
   }
   function restore(){
     const signal=begin();let envelope:string|undefined;
-    show(shell('聊天记录恢复',`<h2 class="archive-form-title">找回你的聊天记录</h2><p class="backup-intro">选择凭证原图，输入对应密码。恢复的历史仅自己可见。</p><form data-restore-form novalidate>${selectionMarkup()}${field('password','凭证密码','输入这张凭证的密码','off')}<p class="archive-inline-error" data-archive-error role="alert"></p><button class="primary-button" data-restore-submit type="submit" disabled>恢复聊天记录</button></form>`));
+    show(shell('聊天记录恢复',`<h2 class="archive-form-title">找回你的聊天记录</h2><p class="backup-intro">选择凭证原图，输入对应密码。恢复的历史仅自己可见。</p><form data-restore-form novalidate><div class="archive-material-card">${selectionMarkup()}${field('password','凭证密码','输入这张凭证的密码','off')}</div><p class="archive-inline-error" data-archive-error role="alert"></p><button class="primary-button" data-restore-submit type="submit" disabled>恢复聊天记录</button></form>`));
     bindBack(o.startWithRestore?leave:settings);const form=o.root.querySelector<HTMLFormElement>('form')!;eyes(form,signal);selection(form,signal,text=>{envelope=text;});
     form.addEventListener('submit',event=>{event.preventDefault();if(!envelope)return;protectTask(form.querySelector<HTMLButtonElement>('[data-restore-submit]')!,async()=>{
       const key=await unlockArchiveCard(envelope!,(form.elements.namedItem('password') as HTMLInputElement).value);if(signal.aborted||!active())return;
@@ -209,7 +208,7 @@ export function mountArchiveSettings(o:Options):void {
       for(const [id]of kinds)page.querySelector(`[data-count="${id}"]`)!.textContent=state.totals?`${state[id]} / ${state.totals[id]}`:`${state[id]} / 统计中`;
     };
     try{await restoreRoomArchive(o.session,key,signal,()=>{},update);if(signal.aborted||!active())return;complete=true;o.restored();page.querySelector('[data-progress-title]')!.textContent='恢复完成';page.querySelector('[data-progress-note]')!.textContent='已保存到当前密室，仅自己可见。';}
-    catch(cause){if(signal.aborted||!active())return;failed=true;page.querySelector('[data-progress-title]')!.textContent='恢复未完成';page.querySelector('[data-progress]')!.textContent=cause instanceof Error?cause.message:'请检查网络后重试';page.querySelector('[data-progress-note]')!.textContent='尚未导入不完整记录，可以重新尝试。';}
+    catch(cause){if(signal.aborted||!active())return;failed=true;page.querySelector('[data-progress-title]')!.textContent='恢复未完成';page.querySelector('[data-progress]')!.textContent='恢复已暂停';report(cause);page.querySelector('[data-progress-note]')!.textContent='尚未导入不完整记录，可以重新尝试。';}
     finally{if(page.isConnected&&(complete||failed)){page.querySelector('[data-finish]')!.textContent=complete?'回聊天查看':'重新尝试';(page.querySelector('[data-again]') as HTMLElement).hidden=!failed;}}
   }
   if(o.startWithCredential)card();else if(o.startWithRestore)restore();else settings();

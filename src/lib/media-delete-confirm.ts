@@ -1,3 +1,5 @@
+import { uiNotice } from './ui-notice';
+
 /** Anchored Safe-only confirmation. No OS/cloud deletion or recovery is implied. */
 export function mountMediaDeleteConfirm(anchor: HTMLButtonElement, kind: '照片' | '视频',
   remove: () => Promise<void> | void): () => void {
@@ -48,7 +50,7 @@ export function mountMediaDeleteConfirm(anchor: HTMLButtonElement, kind: '照片
     busy = true; confirm.disabled = true; anchor.disabled = true;
     try { await remove(); close(); }
     catch {
-      if (!events.signal.aborted) { error.textContent = '删除未能保存，请重试'; error.hidden = false; }
+      if (!events.signal.aborted) uiNotice(panel, '删除未能保存，请重试');
     } finally {
       busy = false; confirm.disabled = false; anchor.disabled = false;
     }

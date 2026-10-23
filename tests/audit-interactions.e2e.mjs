@@ -92,7 +92,7 @@ try {
   await r.evaluate(() => { app.renderJointRecovery(null); }); await openRecoveryCard(r);
   const field = r.locator('#joint-code-form textarea');
   await field.fill('QR4-incomplete'); await r.locator('#joint-code-form button[type=submit]').click();
-  assert.equal(await field.inputValue(), 'QR4-incomplete'); assert.match(await r.locator('#joint-code-form .form-error').textContent(), /恢复|QR4/);
+  assert.equal(await field.inputValue(), 'QR4-incomplete'); assert.match(await r.locator('.app-toast[data-tone=error]').textContent(), /恢复|QR4/);
   const directory = await r.evaluate(async () => {
     window.testCode = sp.newSpaceRecoveryCode();
     const oldCode = (await import('/src/lib/backup-crypto.ts')).newRecoveryCode().code;
@@ -126,7 +126,7 @@ try {
     return route.fulfill({ status: cooldownRequests === 1 ? 429 : 200, headers: { 'Retry-After': '1' }, contentType: 'application/json', body: JSON.stringify(cooldownRequests === 1 ? {} : { sealed: directory.sealed }) });
   });
   await openRecoveryCard(r); await field.fill(directory.code); await r.locator('#joint-code-form button[type=submit]').click();
-  await r.waitForFunction(() => document.querySelector('#joint-code-form .form-error')?.textContent.includes('过于频繁'));
+  await r.waitForFunction(() => document.querySelector('.app-toast[data-tone=error]')?.textContent.includes('过于频繁'));
   assert.equal(await r.locator('#joint-code-form button[type=submit]').isDisabled(), true);
   await r.locator('#joint-code-form').evaluate(form => { form.dispatchEvent(new Event('submit', { cancelable: true })); });
   assert.equal(cooldownRequests, 1);
@@ -136,7 +136,7 @@ try {
   await r.unroute('**/api/space-directories/*');
   await r.route('**/api/space-directories/*', route => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }));
   await openRecoveryCard(r); await field.fill(directory.code); await r.locator('#joint-code-form button[type=submit]').click();
-  await r.waitForFunction(() => document.querySelector('#joint-code-form .form-error')?.textContent.includes('找不到'));
+  await r.waitForFunction(() => document.querySelector('.app-toast[data-tone=error]')?.textContent.includes('找不到'));
   assert.equal(await field.inputValue(), ''); assert.equal(await field.isVisible(), true);
   await r.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
   await r.locator('#joint-code-form').waitFor({ state: 'detached' });
@@ -174,7 +174,7 @@ try {
   await openRecoveryCard(a); await a.locator('#joint-code-form textarea').fill(unavailable.code);
   await a.locator('#joint-code-form button[type=submit]').click();
   await a.locator('[data-recovery-protect]').click();
-  await a.waitForFunction(() => document.querySelector('#joint-code-form .form-error')?.textContent.length > 0);
+  await a.waitForFunction(() => document.querySelector('.app-toast[data-tone=error]')?.textContent.length > 0);
   await a.locator('#joint-code-close').click(); await a.locator('#joint-code-form').waitFor({ state: 'detached' });
   await a.locator('#message-input').waitFor();
   assert.equal(await a.evaluate(() => app.session.vault.roomId), setup.roomId);

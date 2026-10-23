@@ -152,7 +152,7 @@ try {
   await page.waitForFunction(id => document.querySelector(`[data-client-msg-id="${id}"] .image-preview`)?.dataset.imageState === 'loaded', id);
   assert.equal(await retryPreview.getAttribute('aria-busy'), 'false');
   assert.equal(await retryPreview.getAttribute('data-revealed'), 'false');
-  assert.equal(await retryPreview.locator('.media-ready-hint').textContent(), '轻点显示');
+  assert.equal(await retryPreview.locator('.media-ready-hint').count(), 0);
   // A second upload must disappear immediately on lock, with no late resurrection.
   await page.evaluate(() => { const f = window.uploadFixture; f.chunks.clear(); f.gate.completed = false; f.gate.hold = true; f.gate.release = null; f.start(); });
   await page.waitForFunction(() => window.uploadFixture.gate.release);

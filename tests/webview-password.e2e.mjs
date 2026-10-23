@@ -74,7 +74,7 @@ try {
         'missing-storage': /无法保存本机加密数据.*检查存储权限/,
         'storage-quota': /暂时无法保存本机加密数据.*存储权限或可用容量/,
       };
-      if (environmentErrors[name]) assert.match(await page.locator('.form-error').textContent(), environmentErrors[name], `${name} needs its actionable environment error`);
+      if (environmentErrors[name]) assert.match(await page.locator('.app-toast[data-tone=error]').textContent(), environmentErrors[name], `${name} needs its actionable environment error`);
       if (evidence) await page.screenshot({ path: path.join(evidence, `F15-webview-${name}.png`) });
     }
     assert.equal(roomWrites, 0, 'No room or wrapper may be created before valid password confirmation');

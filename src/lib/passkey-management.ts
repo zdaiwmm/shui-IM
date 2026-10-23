@@ -47,7 +47,7 @@ export async function openPasskeyManagement(root: HTMLElement, options: {
       try { next = pendingName ?? normalizePasskeyName(input.value); }
       catch (cause) { error.textContent = (cause as Error).message; input.focus(); return; }
       if (next === name && !pendingName) { modal.close(); return; }
-      saving = true; error.textContent = '请完成通行密钥验证…';
+      saving = true; error.textContent = '';
       // No await before the fresh, specified-credential assertion.
       const verification = options.verify(signal);
       input.readOnly = true; overlay.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.disabled = true);

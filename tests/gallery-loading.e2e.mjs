@@ -229,7 +229,7 @@ try {
   await page.locator('[data-viewer-delete]').click();
   await page.evaluate(()=>{const f=window.galleryLoading; f.savePreferences=f.app.saveUiPreferencesNow; f.app.saveUiPreferencesNow=async()=>{throw Error('synthetic write failure');};});
   await page.locator('[data-confirm-media-delete]').click();
-  await page.locator('.media-delete-error:not([hidden])').waitFor();
+  await page.locator('.app-toast[data-tone=error]').filter({hasText:'删除未能保存，请重试'}).waitFor();
   assert.equal(await page.evaluate(()=>window.galleryLoading.app.uiPreferences.galleryCuration?.some(item=>item.hidden)??false),false,'Failed deletion changed Safe preferences');
   await page.evaluate(()=>{const f=window.galleryLoading; f.app.saveUiPreferencesNow=f.savePreferences;});
   await page.locator('[data-confirm-media-delete]').click();

@@ -1,5 +1,5 @@
 import { motion, retargetMotion } from './motion';
-import { transitionMediaCapsule, clearMediaCapsule } from './media-capsule';
+import { transitionMediaCapsule, clearMediaCapsule, retireMediaCapsule } from './media-capsule';
 import { createElement, Image as ImageIcon, Video } from 'lucide';
 import { setChatMediaDimensions } from './chat-media-geometry';
 import { readMediaDimensions, type MediaDimensions } from './media-dimensions';
@@ -233,11 +233,7 @@ export class MediaUploadView {
       if (![...bubble.querySelectorAll('.image-preview')].every(node => node.getAttribute('data-image-state') === 'loaded')) return;
       observer.disconnect();
       previews.remove();
-      const animation = this.status.animate([{ opacity: 1 }, { opacity: 0 }], {
-        duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : motion.local,
-        easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards',
-      });
-      void animation.finished.then(cleanup, cleanup);
+      retireMediaCapsule(this.status,signal,cleanup);
     };
     // Observe only this short-lived handoff, never the timeline or document.
     const observer = new MutationObserver(settle);
