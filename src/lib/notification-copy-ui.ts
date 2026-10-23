@@ -13,7 +13,7 @@ export function mountNotificationCopy(root: HTMLElement, options: { signal: Abor
       <div class="notification-copy-field"><div><label for="notification-copy-title">标题 · 第1行</label><span data-count-title></span></div><input id="notification-copy-title" autocomplete="off" enterkeyhint="next" aria-describedby="notification-copy-title-error" disabled><p id="notification-copy-title-error" role="alert" hidden></p></div>
       <p class="notification-copy-hint notification-copy-source">第2行来源由系统显示，无法修改。</p>
       <div class="notification-copy-field"><div><label for="notification-copy-body">正文 · 第3行</label><span data-count-body></span></div><textarea id="notification-copy-body" rows="2" autocomplete="off" enterkeyhint="done" aria-describedby="notification-copy-body-error" disabled></textarea><p id="notification-copy-body-error" role="alert" hidden></p></div>
-      <p class="notification-copy-hint">保存后，用于本机所有空间的新通知。</p>
+      <p class="notification-copy-hint">保存后，用于本机所有密室的新通知。</p>
       <div class="notification-copy-actions"><details><summary>使用说明</summary><p class="notification-copy-hint">留空使用默认文案。仅影响本机，不改变聊天内容、主屏幕名称或旧通知。自填文字可能显示在锁屏上，请勿填写隐私信息。</p></details><button id="notification-copy-reset" type="button" disabled>恢复默认</button></div>
       <p class="notification-copy-hint" data-copy-paused hidden>本机通知已关闭，开启后生效。</p><p class="notification-copy-feedback" role="status" aria-live="polite" hidden></p>
     </form></main></section>`;

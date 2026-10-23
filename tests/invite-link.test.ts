@@ -57,6 +57,16 @@ describe('invite-link', () => {
     expect(parseInviteText(secondUrl, baseUrl)).toEqual({ kind: 'device', invite: second });
   });
 
+  it('round-trips the independent device admission capability and rejects malformed or unknown additions',()=>{
+    const invite=device({admissionSecret:'J'.repeat(43)});
+    expect(parseInviteText(makeDeviceInviteUrl(invite,baseUrl),baseUrl)).toEqual({kind:'device',invite});
+    for(const admissionSecret of ['', 'J'.repeat(42), 'J'.repeat(44), 'not a secret', 42]){
+      const encoded=Buffer.from(JSON.stringify({...device(),admissionSecret})).toString('base64url');
+      expect(classifyInviteHash(`#device=${encoded}`)).toEqual({kind:'invalid'});
+    }
+    expect(()=>makeDeviceInviteUrl({...invite,debug:true} as DeviceInvite,baseUrl)).toThrow();
+  });
+
   it('never classifies a participant invite as a device link', () => {
     const invite = participant();
     const url = makeParticipantInviteUrl(invite, baseUrl);

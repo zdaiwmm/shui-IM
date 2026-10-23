@@ -23,7 +23,7 @@ try {
       }; mount(); window.listStart=document.querySelector('.space-drawer').getBoundingClientRect().left;
     });
     await page.locator('.space-drawer-overlay.is-visible').waitFor();
-    assert.ok(await page.evaluate(()=>window.listStart<=-392),'Space list must enter from the left');
+    assert.ok(await page.evaluate(()=>window.listStart>=392),'Space list must enter from the right');
     assert.equal(await page.locator('.space-avatar').count(),12);
     assert.equal(await page.locator('[data-space="1"] .space-unread').innerText(),'99+');
     assert.equal(await page.locator('[data-space="1"] .space-unread').getAttribute('aria-label'),'105 条未读消息');
@@ -64,7 +64,7 @@ try {
     await page.locator('#presence-style-setting').click();
     await page.locator('[data-style=capsule]').focus(); await page.locator('[data-style=capsule]').press('ArrowRight');
     assert.equal(await page.locator('[data-style=heart]').evaluate(n=>document.activeElement===n),true);
-    await page.locator('.space-back').click();await page.locator('.space-close,.settings-dismiss-handle,.space-return').click();
+    await page.locator('.space-drawer:not(.local-page-outgoing) .space-back').click();await page.locator('.space-close,.settings-dismiss-handle,.space-return').click();
     await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
     assert.equal(await page.evaluate(()=>window.style),'heart', 'style applies before closing');
     assert.equal(await page.locator('#space-style-done').count(),0);
@@ -102,9 +102,9 @@ try {
       const create=page.locator('#space-create'); assert.equal(await create.count(),1);
       const placement=await create.evaluate(button=>({rect:button.getBoundingClientRect().toJSON(),
         footer:Boolean(button.closest('.space-drawer-footer')),header:Boolean(button.closest('header')),
-        scrollBottom:document.querySelector('.space-drawer-scroll').getBoundingClientRect().bottom}));
-      assert.ok(placement.footer&&!placement.header&&placement.rect.height>=48&&placement.rect.bottom<=680
-        &&placement.scrollBottom<=placement.rect.top,`${count}: reachable persistent creation ${JSON.stringify(placement)}`);
+        scrollTop:document.querySelector('.space-drawer-scroll').getBoundingClientRect().top}));
+      assert.ok(!placement.footer&&placement.header&&placement.rect.height>=44&&placement.rect.bottom<=680
+        &&placement.rect.bottom<=placement.scrollTop+1,`${count}: reachable header creation ${JSON.stringify(placement)}`);
     }
     await page.evaluate(()=>abort.abort());
     await page.evaluate(()=>{

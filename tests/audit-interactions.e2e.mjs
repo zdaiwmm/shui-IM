@@ -83,9 +83,9 @@ try {
     }, kind);
     for (let i = 0; i < 2; i++) {
       await r.evaluate(url => { location.hash = new URL(url).hash; }, url);
-      await r.waitForFunction(kind => document.querySelector('.gateway h1')?.textContent === (kind === 'repair' ? '修复这台设备' : kind === 'device' ? '添加这台设备' : '加入私密空间'), kind).catch(async error => { console.log('INVITATION_DIAGNOSTIC', kind, i, await r.evaluate(() => ({ heading: document.querySelector('.gateway h1')?.textContent, hasHash: Boolean(location.hash), covered: app.privacyCovered, routing: app.routingInvitation, native: app.nativeSurfaceActive(), body: document.body.innerText }))); throw error; });
+      await r.waitForFunction(kind => document.querySelector('.gateway h1')?.textContent === (kind === 'repair' ? '修复这台设备' : kind === 'device' ? '添加这台设备' : '加入密室'), kind).catch(async error => { console.log('INVITATION_DIAGNOSTIC', kind, i, await r.evaluate(() => ({ heading: document.querySelector('.gateway h1')?.textContent, hasHash: Boolean(location.hash), covered: app.privacyCovered, routing: app.routingInvitation, native: app.nativeSurfaceActive(), body: document.body.innerText }))); throw error; });
       await r.locator('.gateway-back').click();
-      await r.waitForFunction(kind => document.querySelector('.gateway h1')?.textContent !== (kind === 'repair' ? '修复这台设备' : kind === 'device' ? '添加这台设备' : '加入私密空间'), kind);
+      await r.waitForFunction(kind => document.querySelector('.gateway h1')?.textContent !== (kind === 'repair' ? '修复这台设备' : kind === 'device' ? '添加这台设备' : '加入密室'), kind);
     }
   }
   results.allInvitationKindsReopen = true;

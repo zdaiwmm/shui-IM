@@ -89,3 +89,5 @@
 - [最终应用main完整CI39945974639](https://github.com/zdaiwmm/shui-IM/actions/runs/39945974639) attempt2全部成功，Full application verification通过；已独立核对head为上述完整应用SHA，无失败job。
 - 该main CI attempt1的邀请隐私专项在new-room-invite-privacy:91收集到WebKit目录读取的访问控制错误；该分片13项通过、1失败、6未运行，原因未确认，其余分片及门禁成功。同一文件树的PR完整CI已经通过；只对这一失败job原样复验一次后全过，首次失败记录保留，未修改邀请、安全代码或原断言。
 - 仅文档的交付收尾在`codex/media-rate-delivery-20261023`基于该应用SHA进行，只更新本需求与状态；不将文档SHA当作应用或生产版本。活动V1原型及实现树保留，本任务未执行生产发布，Safari真机及实际编码矩阵未验证。
+
+- 文档PR #391首版源`151f6451928deb1a0d11e3ed2b3ea53b0c37100d`的[文档CI39948442149](https://github.com/zdaiwmm/shui-IM/actions/runs/39948442149) attempt1通过，仅文档范围，完整应用任务按规则跳过。收尾时设置PR #386独立合入main为`6d83e8d66bbcf0489e66ba22acd1bca76d55262c`，造成状态页标题附近文字冲突；在本任务独占文档树一次整合并完整保留双方段落，产品文件逐字沿用该main，PR相对main仍仅修改本需求与状态两份文本。媒体冻结应用及完整CI继续对应dfac7457／2026.10.23.4，不声称验证了后续设置组合或将其纳入本媒体发布候选。

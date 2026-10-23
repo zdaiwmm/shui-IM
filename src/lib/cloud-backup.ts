@@ -108,7 +108,7 @@ async function request<T>(url: string, token: string, signal: AbortSignal, body?
       ? '恢复包已读取，但历史片段无法取回。恢复码可能刚被轮换、所属设备已撤销，或片段已被清理；请使用当前恢复码重试'
       : '找不到可用备份。设备恢复并换码后，旧码会停用，请使用新生成的恢复码；也请确认码输入完整、对应设备未撤销且备份未清理');
     if (response.status === 409) throw new Error('备份版本冲突，请锁定后重新解锁再试');
-    if (response.status === 413) throw new Error('备份空间已满，请联系管理员处理');
+    if (response.status === 413) throw new Error('备份密室已满，请联系管理员处理');
     throw new ApiError('备份服务暂时不可用，请稍后重试', response.status, 'BACKUP_UNAVAILABLE');
   }
 }
@@ -136,7 +136,7 @@ async function update<T>(session: VaultSession, signal: AbortSignal, change: (st
 
 function checkpoint(vault: Vault): Vault {
   if (vault.migrationSource) throw new Error('此历史本机状态已停用，不能生成设备恢复包');
-  if (vault.personalBinding && vault.personalMigration?.state !== 'staged') throw new Error('个人助记词空间不能使用旧身份备份格式');
+  if (vault.personalBinding && vault.personalMigration?.state !== 'staged') throw new Error('个人助记词密室不能使用旧身份备份格式');
   const value = structuredClone(vault);
   delete value.backup;
   delete value.spaceRecoveryCode;
@@ -363,7 +363,7 @@ export async function fetchRecoveryBundle(code: string, signal: AbortSignal, onW
   if (code.startsWith('QR4-')) {
     const spaces = await recoverableSpaces(code, signal);
     const entry = targetRoom ? spaces.find(space => space.roomId === targetRoom) : spaces.length === 1 ? spaces[0] : undefined;
-    if (!entry?.code) throw new Error('请先选择此恢复码对应的空间');
+    if (!entry?.code) throw new Error('请先选择此恢复码对应的密室');
     code = entry.code;
   }
   const { id, secret } = parseCloudRecoveryCode(code);
@@ -387,7 +387,7 @@ export function normalizeRecoveryCodes(input: string | readonly string[]): strin
   if (codes.length > 6) throw new Error('本会话最多支持 6 个设备恢复码');
   for (const code of codes) {
     try { if (code.startsWith('QR4-')) spaceCodeId(code); else parseCloudRecoveryCode(code); }
-    catch { throw new Error('恢复码格式不正确，请输入完整的空间或设备恢复码'); }
+    catch { throw new Error('恢复码格式不正确，请输入完整的密室或设备恢复码'); }
   }
   return codes;
 }
@@ -396,10 +396,10 @@ export function normalizeRecoveryCodes(input: string | readonly string[]): strin
  * Verify possession of a signing key already authenticated in the live membership. */
 export async function assertHistoryOwner(session: VaultSession, bundle: CloudRecoveryBundle): Promise<void> {
   const vault = session.vault;
-  if (bundle.roomId !== vault.roomId || bundle.checkpoint.role !== vault.role) throw new Error('这不是你在当前空间的备份');
+  if (bundle.roomId !== vault.roomId || bundle.checkpoint.role !== vault.role) throw new Error('这不是你在当前密室的备份');
   const member = vault.members.find(item => item.deviceId === bundle.deviceId && item.role === vault.role)
     ?? (bundle.deviceId === vault.identity.publicBundle.deviceId ? { ...vault.identity.publicBundle, role: vault.role } : undefined);
-  if (!member) throw new Error('尚无法确认这份备份属于你，请先联网更新空间成员后重试');
+  if (!member) throw new Error('尚无法确认这份备份属于你，请先联网更新密室成员后重试');
   try {
     const privateKey = await crypto.subtle.importKey('jwk', bundle.checkpoint.identity.signingPrivateKey, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
     const publicKey = await crypto.subtle.importKey('jwk', member.signingKey, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
@@ -415,7 +415,7 @@ export async function authorizedHistorySources(session: VaultSession, input: str
   for (const code of normalizeRecoveryCodes(input)) {
     if (code.startsWith('QR4-')) {
       const entry = (await recoverableSpaces(code, signal)).find(space => space.roomId === session.vault.roomId);
-      if (!entry?.code) throw new Error('这份恢复码没有当前空间的备份');
+      if (!entry?.code) throw new Error('这份恢复码没有当前密室的备份');
       codes.add(entry.code);
       for (const source of entry.historyCodes ?? []) codes.add(source);
     } else codes.add(code);

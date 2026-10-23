@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN" data-color-scheme="light" data-theme="blue">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f2f5f1">
+  <title>Chamber · 体验修订原型 V1.4</title>
+  <link rel="stylesheet" href="prototype.css">
+</head>
+<body>
+  <header class="review-header">
+    <a class="wordmark" href="#creation" aria-label="Chamber 原型首页"><svg viewBox="0 0 100 100" aria-hidden="true"><rect x="21" y="24" width="58" height="52" rx="13" fill="none" stroke="currentColor" stroke-width="3.4"/><path d="M37.2 38.5h7.6a3.2 3.2 0 0 1 3.2 3.2v22.4l-5.4-5.4h-5.4a3.2 3.2 0 0 1-3.2-3.2V41.7a3.2 3.2 0 0 1 3.2-3.2ZM62.8 38.5h-7.6a3.2 3.2 0 0 0-3.2 3.2v22.4l5.4-5.4h5.4a3.2 3.2 0 0 0 3.2-3.2V41.7a3.2 3.2 0 0 0-3.2-3.2Z" fill="currentColor"/></svg><span>Chamber</span></a>
+    <span class="review-caption">体验修订 <b>V1.4</b></span>
+    <div class="review-header-actions"><button id="toggle-theme" aria-label="切换为深色模式">深色模式</button><a href="flow.html" target="_blank" rel="noopener">业务流程图 ↗</a></div>
+  </header>
+  <main class="review-layout">
+    <aside class="review-sidebar" aria-label="原型审阅导航">
+      <p class="eyebrow">交互原型 / 待确认</p>
+      <h1>进入你的密室</h1>
+      <p class="review-intro">先体验开门过场，再检查设置、设备与恢复流程。</p>
+      <nav id="review-nav">
+        <button data-screen="creation"><span>01</span>创建过场<i>修订</i></button>
+        <button data-screen="chat"><span>02</span>聊天与浮动顶栏</button>
+        <button data-screen="settings"><span>03</span>设置面板</button>
+        <button data-screen="presence"><span>04</span>在线状态样式</button>
+        <button data-screen="cover-settings"><span>05</span>入口遮蔽页</button>
+        <button data-screen="spaces"><span>06</span>切换密室</button>
+        <button data-screen="devices"><span>07</span>设备管理</button>
+        <button data-screen="peer"><span>08</span>帮对方进入</button>
+        <button data-screen="credential"><span>09</span>恢复凭证</button>
+        <button data-screen="restore"><span>10</span>聊天记录恢复</button>
+        <button data-screen="gallery"><span>11</span>相册与文件</button>
+        <button data-screen="numeric-password"><span>12</span>数字密码</button>
+      </nav>
+      <div class="review-note"><b>仅使用模拟内容</b><p>不连接真实密室、不发送请求、不保存密码。请使用示例凭证体验。</p></div>
+    </aside>
+    <section class="review-stage" aria-label="原型预览">
+      <div class="stage-toolbar"><span id="screen-title">开门过场</span><label>预览尺寸<select id="viewport"><option value="393x852">393 × 852</option><option value="320x680">320 × 680</option><option value="393x683">393 × 683 短屏</option><option value="768x900">768 × 900 平板</option><option value="1024x800">1024 × 800 桌面</option></select></label></div>
+      <div class="device-stage"><div class="device-viewport" id="device" data-view="creation"><div class="system-status" aria-label="模拟系统状态栏"><strong>9:41</strong><span><svg viewBox="0 0 20 16" aria-hidden="true"><path d="M2 13V9m5 4V6m5 7V3m5 10V0" stroke="currentColor" stroke-width="2.5"/></svg><svg viewBox="0 0 20 16" aria-hidden="true"><path d="M1 5a14 14 0 0 1 18 0M4 8a9 9 0 0 1 12 0m-9 3a4 4 0 0 1 6 0m-3 3h.01" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><svg viewBox="0 0 28 16" aria-hidden="true"><rect x="1" y="2" width="23" height="12" rx="3" fill="none" stroke="currentColor" stroke-width="1.4"/><rect x="3" y="4" width="18" height="8" rx="1" fill="currentColor"/><path d="M26 6v4" stroke="currentColor" stroke-width="2"/></svg></span></div><div id="app" class="prototype-app"></div><div class="system-home" aria-hidden="true"></div></div></div>
+      <p class="stage-footnote">系统栏为视觉模拟 · V1 需求 + 开门过场补充 · 正式产品待设计确认后实施</p>
+    </section>
+    <aside class="review-inspector" aria-label="演示控制">
+      <p class="eyebrow">体验控制</p><h2 id="inspector-title">开门进入</h2><p id="inspector-description"></p>
+      <div id="context-controls"></div>
+      <div class="inspector-section"><label for="palette">页面配色</label><select id="palette"><option value="blue">经典</option><option value="green">松绿</option><option value="purple">雾紫</option><option value="apricot">暖杏</option></select><label class="check-label"><input id="reduced-motion" type="checkbox">减少动态效果</label><label class="check-label"><input id="large-text" type="checkbox">放大文字至 200%</label></div>
+      <div class="inspector-section"><b>本页验收重点</b><p id="acceptance-note"></p></div>
+      <div class="prototype-version">原型 V1.4 · 2026.10.23<br>基线 d0a997d · 本机独立预览</div>
+    </aside>
+  </main>
+  <script type="module" src="prototype.js"></script>
+</body>
+</html>

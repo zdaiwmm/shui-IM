@@ -157,6 +157,7 @@ try {
       const app = listFixture.app;
       app.runtimeAbort = new AbortController();
       app.session.vault.members.splice(0, 0, { deviceId: 'list-other', role: 'creator', status: 'active' });
+      app.session.vault.members.push({deviceId:'list-neighbour',role:'creator',status:'active'});
       let applied = 0;
       app.applyRoomStateQueued = async () => { applied++; };
       const realFetch = window.fetch;

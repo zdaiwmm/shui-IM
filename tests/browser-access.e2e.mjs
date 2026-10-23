@@ -217,7 +217,7 @@ try {
   await fresh.page.locator('#open-spaces').click();
   const legacyRow=fresh.page.locator('.space-row').filter({hasText:'旧设备丢失的空间'});
   await legacyRow.click({button:'right'});
-  assert.equal(await fresh.page.locator('#space-delete').innerText(),'从我的空间列表移除');
+  assert.equal(await fresh.page.locator('#space-delete').innerText(),'从我的密室列表移除');
   await fresh.page.route('**/api/browser-access-catalogs/**',route=>route.request().method()==='PATCH'?route.abort('failed'):route.continue());
   await fresh.page.locator('#space-delete').click();
   await fresh.page.locator('#app-toast').filter({hasText:/./}).waitFor();

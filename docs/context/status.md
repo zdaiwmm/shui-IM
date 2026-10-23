@@ -1,5 +1,9 @@
 # Quiet Room 当前状态
 
+## 设置与恢复V1.4实施完成，待最终CI与合并（2026-10-23）
+
+用户明确确认[本轮V1.4](../requirements/2026-10-23-settings-17-prototype/README.md)并授权实施。独占任务基于d0a997d，设计提交d06a9dd；覆盖设置分类／系统取色／独立子页、原位创建、设备链接认证、凭证与恢复完整页及其他17项反馈。产品源c2ed3fc的干净本地完整验收已通过（1075项、80浏览器入口）；旧恢复测试补正式退出后定向通过，最终精确CI与合并由PR #386续记，失败历史和未验证范围由需求记录拥有。契约D-077／NEW_ROOM_ARCHIVES／SECURITY及视觉V1.26已同步。未授权本批生产发布，线上状态仍以下方独立发布证据为准。
+
 ## 媒体播放与查看器 V1 已合并，本任务未发布（2026-10-23）
 
 - 用户已确认[媒体V1原型与流程](../requirements/2026-10-23-media-playback-viewer/README.md)，授权正式实施、完整回归及固定D交付；独占任务`codex/media-playback-viewer-20261023`，基线`d0a997d4c03d04be3157c976dfe7c53cb32668ce`。修复JPEG预览条目未升级为视频来源，保留封面／遮蔽与原件；控件分区、错误状态、数值倍速、键盘及图片高对比样式按V1实现。
@@ -7,7 +11,7 @@
 - 初代真实缓存负例准确失败，初代本地78/78通过；最终干净组合构建／类型、140文件／1073项及6项媒体／语音／隐私／完整双端浏览器全部通过。[最终PR完整CI39940501341](https://github.com/zdaiwmm/shui-IM/actions/runs/39940501341) attempt1全绿、Full application verification通过（79个浏览器入口及全量门禁）。初代清理测试超时与旧恢复面板CI超时、各一次定向复验的历史保留于需求记录。
 - [精确main完整CI39941779517](https://github.com/zdaiwmm/shui-IM/actions/runs/39941779517) attempt1全绿、Full application verification通过，已独立核对完整应用SHA。独立文档树仅对账；生产未授权、未发布，iPhone Safari真机及实际编码矩阵未验证。原实现树有活动V1预览，保留待后续验收／发布；下方生产事实保持其原应用SHA。
 - 收尾在同一V1范围发现200%文字的1.5×数值超出固定圆形按钮，正式组件及原CSS负例已复现。倍速按文字自然加宽，保持44px最小热区；完整视频专项首次修复验证通过。[PR #390](https://github.com/zdaiwmm/shui-IM/pull/390)按干净源`7f98830caf4490b4b988448f4ccbe70cefa4c259`合并为最终应用`dfac745731ac432fe96032345b6badde64c34c0d`／2026.10.23.4，完整文件树相同，包含全部媒体V1修复。
-- 续修本地构建／类型及140文件／1073项通过，[精确PR完整CI39944787623](https://github.com/zdaiwmm/shui-IM/actions/runs/39944787623) attempt1全绿、Full application verification通过（79个浏览器入口及全量门禁）。[最终应用main完整CI39945974639](https://github.com/zdaiwmm/shui-IM/actions/runs/39945974639) attempt2全绿、Full application verification通过，head已独立核对；首轮WebKit邀请目录请求错误仅该失败分片原样复验一次后通过，原因未确认，原断言及首次记录保留。文档只对账，本任务未执行生产发布，Safari真机与编码矩阵仍未验证。
+- 续修本地构建／类型及140文件／1073项通过，[精确PR完整CI39944787623](https://github.com/zdaiwmm/shui-IM/actions/runs/39944787623) attempt1全绿、Full application verification通过（79个浏览器入口及全量门禁）。[最终应用main完整CI39945974639](https://github.com/zdaiwmm/shui-IM/actions/runs/39945974639) attempt2全绿、Full application verification通过，head已独立核对；首轮WebKit邀请目录请求错误仅该失败分片原样复验一次后通过，原因未确认，原断言及首次记录保留。文档只对账，本任务未执行生产发布，Safari真机与编码矩阵仍未验证。 收尾时设置PR #386独立合并为`6d83e8d66bbcf0489e66ba22acd1bca76d55262c`；本需求仅在文档分支保留双方状态，媒体应用证据仍对应上述dfac7457，不将新设置组合的验证归于本任务。
 
 ## 系统审计四项修复已发布（2026-10-23 09:42）
 
