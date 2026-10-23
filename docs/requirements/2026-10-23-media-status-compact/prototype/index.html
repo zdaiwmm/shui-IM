@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN" data-color-scheme="light" data-chat-palette="green">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>附件状态 · 24 / 20 对照原型</title>
+  <link rel="stylesheet" href="../../../../src/design-tokens.css">
+  <link rel="stylesheet" href="../../../../src/appearance.css">
+  <link rel="stylesheet" href="./prototype.css">
+  <script defer src="./icons.js"></script>
+  <script defer src="./prototype.js"></script>
+</head>
+<body>
+  <header class="workspace-header">
+    <div class="brand"><span class="brand-dot"></span>Quiet Room <span class="separator">/</span> 设计预览 <span class="version">V1 · 待确认</span></div>
+    <div class="header-actions">
+      <button class="icon-button" id="theme-toggle" aria-label="切换到深色" title="切换主题"></button>
+      <button class="text-button" id="reset-all">重置</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="intro">
+      <div><p class="eyebrow">附件状态与过渡</p><h1>小一点，状态更清楚。</h1><p class="intro-copy">图片、视频、文件与表情，同一阶段放在一起看。</p></div>
+      <div class="size-legend" aria-label="当前尺寸方案"><span><i class="legend-pill process"></i><b id="legend-process">24</b> 过程态</span><span><i class="legend-pill complete"></i><b id="legend-complete">20</b> 完成态</span><small>像素原尺寸 · 可操作区域 ≥ 44px</small></div>
+    </section>
+
+    <nav class="view-tabs" aria-label="预览视图">
+      <button class="selected" data-view="compare" aria-pressed="true">交互对比</button>
+      <button data-view="matrix" aria-pressed="false">状态清单</button>
+      <button data-view="flow" aria-pressed="false">业务流程</button>
+    </nav>
+
+    <section id="compare-view">
+      <div class="control-surface">
+        <div class="control-row">
+          <div class="segmented" aria-label="流程方向"><button data-mode="send" aria-pressed="true" class="selected">我发送</button><button data-mode="receive" aria-pressed="false">对方发来</button></div>
+          <label class="stage-label">统一状态<select id="global-stage" aria-label="统一切换四类附件状态"></select></label>
+          <button class="play-button" id="play-all"><span data-icon="Play"></span><span id="play-label">播放完整过程</span></button>
+          <label class="speed-label">速度<select id="speed" aria-label="动画播放速度"><option value="1">1×</option><option value="2">0.5× 慢放</option><option value="4">0.25× 慢放</option></select></label>
+        </div>
+        <div class="control-row secondary-controls">
+          <div class="segmented size-switch" aria-label="尺寸对照"><button data-size="compact" aria-pressed="true" class="selected">新 24 / 20</button><button data-size="legacy" aria-pressed="false">旧 32 / 32</button></div>
+          <label class="check-option"><input id="reduced-motion" type="checkbox">减少动态</label>
+          <label class="check-option"><input id="show-hitboxes" type="checkbox">显示操作热区</label>
+          <label class="check-option"><input id="hide-expression" type="checkbox">表情自动遮蔽</label>
+          <span class="simulation-note">本地模拟 · 不连接真实聊天</span>
+        </div>
+      </div>
+
+      <div class="stage-strip" id="stage-strip" aria-label="主要流程阶段"></div>
+      <div id="samples" class="samples" aria-label="四类附件对照"></div>
+
+      <div class="scenario-bar" aria-label="异常场景演示">
+        <span class="scenario-title">试一下异常</span>
+        <button data-scenario="offline"><span data-icon="WifiOff"></span>离线等待</button>
+        <button data-scenario="upload-failed"><span data-icon="AlertCircle"></span>上传失败</button>
+        <button data-scenario="send-failed">消息提交失败</button>
+        <button data-scenario="download-failed">下载失败</button>
+        <button data-scenario="unavailable">内容不可用</button>
+        <button data-scenario="poster-missing">视频封面不可用</button>
+      </div>
+
+      <div class="explanation" aria-live="polite"><span class="state-bullet"></span><div><strong id="phase-title">上传中</strong><p id="phase-description"></p></div></div>
+      <div class="bottom-notes"><p><b>切换看什么</b> 同一附件外框保持原位；状态文字交叉淡化，宽度从当前画面续接；完成时收成 20px，表情保留透明时间行。</p><p><b>事实边界</b> 上传完成 ≠ 服务已保存；单勾 ≠ 对方已读；普通文件的已读 ≠ 文件正文已阅读。</p></div>
+    </section>
+
+    <section id="matrix-view" hidden>
+      <div class="section-heading"><h2>每一种状态，都有去处。</h2><p>点击一行可回到四类附件的实际对照。尺寸为本轮建议目标，尚未进入正式产品。</p></div>
+      <div class="matrix-scroll"><table id="state-matrix"><thead><tr><th>流程 / 状态</th><th>图片与视频</th><th>文件</th><th>表情</th><th>视觉高度</th></tr></thead><tbody></tbody></table></div>
+    </section>
+
+    <section id="flow-view" hidden>
+      <div class="section-heading"><h2>发送事实与本机处理，分别表达。</h2><p>点击流程节点可体验对应状态。失败重试复用同一附件；取消移除占位，隐私终止立即停止演示。</p></div>
+      <div class="flow-columns" id="flow-columns"></div>
+      <div class="flow-note"><span data-icon="Lock"></span><p>锁定或隐私终止优先于所有动画，清除预览。此处仅演示可见状态，不模拟真实身份验证、加密或跨设备回执。</p></div>
+      <p class="source-note">流程源码：<a href="../flow.md">flow.md</a> · 需求与验收：<a href="../README.md">README.md</a></p>
+    </section>
+
+    <footer class="workspace-footer"><span>24 / 20 · V1</span><span>状态文字 180ms · 外壳 240ms · 进度 180ms · 支持中断与减少动态</span><span id="asset-status">正在准备本地演示素材…</span></footer>
+  </main>
+
+  <dialog id="viewer" class="viewer"><div class="viewer-top"><strong id="viewer-title"></strong><button class="icon-button" id="close-viewer" aria-label="关闭预览"><span data-icon="X"></span></button></div><div id="viewer-body"></div></dialog>
+  <div id="announcer" class="sr-only" role="status" aria-live="polite"></div>
+</body>
+</html>
