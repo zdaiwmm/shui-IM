@@ -24,4 +24,4 @@ const server = createServer(async (req, res) => {
   } catch {res.writeHead(404).end('Not found');}
 });
 server.on('error', error => {console.error(error.message); process.exitCode=1;});
-server.listen(port, '127.0.0.1', () => console.log(`Chamber 原型 V1.3：http://127.0.0.1:${port}${prefix}index.html\n流程图：http://127.0.0.1:${port}${prefix}flow.html\n仅监听本机；不启动应用、API、数据库或 Service Worker。`));
+server.listen(port, '127.0.0.1', () => console.log(`Chamber 原型 V1.4：http://127.0.0.1:${port}${prefix}index.html\n流程图：http://127.0.0.1:${port}${prefix}flow.html\n仅监听本机；不启动应用、API、数据库或 Service Worker。`));

@@ -251,8 +251,11 @@ select { color:var(--ink); padding:6px 24px 6px 8px; background:var(--surface); 
 .settings-backdrop { position:absolute; inset:0; z-index:10; background:rgb(10 8 14 / .28); }
 .settings-sheet { position:absolute; inset:54px 0 64px; background:var(--paper); border-radius:0 0 20px 20px; display:flex; flex-direction:column; overflow:hidden; }
 .settings-sheet .page-header { padding-top:18px; }
-.settings-scroll { min-height:0; overflow-y:auto; flex:1; padding:4px 20px 0; }
-.settings-group { border-radius:10px; background:var(--surface-raised); margin-bottom:20px; overflow:hidden; }
+.settings-scroll { min-height:0; overflow-y:auto; flex:1; padding:4px 20px 8px; }
+.settings-section { margin:0 0 16px; }
+.settings-section:last-child { margin-bottom:0; }
+.settings-category { padding:0 12px; margin:0 0 8px; font-size:.75em; line-height:1.5; font-weight:500; color:var(--ink-muted); }
+.settings-group { border-radius:10px; background:var(--surface-raised); overflow:hidden; }
 .settings-row { min-height:44px; display:flex; align-items:center; gap:10px; width:100%; padding:6px 12px; text-align:left; font-size:.875em; }
 .settings-row+.settings-row { border-top:1px solid var(--line-subtle); }
 .setting-tile { width:24px; height:24px; border-radius:6px; background:var(--tile,#7477ae); color:#fcfcfa; display:grid; place-items:center; flex:none; }
