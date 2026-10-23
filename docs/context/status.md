@@ -1,8 +1,11 @@
 # Quiet Room 当前状态
 
-## 系统审计修复冻结候选（2026-10-23）
+## 系统审计四项修复已发布（2026-10-23 09:42）
 
-四项审计根因已在独占分支`codex/system-audit-fixes-20261023`实现；范围、授权、兼容边界及失败历史见[修复V1](../requirements/2026-10-23-system-audit-fixes/README.md)。本地构建及140文件/1,072项通过，邀请/归档撤销屏障、33/129条旧混合纪元队列、130条离线跨窗口、取消联网等待及大SQLite完整备份恢复通过。冻结时完整浏览器与远端CI仍在推进，后续实际结果以PR及精确SHA CI为准；未声称合并、生产或真机通过。生产仍为下方`1d7500f`／2026.10.22.3；本批候选版本2026.10.23.1，发布须确认最终完整SHA，并先升级Mac固定接收器，保留原策略、定时与数据。
+- 四项根因及独立复核、兼容边界与失败历史由[修复V1](../requirements/2026-10-23-system-audit-fixes/README.md)拥有。授权提交重验、按发送序列恢复密文、离线意图原子持久化和大SQLite备份容量修复已由[PR #383](https://github.com/zdaiwmm/shui-IM/pull/383)合并为应用`76583015b4c9d7d404e0f5bf66d12974065aba7d`／2026.10.23.1；与最终源d629566完整文件树相同。
+- 最终干净源完整本地检查通过140文件／1,072项、78/78浏览器，0失败／0未运行，通话原生及20个合成/CDP弱网场景通过；[精确PR完整CI39881535723](https://github.com/zdaiwmm/shui-IM/actions/runs/39881535723)及[精确main完整CI39882511460](https://github.com/zdaiwmm/shui-IM/actions/runs/39882511460)均attempt1全部成功，Full application verification通过。真实HTTP撤销屏障、旧33/129条混合纪元密文、130条离线跨窗口及>256MiB合成SQLite全链备份恢复通过。真机／物理认证器与外部独立密码学审计未完成。
+- 用户收到完整应用SHA／版本后回复「确认发布生产」。固定只读预检PREFLIGHT_OK后，先升级Mac固定runner并保留原策略／定时／数据，唯一[正式云发布39884634179](https://github.com/zdaiwmm/shui-IM/actions/runs/39884634179)取得精确DEPLOY_VERIFIED，从1d7500f切换一次。首次回读仅backup starting；核对既有5分钟探针后，只续跑同SHA readback-only，于`2026-10-23T01:42:30.079Z`取得READBACK_OK，3,021ms。应用／备份healthy，精确SHA／实际镜像、HTTPS／数据库／存储、公开与容器资源及WebSocket一致，维护门absent；公网版本2026.10.23.1。
+- 已安装Mac接收器完成一次真实生产快照：1,198,012,300字节，113,632ms，磁盘独立校验及双方回执通过。真实DB约218MB，不能替代本地大数据库边界测试。完整生产事实见[本轮发布记录](../../RELEASING.md#release-system-audit-fixes-20261023)。脱敏证据及原审计副本位于公共Git元数据`quiet-room-deliveries/evidence/system-audit-fixes-20261023/`。独立文档树只对账，应用SHA不变；本批有原审计材料、忽略缓存／回执及活动目录，按清理门禁保留，其他任务不处理。下方为历史生产证据。
 
 ## 同浏览器重新进入续修已发布，真机待核验（2026-10-23 06:26）
 

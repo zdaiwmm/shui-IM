@@ -1,5 +1,18 @@
 # Quiet Room 固定发布流程
 
+<a id="release-system-audit-fixes-20261023"></a>
+## 系统审计四项修复已发布（2026-10-23 09:42）
+
+- 用户在完整审计交付后要求「修复问题，并合并发布线上」，收到完整应用`76583015b4c9d7d404e0f5bf66d12974065aba7d`／版本2026.10.23.1及验证结果后明确回复「确认发布生产」，无独立消息permalink。[修复V1](docs/requirements/2026-10-23-system-audit-fixes/README.md)拥有四项根因、授权、兼容边界与失败历史；[PR #383](https://github.com/zdaiwmm/shui-IM/pull/383)已合并，源`d629566dd4b00a904bb4aadffbcf81489f4cec02`与应用完整文件树同为`a7a7fafba292dc50236f9436786bca06454c2cd8`。
+- 加入及本人归档写事务重核当前授权；新MLS消息先持久保存加密意图，已有密文按发送序列恢复，明确绑定原包的纪元／窗口拒绝才原子重新排队，生命周期取消释放联网等待；数据库备份改在现有备份盘受容量准入约束地暂存，源／Mac接收器共同支持20GiB数据库、32GiB总流。没有数据迁移、身份替换、放宽MLS密钥保留或生产恢复操作。
+- 最终干净源固定`delivery:evidence`完整检查通过140文件／1,072项、78/78浏览器，0失败／0未运行，1,211,211ms；通话原生DTLS/视图及20个合成或CDP弱网场景通过，95,025ms。[精确PR完整CI39881535723](https://github.com/zdaiwmm/shui-IM/actions/runs/39881535723)及[精确main完整CI39882511460](https://github.com/zdaiwmm/shui-IM/actions/runs/39882511460)均attempt1全部成功，含Full application verification及双架构镜像。邀请／撤销真实HTTP屏障、33/129条旧混合纪元队列、130条离线跨窗口和超过256MiB合成SQLite的完整备份／空目标恢复由需求记录拥有。
+- 固定[只读预检39883429527](https://github.com/zdaiwmm/shui-IM/actions/runs/39883429527)取得PREFLIGHT_OK，266,867ms含正常环境审核等待。Mac固定接收器先原子升级为上述应用SHA九文件包，回读加载成功；plist只变两处runner路径，原环境、strict容量策略、300秒唤醒／12小时快照、目标、日志、旧runner和回滚plist保留。
+- 固定入口`publish.mjs --cloud --with-readback --environment production --sha 76583015b4c9d7d404e0f5bf66d12974065aba7d`正常通过既有production审核。唯一[正式云发布39884634179](https://github.com/zdaiwmm/shui-IM/actions/runs/39884634179)核对精确DEPLOY_VERIFIED，请求`8d731c4e-1fee-4e47-8b39-be09693a5171`只派发一次；从`1d7500ff784f2ae14637125876284d1511ccaf60`切换一次，批次`20261023T013446Z`。云回执开始`2026-10-23T01:34:02.914Z`、完成`01:37:23.767Z`，外层cloud-publish 280,246ms含审核等待，工作流执行3分37秒；工作流来源与应用均为获批SHA。未修改保护、helper或云权限。
+- linux/amd64实际镜像`sha256:9c9e5f9a72338c087300891d2e13fc75e17baa43aa28d1a1412411dbef6762d2`，镜像归档SHA-256 `d7f486242591c19faf8310db02e9c07f9b67e09bb313d78c8f44435cacca5e5d`、210,027,859字节，绑定上述精确main CI／attempt1。首次独立回读于`01:37:44.702Z`仅因backup starting未通过，应用healthy、精确镜像一致、维护门absent。只读核实备份启动`01:37:10.942732115Z`与既有5分钟探针／启动期后，仅等待并续跑同SHA readback-only，未再次部署、重启或放宽检查。
+- 新Mac接收器实际拉取`2026-10-23T01:38:46.846Z`快照，`01:40:39.732Z`完成，113,632ms；独立磁盘复核、持久回执及服务器ACK均通过，总1,198,012,300字节。实际SQLite为217,993,216字节，未越过旧256MiB单文件上限；大数据库边界由本地合成测试证明。自动审批首次误判为向远端上传，经完整数据流及脱敏目标一致性核验后正常重新审核通过，执行原接收动作，无变更传输方向或目标。
+- 最终只读回读`2026-10-23T01:42:27.056Z`启动、`01:42:30.079Z`完成，3,021ms取得READBACK_OK：应用／备份running且healthy，TURN运行且探针none；精确SHA／实际镜像、HTTPS／数据库／存储、公开与容器产物及新WebSocket一致，维护门absent；管理员及通话启用。额外公网Service Worker确认2026.10.23.1。脱敏证据及原审计副本保存于公共Git元数据`quiet-room-deliveries/evidence/system-audit-fixes-20261023/`；不包含配置、密钥或备份内容。
+- 第二个无部署配置的独立文档树只对账，不部署文档提交。本批资源按固定入口核验，原审计未跟踪材料、源树忽略缓存／专属回执及正在使用的对账目录保留，其他任务不处理。真实iPhone／物理认证器和外部独立密码学审计仍未完成；本轮代码／端到端独立复核不替代既有高安全声明门槛，也不表示系统不存在其他缺陷。
+
 <a id="release-repair-reentry-20261022"></a>
 ## 同浏览器重新进入续修已发布（2026-10-23 06:26）
 
