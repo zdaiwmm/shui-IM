@@ -57,7 +57,9 @@ export function mountFormInputs(root: HTMLElement): () => void {
     if (view) held = previousGeometry ?? { height: view.height, width: view.width, offsetTop: view.offsetTop, offsetLeft: view.offsetLeft,
       pageTop: view.pageTop, pageLeft: view.pageLeft, scale: view.scale };
     const closedHeight = held?.height ?? innerHeight;
-    const pageScroll = window.scrollY;
+    const pageScroll = window.scrollY, pageLeft = window.scrollX;
+    const scrollLock = new AbortController();
+    const frozenScroll = [...root.querySelectorAll<HTMLElement>('*')].filter(node => node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth).map(node => ({node,top:node.scrollTop,left:node.scrollLeft}));
     root.classList.add('form-input-editing');
     root.style.setProperty('--form-input-layout-height', `${rootHeight}px`);
     const previousHeight = root.style.getPropertyValue('height'), priority = root.style.getPropertyPriority('height');
@@ -102,12 +104,18 @@ export function mountFormInputs(root: HTMLElement): () => void {
     overlay.querySelector('.form-input-field')!.prepend(editor);
     overlay.style.height=`${view?.height??innerHeight}px`;overlay.classList.add('is-visible');
     root.append(overlay);
+    const blockBackground = (event: Event) => { if(event.target!==editor)event.preventDefault(); };
+    document.addEventListener('touchmove',blockBackground,{capture:true,passive:false,signal:scrollLock.signal});
+    document.addEventListener('wheel',blockBackground,{capture:true,passive:false,signal:scrollLock.signal});
+    const holdScroll = () => { for(const {node,top,left} of frozenScroll) { if(node.isConnected){node.scrollTop=top;node.scrollLeft=left;} } if(window.scrollX!==pageLeft||window.scrollY!==pageScroll)window.scrollTo(pageLeft,pageScroll); };
+    document.addEventListener('scroll',holdScroll,{capture:true,signal:scrollLock.signal});
     let finished = false, composing = false, pointerAction = false, commitRequested = false;
     const release = () => {
+      scrollLock.abort();
       releasePending = null; held = null;
       root.style.setProperty('height', previousHeight, priority);
       root.classList.remove('form-input-editing'); root.style.removeProperty('--form-input-layout-height');
-      if (original.isConnected && root.contains(original)) window.scrollTo(0, pageScroll);
+      if (original.isConnected && root.contains(original)) window.scrollTo(pageLeft, pageScroll);
       view?.dispatchEvent(new Event('resize'));
     };
     const releaseWhenClosed = () => {

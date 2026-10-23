@@ -338,3 +338,80 @@ html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confi
 #app .is-space-list-page.space-drawer-overlay.is-closing > .space-drawer { transform:translateX(100%); }
 /* A dialog page retains viewport geometry while the shared page motion owns it. */
 #app[data-page-transition] > .page-transition-incoming.space-drawer-overlay { position:fixed; inset:0; width:100%; height:100%; }
+
+/* V1.28: shared component geometry and uncluttered feedback. */
+#app :is(input,textarea)::placeholder { font-weight:400; }
+#app .is-settings-sheet > .space-drawer { box-shadow:none; }
+#app .is-settings-sheet .settings-dismiss-handle { background:transparent; border:0; box-shadow:none; }
+#app .is-settings-sheet .space-drawer-scroll { padding-bottom:12px; scroll-padding-bottom:12px; }
+#app .is-space-list-page.space-drawer-overlay { transition-duration:280ms; }
+#app .is-space-list-page.space-drawer-overlay > .space-drawer { transition:transform 280ms cubic-bezier(.333333,0,.666667,1); }
+#app .device-management-page .device-toolbar > div { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px; }
+#app .device-management-page .device-toolbar > #refresh-devices { display:grid; place-items:center; border:0; border-radius:12px; box-shadow:none; }
+#app .device-management-page #refresh-devices svg { width:20px; height:20px; }
+#app .device-management-page .device-security-note { display:flex; align-items:flex-start; gap:8px; }
+#app .device-management-page .device-security-note > svg { flex:none; width:16px; height:16px; margin-top:2px; }
+#app .archive-page .backup-settings-group { border:0; box-shadow:none; overflow:hidden; }
+#app .archive-page .archive-entry { display:flex; align-items:center; gap:12px; width:100%; min-height:76px; height:auto; padding:16px; margin:0; border:0; border-radius:0; background:var(--surface); text-align:left; }
+#app .archive-page .archive-entry + .archive-entry { border-top:1px solid var(--line-subtle); }
+#app .archive-entry > svg { flex:none; position:static; width:22px; height:22px; margin:0; transform:none; }
+#app .archive-entry > span { min-width:0; flex:1; line-height:1.5; }
+#app .archive-entry > b { flex:none; font-weight:400; color:var(--ink-muted); }
+#app .archive-page :is(form[data-verify],form[data-restore-form]) { border:0; padding:0; background:transparent; box-shadow:none; gap:24px; }
+#app .archive-material-card { display:grid; gap:20px; padding:16px; border-radius:16px; background:var(--surface); }
+#app .archive-material-card .archive-upload { display:flex; align-items:center; justify-content:center; margin:0; border:0; background:transparent; }
+#app .archive-upload > svg { position:static; margin:0; transform:none; }
+#app .archive-material-card .archive-upload[hidden], #app .archive-selected[hidden] { display:none; }
+#app .archive-material-card .archive-selected { margin:0; padding:0; background:transparent; }
+#app .archive-page .archive-password-control input { width:100%; border:1px solid var(--line); border-radius:12px; background:var(--paper); }
+#app .archive-material-card .passkey-name-field { margin:0; }
+#app .archive-page :is(form[data-verify],form[data-restore-form]) > .primary-button { width:100%; min-height:52px; margin:0; }
+#app .archive-credential-page > .backup-content { gap:16px; }
+#app .archive-credential-page :is(.archive-form-title,.backup-intro) { margin:0; }
+#app .archive-image-preview { padding:0; border:0; border-radius:0; background:transparent; }
+#app .archive-image-preview img { border:1px solid var(--line); box-sizing:border-box; }
+#app .room-creation-page .gateway-heading { display:grid; justify-items:center; gap:16px; }
+#app .room-creation-page .gateway-heading h1 { margin:0; }
+#app .room-creation-page .welcome-copy { margin:0; }
+#app .room-creation-page .welcome-copy p { font-size:1rem; font-weight:550; line-height:1.6; margin:0; color:var(--ink); }
+#app .room-creation-page .room-creation-indicator { width:52px; margin-top:4px; }
+#app .chamber-chat-header[data-presence-style=capsule] .presence-row { font-size:.625rem; }
+#app .chamber-chat-header[data-presence-style=capsule] .peer-summary > .peer-status { font-size:.625rem; }
+#app .text-bubble { padding-inline:10px; }
+#app .media-upload-placeholder { top:50%; left:50%; transform:translate(-50%,-50%); }
+#app .media-ready-hint { display:none; }
+#app .image-bubble > .attachment-meta:has(> .media-capsule-content) { padding-inline:0; }
+#app .gallery-header > .gallery-tabs { height:44px; padding:4px; border-radius:22px; background:var(--surface); }
+#app .gallery-tabs::after { display:none; }
+#app .gallery-tabs::before { inset:4px auto 4px 4px; width:calc(50% - 4px); height:auto; border-radius:18px; }
+#app .gallery-tabs > .gallery-tab { position:relative; margin:0; height:36px; min-height:36px; border:0; border-radius:18px; }
+#app .gallery-tabs > .gallery-tab::after { content:""; position:absolute; inset:-4px 0; }
+#app .image-viewer :is(.viewer-control,.viewer-nav,.viewer-motion-toggle,.viewer-video-timeline) { border:0; box-shadow:none; background:#242124cc; }
+#app .image-viewer :is(.viewer-header,.viewer-video-controls,.viewer-nav,.viewer-motion-toggle) { transition:opacity 180ms ease,visibility 0s; }
+#app .image-viewer[data-video-controls=hidden]:not(:has(:focus-visible)) :is(.viewer-header,.viewer-video-controls) { transition:opacity 180ms ease,visibility 0s 180ms; }
+#app .idle-lock-fill { background:color-mix(in oklch,var(--accent) 20%,var(--surface-raised)); box-shadow:inset -1px 0 color-mix(in oklch,var(--accent) 28%,transparent); }
+#app.form-input-editing { overscroll-behavior:none; }
+#app.form-input-editing .form-input-panel { overscroll-behavior:none; }
+#app.form-input-editing .form-input-panel :is(input,textarea) { overscroll-behavior:contain; }
+@media(prefers-reduced-motion:reduce) {
+  #app .is-space-list-page.space-drawer-overlay, #app .is-space-list-page.space-drawer-overlay > .space-drawer,
+  #app .image-viewer :is(.viewer-header,.viewer-video-controls,.viewer-nav,.viewer-motion-toggle) { transition:none; }
+}
+
+#app .room-creation-page.gateway-intro { grid-template-rows:minmax(0,1fr); gap:0; padding-block:max(24px,env(safe-area-inset-top)); }
+#app .room-creation-page .gateway-intro-content { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:24px; padding-block:24px; }
+#app .room-creation-page.gateway-intro .gateway-entry-hero { display:grid; height:224px; flex:none; }
+#app .room-creation-page.gateway-intro .chamber-brand { width:232px; height:224px; margin:0; transform:none; gap:12px; }
+#app .room-creation-page .chamber-brand svg { width:156px; height:156px; }
+#app .room-creation-page .room-creation-indicator { padding:0; min-height:40px; height:40px; }
+@media(max-height:580px) {
+  #app .room-creation-page .gateway-intro-content { justify-content:flex-start; gap:16px; padding-block:0; }
+  #app .room-creation-page.gateway-intro .gateway-entry-hero { height:172px; }
+  #app .room-creation-page.gateway-intro .chamber-brand { height:172px; }
+  #app .room-creation-page .chamber-brand svg { width:112px; height:112px; }
+}
+
+#app .chamber-chat-header .presence-heading .presence-row { z-index:2; }
+#app .chamber-chat-header .presence-heading .presence-circuit { position:relative; z-index:1; }
+#app #refresh-devices[aria-busy=true] svg { animation:room-create-spin 900ms linear infinite; }
+@media(prefers-reduced-motion:reduce) { #app #refresh-devices[aria-busy=true] svg { animation:none; } }

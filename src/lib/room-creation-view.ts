@@ -1,16 +1,21 @@
+import { animatePageReplacement } from './motion';
 import { chamberBrand } from './entry-art';
 
 /** Reuse the welcome canvas and brand. Work readiness, never animation, authorizes entry. */
 export function mountRoomCreation(root:HTMLElement,signal:AbortSignal){
+  const previous=root.querySelector<HTMLElement>(':scope > .space-drawer-overlay:not(.is-closing)')??root.firstElementChild as HTMLElement|null;
   const source=root.querySelector<HTMLElement>(':scope > .gateway-welcome');
   const page=source??document.createElement('section');
   if(!source){page.className='gateway gateway-welcome gateway-intro';page.innerHTML=`<div class="gateway-intro-content">${chamberBrand()}<div class="gateway-heading"><h1></h1><div class="welcome-copy"><p></p></div></div></div><div class="welcome-actions"><button type="button" disabled></button></div>`;root.replaceChildren(page);}
   page.classList.remove('is-ready','is-failed');page.style.removeProperty('--creation-open');page.classList.add('room-creation-page');page.setAttribute('aria-label','正在创建密室');
+  if(!source&&previous)animatePageReplacement(root,previous,page,false,signal,true);
   const heading=page.querySelector<HTMLElement>('h1')!,copy=page.querySelector<HTMLElement>('.welcome-copy')!,button=page.querySelector<HTMLButtonElement>('.welcome-actions button')!;
   // Freeze the existing rails before changing copy, preserving the exact brand position.
   heading.style.minHeight=`${heading.clientHeight}px`;copy.style.minHeight=`${copy.clientHeight}px`;
   heading.textContent='正在准备你的密室';copy.innerHTML='<p role="status">请稍等片刻</p>';
   button.disabled=true;button.classList.add('room-creation-indicator');button.setAttribute('aria-label','正在创建');button.innerHTML='<span class="room-creation-spinner" aria-hidden="true"></span><span class="room-creation-check" aria-hidden="true">✓</span>';
+  page.querySelector('.gateway-heading')!.append(button);
+  page.querySelector('.welcome-actions')?.remove();
   const order=['keys','save','connect'] as const,messages=['正在准备本机密钥','正在加密保存密室','正在建立安全连接'];
   let requested=0,displayed=0,started=performance.now(),readyAt=0,actualDone=false,frame=0,disposed=false,resolve!:()=>void;
   const finished=new Promise<void>(done=>{resolve=done;});

@@ -157,9 +157,8 @@ export function animatePageReplacement(host: HTMLElement, previous: HTMLElement 
   const layer=current.style.zIndex;
   current.style.zIndex=backward?'1':'2';previous.style.zIndex=backward?'2':'1';
   const width = current.getBoundingClientRect().width;
-  const arrival = retargetMotion(current, null, { transform: `translateX(${backward ? stationaryBackground?0:-.18 * width : width}px)` }, { transform: 'translateX(0)' }, motion.page);
-  const departure = retargetMotion(previous, null, { transform: 'translateX(0)', opacity: 1 },
-    { transform: `translateX(${backward ? width : stationaryBackground?0:-.18 * width}px)`, opacity: backward||stationaryBackground?1:.9 }, motion.page);
+  const arrival = travelMotion(current, backward ? stationaryBackground ? 0 : -.18 * width : width, 0, 0, motion.page);
+  const departure = travelMotion(previous, 0, backward ? width : stationaryBackground ? 0 : -.18 * width, 0, motion.page);
   let done = false;
   const clean = () => {
     if (done) return; done = true;

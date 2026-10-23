@@ -94,6 +94,7 @@ try {
   assert.equal(await page.evaluate(() => document.querySelector('.video-upload') === window.uploadFixture.row), true);
   await page.evaluate(() => { const gate = window.uploadFixture.gate; gate.release(); gate.release = null; });
   await page.waitForFunction(() => window.uploadFixture.gate.requests === 2 && window.uploadFixture.gate.release);
+  await draft.locator('.media-upload-status > .media-capsule-content').filter({hasText:/33%[\s\S]*上传中/}).waitFor();
   assert.match(await draft.innerText(), /33%[\s\S]*上传中/);
   await page.waitForFunction(() => {
     const rect = document.querySelector('.video-upload').getBoundingClientRect();
@@ -146,13 +147,15 @@ try {
   await retryPreview.scrollIntoViewIfNeeded();
   await retryPreview.click();
   await page.waitForFunction(() => window.uploadFixture.gate.downloadRelease);
+  await retryPreview.locator('.media-load-capsule > .media-capsule-content > .media-load-progress').waitFor();
+  await retryPreview.locator('.is-error').waitFor({state:'detached'});
   assert.equal(await retryPreview.locator('.media-load-capsule > .media-capsule-content > .media-load-progress').count(), 1);
   assert.equal(await retryPreview.locator('.is-error').count(), 0);
   await page.evaluate(() => { const g = window.uploadFixture.gate; g.holdDownload = false; g.downloadRelease(); });
   await page.waitForFunction(id => document.querySelector(`[data-client-msg-id="${id}"] .image-preview`)?.dataset.imageState === 'loaded', id);
   assert.equal(await retryPreview.getAttribute('aria-busy'), 'false');
   assert.equal(await retryPreview.getAttribute('data-revealed'), 'false');
-  assert.equal(await retryPreview.locator('.media-ready-hint').textContent(), '轻点显示');
+  assert.equal(await retryPreview.locator('.media-ready-hint').count(), 0);
   // A second upload must disappear immediately on lock, with no late resurrection.
   await page.evaluate(() => { const f = window.uploadFixture; f.chunks.clear(); f.gate.completed = false; f.gate.hold = true; f.gate.release = null; f.start(); });
   await page.waitForFunction(() => window.uploadFixture.gate.release);

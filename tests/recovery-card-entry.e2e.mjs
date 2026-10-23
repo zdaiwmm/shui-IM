@@ -48,7 +48,7 @@ try {
  assert.equal(await a.evaluate(()=>Boolean(app.session.vault.recoveryExperience?.codeSaved)),false);
  const download=a.waitForEvent('download');await a.locator('#download-recovery-card').click();const file=await (await download).path();
  assert.equal(await a.evaluate(()=>Boolean(app.session.vault.recoveryExperience?.codeSaved)),false,'Download must not mark a card verified');
- await a.locator('#verify-recovery-card').click();await fillFormInput(a, a.locator('#check-saved-card textarea'), 'not a card');await a.locator('[data-card-check]').click();assert.ok((await a.locator('#check-saved-card .form-error').textContent()).length);
+ await a.locator('#verify-recovery-card').click();await fillFormInput(a, a.locator('#check-saved-card textarea'), 'not a card');await a.locator('[data-card-check]').click();assert.ok((await a.locator('.app-toast[data-tone=error]').textContent()).length);
  const chooser=a.waitForEvent('filechooser');await a.locator('[data-card-file]').click();await(await chooser).setFiles(file);await a.getByText('已核对，恢复卡可以使用。',{exact:true}).waitFor();
  assert.equal(await a.evaluate(()=>app.session.vault.recoveryExperience.codeSaved===app.session.vault.backup.id),true);
  await a.locator('#hide-local-recovery').click();await a.locator('.local-recovery-code').waitFor({state:'detached'});

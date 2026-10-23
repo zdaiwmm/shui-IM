@@ -78,7 +78,7 @@ try{
  await bob.getByRole('dialog',{name:'清除本浏览器数据？',exact:true}).getByRole('button',{name:'取消',exact:true}).click();await bob.getByRole('dialog',{name:'清除本浏览器数据？',exact:true}).waitFor({state:'detached'});
  assert.equal(await bob.evaluate(async()=>!!await(await import('/src/lib/vault.ts')).readStoredVault()),true,'Cancelling global clear retains locked data');
  assert.equal(await bob.getByRole('dialog',{name:'无法解锁？',exact:true}).count(),0,'Previous help closes before the destructive confirmation');
- await submitPassword(bob,'111111');await bob.locator('.numeric-password-description.is-error').waitFor();await bob.waitForTimeout(400);
+ await submitPassword(bob,'111111');await bob.locator('.app-toast[data-tone=error]').waitFor();await bob.waitForTimeout(400);
  await submitPassword(bob,'927451');await bob.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);assert.equal((await snapshot(bob)).archiveId,next.archiveId);
  await bob.locator('#chat-settings').click();await bob.locator('#room-lock-settings').click();
  bob.once('dialog',d=>d.dismiss());await bob.locator('[data-remove-room-lock]').click();assert.equal(await bob.evaluate(async()=>(await(await import('/src/lib/vault.ts')).readRoomProtection()).method),'password');
@@ -102,14 +102,14 @@ try{
    await writeFile(cardPath,Buffer.from(await bob.evaluate(async()=>Array.from(new Uint8Array(await window.savedTestCard.arrayBuffer())))));
  }else{const downloadPromise=bob.waitForEvent('download');await bob.locator('[data-download]').click();await(await downloadPromise).saveAs(cardPath);}
  const choose=async selector=>{const chooserPromise=bob.waitForEvent('filechooser');await bob.locator(selector).click();await (await chooserPromise).setFiles(cardPath);};
- await choose('[data-verify] input[type=file]');await fillFormInput(bob,bob.locator('[data-verify] input[name=password]'),'incorrect long password');await bob.locator('[data-verify] button[type=submit]').click();await bob.locator('[data-archive-error]').filter({hasText:'恢复口令不正确'}).waitFor();
+ await choose('[data-verify] input[type=file]');await fillFormInput(bob,bob.locator('[data-verify] input[name=password]'),'incorrect long password');await bob.locator('[data-verify] button[type=submit]').click();await bob.locator('.app-toast[data-tone=error]').filter({hasText:'恢复口令不正确'}).waitFor();
  await fillFormInput(bob,bob.locator('[data-verify] input[name=password]'),phrase);await bob.locator('[data-verify] button[type=submit]').click();await bob.locator('.archive-managed-status').waitFor();
  // A password change verifies the old password and does not revoke anything on cancellation.
  await bob.locator('[data-change-password]').click();
  await fillFormInput(bob,bob.locator('[data-card-form] input[name=original]'),'a wrong previous phrase');
  await fillFormInput(bob,bob.locator('[data-card-form] input[name=password]'),'a newly protected phrase');
  await fillFormInput(bob,bob.locator('[data-card-form] input[name=confirm]'),'a newly protected phrase');
- await bob.locator('[data-card-form] button[type=submit]').click();await bob.locator('[data-archive-error]').filter({hasText:'恢复口令不正确'}).waitFor();
+ await bob.locator('[data-card-form] button[type=submit]').click();await bob.locator('.app-toast[data-tone=error]').filter({hasText:'恢复口令不正确'}).waitFor();
  assert.equal(await bob.locator('.archive-change-confirm').count(),0);
  await fillFormInput(bob,bob.locator('[data-card-form] input[name=original]'),phrase);
  await bob.locator('[data-card-form] button[type=submit]').click();await bob.locator('.archive-change-confirm [data-cancel]').click();await bob.locator('.archive-change-confirm').waitFor({state:'detached'});

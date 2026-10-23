@@ -1,6 +1,6 @@
 import { motion, reducedMotion, travelFrames } from './motion';
 
-type Effect = { animations: Animation[]; widths: number[]; duration: number };
+type Effect = { animations: Animation[]; widths: number[]; duration: number; pending?: () => void };
 const effects = new WeakMap<HTMLElement, Effect>();
 
 export function clearMediaCapsule(host: HTMLElement): void {
@@ -10,9 +10,15 @@ export function clearMediaCapsule(host: HTMLElement): void {
 }
 
 /** A persistent 24/20px shell. Its geometry transforms; text and icons receive
- * the inverse scale. State changes can interrupt without an empty frame. */
+ * the inverse scale. Finish each visible state transition, coalescing queued
+ * updates to the newest state without an empty frame. */
 export function transitionMediaCapsule(host: HTMLElement, paint: () => void, contentChanged = true, signal?: AbortSignal): void {
   if (signal?.aborted) return;
+  const running=effects.get(host);
+  if(running&&(contentChanged||running.pending)&&!reducedMotion()&&!document.hidden&&host.isConnected){
+    running.pending=()=>transitionMediaCapsule(host,paint,true,signal);
+    return;
+  }
   const oldWidth = host.getBoundingClientRect().width;
   const oldHeight = host.getBoundingClientRect().height;
   const oldBackground = getComputedStyle(host).backgroundColor;
@@ -64,7 +70,7 @@ export function transitionMediaCapsule(host: HTMLElement, paint: () => void, con
     animations.push(retiring.animate([{opacity:1},{opacity:0}], {duration:motion.local,fill:'both'}));
     animations.push(content.animate([{opacity:0},{opacity:1}], {duration:motion.local,fill:'backwards'}));
   }
-  const effect = { animations, widths, duration: motion.panel }; effects.set(host,effect);
+  const effect: Effect = { animations, widths, duration: motion.panel }; effects.set(host,effect);
   const preference = matchMedia('(prefers-reduced-motion: reduce)');
   const finish = () => { if (preference.matches || document.hidden) animations.forEach(animation => { try { animation.finish(); } catch { animation.cancel(); } }); };
   const cancel = () => clearMediaCapsule(host);
@@ -73,18 +79,22 @@ export function transitionMediaCapsule(host: HTMLElement, paint: () => void, con
   void Promise.allSettled(animations.map(animation=>animation.finished)).then(()=>{
     signal?.removeEventListener('abort',cancel);
     preference.removeEventListener('change',finish); document.removeEventListener('visibilitychange',finish);
-    retiring.remove(); if(effects.get(host)===effect)effects.delete(host);
+    retiring.remove(); if(effects.get(host)===effect){effects.delete(host);effect.pending?.();}
   });
 }
 
 /** Loaded content replaces progress without a blank flash. Privacy owners can
  * synchronously abort and remove the retiring label. */
-export function retireMediaCapsule(host: HTMLElement, signal?: AbortSignal): void {
+export function retireMediaCapsule(host: HTMLElement, signal?: AbortSignal, onRetired?: () => void): void {
+  if(signal?.aborted){clearMediaCapsule(host);host.remove();onRetired?.();return;}
+  const running=effects.get(host);
+  if(running&&!reducedMotion()&&!document.hidden&&host.isConnected){running.pending=()=>retireMediaCapsule(host,signal,onRetired);return;}
   const width = host.getBoundingClientRect().width;
   clearMediaCapsule(host); host.style.width = `${width}px`;
   host.inert = true; host.setAttribute('aria-hidden','true');
   const effect = host.animate([{opacity:1},{opacity:0}],{duration:reducedMotion()?0:motion.local,fill:'forwards'});
-  const clear = () => { effect.cancel(); host.remove(); signal?.removeEventListener('abort',clear); };
+  let retired=false;
+  const clear = () => { if(retired)return;retired=true;effect.cancel(); host.remove(); signal?.removeEventListener('abort',clear);onRetired?.(); };
   signal?.addEventListener('abort',clear,{once:true});
   if(signal?.aborted)clear(); else void effect.finished.then(clear,clear);
 }

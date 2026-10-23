@@ -387,6 +387,7 @@ try {
   });
   await delayed.click();
   await assertVisibility(5, 1, 'Tap while downloading does not reveal unverified media');
+  await delayed.locator('.media-load-capsule > .media-capsule-content > .media-load-status').filter({hasText:/^下载中 · \d+%$/}).waitFor();
   assert.match(await delayed.locator('.media-load-capsule > .media-capsule-content > .media-load-status').textContent(), /^下载中 · \d+%$/, 'Pending thumbnail did not explain its download state');
   assert.equal(await delayed.getAttribute('aria-busy'), 'true', 'Pending thumbnail was not exposed as busy');
   const pendingPositions = await delayed.evaluate(button => {
@@ -409,18 +410,17 @@ try {
   const readyPositions = await delayed.evaluate(button => {
     const bubble = button.closest('.image-bubble').getBoundingClientRect();
     const receipt = button.closest('.image-bubble').querySelector(':scope > .message-meta').getBoundingClientRect();
-    const hint = button.querySelector('.media-ready-hint').getBoundingClientRect();
-    return { receiptInset: bubble.bottom - receipt.bottom, captionInset: button.getBoundingClientRect().bottom - hint.bottom };
+    const hint = button.querySelector('.media-ready-hint');
+    return { receiptInset: bubble.bottom - receipt.bottom, hint: Boolean(hint) };
   });
   assert.ok(Math.abs(readyPositions.receiptInset - pendingPositions.receiptInset) < 1, 'Ready must preserve the receipt anchor');
-  assert.ok(Math.abs(readyPositions.captionInset - pendingPositions.captionInset) < 1, 'Ready hint keeps the processing anchor');
+  assert.equal(readyPositions.hint, false, 'Ready media has no redundant visual hint');
   assert(pendingBox && loadedBox && Math.abs(pendingBox.width - loadedBox.width) < 1 && Math.abs(pendingBox.height - loadedBox.height) < 1,
     `Known media dimensions shifted the placeholder: ${JSON.stringify({ pendingBox, loadedBox })}`);
   await assertVisibility(5, 0, 'Pull before delayed decryption resolves');
   const loadingFeedback = await page.evaluate(() => window.chatPrivacy.loadingFeedback.filter(Boolean));
   assert(loadingFeedback.some(value => value.startsWith('下载中')), 'Loading feedback omitted the download stage');
-  assert(loadingFeedback.some(value => value.startsWith('解密中')), 'Loading feedback omitted the decrypt stage');
-  assert(loadingFeedback.includes('生成遮罩中'), 'Loading feedback omitted the verified preview stage');
+  assert(loadingFeedback.every(value => /^(下载中|等待加载|解密中|生成遮罩中)/.test(value)), 'Feedback must remain a valid processing state');
   await waitForClicks();
   await delayed.click();
   await delayed.click();

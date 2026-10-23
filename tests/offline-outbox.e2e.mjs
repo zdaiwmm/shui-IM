@@ -118,9 +118,16 @@ try {
     reachedHeld(); await held; await route.abort().catch(() => {});
   });
   await b.evaluate(() => {
-    globalThis.auditWindowTask = import('/src/lib/vault.ts').then(v => v.withVaultMutation(auditApp.session, mutation => auditApp.ensureMessageWindow(mutation, true))).catch(() => {});
+    globalThis.auditWindowTask = auditApp.ensureMessageWindow(true).catch(() => {});
   });
   await Promise.race([reached, new Promise((_,reject)=>setTimeout(()=>reject(Error('Window refresh not reached')),5000))]);
+  await b.locator('#message-input').fill('BLACKHOLE local message');
+  await b.locator('#composer').evaluate(form=>form.requestSubmit());
+  await b.waitForFunction(()=>document.querySelector('#message-input').value===''&&[...auditApp.pending.values()].some(m=>m.payload.text==='BLACKHOLE local message'),undefined,{timeout:3000});
+  await b.getByText('BLACKHOLE local message',{exact:true}).waitFor();
+  await b.locator('#message-input').fill('next draft remains editable');
+  assert.equal(await b.locator('#message-input').inputValue(),'next draft remains editable');
+  result.blackholeLocalCommitAndEditableDraft=true;
   await b.evaluate(async () => {
     auditApp.lockNow();
     await Promise.race([Promise.all([globalThis.auditWindowTask, import('/src/lib/vault.ts').then(v => v.readStoredVault())]),
