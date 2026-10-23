@@ -1,5 +1,13 @@
 # Quiet Room 当前状态
 
+## 22项界面修复已合并，生产发布阻塞（2026-10-24）
+
+- [22项V1](../requirements/2026-10-24-ui-22-refinements/README.md)获用户免原型直接实施、合并及发布授权，并明确不再因重复授权中断。产品[PR #393](https://github.com/zdaiwmm/shui-IM/pull/393)已合并为`1492ec87a2fa8503ee421156a5d21af911e63f62`，候选版本2026.10.23.7；最终源`84037b060215dc668f0b3a3131ce1613b8b70b34`与合并提交完整文件树均为`c92af1c81bbe2803556efc3a3aa0b774319b80cd`。
+- 本机80项浏览器经定向修复、分段续跑逐项通过；最终源另通过完整双端主流程及弱网回归。单元有两类备份测试因本机94%磁盘使用率触发80%安全门槛而阻塞，未放宽门槛；完整单元／集成由CI通过。iPhone/iOS27/Safari真机未验证。
+- [PR完整CI39998487797](https://github.com/zdaiwmm/shui-IM/actions/runs/39998487797) attempt2通过。首轮主流程出现相册返回锚点差异，本机精确源复验通过；通话环境安装耗时8分20秒，20个弱网场景通过后触及整项10分钟时限。仅失败任务重跑一次后全部通过，正常main规则合并。
+- [精确main CI40000861350](https://github.com/zdaiwmm/shui-IM/actions/runs/40000861350)再次在`tests/browser.e2e.mjs:984`报告相册返回前后消息锚点不一致（偏移-16.328125与100.5），不能以PR绿色或本机通过替代。相同历史记录见设置V1.4需求；稳定根因未确认。按有界重试停止继续重跑该类，不绕过verify，不把未通过的main发布。
+- 本轮只读`release.mjs --doctor --environment production`通过，读到生产`c3fa0761fa7b97005e4515568333493759cd7243`／2026.10.23.6；未派发生产切换，因此没有本批DEPLOY_VERIFIED或READBACK_OK。现有生产证据仍以下方已发布记录为准。源工作树及脱敏交付证据保留供接续；不触发发布后清理。
+
 ## 附件紧凑状态与主线组合已发布（2026-10-23 20:44）
 
 - 用户针对已合并版本回复「确认，发布生产」。实际应用`c3fa0761fa7b97005e4515568333493759cd7243`／2026.10.23.6来自[PR #388](https://github.com/zdaiwmm/shui-IM/pull/388)，与最终源e190bb7完整文件树相同；前一生产为76583015／2026.10.23.1。本批包含此前已合并的[语音V1](../requirements/2026-10-23-voice-quality-bubble/README.md)、[设置V1.4](../requirements/2026-10-23-settings-17-prototype/README.md)、[媒体查看器及倍速](../requirements/2026-10-23-media-playback-viewer/README.md)与[附件24/20](../requirements/2026-10-23-media-status-compact/README.md)，各需求保存原确认、实现及有界失败历史。
