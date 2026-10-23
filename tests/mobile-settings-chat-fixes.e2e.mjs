@@ -65,7 +65,7 @@ try {
     assert.equal(await page.locator('.chamber-presence-capsule .presence-circuit').getAttribute('viewBox'),style==='heart'?'34 -5.52 32 32':'0 0 100 24');
     await page.clock.runFor(300);await capture(`presence-style-${style}`);
   }
-  await page.locator('.space-back').click();
+  await page.locator('.space-drawer:not(.local-page-outgoing) .space-back').click();
   await page.locator('#chamber-switch-space').click();
   assert.equal(await page.locator('#space-create').count(),1,'Switch-space retains creation');
   await page.evaluate(()=>{fixture.fresh(0);fixture.app.renderCoverSettings();});await page.clock.runFor(350);

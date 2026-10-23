@@ -18,7 +18,7 @@ export function normalizeMemeIndex(value: unknown): MemeFavorite[] {
       || !Number.isSafeInteger(item.savedAt) || item.savedAt < 0) throw new Error('本机收藏索引已损坏');
     ids.add(item.id); digests.add(item.digest); bytes += item.size;
   }
-  if (bytes > MAX_MEME_LIBRARY_BYTES) throw new Error('本机收藏空间超出限制');
+  if (bytes > MAX_MEME_LIBRARY_BYTES) throw new Error('本机收藏密室超出限制');
   return value as MemeFavorite[];
 }
 

@@ -340,7 +340,7 @@ try {
   await a.screenshot({ path: '/private/tmp/chamber-chat-390.png' });
   await auditP1Surface(a,'chamber-chat','.chat-shell');
   await a.locator('#chat-settings').click();await a.locator('#chamber-switch-space').click();
-  await a.locator('.is-space-list-page').waitFor();await a.getByRole('dialog',{name:'私密空间',exact:true}).getByRole('button',{name:'返回',exact:true}).click();
+  await a.locator('.is-space-list-page').waitFor();await a.getByRole('dialog',{name:'切换密室',exact:true}).getByRole('button',{name:'返回',exact:true}).click();
   await a.locator('.space-drawer-overlay').waitFor({state:'detached'});
   await a.locator('[data-personal-guide="mnemonic"]').click(); await a.locator('[data-personal-show]').click(); await submitPassword(a, '246810');
   await a.locator('.chamber-mnemonic-grid li').first().waitFor();

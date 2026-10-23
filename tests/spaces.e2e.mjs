@@ -169,7 +169,7 @@ try {
     ? route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: '测试：创建暂不可用' }) }) : route.continue(), { times: 1 });
   await completeSpaceProfile(page, '失败不重复创建');
   await page.locator('#return-space').waitFor();
-  assert.match(await page.locator('.gateway h1').innerText(), /空间未能创建/);
+  assert.match(await page.locator('.gateway h1').innerText(), /密室未能创建/);
   await page.locator('#return-space').click();
   await page.waitForFunction(() => app.session?.vault.roomId === a.vault.roomId);
   await page.evaluate(() => { window.a = app.session; app.renderChat(); });
@@ -219,6 +219,10 @@ try {
     await app.openSession();return {selected:v.currentSpaceId(),target:v.vaultSpaceId(b.stored),chat:!!document.querySelector('.chat-shell')};
   });assert.equal(routed.selected,routed.target);assert.equal(routed.chat,false);
   const invalid=await page.evaluate(async()=>{history.replaceState(null,'','#invite=broken');app.privacyCovered=false;await app.renderGateway({trustedCoverActivation:true,autoUnlock:false});return document.querySelector('h1').textContent;});assert.equal(invalid,'邀请链接不完整');
+  // This next component fixture is independent of the invitation router above.
+  // Retire its runtime before replacing the controller; dropping a live owner
+  // lets an earlier async route remove the newly mounted recovery dialog.
+  assert.equal(await page.evaluate(()=>app.leaveSpace()),true,'Finish the invitation runtime before mounting the standalone recovery fixture');
   await page.evaluate(() => { history.replaceState(null, '', location.pathname); app.session=a; app.privacyCovered=false; app.runtimeAbort=new AbortController(); app.renderJointRecovery(null); });
   await openRecoveryCard(page);
   await page.locator('#joint-code-form textarea').fill(await page.evaluate(()=>a.vault.spaceRecoveryCode));

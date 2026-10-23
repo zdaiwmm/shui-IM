@@ -1013,7 +1013,8 @@ export async function startServer(options = {}) {
           !validatePublicBundle(body.bundle) ||
           !body.bundle.mlsKeyPackage ||
           typeof body.deviceAccessToken !== 'string' || body.deviceAccessToken.length < 32 || body.deviceAccessToken.length > 512 ||
-          !validDeviceMetadata(body.deviceName, body.capabilities ?? [])
+          !validDeviceMetadata(body.deviceName, body.capabilities ?? []) ||
+          (body.candidateProof !== undefined && (typeof body.candidateProof !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(body.candidateProof)))
         ) {
           json(request, response, 400, { error: 'INVALID_DEVICE_LINK' });
           return;
@@ -1025,6 +1026,7 @@ export async function startServer(options = {}) {
           body.deviceAccessToken,
           body.deviceName.trim(),
           body.capabilities ?? [],
+          body.candidateProof,
         );
         broadcast(claimed.link.roomId, { type: 'membership', state: publicState(claimed.state) });
         broadcastPresence(claimed.link.roomId);

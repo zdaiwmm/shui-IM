@@ -78,7 +78,7 @@ export class DeviceNotifications {
       this.signal.throwIfAborted();
       if (granted !== 'granted') throw new Error(granted === 'denied' ? '系统已阻止通知，请在浏览器或系统设置中允许后重试' : '尚未允许通知，可再次开启时选择允许');
       const available = this.spaces.filter(space => !space.unavailable);
-      if (!available.length) throw new Error('本机还没有可接收通知的空间');
+      if (!available.length) throw new Error('本机还没有可接收通知的密室');
       // Keep delivery closed until every selected space is server-confirmed.
       await setNotificationGate(false);
       let created: PushSubscription | undefined;
@@ -107,7 +107,7 @@ export class DeviceNotifications {
     return withNotificationLock(this.signal, async () => {
       const policy = this.scopedPolicy(readNotificationPolicy() ?? initial());
       const space = this.spaces.find(item => item.roomId === roomId);
-      if (!policy.enabled || !space || space.unavailable) throw new Error('请先开启本机通知并完成空间访问');
+      if (!policy.enabled || !space || space.unavailable) throw new Error('请先开启本机通知并完成密室访问');
       const subscription = await (await notificationRegistration(this.signal)).pushManager.getSubscription();
       if (!subscription) throw new Error('本机通知订阅已失效，请重新开启总开关');
       await this.access(roomId, true, vault => enabled ? registerSpaceNotification(vault, subscription, this.signal) : unregisterSpaceNotification(vault, subscription.endpoint, this.signal));

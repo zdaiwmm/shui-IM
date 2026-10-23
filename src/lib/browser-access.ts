@@ -90,7 +90,7 @@ export async function prepareBrowserAccess(session:VaultSession,profile?:Browser
     saved.management??=await newAccessIdentity();
     const certificate=await signAccess(v.identity.signingPrivateKey,{v:1 as const,purpose:'quiet-room-browser-request-root' as const,roomId:v.roomId,sourceDeviceId:own.deviceId,rootKey:saved.root.publicKey});
     const local = spaces.find(s=>s.roomId===v.roomId);
-    const entry:AccessSpace={roomId:v.roomId,name:local?.name??'私密空间',...(local?.avatar?{avatar:local.avatar}:{}),certificate,members:cleanMembers(v.members),eventSeq:v.mls?.lastEventSeq??0,creatorFingerprint:v.creatorFingerprint,role:v.role};
+    const entry:AccessSpace={roomId:v.roomId,name:local?.name??'密室',...(local?.avatar?{avatar:local.avatar}:{}),certificate,members:cleanMembers(v.members),eventSeq:v.mls?.lastEventSeq??0,creatorFingerprint:v.creatorFingerprint,role:v.role};
     saved.catalogCode??=newSpaceRecoveryCode();
     if(v.role==='creator' && v.mls?.phase==='awaiting-peer') {
       entry.waiting=true;entry.createdAt=v.createdAt;
@@ -108,7 +108,7 @@ export async function prepareBrowserAccess(session:VaultSession,profile?:Browser
 export async function approveBrowser(session:VaultSession,mailbox:AccessMailbox,request:BrowserRequest,signal:AbortSignal):Promise<void> {
   const code=session.vault.spaceRecoveryCode!;
   const spaces=await localSpaces(session),id=rootId(code),sealed=await readLocalSpaceDirectory(id);
-  if(!sealed) throw new Error('请先在此设备打开并解锁空间');
+  if(!sealed) throw new Error('请先在此设备打开并解锁密室');
   const prepared=await openJson(sealed as SealedBackup,await spaceCapability(code,'encryption'),id) as Prepared;
   const grant=await signAccess(prepared.root.privateKey,{v:1 as const,purpose:'quiet-room-browser-request-grant' as const,requestId:request.requestId,browserId:request.browserId,browserKey:request.browserKey});
   const approved=spaces.map(s=>{
@@ -132,14 +132,14 @@ export async function acceptBrowserApproval(identity:AccessIdentity,requestId:st
     await accessDigest(data.grant.browserKey)!==await accessDigest(identity.publicKey) || !Array.isArray(data.spaces) || !data.spaces.length || data.spaces.length>256 ||
     new Set(data.spaces.map(s=>s.roomId)).size!==data.spaces.length || !data.spaces.some(s=>s.roomId===data.currentRoom)) throw new Error('浏览器授权与本次请求不一致');
   for(const s of data.spaces) {
-    if(!catalogSpaceAllowed(s)) throw new Error('空间目录不完整');
+    if(!catalogSpaceAllowed(s)) throw new Error('密室目录不完整');
     if(s.certificate) {
       const source=s.members?.find(m=>m.deviceId===s.certificate!.sourceDeviceId);
       if(!source || s.certificate.roomId!==s.roomId || source.role!==s.role || !Number.isSafeInteger(s.eventSeq) || s.eventSeq!<0 ||
-        !await verifyAccess(source.signingKey,s.certificate) || !await verifyAccess(s.certificate.rootKey,data.grant)) throw new Error('空间身份准备凭据不正确');
+        !await verifyAccess(source.signingKey,s.certificate) || !await verifyAccess(s.certificate.rootKey,data.grant)) throw new Error('密室身份准备凭据不正确');
     }
   }
-  if(!data.catalog || !/^[A-Za-z0-9_-]{22}$/.test(data.catalog.id) || !/^[A-Za-z0-9_-]{43}$/.test(data.catalog.token) || !/^[A-Za-z0-9_-]{43}$/.test(data.catalog.key)) throw new Error('空间目录授权不完整');
+  if(!data.catalog || !/^[A-Za-z0-9_-]{22}$/.test(data.catalog.id) || !/^[A-Za-z0-9_-]{43}$/.test(data.catalog.token) || !/^[A-Za-z0-9_-]{43}$/.test(data.catalog.key)) throw new Error('密室目录授权不完整');
   return {v:1,catalog:data.catalog,identity,grant:data.grant,spaces:data.spaces,currentRoom:data.currentRoom,collectionCode:newSpaceRecoveryCode(),pending:{}};
 }
 const profileWrites=new WeakMap<BrowserProfileSession,Promise<void>>();
@@ -166,7 +166,7 @@ export function discoveredCredentialRecord(value:{credentialId:string;rpId:strin
     prfSalt:toBase64Url(browserAccessPrfSalt()),transports:[],authenticatorAttachment:null,createdAt:new Date().toISOString()};
 }
 export async function prepareSpaceAccess(profile:BrowserProfile,space:AccessSpace,identity:PrivateIdentity):Promise<PendingSpaceAccess> {
-  if(!space.certificate) throw new Error('请先在原设备打开并解锁此空间');
+  if(!space.certificate) throw new Error('请先在原设备打开并解锁此密室');
   const token=randomBackupSecret();
   const request=await signAccess(profile.identity.privateKey,{v:1 as const,purpose:'quiet-room-space-access-request' as const,roomId:space.roomId,requestId:crypto.randomUUID(),browserId:profile.identity.browserId,
     target:identity.publicBundle,tokenHash:await accessDigest(token),certificateHash:await accessDigest(space.certificate),grantHash:await accessDigest(profile.grant)});
@@ -197,7 +197,7 @@ async function syncBrowserCatalog(session:VaultSession,prepared:Prepared,local:A
       if(data.v===1 && Array.isArray(data.spaces)) { remote=data.spaces; remoteRemoved=Array.isArray(data.removed)?data.removed:[]; }
     }
     const removed=[...new Set([...remoteRemoved,...(prepared.removed??[])])];
-    if (removed.length > 16384) throw new Error('空间目录移除记录已达上限');
+    if (removed.length > 16384) throw new Error('密室目录移除记录已达上限');
     // A previous atomic delete may have committed even if its response was lost.
     if (deletion && remoteRemoved.includes(deletion.vault.roomId)) return;
     const spaces=mergeCatalogSpaces(remote,local,removed);
@@ -210,8 +210,8 @@ async function syncBrowserCatalog(session:VaultSession,prepared:Prepared,local:A
     if(write.ok) return;
     if(write.status===409) {
       const error=await write.json().catch(()=>null);
-      if(error?.code==='ROOM_SEALED' || error?.error==='ROOM_SEALED') throw new Error('对方已经加入，这个空间不能再销毁');
-    } else throw new Error(deletion?'空间未能删除，请联网后重试':'接入目录未能保存');
+      if(error?.code==='ROOM_SEALED' || error?.error==='ROOM_SEALED') throw new Error('对方已经加入，这个密室不能再销毁');
+    } else throw new Error(deletion?'密室未能删除，请联网后重试':'接入目录未能保存');
   }
   throw new Error('接入目录正在更新，请稍后重试');
 }
@@ -241,10 +241,10 @@ export async function refreshBrowserCatalog(profile:BrowserProfile,signal:AbortS
   const c=profile.catalog;
   const result=await accessApi<{sealed:SealedBackup}>(`/api/browser-access-catalogs/${c.id}`,c.token,signal);
   const data=await openJson(result.sealed,c.key,`quiet-room-browser-catalog-v1:${c.id}`) as {v:number;spaces:AccessSpace[];removed?:string[];management?:CatalogManagement};
-  if(data.v!==1 || !Array.isArray(data.spaces) || data.spaces.length>256 || data.removed!==undefined && (!Array.isArray(data.removed) || data.removed.length>16384)) throw new Error('空间目录不完整');
+  if(data.v!==1 || !Array.isArray(data.spaces) || data.spaces.length>256 || data.removed!==undefined && (!Array.isArray(data.removed) || data.removed.length>16384)) throw new Error('密室目录不完整');
   if(data.management) {
     const management=data.management,catalog=await catalogCapability(management.catalogCode);
-    if(!publicAccessKey(management.key?.publicKey) || !management.key.privateKey?.d || JSON.stringify(catalog)!==JSON.stringify(profile.catalog)) throw new Error('空间目录管理授权不正确');
+    if(!publicAccessKey(management.key?.publicKey) || !management.key.privateKey?.d || JSON.stringify(catalog)!==JSON.stringify(profile.catalog)) throw new Error('密室目录管理授权不正确');
     profile.management=management;
   }
   const removed=new Set(data.removed??[]);
@@ -253,11 +253,11 @@ export async function refreshBrowserCatalog(profile:BrowserProfile,signal:AbortS
     if(removed.has(previous.roomId)) continue;
     const s=data.spaces.find(s=>s.roomId===previous.roomId);
     if(!s) { next.push(previous); continue; }
-    if(!catalogSpaceAllowed(s)) throw new Error('空间目录不完整');
+    if(!catalogSpaceAllowed(s)) throw new Error('密室目录不完整');
     if(s.certificate) {
       const source=s.members?.find(m=>m.deviceId===s.certificate!.sourceDeviceId);
       if(!source || s.certificate.roomId!==s.roomId || source.role!==s.role || !Number.isSafeInteger(s.eventSeq) || s.eventSeq!<0 ||
-        !await verifyAccess(source.signingKey,s.certificate)) throw new Error('空间身份准备凭据不正确');
+        !await verifyAccess(source.signingKey,s.certificate)) throw new Error('密室身份准备凭据不正确');
       if(!await verifyAccess(s.certificate.rootKey,profile.grant)) delete s.certificate;
     }
     const merged: AccessSpace = {...previous,pendingManagement:s.pendingManagement,name:s.name,avatar:s.avatar??previous.avatar,deviceCount:s.deviceCount??previous.deviceCount,certificate:s.certificate??previous.certificate,members:s.members??previous.members,eventSeq:s.eventSeq??previous.eventSeq,creatorFingerprint:s.creatorFingerprint??previous.creatorFingerprint,role:s.role??previous.role};
@@ -267,12 +267,12 @@ export async function refreshBrowserCatalog(profile:BrowserProfile,signal:AbortS
   }
   for(const s of data.spaces) {
     if(removed.has(s.roomId) || next.some(space=>space.roomId===s.roomId)) continue;
-    if(!catalogSpaceAllowed(s)) throw new Error('空间目录不完整');
+    if(!catalogSpaceAllowed(s)) throw new Error('密室目录不完整');
     if(s.certificate) {
       const certificate=s.certificate;
       const source=s.members?.find(m=>m.deviceId===certificate.sourceDeviceId);
       if(!source || certificate.roomId!==s.roomId || source.role!==s.role || !Number.isSafeInteger(s.eventSeq) || s.eventSeq!<0 ||
-        !await verifyAccess(source.signingKey,certificate)) throw new Error('空间身份准备凭据不正确');
+        !await verifyAccess(source.signingKey,certificate)) throw new Error('密室身份准备凭据不正确');
       if(!await verifyAccess(certificate.rootKey,profile.grant)) delete s.certificate;
     }
     next.push({pendingManagement:s.pendingManagement,roomId:s.roomId,name:s.name,avatar:s.avatar,waiting:s.waiting,createdAt:s.createdAt,deviceCount:s.deviceCount,certificate:s.certificate,members:s.members,eventSeq:s.eventSeq,creatorFingerprint:s.creatorFingerprint,role:s.role});
@@ -290,7 +290,7 @@ export async function rememberCatalogRemoval(session:VaultSession,roomId:string)
     const key=await spaceCapability(code,'encryption');
     const saved=await openJson(sealed as SealedBackup,key,id) as Prepared;
     saved.removed=[...new Set([...(saved.removed??[]),roomId])];
-    if (saved.removed.length > 16384) throw new Error('空间目录移除记录已达上限');
+    if (saved.removed.length > 16384) throw new Error('密室目录移除记录已达上限');
     saved.spaces=(saved.spaces??[]).filter(space=>space.roomId!==roomId);
     await writeLocalSpaceDirectory(session,id,await sealJson(saved,key,id),mutation);
   });
@@ -324,14 +324,14 @@ export async function deleteCatalogPendingSpace(profile:BrowserProfile,roomId:st
     await refreshBrowserCatalog(profile,signal);
     if(profile.removed?.includes(roomId))return;
     const space=profile.spaces.find(s=>s.roomId===roomId),management=profile.management;
-    if(!space?.waiting)throw new Error('对方已经加入或空间状态已变化，请刷新后重试');
-    if(!space.pendingManagement || !management)throw new Error('此空间尚未同步管理授权，请让原设备联网更新后重试');
+    if(!space?.waiting)throw new Error('对方已经加入或密室状态已变化，请刷新后重试');
+    if(!space.pendingManagement || !management)throw new Error('此密室尚未同步管理授权，请让原设备联网更新后重试');
     const c=profile.catalog,path=`/api/browser-access-catalogs/${c.id}`;
     const previous=await accessApi<{revision:number;sealed:SealedBackup}>(path,c.token,signal);
     const data=await openJson(previous.sealed,c.key,`quiet-room-browser-catalog-v1:${c.id}`) as {v:1;spaces:AccessSpace[];removed?:string[];management:CatalogManagement};
     if(data.removed?.includes(roomId)){await refreshBrowserCatalog(profile,signal);return;}
     const removed=[...new Set([...(data.removed??[]),roomId])];
-    if (removed.length > 16384) throw new Error('空间目录移除记录已达上限');
+    if (removed.length > 16384) throw new Error('密室目录移除记录已达上限');
     const sealed=await sealJson({...data,spaces:data.spaces.filter(s=>s.roomId!==roomId),removed},c.key,`quiet-room-browser-catalog-v1:${c.id}`);
     const catalog={id:c.id,value:{roomId,revision:previous.revision+1,fetchToken:c.token,writeToken:await spaceCapability(management.catalogCode,'write'),sealed}};
     const request=await signAccess(management.key.privateKey,{v:1,purpose:'quiet-room-pending-delete',roomId,catalogHash:await accessDigest(catalog),expiresAt:Date.now()+45_000});
@@ -342,24 +342,24 @@ export async function deleteCatalogPendingSpace(profile:BrowserProfile,roomId:st
     // A response may have been lost after an earlier successful deletion.
     await refreshBrowserCatalog(profile,signal);
     if(profile.removed?.includes(roomId))return;
-    throw new Error(failure?.code==='ROOM_SEALED'?'对方已经加入，这个空间不能再销毁':'空间未能删除，请联网后重试');
+    throw new Error(failure?.code==='ROOM_SEALED'?'对方已经加入，这个密室不能再销毁':'密室未能删除，请联网后重试');
   }
-  throw new Error('空间目录正在更新，请稍后重试');
+  throw new Error('密室目录正在更新，请稍后重试');
 }
 
 /** Remove from this participant's encrypted directory without destroying a room. */
 export async function removeCatalogSpace(profile: BrowserProfile, roomId: string, signal: AbortSignal): Promise<void> {
   const management = profile.management;
-  if (!management) throw new Error('当前设备没有空间目录修改权限');
+  if (!management) throw new Error('当前设备没有密室目录修改权限');
   const c = profile.catalog, path = `/api/browser-access-catalogs/${c.id}`;
   const writeToken = await spaceCapability(management.catalogCode, 'write');
   for (let attempt = 0; attempt < 3; attempt++) {
     const previous = await accessApi<{revision:number;ownerRoom:string;sealed:SealedBackup}>(path, c.token, signal);
     const data = await openJson(previous.sealed, c.key, `quiet-room-browser-catalog-v1:${c.id}`) as {v:1;spaces:AccessSpace[];removed?:string[]};
     if (data.removed?.includes(roomId)) { await refreshBrowserCatalog(profile, signal); return; }
-    if (!data.spaces.some(space => space.roomId === roomId && space.waiting)) throw new Error('空间状态已变化，请刷新后重试');
+    if (!data.spaces.some(space => space.roomId === roomId && space.waiting)) throw new Error('密室状态已变化，请刷新后重试');
     const removed = [...new Set([...(data.removed ?? []), roomId])];
-    if (removed.length > 16384) throw new Error('空间目录移除记录已达上限');
+    if (removed.length > 16384) throw new Error('密室目录移除记录已达上限');
     const sealed = await sealJson({...data, spaces:data.spaces.filter(space => space.roomId !== roomId), removed}, c.key, `quiet-room-browser-catalog-v1:${c.id}`);
     const response = await fetch(path, {method:'PATCH', credentials:'omit', signal:AbortSignal.any([signal, AbortSignal.timeout(15000)]),
       headers:{Authorization:`Bearer ${writeToken}`, 'Content-Type':'application/json'},
@@ -367,7 +367,7 @@ export async function removeCatalogSpace(profile: BrowserProfile, roomId: string
     if (response.ok) { await refreshBrowserCatalog(profile, signal); return; }
     const failure = await response.json().catch(() => null);
     if (response.status === 409 && failure?.code === 'BACKUP_CONFLICT') continue;
-    throw new Error('空间未能从列表移除，请联网后重试');
+    throw new Error('密室未能从列表移除，请联网后重试');
   }
-  throw new Error('空间目录正在更新，请稍后重试');
+  throw new Error('密室目录正在更新，请稍后重试');
 }

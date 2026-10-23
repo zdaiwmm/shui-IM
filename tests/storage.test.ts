@@ -238,6 +238,23 @@ describe('server ciphertext storage', () => {
     store.close();
   });
 
+  it('pins a device claim proof, exact bundle and token while preserving legacy claim retries', async()=>{
+    const dataDir=await mkdtemp(path.join(tmpdir(),'quiet-room-admission-'));directories.push(dataDir);
+    const store=await createStore({dataDir});
+    try{
+      const source=crypto.randomUUID(),target=crypto.randomUUID(),withMls=(id:string)=>({...bundle(id),mlsKeyPackage:'A'.repeat(64)});
+      const {roomId}=store.createRoom(withMls(source),'a'.repeat(43),'b'.repeat(43),'Source',['mls-multidevice-v1']);
+      const link=crypto.randomUUID(),secret='c'.repeat(43),token='d'.repeat(43),proof='e'.repeat(43);
+      store.createDeviceLink(roomId,source,link,secret,new Date(Date.now()+60_000).toISOString());
+      const first=store.claimDeviceLink(link,secret,withMls(target),token,'Target',['mls-multidevice-v1'],proof);
+      expect(first.state.members.find((m:{deviceId:string})=>m.deviceId===target).joinProof).toBe(proof);
+      expect(first.state.members.find((m:{deviceId:string})=>m.deviceId===target).status).toBe('pending');
+      expect(()=>store.claimDeviceLink(link,secret,withMls(target),token,'Target',['mls-multidevice-v1'],proof)).not.toThrow();
+      for(const [changedToken,changedProof]of [[token,undefined],[token,'f'.repeat(43)],['g'.repeat(43),proof]])expect(()=>store.claimDeviceLink(link,secret,withMls(target),changedToken!,'Target',['mls-multidevice-v1'],changedProof)).toThrow('DEVICE_LINK_CLAIMED');
+      expect(store.roomState(roomId).members.filter((m:{deviceId:string})=>m.deviceId===target)).toHaveLength(1);
+    }finally{store.close();}
+  });
+
   it('activates linked devices at an explicit history boundary with their own token', async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-devices-'));
     directories.push(dataDir);

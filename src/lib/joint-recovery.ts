@@ -104,10 +104,10 @@ export async function prepareJointRecovery(code: string, requestedScope: 'me' | 
         offer.recover !== offer.scope[peer] || !await verifyEcdsa(signer.signingKey, signature, unsigned)) throw invalid();
     scope[peer] = offer.recover; scope[source.role] = resolvedScope !== 'peer';
   }
-  if (!scope.creator && !scope.joiner) throw new Error('双方空间均可正常使用，无需重建。请返回原空间继续聊天');
-  if (!scope[source.role] && !helper) throw new Error('协助恢复需要先解锁自己的现有私密空间');
+  if (!scope.creator && !scope.joiner) throw new Error('双方密室均可正常使用，无需重建。请返回原密室继续聊天');
+  if (!scope[source.role] && !helper) throw new Error('协助恢复需要先解锁自己的现有密室');
   const preserveHistory = Boolean(helper && !scope[source.role]);
-  if (preserveHistory && (helper!.vault.mls?.lastEventSeq ?? 0) !== (state.nextMlsEventSeq ?? 0)) throw new Error('设备变更尚未同步，请回到私密空间完成同步后重试');
+  if (preserveHistory && (helper!.vault.mls?.lastEventSeq ?? 0) !== (state.nextMlsEventSeq ?? 0)) throw new Error('设备变更尚未同步，请回到密室完成同步后重试');
   if (preserveHistory && ((await loadOutbox(helper!)).length || (await loadUploadPlans(helper!)).length)) throw new Error('请先完成或取消待发送内容，再协助恢复');
   const identity = await generateIdentity(), accessToken = randomBase64Url(32);
   const actualLink = link ?? { roomId: source.roomId, requestId: crypto.randomUUID(), capability: randomBase64Url(32) };

@@ -11,7 +11,7 @@ export function notificationPlatformCapability(): NotificationCapability {
   return Notification.permission === 'denied' ? 'blocked' : 'available';
 }
 async function responseError(response: Response): Promise<Error> {
-  return new Error(response.status === 401 || response.status === 403 ? '此空间的本机访问已失效，请重新打开空间确认' : response.status === 503 ? '通知服务暂不可用，请稍后重试' : response.status === 429 ? '操作过于频繁，请稍后重试' : '通知设置未能确认，请检查网络后重试');
+  return new Error(response.status === 401 || response.status === 403 ? '此密室的本机访问已失效，请重新打开密室确认' : response.status === 503 ? '通知服务暂不可用，请稍后重试' : response.status === 429 ? '操作过于频繁，请稍后重试' : '通知设置未能确认，请检查网络后重试');
 }
 async function configuration(signal?: AbortSignal): Promise<PushConfiguration> {
   const response = await fetch('/api/push/public-key', { cache: 'no-store', signal: bounded(signal) });

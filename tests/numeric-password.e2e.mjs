@@ -66,7 +66,7 @@ try {
   await digit('01234'); assert.equal(await page.locator('.numeric-password-dots .filled').count(), 5);
   assert.equal(await page.evaluate(() => numericCalls), 0);
   await digit('5'); assert.equal(await page.locator('h2').last().textContent(), '确认应用锁');
-  await digit('012346'); assert.match(await page.locator('#app-toast').textContent(), /不一致/);
+  await digit('012346'); assert.match(await page.locator('.numeric-password-description').textContent(), /不一致/);await page.clock.runFor(400);
   assert.equal(await page.locator('.numeric-password-dots .filled').count(), 0);
   assert.equal(await page.evaluate(() => numericCalls), 0);
   await submitPassword(page, '012345'); await page.waitForFunction(() => numericProof === 'verified');
@@ -81,7 +81,7 @@ try {
   assert.equal(await page.locator('.numeric-password-dots .filled').count(), 1);
   await page.locator('.numeric-password-page').press('Backspace');
   assert.equal(await page.locator('.numeric-password-dots .filled').count(), 0);
-  await digit('654321'); await page.waitForFunction(() => document.querySelector('#app-toast')?.textContent);
+  await digit('654321');assert.match(await page.locator('.numeric-password-description').textContent(),/密码错误/);await page.clock.runFor(400);
   assert.equal(await page.locator('.numeric-password-dots .filled').count(), 0);
   assert.equal(await page.locator('.numeric-password-form').getAttribute('aria-busy'), 'false');
   await submitPassword(page, '012345'); await page.waitForFunction(() => numericProof === 'verified');
@@ -105,12 +105,12 @@ try {
   assert.equal(await page.locator('.numeric-password-page').count(), 0);
 
   await open({ waitFailure: true });
-  const unavailable = await page.locator('#app-toast').textContent();
+  const unavailable = await page.locator('.numeric-password-description').textContent();
   assert.match(unavailable, /无法读取重试状态/);
   await page.locator('.numeric-password-page').press('Backspace');
   await page.locator('.numeric-password-page').press('1');
-  assert.equal(await page.locator('#app-toast').textContent(), unavailable);
-  assert.equal(await page.locator('.numeric-password-description').textContent(), '');
+  assert.equal(await page.locator('.numeric-password-description').textContent(), unavailable);
+  assert.match(await page.locator('.numeric-password-description').textContent(), /无法读取重试状态/);
   assert.equal(await page.locator('[data-digit="1"]').isDisabled(), true);
   assert.equal(await page.evaluate(() => numericCalls), 0);
   await page.locator('.numeric-password-page').press('Escape'); await page.clock.runFor(500);

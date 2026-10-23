@@ -59,7 +59,7 @@ export function attachCloudBackupSwitch(options: { root: HTMLElement; session: V
       <ul><li><strong>聊天先在设备上加密。</strong>平台保存的是加密后的内容，无法直接查看，也不保管你的恢复码。</li>
       <li>${session.vault.personalBinding ? '<strong>历史解密需要双方。</strong>双方各自在自己的设备上验证助记词并同意本次恢复，参与时间为 30 分钟。' : '<strong>请保管好恢复码。</strong>别人拿到它可能读取备份；丢失后，平台无法替你找回。'}</li>
       </ul>
-      <details><summary>还需要了解什么？</summary><p class="field-hint">平台仍会记录备份时间、大小、所属空间和设备等必要信息。照片和文件能否找回，还取决于原文件是否保留。</p><p class="field-hint">适用于这个空间中你的设备，不改变对方的设置。页面打开、解锁且联网时自动备份。关闭后保留已有备份${session.vault.personalBinding?'和加密空间目录；助记词与设备私钥始终只保存在本机。':'；空间身份恢复所需的加密材料会继续保存。'}</p></details>
+      <details><summary>还需要了解什么？</summary><p class="field-hint">平台仍会记录备份时间、大小、所属密室和设备等必要信息。照片和文件能否找回，还取决于原文件是否保留。</p><p class="field-hint">适用于这个密室中你的设备，不改变对方的设置。页面打开、解锁且联网时自动备份。关闭后保留已有备份${session.vault.personalBinding?'和加密密室目录；助记词与设备私钥始终只保存在本机。':'；密室身份恢复所需的加密材料会继续保存。'}</p></details>
       <p class="form-error" role="alert"></p><button class="primary-button" data-enable type="button">了解并开启</button><button class="text-button" data-cancel type="button">暂不开启</button>
     </div>`;
     root.append(overlay);
@@ -87,7 +87,7 @@ export function requestLocalBackupCode(options: { root: HTMLElement; session: Va
   const previous = root.firstElementChild as HTMLElement;
   const page = document.createElement('section');
   page.className = 'gateway gateway-intro backup-code-page';
-  page.innerHTML = `<div class="gateway-intro-content"><h1>验证恢复码</h1><p data-filename></p><p>输入备份时保存的恢复码，找回你在这个空间的记录。</p>
+  page.innerHTML = `<div class="gateway-intro-content"><h1>验证恢复码</h1><p data-filename></p><p>输入备份时保存的恢复码，找回你在这个密室的记录。</p>
     <form><label for="local-restore-code">恢复码</label><textarea id="local-restore-code" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" required placeholder="粘贴恢复码；有多个旧码时每行一个"></textarea>
     <p class="field-hint">文件不会上传。换设备恢复旧文件时，可能需要联网读取加密的恢复材料。</p><p class="form-error" role="alert"></p>
     <button class="primary-button" type="submit">验证恢复码</button></form><button class="text-button" data-cancel type="button">返回</button></div>`;

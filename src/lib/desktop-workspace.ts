@@ -57,14 +57,14 @@ export class DesktopWorkspace {
     }
     if ((!wide || !sidebar) && this.host) { this.lifetime?.abort(); this.host.remove(); this.host = null; }
     if (wide && sidebar && !this.host) {
-      const host = document.createElement('aside'); host.className = 'desktop-sidebar'; host.setAttribute('aria-label', '私密空间导航');
+      const host = document.createElement('aside'); host.className = 'desktop-sidebar'; host.setAttribute('aria-label', '密室导航');
       this.host = host; this.owner = context.owner; this.lifetime = new AbortController();
       const signal = AbortSignal.any([context.signal, this.lifetime.signal]);
       signal.addEventListener('abort', () => host.remove(), { once: true });
       this.root.append(host);
       void this.options.mount(host, signal).then(() => { if (!signal.aborted && this.host === host) this.restoreSelectedFocus(); }).catch(() => {
         if (signal.aborted || !host.isConnected) return;
-        host.innerHTML = '<p role="alert">空间列表暂不可用</p><button type="button" class="secondary-button">重试</button>';
+        host.innerHTML = '<p role="alert">密室列表暂不可用</p><button type="button" class="secondary-button">重试</button>';
         host.querySelector('button')!.addEventListener('click', () => { this.lifetime?.abort(); this.host = null; this.sync(); });
       });
     }
@@ -76,7 +76,7 @@ export class DesktopWorkspace {
     }
     page.querySelectorAll<HTMLElement>('#open-spaces,#access-spaces,.desktop-sidebar-toggle').forEach(button => {
       if (!wide) { if (button.classList.contains('desktop-sidebar-toggle')) button.remove(); return; }
-      button.setAttribute('aria-label', this.collapsed ? '展开空间侧栏' : '收起空间侧栏');
+      button.setAttribute('aria-label', this.collapsed ? '展开密室侧栏' : '收起密室侧栏');
       button.setAttribute('aria-expanded', String(!this.collapsed));
     });
     restore();

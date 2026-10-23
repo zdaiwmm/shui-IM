@@ -94,7 +94,7 @@ export function photoDetailGroups(manifest: ImageManifest, sentAt: string | unde
   const orientations = ['正常', '水平镜像', '旋转 180°', '垂直镜像', '转置', '顺时针 90°', '横向转置', '逆时针 90°'];
   if (orientation !== undefined) add('方向', orientations[orientation - 1]);
   const color = number(tags.ColorSpace);
-  if (color !== undefined) add('色彩空间', color === 1 ? 'sRGB' : color === 65535 ? '未校准' : String(color));
+  if (color !== undefined) add('色彩密室', color === 1 ? 'sRGB' : color === 65535 ? '未校准' : String(color));
   const altitude = number(tags.GPSAltitude);
   if (altitude !== undefined) add('海拔', `${decimal(tags.GPSAltitudeRef === 1 ? -altitude : altitude)} m`);
   const depth = number(tags.bitDepth);

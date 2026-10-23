@@ -148,20 +148,22 @@ export function travelMotion(element: HTMLElement, from: number, to: number, vel
 const pageReplacements = new WeakMap<HTMLElement, () => void>();
 /** Local hierarchy navigation shares the app's 280 ms push/pop geometry. */
 export function animatePageReplacement(host: HTMLElement, previous: HTMLElement | null, current: HTMLElement,
-  backward: boolean, signal: AbortSignal): void {
+  backward: boolean, signal: AbortSignal, stationaryBackground=false): void {
   pageReplacements.get(host)?.();
   if (!previous || reducedMotion() || document.hidden || signal.aborted) return;
   previous.inert = true; previous.setAttribute('aria-hidden', 'true');
   previous.removeAttribute('id'); previous.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
   previous.classList.add('local-page-outgoing'); host.append(previous);
+  const layer=current.style.zIndex;
+  current.style.zIndex=backward?'1':'2';previous.style.zIndex=backward?'2':'1';
   const width = current.getBoundingClientRect().width;
-  const arrival = retargetMotion(current, null, { transform: `translateX(${backward ? -.18 * width : width}px)` }, { transform: 'translateX(0)' }, motion.page);
+  const arrival = retargetMotion(current, null, { transform: `translateX(${backward ? stationaryBackground?0:-.18 * width : width}px)` }, { transform: 'translateX(0)' }, motion.page);
   const departure = retargetMotion(previous, null, { transform: 'translateX(0)', opacity: 1 },
-    { transform: `translateX(${backward ? width : -.18 * width}px)`, opacity: backward ? 1 : .9 }, motion.page);
+    { transform: `translateX(${backward ? width : stationaryBackground?0:-.18 * width}px)`, opacity: backward||stationaryBackground?1:.9 }, motion.page);
   let done = false;
   const clean = () => {
     if (done) return; done = true;
-    arrival?.cancel(); departure?.cancel(); previous.remove();
+    arrival?.cancel(); departure?.cancel(); previous.remove();current.style.zIndex=layer;
     signal.removeEventListener('abort', clean);
     if (pageReplacements.get(host) === clean) pageReplacements.delete(host);
   };
