@@ -4,6 +4,7 @@ import path from 'node:path';
 import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as capacity from '../scripts/backup-capacity.mjs';
+import { MAX_BACKUP_DATABASE_BYTES } from '../server/backup-limits.mjs';
 import { sendBackup, receiveBackup, writeHeader } from '../server/backup-transfer.mjs';
 import { createStore } from '../server/storage.mjs';
 import { spawnSync } from 'node:child_process';
@@ -60,7 +61,7 @@ describe('Mac pull backup', () => {
    }
   } finally { f.store.close(); }
  });
- it.each([268435457, -1, 1.1])('rejects invalid file length %s', async bytes => {
+ it.each([MAX_BACKUP_DATABASE_BYTES + 1, -1, 1.1])('rejects invalid file length %s', async bytes => {
   const f = await fixture(); const data = new PassThrough(); const ack = new PassThrough();
   try {
    await writeHeader(data, { type: 'start', version: 1, session: crypto.randomUUID() });

@@ -349,7 +349,11 @@ export async function createStore({
   const personalDevices = createPersonalDevices(db, { getMember, roomState, chamberInvitations, personalDirectory });
   if(!db.prepare('PRAGMA table_info(rooms)').all().some(column=>column.name==='new_invite_expiry'))db.exec('ALTER TABLE rooms ADD COLUMN new_invite_expiry INTEGER');
   const shortInvites = createShortInvites(db);
-  const roomArchives = createRoomArchives(db, { maxArchiveBytes: maxRoomStorageBytes, maxTotalBytes: maxTotalStorageBytes });
+  const roomArchives = createRoomArchives(db, { maxArchiveBytes: maxRoomStorageBytes, maxTotalBytes: maxTotalStorageBytes,
+    assertWriterActive(roomId, deviceId, role) {
+      assertDeviceActive(roomId, deviceId);
+      if (getMember(roomId, deviceId)?.role !== role) throw new Error('UNAUTHORIZED');
+    } });
   const chamberHistory = createChamberHistory(db, { getMember, chamberInvitations });
   const chamberHistoryRecovery = createChamberHistoryRecovery(db, { getMember, chamberInvitations, personalDirectory });
   const chamberLifecycle = createChamberLifecycle(db, { getMember, roomState, chamberInvitations, personalDirectory });
@@ -652,7 +656,7 @@ export async function createStore({
     }
   }
 
-  function joinRoom(roomId, bundle, proof, accessToken, deviceName = '此设备', capabilities = [], chamber) {
+  function joinRoom(roomId, bundle, proof, accessToken, deviceName = '此设备', capabilities = [], chamber, inviteToken) {
     const createdAt = nowIso();
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -676,6 +680,9 @@ export async function createStore({
       }
       const { count } = statements.memberCount.get(roomId);
       if (count >= 2 || room.sealed_at) throw new Error('ROOM_SEALED');
+      // The transaction is the admission point. A previously authenticated
+      // HTTP request may have awaited its body while this capability changed.
+      if ((inviteToken !== undefined || room.new_invite_expiry !== null) && !authenticateInvite(roomId, inviteToken)) throw new Error('UNAUTHORIZED');
       if (chamberInvitations.exists(roomId)) {
         chamberInvitations.consume(roomId, chamber?.secret, chamber?.code, { bundle, proof, binding: chamber?.binding }, chamber?.codeRevision);
         personalDirectory.register(chamber.binding.identity);

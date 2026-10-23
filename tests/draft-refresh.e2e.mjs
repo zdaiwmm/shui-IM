@@ -87,11 +87,19 @@ async function reload(page) { await page.reload(); await unlock(page); }
 async function receive(page, text) { await page.locator('.message-text').filter({ hasText: text }).waitFor(); }
 async function barrier(page) {
   await page.evaluate(() => {
-    const original = app.attemptSend.bind(app);
-    app.attemptSend = id => new Promise(resolve => {
-      window.durableSend = id;
-      window.releaseSend = async () => { app.attemptSend = original; await original(id); resolve(); };
-    });
+    const originalSend = app.sendOutboxItem.bind(app);
+    const originalEnqueue = app.enqueuePayload.bind(app);
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    // Local durable submission now completes independently of network sending.
+    // Hold the actual transport boundary and the UI submit continuation, while
+    // keeping the real outbox/draft transaction and ratchet untouched.
+    app.sendOutboxItem = async id => { window.durableSend = id; await gate; return originalSend(id); };
+    app.enqueuePayload = async (...args) => { await originalEnqueue(...args); await gate; };
+    window.releaseSend = async () => {
+      app.sendOutboxItem = originalSend; app.enqueuePayload = originalEnqueue;
+      release(); await app.outboxDrain;
+    };
   });
 }
 try {

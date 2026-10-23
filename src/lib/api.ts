@@ -284,11 +284,13 @@ export async function publishMlsMembership(
   roomId: string,
   accessToken: string,
   event: MlsMembershipEnvelope,
+  signal?: AbortSignal,
 ): Promise<{ event: ServerMlsMembershipEvent; state: RoomState }> {
   const response = await authorizedFetch(`/api/rooms/${roomId}/mls-events`, accessToken, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ event }),
+    signal,
   });
   return response.json();
 }

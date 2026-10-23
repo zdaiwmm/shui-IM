@@ -936,6 +936,7 @@ export async function startServer(options = {}) {
           body.deviceName ?? '此设备',
           body.capabilities ?? [],
           body.chamber,
+          bearerToken(request),
         ); } catch (cause) {
           if (cause instanceof Error && cause.message === 'INVITATION_CODE_INVALID') store.chamberInvitations.recordWrongCode(roomId, body.chamber?.secret);
           throw cause;

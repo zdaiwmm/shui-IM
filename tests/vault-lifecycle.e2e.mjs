@@ -276,7 +276,11 @@ it('persists the first legacy envelope before sending and reuses it after retry 
     } };
     try {
       const payload = { v: 1, kind: 'text', text: 'synthetic legacy retry', sentAt: new Date().toISOString() };
-      await withVaultMutation(session, lease => app.sendPayloadLocked(payload, undefined, lease));
+      // Use the public submit boundary: network draining now starts after the
+      // local mutation lease is released, while first-ciphertext durability
+      // and identical-byte retries remain the asserted contract.
+      await app.sendPayload(payload);
+      await app.outboxDrain;
       const [item] = await loadOutbox(session);
       // Neither an ACK nor an own echo is applied: retry must keep the stored bytes.
       await app.attemptSend(item.clientMsgId);

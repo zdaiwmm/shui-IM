@@ -4,7 +4,7 @@ import {createRoomArchives} from '../server/room-archives.mjs';
 import {newArchiveKey,sealArchiveObject,archiveReadToken,archiveWriterProof,archiveAccessProof,archiveAccessHash,archiveAccessToken} from '../src/lib/room-archive-crypto';
 const databases:DatabaseSync[]=[];
 afterEach(()=>databases.splice(0).forEach(db=>db.close()));
-function setup(budget?:number){const db=new DatabaseSync(':memory:');databases.push(db);return createRoomArchives(db,budget?{maxArchiveBytes:budget,maxTotalBytes:budget}:{});}
+function setup(budget?:number){const db=new DatabaseSync(':memory:');databases.push(db);return createRoomArchives(db,{assertWriterActive:()=>{},...(budget?{maxArchiveBytes:budget,maxTotalBytes:budget}:{})});}
 describe('private archive authority and persistence',()=>{
  it('reads with only card authority, never a live-room or peer token',async()=>{
   const store=setup(),key=newArchiveKey(),other=newArchiveKey();
@@ -44,14 +44,14 @@ describe('private archive authority and persistence',()=>{
   expect(store.list(a.descriptor.id,archiveReadToken(a.seed),0,first.end)).toHaveLength(first.count);
  });
  it('rotates only the owner read authority, persists revocation and retries without rollback',async()=>{
-  const db=new DatabaseSync(':memory:');databases.push(db);let store=createRoomArchives(db);const key=newArchiveKey(),other=newArchiveKey();
+  const db=new DatabaseSync(':memory:');databases.push(db);let store=createRoomArchives(db,{assertWriterActive:()=>{}});const key=newArchiveKey(),other=newArchiveKey();
   store.register('r','d',key.descriptor,'creator',archiveWriterProof(key,'r','d'));
   store.register('r','peer',other.descriptor,'joiner',archiveWriterProof(other,'r','peer'));
   const object=await sealArchiveObject(key,{text:'retained original'});store.put('r','d',key.descriptor.id,object);
   const old=archiveAccessToken(key),nextKey={...key,readToken:other.seed},next=archiveAccessHash(nextKey.readToken),expected=archiveAccessHash(old),proof=archiveAccessProof(key,'r','d',expected,next);
   expect(()=>store.rotateAccess('r','peer',key.descriptor.id,expected,next,proof)).toThrow('UNAUTHORIZED');
   expect(()=>store.rotateAccess('r','d',key.descriptor.id,expected,next,archiveWriterProof(key,'r','d'))).toThrow('UNAUTHORIZED');
-  store.rotateAccess('r','d',key.descriptor.id,expected,next,proof);store=createRoomArchives(db);
+  store.rotateAccess('r','d',key.descriptor.id,expected,next,proof);store=createRoomArchives(db,{assertWriterActive:()=>{}});
   expect(()=>store.snapshot(key.descriptor.id,old)).toThrow('UNAUTHORIZED');
   expect(()=>store.list(key.descriptor.id,old,0,100)).toThrow('UNAUTHORIZED');
   expect(()=>store.read(key.descriptor.id,old,object.id)).toThrow('UNAUTHORIZED');
@@ -70,5 +70,26 @@ describe('private archive authority and persistence',()=>{
   const large=await sealArchiveObject(key,{text:'x'.repeat(2000)});
   expect(()=>store.put('r','d',key.descriptor.id,large)).toThrow('QUOTA');
   expect(store.read(key.descriptor.id,archiveReadToken(key.seed),first.id)).toEqual(first);
+ });
+});
+
+describe('current writer authorization at transaction commit',()=>{
+ it('rejects revoked/fenced writers without changing objects, read authority or a new writer binding',async()=>{
+  const db=new DatabaseSync(':memory:');databases.push(db);const active=new Set(['old','new']);
+  const store=createRoomArchives(db,{assertWriterActive(_room:string,device:string,role:string){if(!active.has(device)||role!=='creator')throw new Error('UNAUTHORIZED');}});
+  const key=newArchiveKey();store.register('r','old',key.descriptor,'creator',archiveWriterProof(key,'r','old'));
+  const keep=await sealArchiveObject(key,{text:'retained'});store.put('r','old',key.descriptor.id,keep);
+  active.delete('old');
+  const next=archiveAccessHash(newArchiveKey().seed),expected=archiveAccessHash(archiveAccessToken(key));
+  expect(()=>store.put('r','old',key.descriptor.id,keep)).toThrow('UNAUTHORIZED');
+  expect(()=>store.rotateAccess('r','old',key.descriptor.id,expected,next,archiveAccessProof(key,'r','old',expected,next))).toThrow('UNAUTHORIZED');
+  store.register('r','new',key.descriptor,'creator',archiveWriterProof(key,'r','new'));
+  expect(()=>store.register('r','old',key.descriptor,'creator',archiveWriterProof(key,'r','old'))).toThrow('UNAUTHORIZED');
+  const after=await sealArchiveObject(key,{text:'new active writer'});store.put('r','new',key.descriptor.id,after);
+  expect(store.snapshot(key.descriptor.id,archiveAccessToken(key)).count).toBe(2);
+  expect(store.read(key.descriptor.id,archiveAccessToken(key),keep.id)).toEqual(keep);
+ });
+ it('fails closed if a production caller omits the member authorization dependency',()=>{
+  const db=new DatabaseSync(':memory:');databases.push(db);expect(()=>createRoomArchives(db)).toThrow('ARCHIVE_WRITER_AUTHORIZATION_REQUIRED');
  });
 });

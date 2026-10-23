@@ -34,7 +34,7 @@ const contents = `<?xml version="1.0" encoding="UTF-8"?>
 <key>StandardErrorPath</key><string>${escape(path.join(logs, 'backup-error.log'))}</string>
 </dict></plist>
 `;
-const files = ['server/backup-transfer.mjs', 'server/backup.mjs', 'server/backup-lock.mjs', 'server/backup-retention.mjs',
+const files = ['server/backup-limits.mjs', 'server/backup-transfer.mjs', 'server/backup.mjs', 'server/backup-lock.mjs', 'server/backup-retention.mjs',
  'scripts/mac-backup.mjs', 'scripts/backup-capacity.mjs', 'scripts/deploy-config.mjs'];
 console.log(JSON.stringify({ sourceSha, runner, plist, destination, capacityPolicy, intervalSeconds: 300, snapshotIntervalHours: 12, files, apply: values.apply }));
 if (values.apply) {

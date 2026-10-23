@@ -118,6 +118,8 @@ export type PendingDeviceLink = {
 };
 
 export type Vault = {
+  /** Monotonic device-local ordering for accepted, encrypted send intents. */
+  outboxSequence?: number;
   /** Encrypted local presentation only; transport denial never changes membership. */
   localAccessDeniedDeviceId?: string;
   pendingNewInvite?: {previousToken:string;token:string};
@@ -497,6 +499,8 @@ export type ServerReceipt = {
 );
 
 export type OutboxItem = {
+  /** An accepted local intent, bound to its original sending device. */
+  intent?: { v: 1; senderId: string; sequence: number; windowEventSeq?: number };
   clientMsgId: string;
   payload: MessagePayload;
   createdAt: string;

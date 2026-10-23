@@ -1,3 +1,4 @@
+import { compareOutboxItems } from './lib/outbox-order';
 import { mountRoomCreation } from './lib/room-creation-view';
 import {createShortRoomLink,expandShortRoomLink} from './lib/short-room-link';
 import { ROOM_LINK_TTL_MS, formatRoomLinkRemaining } from './lib/room-link-lifetime.mjs';
@@ -4730,7 +4731,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     // Same-browser replacement retains encrypted local records. Old-device
     // ciphertext/receipts must stay durable without being replayed as this identity.
     const ownId = session.vault.identity.publicBundle.deviceId;
-    const activeOutbox = session.vault.roomArchiveV2 ? outbox.filter(item => item.envelope?.senderId === ownId) : outbox;
+    const activeOutbox = session.vault.roomArchiveV2 ? outbox.filter(item => (item.envelope?.senderId ?? item.intent?.senderId) === ownId) : outbox;
     const activeReceipts = session.vault.roomArchiveV2 ? pendingReceipts.filter(receipt => receipt.receiverId === ownId) : pendingReceipts;
     this.outbox = new Map(activeOutbox.map((item) => [item.clientMsgId, item]));
     this.pending = new Map(activeOutbox.map((item) => [item.clientMsgId, {
@@ -5502,8 +5503,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
         error: async (message, code, clientMsgId, rejectedEnvelope) => {
           if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
           if (code === 'MESSAGE_RETRY_EXPIRED' && clientMsgId) {
-            this.clearRetry(clientMsgId); const item = this.pending.get(clientMsgId); if (item) item.status = 'failed';
-            this.showNotice(message, 'error'); this.renderMessages(); return;
+            this.clearRetry(clientMsgId); this.expiredOutboxIds.add(clientMsgId);
+            const item = this.pending.get(clientMsgId); if (item) item.status = 'failed';
+            this.showNotice(message, 'error'); this.renderMessages(); void this.resumeOutbox(); return;
           }
           if ((code === 'MLS_EPOCH_STALE' || code === 'MLS_UPDATE_REQUIRED') && clientMsgId) {
             if (!rejectedEnvelope) {
@@ -5742,7 +5744,10 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     if (!session.vault.mls.window && !session.vault.mls.pendingMembership && session.vault.members.some(m => m.status !== 'revoked' && !m.capabilities?.includes(MESSAGE_WINDOW_CAPABILITY))) return;
     const epoch = this.runtimeEpoch;
     if (!force && session.vault.mls.window && !session.vault.mls.pendingMembership && session.vault.mls.window.generated < MLS_WINDOW_MESSAGES && session.vault.lastSeq - session.vault.mls.window.fromSeq + 1 < MLS_WINDOW_MESSAGES) return;
-    const state = await getRoomState(session.vault.roomId, session.vault.accessToken);
+    // A stalled refresh must release the vault lease on lock/identity change,
+    // and must also be bounded when the transport never returns an error.
+    const signal = AbortSignal.any([...(this.runtimeAbort ? [this.runtimeAbort.signal] : []), AbortSignal.timeout(15_000)]);
+    const state = await getRoomState(session.vault.roomId, session.vault.accessToken, signal);
     if (!this.isRuntimeActive(epoch, session)) return;
     await this.applyRoomState(state, mutation);
     if (!this.isRuntimeActive(epoch, session) || !session.vault.mls) return;
@@ -5751,7 +5756,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     if (!force && session.vault.mls.window && (state.messageWindow?.count ?? 0) < MLS_WINDOW_MESSAGES && session.vault.mls.window.generated < MLS_WINDOW_MESSAGES) return;
     // No deletion claim is trusted here. Catch up every current-epoch record first.
     while (session.vault.lastSeq < state.nextSeq) {
-      const page = await getWindowMessages(session.vault.roomId, session.vault.accessToken, session.vault.lastSeq, this.runtimeAbort?.signal);
+      const page = await getWindowMessages(session.vault.roomId, session.vault.accessToken, session.vault.lastSeq, signal);
       if (!this.isRuntimeActive(epoch, session)) return;
       for (const message of page) this.serverQueue.set(message.seq, message);
       const before = session.vault.lastSeq;
@@ -5766,12 +5771,12 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       try { await saveVault(session, mutation); } catch (error) { session.vault.mls.pendingMembership = undefined; throw error; }
     }
     try {
-      const result = await publishMlsMembership(session.vault.roomId, session.vault.accessToken, pending.event);
+      const result = await publishMlsMembership(session.vault.roomId, session.vault.accessToken, pending.event, signal);
       if (this.isRuntimeActive(epoch, session)) await this.applyRoomState(result.state, mutation);
     } catch (error) {
       if (error instanceof ApiError && error.code === 'MLS_EVENT_STALE') {
         session.vault.mls.pendingMembership = undefined; await saveVault(session, mutation);
-        const latest = await getRoomState(session.vault.roomId, session.vault.accessToken);
+        const latest = await getRoomState(session.vault.roomId, session.vault.accessToken, signal);
         if (this.isRuntimeActive(epoch, session)) {
           await this.applyRoomState(latest, mutation);
           if (conflicts >= 2) throw new Error('消息更新繁忙，请稍后重试');
@@ -9634,10 +9639,10 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     await withVaultMutation(session, async (mutation) => {
       signal?.throwIfAborted();
       if (this.isRuntimeActive(epoch, session)) {
-        await this.ensureMessageWindow(mutation);
-        if (this.isRuntimeActive(epoch, session)) await this.sendPayloadLocked(payload, existingClientMsgId, mutation, draft, scrollRevision);
+        await this.sendPayloadLocked(payload, existingClientMsgId, mutation, draft, scrollRevision);
       }
     });
+    if (this.isRuntimeActive(epoch, session)) void this.resumeOutbox();
   }
 
   private async sendPayloadLocked(payload: MessagePayload, existingClientMsgId: string | undefined, mutation: VaultMutation, draft?: DraftSubmission, scrollRevision: number | null = null): Promise<void> {
@@ -9655,7 +9660,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     if (existingClientMsgId) {
       if ([...this.messages.values()].some(message => message.clientMsgId === clientMsgId)) return;
       const existing = this.outbox.get(clientMsgId) ?? (await loadOutbox(session)).find(item => item.clientMsgId === clientMsgId);
-      if (existing) { this.outbox.set(clientMsgId, existing); await this.attemptSend(clientMsgId, mutation); return; }
+      if (existing) { this.outbox.set(clientMsgId, existing); return; }
     }
     const outboxItem: OutboxItem = {
       clientMsgId,
@@ -9664,10 +9669,14 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     };
     try {
       if (session.vault.protocol === 'mls-rfc9420') {
-        const encrypted = await encryptMlsApplication(session.vault, payload, clientMsgId);
+        outboxItem.intent = { v: 1, senderId: session.vault.identity.publicBundle.deviceId,
+          sequence: Math.max(session.vault.outboxSequence ?? 0, session.vault.mls?.sendSequence ?? 0) + 1 };
+        const mls = session.vault.mls!;
         if (this.accessFailure) throw new Error('此设备接入已中止，内容没有写入待发箱。');
-        outboxItem.envelope = encrypted.envelope;
-        await commitMlsSend(session, outboxItem, encrypted.nextGroupState, mutation, draft);
+        if (!mls.groupState) throw new Error('本机 MLS 状态缺失，内容没有保存');
+        // Generate only the head's ciphertext. Preparing later generations here
+        // would make membership retries overtake retained ratchet keys.
+        await commitMlsSend(session, outboxItem, mls.groupState, mutation, draft);
       } else {
         if (this.accessFailure) throw new Error('此设备接入已中止，内容没有写入待发箱。');
         await saveOutboxItem(session, outboxItem, mutation, draft);
@@ -9696,47 +9705,64 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     }
     this.renderMessages({ scroll: followSend ? 'send' : 'preserve' });
     if (followSend) this.trackChatViewport(!this.desktopBrowser);
-    await this.attemptSend(clientMsgId, mutation);
   }
 
-  private async attemptSend(clientMsgId: string, mutation?: VaultMutation): Promise<void> {
+  private async attemptSend(clientMsgId: string): Promise<void> {
+    if (this.session?.vault.protocol === 'mls-rfc9420') await this.resumeOutbox();
+    else await this.sendOutboxItem(clientMsgId);
+  }
+
+  private async sendOutboxItem(clientMsgId: string): Promise<boolean> {
     const session = this.session;
-    if (!session || this.privacyCovered || this.accessFailure || this.sending.has(clientMsgId)) return;
+    if (!session || this.privacyCovered || this.accessFailure || this.sending.has(clientMsgId)) return false;
     const epoch = this.runtimeEpoch;
     const item = this.outbox.get(clientMsgId);
-    if (!item) return;
-    if (this.connectionState !== 'connected') return;
-    if (this.deferUnsupportedPayload(item)) return;
+    if (!item) return false;
+    if (this.connectionState !== 'connected') return false;
+    if (this.deferUnsupportedPayload(item)) return false;
     // Older clients may have committed this payload without saving its first
     // envelope. Consume the authenticated reconnect history before preparing it.
     if (!item.envelope && session.vault.protocol !== 'mls-rfc9420' && session.vault.lastSeq < this.legacyRetrySyncTarget) {
       this.socket?.requestSync(session.vault.lastSeq);
       this.scheduleRetry(clientMsgId);
-      return;
+      return false;
     }
     this.sending.add(clientMsgId);
     const pendingMessage = this.pending.get(clientMsgId);
     if (pendingMessage?.status === 'failed') pendingMessage.status = 'pending';
     try {
-      const prepared = item.envelope ? item : await prepareLegacyOutboxItem(session, clientMsgId, mutation);
-      if (!prepared?.envelope) return;
+      const prepared = item.envelope ? item : session.vault.protocol === 'mls-rfc9420'
+        ? await withVaultMutation(session, async mutation => {
+          if (!this.isRuntimeActive(epoch, session) || this.accessFailure) return;
+          if (!item.intent || item.intent.senderId !== session.vault.identity.publicBundle.deviceId) throw new Error('MLS 待发密文缺失，已停止发送');
+          await this.ensureMessageWindow(mutation, item.intent.windowEventSeq !== undefined && item.intent.windowEventSeq === (session.vault.mls?.lastEventSeq ?? 0));
+          if (!this.isRuntimeActive(epoch, session) || this.accessFailure) return;
+          const encrypted = await encryptMlsApplication(session.vault, item.payload, clientMsgId);
+          if (!this.isRuntimeActive(epoch, session) || this.accessFailure) return;
+          const next = { ...item, intent: {...item.intent, windowEventSeq: undefined}, envelope: encrypted.envelope };
+          await commitMlsSend(session, next, encrypted.nextGroupState, mutation); return next;
+        })
+        : await prepareLegacyOutboxItem(session, clientMsgId);
+      if (!prepared?.envelope) return false;
       const envelope = prepared.envelope;
-      if (!this.isRuntimeActive(epoch, session)) return;
+      if (!this.isRuntimeActive(epoch, session)) return false;
       // Projections and ACK reconciliation may retain this pending item's
       // identity. Attach the durable upgrade without replacing that object.
       this.outbox.set(clientMsgId, Object.assign(item, prepared));
-      if (this.accessFailure) return;
-      if (this.deferUnsupportedPayload(item)) return;
-      this.socket?.sendEnvelope(envelope, item.payload.kind !== 'gallery-image' && item.payload.kind !== 'gallery-file'
+      if (this.accessFailure) return false;
+      if (this.deferUnsupportedPayload(item)) return false;
+      const accepted = this.socket?.sendEnvelope(envelope, item.payload.kind !== 'gallery-image' && item.payload.kind !== 'gallery-file'
         && item.payload.kind !== 'reaction' && item.payload.kind !== 'message-delete' && item.payload.kind !== 'media-read' && item.payload.kind !== 'message-read');
       this.scheduleRetry(clientMsgId);
+      return accepted === true;
     } catch (cause) {
-      if (!this.isRuntimeActive(epoch, session)) return;
+      if (!this.isRuntimeActive(epoch, session)) return false;
       const pending = this.pending.get(clientMsgId);
       if (pending && this.connectionState === 'connected') pending.status = 'failed';
       this.showNotice(cause instanceof Error ? cause.message : '消息发送失败，稍后将自动重试', 'error');
       this.renderMessages();
       this.scheduleRetry(clientMsgId);
+      return false;
     } finally {
       this.sending.delete(clientMsgId);
     }
@@ -9769,18 +9795,23 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     if (!item.envelope || canonicalStringify(item.envelope) !== canonicalStringify(rejectedEnvelope)) return;
     if (this.deferUnsupportedPayload(item)) return;
     this.clearRetry(clientMsgId);
-    await this.ensureMessageWindow(mutation, forceUpdate);
-    if (!this.isRuntimeActive(epoch, session) || this.accessFailure) return;
-    const encrypted = await encryptMlsApplication(session.vault, item.payload, clientMsgId);
-    if (this.accessFailure) return;
-    const nextItem: OutboxItem = { ...item, envelope: encrypted.envelope };
-    await commitMlsSend(session, nextItem, encrypted.nextGroupState, mutation);
+    if (!session.vault.mls?.groupState) throw new Error('本机 MLS 状态缺失');
+    // Only the server's response bound to this exact ciphertext may release it
+    // for re-encryption. Drain remaining generated ciphertext first, then make
+    // a fresh generation for this durable intent; this also handles old clients'
+    // mixed-epoch queues without endless window updates or skipped ratchet keys.
+    const nextItem: OutboxItem = { ...item, envelope: undefined, intent: {
+      v: 1, senderId: rejectedEnvelope.senderId,
+      sequence: item.intent?.sequence ?? (rejectedEnvelope.v === 2 ? rejectedEnvelope.retention?.sendSequence : undefined) ?? 0,
+      windowEventSeq: forceUpdate ? session.vault.mls.lastEventSeq ?? 0 : undefined,
+    } };
+    await commitMlsSend(session, nextItem, session.vault.mls.groupState, mutation);
     if (!this.isRuntimeActive(epoch, session)) return;
     this.outbox.set(clientMsgId, nextItem);
     const pending = this.pending.get(clientMsgId);
     if (pending) pending.status = 'pending';
-    this.showNotice('设备列表刚刚更新，待发消息已使用新密钥重新加密');
-    await this.attemptSend(clientMsgId);
+    this.showNotice('设备列表刚刚更新，待发消息将使用新密钥重新加密');
+    void this.resumeOutbox();
   }
 
   private scheduleRetry(clientMsgId: string): void {
@@ -9806,12 +9837,24 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     }
   }
 
+  private expiredOutboxIds = new Set<string>();
+  private outboxDrain: Promise<void> | null = null;
   private async resumeOutbox(): Promise<void> {
-    for (const clientMsgId of this.outbox.keys()) {
-      // An ACK may arrive before its message is durably projected. The existing
-      // reconciliation retry owns that case; a capacity refill must not resend it.
-      if (this.pending.get(clientMsgId)?.status !== 'stored') void this.attemptSend(clientMsgId);
-    }
+    if (this.outboxDrain) return this.outboxDrain;
+    const session = this.session, epoch = this.runtimeEpoch;
+    if (!session || this.connectionState !== 'connected' || this.accessFailure) return;
+    const operation = (async () => {
+      for (const item of [...this.outbox.values()].sort(compareOutboxItems)) {
+        if (!this.isRuntimeActive(epoch, session) || this.connectionState !== 'connected') return;
+        if (!this.outbox.has(item.clientMsgId) || this.expiredOutboxIds.has(item.clientMsgId) || this.pending.get(item.clientMsgId)?.status === 'stored') continue;
+        // One logical message owns the transport until its result is reconciled.
+        // A retry, a full transport or a membership update cannot overtake it.
+        await this.sendOutboxItem(item.clientMsgId);
+        if (session.vault.protocol === 'mls-rfc9420') return;
+      }
+    })();
+    this.outboxDrain = operation;
+    try { await operation; } finally { if (this.outboxDrain === operation) this.outboxDrain = null; }
   }
 
   private sendPendingReceipt(receipt: DeliveryReceipt): void {
@@ -12088,11 +12131,12 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
       meta.title = this.accessFailure && ['pending', 'failed'].includes(message.status) ? '已保存在本机；此设备无法接入，发送暂停，不会自动发送' : read ? '对方已读：至少一台设备已在前台显示这条消息'
         : message.status === 'delivered' ? '服务器已保存加密消息，对方设备已接收，尚无已读回执'
         : message.status === 'stored' || message.status === 'sent' ? '服务器已保存加密消息，等待对方接收'
-          : message.status === 'pending' ? '已保存在本机，等待发送到服务器' : '发送失败，可以重试';
+          : message.status === 'pending' ? '已保存在本机，等待发送到服务器'
+          : this.expiredOutboxIds.has(message.clientMsgId) ? '消息已超出服务器重试范围，无法继续发送；可复制内容后重新发送' : '发送失败，可以重试';
       if (!this.accessFailure && message.payload.kind === 'audio' && message.status === 'failed') { meta.title = VOICE_FAILURE_TEXT.VOICE_ACK_UNKNOWN; meta.dataset.errorCode = 'VOICE_ACK_UNKNOWN'; }
       meta.setAttribute('aria-label', `${timeLabel(message.payload.sentAt)}，${meta.title}`);
     }
-    if (own && message.status === 'failed' && !this.accessFailure) {
+    if (own && message.status === 'failed' && !this.accessFailure && !this.expiredOutboxIds.has(message.clientMsgId)) {
       const retry = document.createElement('button');
       retry.type = 'button';
       retry.className = 'message-retry';
@@ -16380,6 +16424,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     this.runtimeEpoch += 1;
     this.runtimeAbort?.abort();
     this.runtimeAbort = null;
+    this.outboxDrain = null;
     this.imageLoadStatus.clear();
     this.gesturePad?.destroy();
     this.gesturePad = null;
@@ -16401,7 +16446,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回空�
     this.pending.clear();
     for (const draft of this.mediaUploads.values()) draft.view.destroy();
     this.mediaUploads.clear();
-    this.outbox.clear();
+    this.outbox.clear(); this.expiredOutboxIds.clear();
     this.pendingReceipts.clear();
     this.serverQueue.clear();
     this.receiptQueue.clear();
