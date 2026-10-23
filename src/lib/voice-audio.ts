@@ -10,6 +10,16 @@ export function voiceTime(milliseconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
 
+/** Compact message geometry; recording/preview clocks retain their own format. */
+export function voiceMessageSeconds(milliseconds: number): number {
+  return Math.max(1, Math.ceil((Number.isFinite(milliseconds) ? milliseconds : 0) / 1000));
+}
+
+export function voiceMessageWidth(milliseconds: number): number {
+  const seconds = Math.max(1, Math.min(60, (Number.isFinite(milliseconds) ? milliseconds : 0) / 1000));
+  return Math.round(84 + 136 * (seconds - 1) / 59);
+}
+
 export function voiceWaveform(samples: Float32Array, count = 48): number[] {
   return Array.from({ length: count }, (_, index) => {
     const start = Math.floor(index * samples.length / count);
@@ -40,6 +50,7 @@ export function encodeVoiceWav(samples: Float32Array): Blob {
 }
 
 export const voiceIcons = {
+  sound: '<svg aria-hidden="true" viewBox="0 0 24 24"><path class="voice-wave-1" d="M6 11v2"/><path class="voice-wave-2" d="M10 8a6 6 0 0 1 0 8"/><path class="voice-wave-3" d="M14 4.5a11 11 0 0 1 0 15"/></svg>',
   mic: '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8"/></svg>',
   play: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z" fill="currentColor" stroke="none"/></svg>',
   pause: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 5v14M16 5v14" stroke-width="3.5"/></svg>',

@@ -1,4 +1,4 @@
-设置与恢复V1.4（2026-10-23）：设置分类和导航在`space-drawer.ts`，原位创建在`room-creation-view.ts`，凭证与恢复完整页在`archive-settings.ts`，本人链接授权在`app.ts`／`invite-link.ts`及device-link存储路径。回归新增`settings-v14.e2e`并保留new-room-flows/mobile、numeric-password、设备与归档测试；确认及实施证据见[本需求](../requirements/2026-10-23-settings-17-prototype/README.md)，契约为NEW_ROOM_ARCHIVES、SECURITY、D-077与视觉V1.24。
+设置与恢复V1.4（2026-10-23）：设置分类和导航在`space-drawer.ts`，原位创建在`room-creation-view.ts`，凭证与恢复完整页在`archive-settings.ts`，本人链接授权在`app.ts`／`invite-link.ts`及device-link存储路径。回归新增`settings-v14.e2e`并保留new-room-flows/mobile、numeric-password、设备与归档测试；确认及实施证据见[本需求](../requirements/2026-10-23-settings-17-prototype/README.md)，契约为NEW_ROOM_ARCHIVES、SECURITY、D-077与视觉V1.25。
 
 系统审计四项修复：服务端邀请与归档事务授权在storage/room-archives；本机发送意图和顺序在app.ts、outbox-order.ts、vault.ts；Mac磁盘暂存及流预算在backup-stream、backup、backup-transfer、backup-limits。验收新增admission-lifecycle、offline-outbox和backup-large-database，范围及交付见[修复记录](../requirements/2026-10-23-system-audit-fixes/README.md)。
 
@@ -22,6 +22,8 @@ Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请�
 运维Mac主动拉取备份：`scripts/mac-backup.mjs`、`server/backup-transfer.mjs`；安装入口 `scripts/install-mac-backup.mjs`、`scripts/configure-mac-backup-server.mjs`。独立回执与健康、资源上限及离线限制见 [OPERATIONS.md](../../OPERATIONS.md#mac-主动拉取模式)，专项 `tests/backup-transfer.test.ts`。
 
 # Quiet Room 项目地图
+
+微信式语音气泡：`voice-player.ts`与`voice-messages.css`管理40px主体／44px按钮、按时长伸缩、图标内侧相邻秒数及暂停续播；`design-system.css`隔离透明外层与深色渐变。真实组件、媒体播放／切换及回执回归为`voice-message-ui.e2e.mjs`，并与voice-flow/lifecycle联合。确认及iOS27.2杂音续查由[本需求记录](../requirements/2026-10-23-voice-quality-bubble/README.md)拥有；AAC/Web Audio与Opus的本机对照不代表真机音质修复。
 
 重新接入历史归属：`vault.ts`为新本机主密钥分配独立记录范围，逐槽核验原历史所有者并在新槽位关联；`app.ts`覆盖原目录不可见的接替与旧错误会话刷新，保留两份来源槽位。`vault-lifecycle`验证缺失／篡改投影、较早检查点、取消及陈旧守卫；`new-room-flows/mobile`共享`fixtures/repair-history-scope.mjs`覆盖新建另一密室、邀请方离线后上线、原历史／附件／撤回及旧故障会话。边界及阶段见[历史归属V1](../requirements/2026-10-22-repair-history-scope/README.md)。
 
