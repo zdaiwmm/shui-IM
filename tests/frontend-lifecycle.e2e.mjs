@@ -332,7 +332,7 @@ try {
   });
 
   results.outgoingChatReceiptAnchor = await page.evaluate(async () => {
-    const { app, fresh, message } = window.regression; fresh();
+    const { app, fresh, message, root } = window.regression; fresh();
     app.messages = new Map(Array.from({ length: 60 }, (_, index) => [index + 1, message(index + 1)]));
     app.renderChat();
     const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
@@ -357,7 +357,13 @@ try {
     if (restored?.clientMsgId !== saved.clientMsgId || Math.abs(restored.offset - saved.offset) > 2 || restored.pinnedToBottom) {
       throw Error(`A receipt in the outgoing chat lost the gallery return position: ${JSON.stringify({ saved, restored })}`);
     }
-    return { saved, restored, outgoingReceiptPreserved: true };
+    // A temporary interaction block (for example portrait guidance) still
+    // owns its current chat. It must catch up before interaction resumes.
+    root.inert = true;
+    app.messages.set(61, message(61)); app.renderMessages();
+    root.inert = false;
+    if (!document.querySelector('[data-client-msg-id="message-61"]')) throw Error('An interaction block discarded an active-chat update');
+    return { saved, restored, outgoingReceiptPreserved: true, blockedActiveChatUpdated: true };
   });
 
   // A saved offset may sit deep inside a tall photo. A cold 128px placeholder

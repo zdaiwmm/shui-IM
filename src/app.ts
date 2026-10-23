@@ -11673,7 +11673,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     // Navigation retains an inert chat for its exit animation. Late socket
     // acknowledgements still update the model, but only the active chat may
     // consume the saved reading position or change document scrolling.
-    if (!list || !this.session || this.activeSurface !== 'chat' || list.closest('[inert]')) return;
+    if (!list || !this.session || this.activeSurface !== 'chat' || list.closest('.page-transition-outgoing')) return;
     const guide = this.root.querySelector<HTMLElement>('.chamber-privacy-guide');
     const continuingMotion = this.chatMessageAnimations.size > 0;
     const previousMessageIds = new Set(this.renderedMessages.keys());

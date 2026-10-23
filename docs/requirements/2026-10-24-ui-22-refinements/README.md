@@ -65,4 +65,4 @@
 
 用户在上述阻塞说明后明确要求继续发布，沿用本批修复、合并及生产发布授权。接续基线为实时main `af8d2f6be05bcdc676565b906080b9926ffe2a50`；不盲重跑原失败，先在相册往返流程记录临时位置轨迹，区分冷图片、页面切换与测试基线。正常、4倍CPU慢速及等待冷图恢复三种本机完整主流程均通过，保留证据，不将这些通过当作根因已排除。
 
-确定性复现：退出动画保留的旧聊天仍连接且inert，迟到回执调用renderMessages后提前清除restoreChatAnchorOnNextRender；返回时不再按保存位置恢复。新增真实过渡用例在修复前稳定失败，保存message-38／-7.5px，返回message-1／100.5px，与原CI相同100.5px特征。renderMessages现仅允许activeSurface为chat且列表非inert时渲染，网络模型与持久化继续正常更新。临时诊断已移除，保留原主流程断言及新增迟到回执严格回归。最终候选及验证证据后补。
+确定性复现：退出动画保留的旧聊天仍连接且inert，迟到回执调用renderMessages后提前清除restoreChatAnchorOnNextRender；返回时不再按保存位置恢复。新增真实过渡用例在修复前稳定失败，保存message-38／-7.5px，返回message-1／100.5px，与原CI相同100.5px特征。renderMessages现仅允许activeSurface为chat且列表不在退出动画层内时渲染，网络模型与持久化继续正常更新。临时诊断已移除，保留原主流程断言及新增迟到回执严格回归。最终候选及验证证据后补。
