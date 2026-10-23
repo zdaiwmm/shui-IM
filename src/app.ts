@@ -8255,8 +8255,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       const heading = document.createElement('div');
       heading.innerHTML = `<strong>我的设备</strong><span>${ownDevices.length} / 3 台</span>`;
       toolbar.append(heading);
-      refresh.hidden=false;toolbar.append(refresh);const add=devicePage.querySelector<HTMLButtonElement>('#add-own-device');if(add)add.disabled=ownDevices.length>=3;
-      if(view==='own')content.append(toolbar);
+      refresh.hidden=false;const add=devicePage.querySelector<HTMLButtonElement>('#add-own-device');if(add)add.disabled=ownDevices.length>=3;
+      if(view==='own'){toolbar.append(refresh);content.append(toolbar);}
+      else devicePage.querySelector('.device-header')!.append(refresh);
 
       if (view==='own' && pendingClaims.length > 0) {
         const section = document.createElement('section');

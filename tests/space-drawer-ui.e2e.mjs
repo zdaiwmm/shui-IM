@@ -23,7 +23,7 @@ try {
       }; mount(); window.listStart=document.querySelector('.space-drawer').getBoundingClientRect().left;
     });
     await page.locator('.space-drawer-overlay.is-visible').waitFor();
-    assert.ok(await page.evaluate(()=>window.listStart<=-392),'Space list must enter from the left');
+    assert.ok(await page.evaluate(()=>window.listStart>=392),'Space list must enter from the right');
     assert.equal(await page.locator('.space-avatar').count(),12);
     assert.equal(await page.locator('[data-space="1"] .space-unread').innerText(),'99+');
     assert.equal(await page.locator('[data-space="1"] .space-unread').getAttribute('aria-label'),'105 条未读消息');
@@ -102,9 +102,9 @@ try {
       const create=page.locator('#space-create'); assert.equal(await create.count(),1);
       const placement=await create.evaluate(button=>({rect:button.getBoundingClientRect().toJSON(),
         footer:Boolean(button.closest('.space-drawer-footer')),header:Boolean(button.closest('header')),
-        scrollBottom:document.querySelector('.space-drawer-scroll').getBoundingClientRect().bottom}));
-      assert.ok(placement.footer&&!placement.header&&placement.rect.height>=48&&placement.rect.bottom<=680
-        &&placement.scrollBottom<=placement.rect.top,`${count}: reachable persistent creation ${JSON.stringify(placement)}`);
+        scrollTop:document.querySelector('.space-drawer-scroll').getBoundingClientRect().top}));
+      assert.ok(!placement.footer&&placement.header&&placement.rect.height>=44&&placement.rect.bottom<=680
+        &&placement.rect.bottom<=placement.scrollTop+1,`${count}: reachable header creation ${JSON.stringify(placement)}`);
     }
     await page.evaluate(()=>abort.abort());
     await page.evaluate(()=>{

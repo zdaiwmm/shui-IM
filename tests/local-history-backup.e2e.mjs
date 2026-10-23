@@ -252,7 +252,7 @@ try {
     const hidden = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden') ?? Object.getOwnPropertyDescriptor(document, 'hidden');
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
     app.lockNow();
-    const branded = [...document.querySelectorAll('h1, p')].some(node => /Quiet Room|两个人的私密空间/.test(node.textContent ?? ''));
+    const branded = [...document.querySelectorAll('h1, p')].some(node => /Quiet Room|两个人的密室/.test(node.textContent ?? ''));
     if (hidden) Object.defineProperty(document, 'hidden', hidden);
     else delete document.hidden;
     app.gatewayRenderEpoch += 1;

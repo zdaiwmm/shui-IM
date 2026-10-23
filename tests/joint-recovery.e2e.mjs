@@ -99,7 +99,7 @@ try {
   assert.match(await a.locator('#joint-progress .recovery-flow-lead').textContent() ?? '', /核对双方页面的编号与结果/);
   assert.equal(await a.locator('.joint-request-code').count(), 1);
   assert.equal(await a.locator('#joint-scope-summary').count(), 1);
-  assert.match(await a.locator('#joint-scope').textContent(), /空间恢复码保持不变/);
+  assert.match(await a.locator('#joint-scope').textContent(), /密室恢复码保持不变/);
   assert.doesNotMatch(await a.locator('#joint-scope').textContent(), /保存新恢复码/);
   assert.equal(await a.evaluate(() => session.vault.recoveryExperience.jointMaterial), 'retained');
   assert.equal(await a.locator('#joint-participant-badge').count(), 1);

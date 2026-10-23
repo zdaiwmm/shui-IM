@@ -169,7 +169,7 @@ try {
     ? route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: '测试：创建暂不可用' }) }) : route.continue(), { times: 1 });
   await completeSpaceProfile(page, '失败不重复创建');
   await page.locator('#return-space').waitFor();
-  assert.match(await page.locator('.gateway h1').innerText(), /空间未能创建/);
+  assert.match(await page.locator('.gateway h1').innerText(), /密室未能创建/);
   await page.locator('#return-space').click();
   await page.waitForFunction(() => app.session?.vault.roomId === a.vault.roomId);
   await page.evaluate(() => { window.a = app.session; app.renderChat(); });
