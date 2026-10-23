@@ -11,7 +11,8 @@
   --space-group: 24px;
   --sheet-inset: 20px;
   --touch-target: 44px;
-  --media-status-height: 32px;
+  --media-status-height: 24px;
+  --media-complete-height: 20px;
   --subpage-header-height: calc(52px + env(safe-area-inset-top));
   --paper: #f2f5f1;
   --paper-pure: #fff;

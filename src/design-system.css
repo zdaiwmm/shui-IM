@@ -471,28 +471,49 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .message-action-group :is(.message-action-list,.message-reaction-picker) { opacity: 0; transform: none; transition: opacity var(--motion-local) ease-out; }
 #app .message-actions.is-visible :is(.message-action-list,.message-reaction-picker) { opacity: 1; transform: none; }
 #app .message-action-group .message-action-preview { overflow: hidden; transform: none; }
-#app :is(.media-upload-status,.image-bubble > .message-meta,.image-bubble > .media-status-departing,.media-load-capsule) { box-sizing: border-box; height: 32px; min-height: 32px; border: 0; border-radius: 16px; margin: 0; right: 7px; bottom: 7px; }
-#app .image-bubble > .message-meta:not(.media-send-meta) { padding: 0 10px; align-items: center; background: #242124b3; color: #fff; font-size: .6875rem; line-height: 1.4; }
+#app :is(.media-upload-status,.attachment-meta,.image-bubble > .media-status-departing,.media-load-capsule,.media-ready-hint,.file-load-capsule) { box-sizing: border-box; height: var(--media-status-height); min-height: var(--media-status-height); border: 0; border-radius: 12px; margin: 0; right: 7px; bottom: 7px; }
+#app :is(.attachment-meta:not(.media-send-meta),.media-ready-hint,.file-load-capsule[data-state='idle']) { height: var(--media-complete-height); min-height: var(--media-complete-height); border-radius: 10px; }
+#app .image-bubble > .message-meta:not(.media-send-meta) { padding: 0 8px; align-items: center; background: #242124b3; color: #fff; font-size: .6875rem; line-height: 1.4; }
 #app .image-bubble > .message-meta:not(.media-send-meta) time { color: #fff; }
 #app .image-bubble > .message-meta { flex-wrap: nowrap; max-width: none; white-space: nowrap; }
 #app .image-bubble:not(.expression-bubble) > .media-send-meta > .media-capsule-content > time { display: none; }
 #app .expression-bubble > .message-meta:not(.media-send-meta) { background: transparent; padding: 0; color: var(--message-time-on-wall); }
 #app .expression-bubble > .message-meta:not(.media-send-meta) time { color: var(--message-time-on-wall); }
 #app .expression-bubble > .message-meta:not(.media-send-meta) > .media-capsule-content { padding: 0; }
-#app .image-bubble > .message-meta:has(> .media-capsule-content) { display: block; padding: 0; transform-origin: right center; }
-#app :is(.image-bubble > .media-send-meta,.image-bubble > .media-status-departing) { padding: 0 10px; background: var(--surface-raised); font-size: .75rem; align-items: center; }
+#app .attachment-meta:has(> .media-capsule-content) { display: block; padding: 0; transform-origin: right center; }
+#app :is(.attachment-meta.media-send-meta,.image-bubble > .media-status-departing) { padding: 0 8px; background: var(--surface-raised); color: var(--ink); font-size: .75rem; align-items: center; }
+#app .message.is-failed .attachment-meta.media-send-meta { background: var(--danger-soft); color: var(--danger); }
+#app .attachment-meta.media-send-meta:has(> .media-capsule-content) { padding: 0; }
+#app .file-bubble > .attachment-meta { width: max-content; justify-self: end; margin-left: auto; }
+#app .file-bubble > .attachment-meta:not(.media-send-meta) { font-size: .6875rem; }
+#app .file-bubble > .attachment-meta.media-send-meta > time,
+#app .file-bubble > .attachment-meta.media-send-meta > .media-capsule-content > time { display: none; }
 #app .media-upload-status { padding: 0; background: var(--surface-raised); }
 #app .media-upload-status[data-state='failed'] { background: var(--danger-soft); }
 #app .media-load-capsule { display: block; position: absolute; width: max-content; max-width: calc(100% - 14px); padding: 0; background: var(--surface-raised); color: var(--ink); }
 #app .media-load-status { font-size: .75rem; line-height: 1.4; color: inherit; font-weight: 400; white-space: nowrap; }
-#app .media-load-progress { width: 16px; height: 16px; flex: 0 0 16px; border-radius: 50%; background: conic-gradient(var(--accent) var(--media-load-progress,0%),var(--accent-soft) 0); mask: radial-gradient(farthest-side,transparent calc(100% - 2px),#fff 0); -webkit-mask: radial-gradient(farthest-side,transparent calc(100% - 2px),#fff 0); }
+#app .media-load-progress { width: 12px; height: 12px; flex: 0 0 12px; border-radius: 50%; background: conic-gradient(var(--accent) var(--media-load-progress,0%),var(--accent-soft) 0); mask: radial-gradient(farthest-side,transparent calc(100% - 2px),#fff 0); -webkit-mask: radial-gradient(farthest-side,transparent calc(100% - 2px),#fff 0); }
 #app .media-load-progress > i { display: none; }
 #app .media-load-progress[data-indeterminate='true'] { background: conic-gradient(var(--accent) 25%,var(--accent-soft) 0); animation: media-upload-spin 1000ms linear infinite; }
 #app .media-load-capsule.is-error { background: var(--danger-soft); color: var(--danger); }
 #app .image-preview:not(.album-cell) { overflow: visible; }
 #app .image-preview::before, #app .image-preview > img { border-radius: inherit; }
 #app .image-preview:not(.album-cell) .media-load-capsule { max-width: calc(100vw - 56px); }
-#app .incoming .image-preview:not(.album-cell) .media-load-capsule { right: auto; left: 7px; }
+#app .image-preview .media-load-capsule { right: auto; left: 7px; transform-origin: left center; }
+#app .image-preview .media-ready-hint { display: flex; align-items: center; position: absolute; left: 7px; right: auto; bottom: 31px; padding: 0 8px; width: max-content; max-width: calc(100vw - 56px); background: var(--surface-raised); color: var(--ink); font-size: .6875rem; line-height: 1.4; pointer-events: none; z-index: 2; }
+#app .image-bubble:not(.expression-bubble) .media-load-capsule { bottom: 31px; }
+#app .expression-bubble .media-ready-hint { bottom: 7px; }
+#app .message .file-bubble { min-height: 108px; width: min(288px, calc(100vw - 68px)); max-width: 100%; }
+#app .message.outgoing .file-upload-tile { position: relative; padding: 8px 12px 36px; background: var(--outgoing); color: var(--on-accent); border-radius: var(--radius-bubble); }
+#app .file-upload-tile .file-attachment { grid-template-columns: 32px minmax(0,1fr); cursor: default; }
+#app .file-load-capsule { display: inline-flex; width: max-content; max-width: 100%; background: var(--surface-raised); color: var(--ink); font-size: .75rem; line-height: 1.4; transform-origin: left center; }
+#app .file-load-capsule[data-state='idle'] { background: transparent; color: inherit; font-size: .6875rem; }
+#app .file-load-capsule[data-state='error'] { background: var(--danger-soft); color: var(--danger); }
+#app .file-attachment-meta:has(.file-load-capsule) { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; opacity: 1; }
+/* Keep the 44px target inside the media while its visible text stays centered
+   in the 24px shell at the approved 7px bottom inset. */
+#app :is(.media-upload-retry,.attachment-meta .message-retry) { position: relative; top: -3px; }
+#app :is(.media-upload-retry,.attachment-meta .message-retry) > span { position: relative; top: 3px; }
 #app .message-list, #app .message-list[data-keyboard-gesture='true'] { touch-action: pan-y pinch-zoom; }
 #app :is(.gateway-form input:not([type='checkbox']):not([type='radio']), .gateway-form textarea,
   .password-form input:not([type='checkbox']), .recovery-flow-input, .backup-code-page textarea,

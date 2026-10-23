@@ -27,7 +27,7 @@ try {
     app.connectionState = 'disconnected'; app.retryOperation = operation => operation();
     Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
     const blobs = new Map();
-    const gate = { release: null, hold: true, fail: false, requests: 0, failCommit: false };
+    const gate = { release: null, hold: true, fail: false, requests: 0, failCommit: false, failDownload: false, holdDownload: false, downloadRelease: null, downloadWaiters: [], downloads: 0 };
     const realFetch = window.fetch.bind(window);
     window.fetch = async (input, init = {}) => {
       const url = new URL(typeof input === 'string' ? input : input.url, location.href);
@@ -44,7 +44,15 @@ try {
           blob.chunks.set(Number(match[2]), new Uint8Array(init.body));
           return Response.json({ ok: true });
         }
-        if (match[2] !== undefined) return new Response(blob.chunks.get(Number(match[2])));
+        if (match[2] !== undefined) {
+          gate.downloads++;
+          if (gate.failDownload) throw Error('Synthetic failed download');
+          if (gate.holdDownload) await new Promise(resolve => {
+            gate.downloadWaiters.push(resolve);
+            gate.downloadRelease = () => { for (const release of gate.downloadWaiters.splice(0)) release(); };
+          });
+          return new Response(blob.chunks.get(Number(match[2])));
+        }
         if (match[3]) { blob.completed = true; return Response.json({ ok: true }); }
         return Response.json({ uploadedIndexes: [...blob.chunks.keys()], completed: blob.completed });
       }
@@ -105,7 +113,25 @@ try {
     }
     assert.equal(await draft.getAttribute('data-concealed'), String(!variant.includes('expression') || variant === 'hidden-expression'));
     assert.equal(await page.locator('#upload-progress').isVisible(), false, 'No global progress for chat media');
-    assert.ok(await page.locator('#upload-progress span').evaluate(bar => getComputedStyle(bar).width !== '0px'), 'Preparation must not zero the shared progress track for later file uploads');
+    assert.doesNotMatch(await page.locator('#upload-progress output').innerText(), /\d+%/, 'Hidden composer must not inherit attachment progress');
+    assert.equal(await draft.getAttribute('data-upload-state'), 'uploading', 'First in-flight chunk is uploading, not preparing');
+    assert.doesNotMatch(await draft.locator('.media-upload-status').innerText(), /\d+%/, 'No fabricated percentage before first completed chunk');
+    if (variant === 'photo') {
+      const snapshot = await draft.evaluate(row => {
+        const f = window.mediaFixture, view = f.app.mediaUploads.get(row.dataset.clientMsgId).view;
+        const status = row.querySelector('.media-upload-status');
+        const before = status.querySelector(':scope > .media-capsule-content').offsetWidth;
+        // A component-only motion probe: unknown -> known text must not stretch
+        // the outgoing snapshot to the incoming label's longer width.
+        view.update('uploading', 1 / 3);
+        const outgoing = status.querySelector(':scope > .media-capsule-retiring > .media-capsule-content').offsetWidth;
+        view.update('uploading');
+        return { before, outgoing, layers: status.querySelectorAll(':scope > .media-capsule-retiring').length,
+          nested: status.querySelectorAll('.media-capsule-retiring .media-capsule-retiring').length };
+      });
+      assert.equal(snapshot.outgoing, snapshot.before, 'Retiring label retains its intrinsic width');
+      assert.equal(snapshot.layers, 1); assert.equal(snapshot.nested, 0);
+    }
     assert.equal(await draft.locator('.message-delivery').count(), 0, 'Upload is not a sent message');
     const width = await draft.locator('img').first().evaluate(image => image.naturalWidth);
     assert.equal(width <= 128, !variant.includes('expression') || variant === 'hidden-expression', 'Only concealed derivatives may be painted for private media');
@@ -127,7 +153,7 @@ try {
     const statusGeometry = await draft.locator('.media-upload-status').evaluate(status=>({height:status.getBoundingClientRect().height,
       corners:status.querySelectorAll('.media-upload-cancel').length,
       retiring:status.querySelectorAll('.media-capsule-retiring').length}));
-    assert.ok(Math.abs(statusGeometry.height-32)<.01,`${variant}: fixed 32px capsule`);
+    assert.ok(Math.abs(statusGeometry.height-24)<.01,`${variant}: 24px process/error capsule`);
     assert.equal(statusGeometry.corners,0,'failure has no corner X');
     assert.equal(await draft.getAttribute('data-concealed'), String(!variant.includes('expression') || variant === 'hidden-expression'));
     if (process.argv[2]) {
@@ -161,12 +187,13 @@ try {
         const time = meta?.querySelector('time')?.getBoundingClientRect();
         const status = meta?.querySelector('.message-pending, .message-delivery')?.getBoundingClientRect();
         const box = meta?.getBoundingClientRect();
-        return Boolean(box && time && status && box.top >= media.bottom - 1 && Math.abs(time.top - status.top) < 2);
+        return { valid: Boolean(box && time && status && box.top >= media.bottom - 1 && Math.abs(time.top - status.top) < 2),
+          media: media.toJSON(), box: box?.toJSON(), time: time?.toJSON(), status: status?.toJSON() };
       });
-      assert.equal(placed, true, `${variant}: time and status stay on one line under the image`);
+      assert.equal(placed.valid, true, `${variant}: time and status stay on one line under the image: ${JSON.stringify(placed)}`);
     }
     if (variant !== 'album') sameSize(uploadBox, await geometry(message.locator('.image-preview')), `${variant} content fills bubble`);
-    assert.match(await message.locator('.message-meta').innerText(), /发送中/);
+    assert.match(await message.locator('.message-meta').innerText(), /等待连接/);
     assert.equal(await message.locator('.message-delivery').count(), 0, '100% upload is not server confirmation');
     assert.equal(await message.locator('.image-preview').first().getAttribute('data-revealed'), String(variant.includes('expression') && variant !== 'hidden-expression'));
     const outcome = await page.evaluate(async ({ id, variant }) => {
@@ -200,6 +227,7 @@ try {
     const animation = await page.evaluate(() => window.mediaFixture.confirmationFade);
     assert.ok(animation.some(item => item.duration === 180 && item.keyframes.join(',') === '1,0'), 'Status fades out instead of vanishing');
     await page.waitForFunction(id => !document.querySelector(`[data-client-msg-id="${id}"] .media-capsule-retiring`), id);
+    assert.equal(await message.locator('.message-meta').evaluate(node => node.offsetHeight), 20, 'Completed receipt is 20px');
     for (const revealed of [false, true]) {
       await message.locator('.image-preview').first().evaluate((node, revealed) => { node.dataset.revealed = String(revealed); }, revealed);
       const original = await geometry(message.locator('.message-bubble'));
@@ -218,6 +246,85 @@ try {
     assert.equal(await message.locator('.image-preview').first().evaluate(node => node === window.mediaFixture.preview), true);
     console.log(`${variant}: immediate bubble, concealed policy, same-ID retry, ${outcome} original(s), confirmation continuity`);
   }
+  // Each ordinary file owns a fresh attempt, even after media reached 100%.
+  await page.evaluate(() => {
+    const f = window.mediaFixture; f.gate.hold = true; f.gate.release = null;
+    f.file = new File([new Uint8Array(3 * 1024 * 1024)], 'independent.bin', { type: 'application/octet-stream', lastModified: 42 });
+    f.start([f.file]);
+  });
+  await page.waitForFunction(() => window.mediaFixture.gate.release);
+  const fileDraft = page.locator('.file-upload');
+  const fileId = await fileDraft.getAttribute('data-client-msg-id');
+  assert.equal(await fileDraft.locator('.file-attachment-name').textContent(), 'independent.bin');
+  assert.equal(await fileDraft.getAttribute('data-upload-state'), 'uploading');
+  assert.doesNotMatch(await fileDraft.locator('.media-upload-status').innerText(), /\d+%/);
+  assert.equal(await page.locator('#upload-progress').isVisible(), false);
+  await page.evaluate(() => { const g = window.mediaFixture.gate; g.fail = true; g.hold = false; g.release(); });
+  await page.waitForFunction(() => document.querySelector('.file-upload')?.dataset.uploadState === 'failed');
+  if (process.argv[2]) await page.screenshot({ path: `${process.argv[2]}/file-failed.png` });
+  await page.evaluate(() => { const g = window.mediaFixture.gate; g.fail = false; g.failCommit = true; });
+  await fileDraft.getByRole('button', { name: '重试', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('.file-upload')?.dataset.failureStage === 'message');
+  const uploadRequests = await page.evaluate(() => window.mediaFixture.gate.requests);
+  await page.evaluate(() => { window.mediaFixture.gate.failCommit = false; });
+  await fileDraft.getByRole('button', { name: '重试', exact: true }).click();
+  await page.waitForFunction(() => !document.querySelector('.file-upload'));
+  assert.equal(await page.evaluate(() => window.mediaFixture.gate.requests), uploadRequests, 'Submission retry must not repeat uploads');
+  const fileMessage = page.locator(`.message[data-client-msg-id="${fileId}"]`);
+  assert.equal(await fileMessage.count(), 1);
+  if (process.argv[2]) await page.screenshot({ path: `${process.argv[2]}/file-pending.png` });
+  await page.evaluate(async id => {
+    const f = window.mediaFixture;
+    const entries = (await f.vault.loadOutbox(f.session)).filter(item => item.clientMsgId === id);
+    if (entries.length !== 1) throw Error('File retry duplicated message');
+    const { decryptFileAttachment } = await import('/src/lib/file-crypto.ts');
+    const restored = await decryptFileAttachment(entries[0].payload.file, async (blobId, index) => f.blobs.get(blobId).chunks.get(index).buffer);
+    if (restored.size !== f.file.size || new Uint8Array(await restored.arrayBuffer()).some(value => value !== 0)) throw Error('File original bytes changed');
+    f.app.connectionState = 'disconnected'; f.app.renderMessages();
+  }, fileId);
+  assert.match(await fileMessage.locator('.message-meta').innerText(), /等待连接/);
+  await page.evaluate(() => { const f = window.mediaFixture; f.app.connectionState = 'connected'; f.app.renderMessages(); });
+  assert.match(await fileMessage.locator('.message-meta').innerText(), /发送中/);
+  // A failed received image, album cell or expression must rebuild its live
+  // ring on retry, retain the capsule/ID and complete real decryption.
+  for (const kind of ['image', 'image-album', 'expression']) {
+    const id = await page.evaluate(kind => {
+      const f = window.mediaFixture;
+      const source = [...f.app.pending.values()].find(message => kind === 'expression'
+        ? message.payload.presentation === 'expression' : message.payload.kind === kind && !message.payload.presentation);
+      const manifests = source.payload.images ?? [source.payload.image];
+      for (const manifest of manifests) {
+        const cached = f.app.imageCache.get(manifest.blobId);
+        if (cached) for (const key of ['url','posterUrl','concealedUrl']) if (cached[key]) URL.revokeObjectURL(cached[key]);
+        f.app.imageCache.delete(manifest.blobId);
+      }
+      f.app.renderedMessages.delete(source.clientMsgId);
+      f.gate.failDownload = true; f.app.renderMessages();
+      const button = document.querySelector(`[data-client-msg-id="${source.clientMsgId}"] .image-preview`);
+      f.retryButton = button; f.retryManifest = manifests[0];
+      void f.app.hydrateImagePreview(button, manifests[0]);
+      return source.clientMsgId;
+    }, kind);
+    const preview = page.locator(`[data-client-msg-id="${id}"] .image-preview`).first();
+    await page.waitForFunction(id => document.querySelector(`[data-client-msg-id="${id}"] .image-preview`)?.dataset.imageState === 'error', id);
+    await page.evaluate(() => {
+      const f = window.mediaFixture; f.retryCapsule = f.retryButton.querySelector('.media-load-capsule');
+      f.gate.failDownload = false; f.gate.holdDownload = true; f.gate.downloadRelease = null;
+    });
+    await preview.scrollIntoViewIfNeeded();
+    await preview.click();
+    await page.waitForFunction(() => window.mediaFixture.gate.downloadRelease);
+    assert.equal(await preview.getAttribute('aria-busy'), 'true');
+    assert.equal(await preview.locator('.media-load-capsule > .media-capsule-content > .media-load-progress').count(), 1, 'Retry restores the removed live progress ring');
+    assert.equal(await preview.locator('.is-error').count(), 0);
+    assert.equal(await preview.locator('.media-load-capsule').evaluate(node => node === window.mediaFixture.retryCapsule), true);
+    await page.evaluate(() => { const g = window.mediaFixture.gate; g.holdDownload = false; g.downloadRelease(); });
+    await page.waitForFunction(id => document.querySelector(`[data-client-msg-id="${id}"] .image-preview`)?.dataset.imageState === 'loaded', id);
+    assert.equal(await preview.getAttribute('aria-busy'), 'false');
+    assert.equal(await preview.getAttribute('data-revealed'), String(kind === 'expression'));
+    console.log(`${kind}: cold download failure and same-capsule retry passed`);
+  }
+  console.log('File scoped progress, submission-only retry, offline labels and image/album/expression download retries passed');
   // A commit failure must retain the original selected bytes and retry in place.
   await page.evaluate(() => { const f = window.mediaFixture; f.gate.failCommit = true; f.start([f.files[1]]); });
   await page.waitForFunction(() => document.querySelector('.media-upload')?.dataset.uploadState === 'failed');

@@ -9,11 +9,12 @@ export function clearMediaCapsule(host: HTMLElement): void {
   host.querySelectorAll(':scope > .media-capsule-retiring').forEach(layer => layer.remove());
 }
 
-/** A persistent 32px shell. Only its width transforms; text and icons receive
+/** A persistent 24/20px shell. Its geometry transforms; text and icons receive
  * the inverse scale. State changes can interrupt without an empty frame. */
 export function transitionMediaCapsule(host: HTMLElement, paint: () => void, contentChanged = true, signal?: AbortSignal): void {
   if (signal?.aborted) return;
   const oldWidth = host.getBoundingClientRect().width;
+  const oldHeight = host.getBoundingClientRect().height;
   const oldBackground = getComputedStyle(host).backgroundColor;
   let content = host.querySelector<HTMLElement>(':scope > .media-capsule-content');
   if (!content) {
@@ -46,18 +47,20 @@ export function transitionMediaCapsule(host: HTMLElement, paint: () => void, con
   clearMediaCapsule(host);
   host.style.width = ''; paint();
   const width = host.getBoundingClientRect().width;
-  if (!oldWidth || !width || reducedMotion() || document.hidden || !host.isConnected) return;
+  const height = host.getBoundingClientRect().height;
+  if (!oldWidth || !width || !oldHeight || !height || reducedMotion() || document.hidden || !host.isConnected) return;
   if (!contentChanged && Math.abs(width - oldWidth) < .1) return;
   host.style.width = `${width}px`;
   const widths = travelFrames(oldWidth, width, velocity, motion.panel).map(value => Math.max(1,value));
+  const heights = travelFrames(oldHeight, height, 0, motion.panel).map(value => Math.max(1,value));
   const options = { duration: motion.panel, easing: 'linear', fill: 'backwards' as FillMode };
-  const animations = [host.animate(widths.map(value => ({ transform: `scaleX(${value / width})` })), options),
-    content.animate(widths.map(value => ({ scale: `${width / Math.max(1,value)} 1` })), options)];
+  const animations = [host.animate(widths.map((value, i) => ({ transform: `scale(${value / width}, ${heights[i]! / height})` })), options),
+    content.animate(widths.map((value, i) => ({ scale: `${width / value} ${height / heights[i]!}` })), options)];
   const background = getComputedStyle(host).backgroundColor;
   if (oldBackground !== background) animations.push(host.animate([{backgroundColor:oldBackground},{backgroundColor:background}],{duration:motion.local,fill:'backwards'}));
   if (contentChanged) {
     host.append(retiring);
-    animations.push(retiring.animate(widths.map(value => ({ scale: `${width / Math.max(1,value)} 1` })), options));
+    animations.push(retiring.animate(widths.map((value, i) => ({ scale: `${width / value} ${height / heights[i]!}` })), options));
     animations.push(retiring.animate([{opacity:1},{opacity:0}], {duration:motion.local,fill:'both'}));
     animations.push(content.animate([{opacity:0},{opacity:1}], {duration:motion.local,fill:'backwards'}));
   }

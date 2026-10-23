@@ -6,6 +6,7 @@ import { readMediaDimensions, type MediaDimensions } from './media-dimensions';
 import { createVideoPoster } from './video-poster';
 import { createConcealedImage } from './concealed-image';
 import { isVideoFile, videoMimeType } from './video-media';
+import { createFileFormatIcon } from './file-format';
 
 type UploadState = 'preparing' | 'uploading' | 'finishing' | 'failed';
 
@@ -27,13 +28,15 @@ export class MediaUploadView {
   constructor(id: string, files: File[], expression: boolean, autoHide: boolean,
     retry: () => void, remove: () => void, changed: () => void, gif = false) {
     const video = isVideoFile({ mimeType: files[0]!.type, originalName: files[0]!.name });
-    this.kind = video ? '视频' : expression ? '表情' : files.length > 1 ? '图片相册' : '图片';
-    this.element.className = `message outgoing has-media media-upload${video ? ' video-upload' : ''}`;
+    const plainFile = !video && !files[0]!.type.startsWith('image/');
+    this.kind = plainFile ? '文件' : video ? '视频' : expression ? '表情' : files.length > 1 ? '图片相册' : '图片';
+    this.element.className = `message outgoing has-media media-upload${video ? ' video-upload' : plainFile ? ' file-upload' : ''}`;
     this.element.dataset.clientMsgId = id;
     this.element.dataset.concealed = String(!expression || autoHide);
     this.element.setAttribute('aria-label', `正在发送${this.kind}`);
     this.tile.className = `message-bubble media-upload-tile${expression ? ' media-upload-expression' : ''}`;
     this.tile.classList.toggle('gif-expression', gif);
+    if (plainFile) this.tile.className = 'message-bubble file-bubble file-upload-tile';
     const previews = document.createElement('div');
     previews.className = files.length > 1
       ? `media-upload-previews image-album album-count-${files.length <= 4 ? files.length : 'many'}`
@@ -69,7 +72,16 @@ export class MediaUploadView {
     const dismiss = document.createElement('button'); dismiss.type = 'button'; dismiss.textContent = '取消';
     dismiss.addEventListener('click', () => { this.actions.hidden = true; });
     this.actions.append(this.cancel, dismiss);
-    this.tile.append(previews, this.status);
+    if (plainFile) {
+      const attachment = document.createElement('div'); attachment.className = 'file-attachment';
+      const copy = document.createElement('span'); copy.className = 'file-attachment-copy';
+      const name = document.createElement('strong'); name.className = 'file-attachment-name'; name.textContent = files[0]!.name || '未命名文件';
+      const size = document.createElement('span'); size.className = 'file-attachment-meta';
+      const bytes = files[0]!.size;
+      size.textContent = bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${(bytes / 1024).toFixed(1)} KiB` : `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
+      copy.append(name, size); attachment.append(createFileFormatIcon(files[0]!.type, files[0]!.name), copy);
+      this.tile.append(attachment, this.status);
+    } else this.tile.append(previews, this.status);
     this.element.append(this.tile, this.actions);
     this.element.tabIndex = 0;
     const showActions = () => { if (this.element.dataset.uploadState === 'failed') { this.actions.hidden = false; this.cancel.focus({preventScroll:true}); } };
@@ -82,9 +94,9 @@ export class MediaUploadView {
     this.update('preparing');
     // Measure before the first timeline insertion, independently of poster/blur
     // generation. Every later state uses these same original dimensions.
-    this.geometryReady = files.length > 1;
+    this.geometryReady = plainFile || files.length > 1;
     const source = video ? new Blob([files[0]!], { type: videoMimeType({ mimeType: files[0]!.type, originalName: files[0]!.name })! }) : files[0]!;
-    this.ready = files.length === 1 ? readMediaDimensions(source, this.abort.signal).then(dimensions => {
+    this.ready = !plainFile && files.length === 1 ? readMediaDimensions(source, this.abort.signal).then(dimensions => {
       this.geometryReady = true;
       if (!dimensions || this.abort.signal.aborted) return;
       this.dimensions = dimensions;
@@ -94,7 +106,7 @@ export class MediaUploadView {
       this.tile.style.setProperty('--media-upload-natural-width', `${dimensions.width * (expression ? (gif ? 0.4 : 2 / 3) : 1)}px`);
     }) : Promise.resolve();
     this.preparation = this.ready.catch(() => {});
-    for (const [index, file] of files.entries()) {
+    for (const [index, file] of (plainFile ? [] : files).entries()) {
       const cell = document.createElement('div');
       cell.className = 'media-upload-preview album-cell';
       const icon = createElement(video ? Video : ImageIcon);
@@ -111,22 +123,24 @@ export class MediaUploadView {
   readonly ready: Promise<void>;
   private preparation = Promise.resolve();
 
-  update(state: UploadState, ratio = 0): void {
+  update(state: UploadState, ratio?: number): void {
     if (this.abort.signal.aborted) return;
-    const contentChanged = this.element.dataset.uploadState !== state;
+    const hasPercent = state === 'uploading' && ratio !== undefined;
+    const contentChanged = this.element.dataset.uploadState !== state || this.percent.hidden === hasPercent;
     if (state === 'failed' && this.element.dataset.uploadState !== 'failed') this.element.dataset.failureStage = this.element.dataset.uploadState === 'finishing' ? 'message' : 'upload';
     if (state !== 'failed') this.actions.hidden = true;
     transitionMediaCapsule(this.status, () => {
     this.element.dataset.uploadState = state;
     this.status.dataset.state = state;
-    const value = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
+    const value = Math.round(Math.max(0, Math.min(1, ratio ?? 0)) * 100);
     this.percent.textContent = `${value}%`;
-    this.percent.hidden = state !== 'uploading';
+    this.percent.hidden = !hasPercent;
+    this.status.dataset.indeterminate = String(state === 'uploading' && ratio === undefined);
     this.label.textContent = state === 'preparing' ? '准备中' : state === 'finishing' ? '发送中'
       : state === 'failed' ? this.element.dataset.failureStage === 'message' ? '发送失败' : '上传失败' : '上传中';
     this.ring.hidden = state === 'failed';
     this.ring.style.setProperty('--upload-progress', `${value}%`);
-    if (state === 'uploading') this.ring.setAttribute('aria-valuenow', String(value));
+    if (state === 'uploading' && ratio !== undefined) this.ring.setAttribute('aria-valuenow', String(value));
     else this.ring.removeAttribute('aria-valuenow');
     this.retry.hidden = this.cancel.hidden = state !== 'failed';
     this.retry.disabled = state !== 'failed';
