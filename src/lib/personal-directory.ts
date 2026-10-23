@@ -88,7 +88,7 @@ export async function openPersonalDirectory(record: PersonalDirectoryRecord, ide
     const raw = new Uint8Array(await recipient.open(ct.buffer, info.buffer));
     try {
       const entry = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)) as PersonalDirectoryEntry;
-      await validateEntry(entry, identity); if (entry.roomId !== record.roomId) throw new Error('身份目录空间不一致'); return entry;
+      await validateEntry(entry, identity); if (entry.roomId !== record.roomId) throw new Error('身份目录密室不一致'); return entry;
     } finally { raw.fill(0); }
   });
 }

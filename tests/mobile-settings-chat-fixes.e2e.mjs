@@ -54,7 +54,7 @@ try {
   assert.notEqual(await page.locator('.text-bubble').first().evaluate(n=>n.style.getPropertyValue('--bubble-gradient-offset')),gradient,'Gradient must change during the active scroll gesture');
   await page.evaluate(()=>fixture.app.chatViewportMotion.suspend());
   await page.evaluate(()=>fixture.app.mountPrivateSpaceDrawer(fixture.session,[],fixture.app.runtimeAbort.signal,'chat',0));await page.clock.runFor(350);
-  for(const id of ['notification-settings','recover-other-space','passkey-management']) assert.equal(await page.locator(`#${id}`).count(),0);
+  for(const id of ['recover-other-space','passkey-management']) assert.equal(await page.locator(`#${id}`).count(),0);
   assert.equal(await page.locator('#manage-devices').textContent(),'设备管理');
   assert.equal(await page.locator('#cover-practice-menu .space-setting-label').textContent(),'入口遮蔽页');
   await page.locator('#presence-style-setting').click();
@@ -65,7 +65,7 @@ try {
     assert.equal(await page.locator('.chamber-presence-capsule .presence-circuit').getAttribute('viewBox'),style==='heart'?'34 -5.52 32 32':'0 0 100 24');
     await page.clock.runFor(300);await capture(`presence-style-${style}`);
   }
-  await page.locator('.space-back').click();
+  await page.locator('.space-drawer:not(.local-page-outgoing) .space-back').click();
   await page.locator('#chamber-switch-space').click();
   assert.equal(await page.locator('#space-create').count(),1,'Switch-space retains creation');
   await page.evaluate(()=>{fixture.fresh(0);fixture.app.renderCoverSettings();});await page.clock.runFor(350);

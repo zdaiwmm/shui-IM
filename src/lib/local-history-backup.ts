@@ -82,7 +82,7 @@ function ownArchives(session: VaultSession) {
 export type LocalHistoryAccess = { roomId: string; role: string; archives: Pick<HistoryArchive, 'id' | 'key'>[] };
 function readableArchives(session: VaultSession, access?: LocalHistoryAccess) {
   if (!access) return ownArchives(session);
-  if (access.roomId !== session.vault.roomId || access.role !== session.vault.role) throw new Error('这不是你在当前空间的备份');
+  if (access.roomId !== session.vault.roomId || access.role !== session.vault.role) throw new Error('这不是你在当前密室的备份');
   return access.archives;
 }
 
@@ -162,7 +162,7 @@ export async function previewLocalHistoryBackup(
     const metadata = JSON.parse(decoder.decode(await next(1)));
     if (metadata?.v !== 1 || metadata.roomId !== session.vault.roomId || metadata.role !== session.vault.role ||
         metadata.archiveId !== archive.id || !Number.isSafeInteger(metadata.upperSeq) || metadata.upperSeq < 0) {
-      throw new Error('聊天备份的空间或本人身份不匹配');
+      throw new Error('聊天备份的密室或本人身份不匹配');
     }
     let previousSeq = 0;
     while (true) {
@@ -307,7 +307,7 @@ export async function importLocalHistory(session: VaultSession, file: Blob, sign
           !Array.isArray(metadata.hiddenChatMessageIds) || metadata.hiddenChatMessageIds.length > 20_000 ||
           metadata.hiddenChatMessageIds.some((id: unknown) => typeof id !== 'string' ||
             !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))) {
-        throw new Error('聊天备份的空间或本人身份不匹配');
+        throw new Error('聊天备份的密室或本人身份不匹配');
       }
       const hiddenGallery = normalizeGalleryCurationRecords(metadata.galleryHidden);
       if (hiddenGallery.some(record => !record.hidden || record.pinnedAt !== null) ||

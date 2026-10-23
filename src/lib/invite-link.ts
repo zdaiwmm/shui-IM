@@ -11,6 +11,7 @@ export type ParticipantInvite = {
 export type DeviceInvite = {
   v: 1;
   kind: 'device-link';
+  admissionSecret?: string;
   roomId: string;
   linkId: string;
   secret: string;
@@ -114,7 +115,8 @@ function participantInvite(value: unknown): ParticipantInvite | null {
 }
 
 function deviceInvite(value: unknown): DeviceInvite | null {
-  if (!isRecord(value) || !hasExactKeys(value, deviceKeys)) return null;
+  if (!isRecord(value) || !hasExactKeys(value, value.admissionSecret===undefined?deviceKeys:[...deviceKeys,'admissionSecret'].sort())) return null;
+  if(value.admissionSecret!==undefined&&!isBase64UrlWithin(value.admissionSecret,43,43))return null;
   if (
     value.v !== 1 ||
     value.kind !== 'device-link' ||
@@ -130,6 +132,7 @@ function deviceInvite(value: unknown): DeviceInvite | null {
   return {
     v: 1,
     kind: 'device-link',
+    ...(value.admissionSecret?{admissionSecret:value.admissionSecret as string}:{}),
     roomId: value.roomId,
     linkId: value.linkId,
     secret: value.secret,

@@ -236,3 +236,97 @@ html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confi
 /* Labels sit outside individual filled fields, rather than merging into a form card. */
 #app .archive-page .archive-password-form { margin:0; padding:0; border:0; border-radius:0; background:transparent; box-shadow:none; }
 #app :is(.is-settings-sheet,.is-space-list-page) .space-drawer-header h2 { text-align:left; }
+
+/* V1.4 confirmed settings: functional groups and full-page children. */
+#app .space-settings-list { gap:0; }
+#app .space-setting-section { margin:0 0 16px; }
+#app .space-setting-section > h3 { margin:0 12px 8px; font-size:.75rem; line-height:1.5; font-weight:500; color:var(--ink-muted); }
+#app .space-setting-section .space-setting-card { margin:0; }
+#app .settings-dismiss-handle { position:relative; height:44px; padding:0; }
+#app .settings-dismiss-handle span { position:absolute; left:50%; bottom:8px; transform:translateX(-50%); width:40px; height:5px; }
+#app .is-settings-subpage.space-drawer-overlay { background:var(--paper); }
+#app .is-settings-subpage.space-drawer-overlay > .space-drawer { position:absolute; inset:0; width:100%; height:100%; max-height:none; border:0; border-radius:0; padding:0; background:var(--paper); transform:none; }
+#app .is-settings-subpage .space-drawer-footer { display:grid; width:min(100%,520px); margin:auto; padding:8px 20px max(16px,env(safe-area-inset-bottom)); }
+#app .is-settings-subpage .space-back { min-height:44px; border-radius:12px; font-size:.875rem; background:var(--surface); color:var(--ink); }
+#app .space-drawer-header > .space-create { display:flex; align-items:center; gap:4px; width:auto; min-width:44px; min-height:44px; padding:8px 0 8px 12px; margin:0; background:transparent; border:0; color:var(--accent); font-size:.875rem; }
+#app .space-drawer-header > .space-create svg { width:20px; height:20px; }
+#app .space-row .space-avatar { background:linear-gradient(145deg,var(--avatar-start,color-mix(in srgb,var(--accent) 24%,var(--paper))),var(--avatar-end,color-mix(in srgb,var(--accent) 15%,var(--surface)))); }
+#app .space-row .space-avatar-initial { background:var(--accent-soft); color:var(--accent); }
+/* Opaque controls, transparent space between them. The visible gap is 18px in either presentation. */
+#app > .chat-shell > .chat-header.chamber-chat-header { gap:8px; background:transparent; background-image:none; backdrop-filter:none; -webkit-backdrop-filter:none; box-shadow:none; }
+#app > .chat-shell > .chat-header.chamber-chat-header::before,
+#app > .chat-shell > .chat-header.chamber-chat-header::after { display:none; background:none; backdrop-filter:none; -webkit-backdrop-filter:none; }
+#app .chamber-chat-header > :is(.chamber-presence-capsule,.chat-settings-entry) { border:0 !important; background:transparent !important; box-shadow:none; position:relative; isolation:isolate; }
+#app .chamber-chat-header > :is(.chamber-presence-capsule,.chat-settings-entry)::before { content:''; position:absolute; z-index:-1; inset:5px; border:0; border-radius:999px; background:var(--paper); box-shadow:0 1px 5px color-mix(in srgb,var(--ink) 7%,transparent); }
+#app .chamber-chat-header[data-presence-style=heart] > .chamber-presence-capsule::before { inset:5px; }
+#app .chamber-chat-header .hidden-album-hint { position:absolute; left:auto; right:var(--hint-right); top:var(--hint-top); translate:none; transform:translateY(-50%); width:auto; max-width:calc(100% - 180px); margin:0; padding:0; display:block; border:0; border-radius:8px; background:var(--surface-raised); box-shadow:0 1px 6px color-mix(in srgb,var(--ink) 7%,transparent); pointer-events:auto; }
+#app .hidden-album-hint::after { content:''; position:absolute; right:-3px; top:50%; width:6px; height:6px; transform:translateY(-50%) rotate(45deg); background:var(--surface-raised); }
+#app .hidden-album-hint button { width:auto; height:auto; min-height:32px; margin:0; padding:6px 8px; color:var(--ink-muted); font-size:.625rem; line-height:1.4; white-space:nowrap; background:transparent; }
+/* Center the complete empty-state group inside the real grid's remaining content box. */
+#app .gallery-grid:has(> .gallery-empty:not(.favorites-empty)) { display:flex; flex-direction:column; align-items:center; justify-content:center; }
+#app .gallery-grid > .gallery-empty:not(.favorites-empty) { flex:none; width:100%; margin:0; padding:0 20px; transform:translateY(-24px); }
+#app .cover-style-option { padding:0; border:1px solid var(--line-subtle); border-radius:12px; overflow:hidden; }
+#app .cover-style-thumbnail { height:auto; min-height:0; aspect-ratio:var(--cover-ratio, .5); }
+#app .cover-preview-hotspot { background:transparent; outline:0; color:transparent; }
+#app .archive-password-control > button { top:50%; transform:translateY(-50%); }
+#app .archive-image-preview { padding:16px; background:var(--surface-raised); border:1px solid var(--line-subtle); border-radius:16px; }
+@media(forced-colors:active) { #app .chamber-chat-header > :is(.chamber-presence-capsule,.chat-settings-entry)::before { border:1px solid ButtonText; } }
+/* Creation stays on the welcome canvas: no modal, pagination or logo inflation. */
+#app .room-creation-page { background:var(--paper); }
+#app .room-creation-page .chamber-dialogue { animation:none; transform:translateX(0); }
+#app .room-creation-page .chamber-dialogue-left { transform:translateX(calc(var(--creation-open,0) * -1px)); }
+#app .room-creation-page .chamber-dialogue-right { transform:translateX(calc(var(--creation-open,0) * 1px)); }
+#app .room-creation-page .room-creation-indicator { display:grid; place-items:center; min-height:52px; margin:0; padding:0; background:transparent; box-shadow:none; opacity:1; border:0; }
+.room-creation-spinner { grid-area:1/1; width:24px; height:24px; border:2px solid var(--line); border-top-color:var(--accent); border-right-color:var(--accent); border-radius:50%; animation:room-create-spin 900ms linear infinite; }
+.room-creation-check { grid-area:1/1; font-size:26px; color:var(--accent); opacity:0; }
+.room-creation-page.is-ready .room-creation-spinner { opacity:0; }
+.room-creation-page.is-ready .room-creation-check { opacity:1; }
+.room-creation-page.is-failed .room-creation-spinner { opacity:0; animation:none; }
+@keyframes room-create-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { .room-creation-spinner { animation:none; } }
+#app .archive-page .archive-managed-status { display:grid; justify-items:center; gap:8px; text-align:center; margin:12px 0 32px; }
+.archive-managed-status > svg { width:44px; height:44px; padding:10px; border-radius:50%; color:var(--accent); background:var(--accent-soft); }
+#app .archive-managed-status h2 { font-size:1.25rem; margin:8px 0 0; }
+.archive-managed-status p { font-size:.8125rem; color:var(--ink-muted); line-height:1.6; margin:0; }
+.archive-inline-error { min-height:0; color:var(--danger); font-size:.8125rem; line-height:1.5; margin:12px 0; }
+.archive-inline-error:empty { display:none; }
+#app .archive-page form[data-verify], #app .archive-page form[data-restore-form] { display:grid; gap:20px; }
+#app .archive-page form:has(.archive-selected:not([hidden])) .archive-upload { min-height:44px; padding:10px 12px; display:flex; justify-content:center; align-items:center; gap:8px; }
+#app .archive-page form:has(.archive-selected:not([hidden])) .archive-upload > :is(span,svg) { display:none; }
+.archive-restoration-symbol { display:grid; place-items:center; width:56px; height:56px; margin:12px auto 24px; border-radius:16px; color:var(--accent); background:var(--accent-soft); }
+.archive-restoration-symbol svg { width:28px; height:28px; }
+#app .archive-page [data-progress-title] { text-align:center; font-size:1.25rem; }
+#app .archive-page [data-progress] { text-align:center; font-size:.8125rem; color:var(--ink-muted); margin:12px 0 24px; }
+#app .archive-page :is([data-finish],[data-again]) { width:100%; min-height:44px; margin-top:16px; }
+#app .hidden-album-hint button::before { content:''; position:absolute; inset:-6px 0; }
+#app .device-management-page .device-add-header { display:flex; align-items:center; gap:4px; min-height:44px; margin:0; padding:8px 0 8px 12px; white-space:nowrap; color:var(--accent); background:transparent; font-size:.875rem; }
+.device-add-header svg { width:20px; height:20px; }
+#app .device-management-page .device-toolbar { flex-direction:row; align-items:center; gap:12px; margin:0 0 12px; }
+#app .device-management-page .device-toolbar > #refresh-devices { width:44px; min-height:44px; flex:none; padding:8px; background:transparent; color:var(--ink-muted); }
+#app .device-list-row, #app .peer-device-choice { grid-template-columns:44px minmax(0,1fr) 20px; cursor:pointer; }
+#app .device-list-row:focus-visible, #app .peer-device-choice:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; }
+.device-chevron { color:var(--ink-faint); font-size:24px; text-align:right; }
+.device-radio { width:20px; height:20px; border:1px solid var(--line); border-radius:50%; }
+.peer-device-choice[aria-checked=true] .device-radio { border:6px solid var(--accent); }
+#app .peer-device-section .peer-device-continue { width:100%; min-height:44px; margin:24px 0 0; }
+.add-own-device-intro { padding:40px 0 0; text-align:center; }
+.device-link-symbol { display:grid; place-items:center; width:60px; height:60px; border-radius:16px; background:var(--accent-soft); color:var(--accent); margin:0 auto 24px; }
+.device-link-symbol svg { width:28px; height:28px; }
+#app .add-own-device-intro h2 { margin:0 0 12px; font-size:1.25rem; font-weight:600; }
+.add-own-device-intro > p { margin:0; font-size:.875rem; line-height:1.7; color:var(--ink-muted); }
+#app .add-own-device-intro > .primary-button { width:100%; min-height:44px; margin:32px 0 12px; }
+#app .device-boundary-note, #app [data-device-link-status] { font-size:.75rem; line-height:1.7; color:var(--ink-muted); }
+#app .add-own-device-page .device-boundary-note { text-align:center; margin-top:48px; }
+#app .peer-link-page [data-peer-wait] { width:100%; min-height:44px; margin-top:32px; }
+.device-detail-summary { text-align:center; margin:24px 0 32px; }
+.device-detail-summary .device-kind-icon { display:grid; place-items:center; margin:0 auto 16px; width:60px; height:60px; border-radius:16px; background:var(--accent-soft); color:var(--accent); }
+#app .device-detail-summary h2 { font-size:1.25rem; font-weight:600; }
+.device-detail-summary p { color:var(--ink-muted); font-size:.8125rem; }
+.device-detail-lines { margin:0 0 24px; padding:0 16px; border-radius:12px; background:var(--surface); }
+.device-detail-lines > div { display:flex; justify-content:space-between; gap:12px; padding:16px 0; font-size:.8125rem; }
+.device-detail-lines > div+div { border-top:1px solid var(--line-subtle); }
+.device-detail-lines dt { color:var(--ink-muted); }
+.device-detail-lines dd { margin:0; text-align:right; overflow-wrap:anywhere; }
+#app .device-detail-page [data-remove-device] { width:100%; min-height:44px; margin-top:24px; }
+/* A finished, empty pagination rail must not take space from the empty-state center. */
+#app .gallery-grid > .gallery-pagination:has(> .gallery-scan-status:empty) { display:none; }

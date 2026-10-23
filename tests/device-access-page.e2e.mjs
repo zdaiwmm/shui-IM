@@ -32,12 +32,13 @@ try {
   const send = async (page, text) => { await page.locator('#message-input').fill(text); await page.locator('#composer').evaluate(form => form.requestSubmit()); };
   const help = async (targetId) => {
     await alice.locator('#chat-settings').click(); await alice.locator('#help-peer-enter').click();
-    await alice.locator(`[data-device-id="${targetId}"]`).getByRole('button', { name: '生成进入链接', exact: true }).click();
+    await alice.locator(`[data-device-id="${targetId}"]`).click();
+    await alice.locator('.peer-device-continue').click();
     await alice.locator('[data-help-action]').click();
+    await alice.locator('[data-copy-peer-link]').click();
     await alice.locator('.app-toast').filter({ hasText: '聊天链接已复制' }).waitFor();
     const url = await alice.evaluate(() => navigator.clipboard.readText());
-    await alice.locator('#device-back').click();
-    await alice.locator('.is-settings-page .space-back:visible, .is-settings-page .settings-dismiss-handle:visible').click();
+    await alice.locator('[data-peer-wait]').click();
     return url;
   };
   const blocked = async () => {

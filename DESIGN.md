@@ -1,5 +1,9 @@
 # Quiet Room Design System
 
+## 2026-10-23 设置与恢复体验（V1.24）
+
+已确认V1.4原型沿用P1；参数和状态见[移动规范V1.24](docs/design/mobile-visual-standard.md#2026-10-23-设置与恢复体验v124)。五组设置及独立在线样式页、同色系统区、透明浮动顶栏、原位创建圆环、三页凭证与独立恢复页替代V1.23的对应呈现。规范不代表真机通过；验证与交付以[本需求记录](docs/requirements/2026-10-23-settings-17-prototype/README.md)为准。
+
 ## 2026-10-22 二十四项精修
 
 沿用P1及[移动规范V1.23](docs/design/mobile-visual-standard.md#2026-10-22-二十四项页面精修v123)：3.6秒分阶段创建、顶部设置抽屉、完整原图凭证、三步回验及页内恢复密码。本人归档改密校验原密码并停用旧在线读取能力；真实历史和应用锁边界由NEW_ROOM_ARCHIVES与SECURITY拥有。原型/流程仅本轮按用户要求免除；逐条证据及未通过项由[24项需求](docs/requirements/2026-10-22-chamber-24-polish/README.md)拥有，不以规范目标声称完成。

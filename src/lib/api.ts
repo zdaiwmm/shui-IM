@@ -223,12 +223,13 @@ export async function claimDeviceLink(
   deviceName: string,
   capabilities: string[],
   signal?: AbortSignal,
+  candidateProof?: string,
 ): Promise<DeviceLinkState> {
   const response = await fetch(`/api/device-links/${linkId}/claim`, {
     signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ secret, bundle, deviceAccessToken, deviceName, capabilities, }),
+    body: JSON.stringify({ secret, bundle, deviceAccessToken, deviceName, capabilities, ...(candidateProof?{candidateProof}:{}), }),
   });
   if (!response.ok) throw await responseError(response);
   return response.json();

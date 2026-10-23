@@ -32,14 +32,14 @@ export function requestPassword<T>(root: HTMLElement, options: PasswordRequestOp
       ${fullPage ? '<div class="password-page-content"><div class="password-mark" aria-hidden="true"></div>' : '<div class="sheet-handle" aria-hidden="true"></div><div class="password-page-content">'}
       <h2 id="password-title"></h2>${!options.create && fullPage ? '<strong class="password-space-name" data-password-space></strong>' : ''}
       <p data-password-context class="${options.create ? 'password-reason' : 'password-description'}"></p>
-      ${options.create ? '<p class="password-description">以后打开此空间时输入这个密码。它不是手机锁屏密码。</p>' : ''}
-      ${!fullPage && options.spaceName ? '<div class="password-operation"><small>本次操作的空间</small><strong data-password-space></strong><span data-password-operation></span></div>' : ''}
+      ${options.create ? '<p class="password-description">以后打开此密室时输入这个密码。它不是手机锁屏密码。</p>' : ''}
+      ${!fullPage && options.spaceName ? '<div class="password-operation"><small>本次操作的密室</small><strong data-password-space></strong><span data-password-operation></span></div>' : ''}
       <div class="password-fields">
-        <label>空间密码<input name="password" type="password" autocomplete="${options.create ? 'new-password' : 'current-password'}" autocapitalize="none" spellcheck="false" aria-describedby="password-error password-help" required></label>
+        <label>密室密码<input name="password" type="password" autocomplete="${options.create ? 'new-password' : 'current-password'}" autocapitalize="none" spellcheck="false" aria-describedby="password-error password-help" required></label>
         ${options.create ? '<label>再次输入<input name="confirmation" type="password" autocomplete="new-password" autocapitalize="none" spellcheck="false" aria-describedby="password-error" required></label>' : ''}
         <p class="form-error" id="password-error" role="alert"></p>
         <label class="password-show"><input type="checkbox" name="show">显示密码</label>
-        ${options.create ? '<p class="field-hint" id="password-help">使用 12–128 个字符。可使用密码管理器生成、填写或保存。</p><p class="field-hint">忘记密码时，需要双方参与找回。</p>' : '<span id="password-help" class="sr-only">输入此空间已有的密码</span>'}
+        ${options.create ? '<p class="field-hint" id="password-help">使用 12–128 个字符。可使用密码管理器生成、填写或保存。</p><p class="field-hint">忘记密码时，需要双方参与找回。</p>' : '<span id="password-help" class="sr-only">输入此密室已有的密码</span>'}
       </div></div>
       <div class="password-actions"><button class="primary-button" type="submit"></button>
         ${options.help ? '<button class="text-button" type="button" data-password-help>忘记密码？</button>' : options.forgot ? '<button class="text-button" type="button" data-password-forgot>忘记密码？使用恢复码找回</button><p class="field-hint">需要双方参与，旧记录另行恢复。</p>' : ''}
@@ -48,7 +48,7 @@ export function requestPassword<T>(root: HTMLElement, options: PasswordRequestOp
     sheet.querySelector('h2')!.textContent = options.title;
     sheet.querySelector('[data-password-context]')!.textContent = options.context;
     sheet.querySelector('[type=submit]')!.textContent = submitLabel;
-    sheet.querySelector('[data-password-space]')?.append(document.createTextNode(options.spaceName ?? '私密空间'));
+    sheet.querySelector('[data-password-space]')?.append(document.createTextNode(options.spaceName ?? '密室'));
     sheet.querySelector('[data-password-operation]')?.append(document.createTextNode(options.operation ?? '继续此操作'));
     const mark = sheet.querySelector('.password-mark'); if (mark) mark.append(createElement(LockKeyhole));
     sheet.querySelector('.password-page-back')?.append(createElement(ArrowLeft));
@@ -79,7 +79,7 @@ export function requestPassword<T>(root: HTMLElement, options: PasswordRequestOp
     form.addEventListener('submit', async event => {
       event.preventDefault(); if (busy || !active()) return;
       let secret = password.value;
-      const validation = options.create ? passwordValidation(secret, confirmation?.value) : secret ? '' : '请输入此空间已有的密码';
+      const validation = options.create ? passwordValidation(secret, confirmation?.value) : secret ? '' : '请输入此密室已有的密码';
       if (validation) {uiNotice(root,validation); const invalid = options.create && Array.from(secret).length >= 12 && Array.from(secret).length <= 128 ? confirmation ?? password : password; invalid.setAttribute('aria-invalid', 'true'); invalid.focus(); return; }
       password.removeAttribute('aria-invalid'); confirmation?.removeAttribute('aria-invalid');
       busy = true; button.disabled = true; button.textContent = options.create ? '正在设置本机保护…' : '正在验证…'; form.setAttribute('aria-busy', 'true');

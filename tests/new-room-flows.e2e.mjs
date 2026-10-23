@@ -45,20 +45,23 @@ try{
  }
  await bob.reload();await bob.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);await bob.locator('.file-attachment').filter({hasText:'capacity-regression.bin'}).waitFor();
  const stranger=await newPage();await stranger.goto(invite);await stranger.locator('#create-room').waitFor();await stranger.locator('.app-toast').filter({hasText:'失效'}).waitFor();assert.equal(await stranger.locator('#message-input').count(),0);
- // An independently keyed second device of the same person survives replacement.
- await bob.bringToFront();await bob.locator('#chat-settings').click();await bob.locator('#manage-devices').click();await bob.locator('#add-own-device').click();await bob.locator('.app-toast').filter({hasText:'设备链接已复制'}).waitFor();
+ // A link is minted only after a fresh application-lock proof; the added
+ // device has its own keys and archive, and needs no manual safety-code approval.
+ await bob.bringToFront();await bob.evaluate(async()=>{await(await import('/src/lib/browser-room-key.ts')).protectBrowserRoomKey(await(await import('/src/lib/password-protection.ts')).deriveNumericPasswordCredential('927451'));app.roomLockEnabled=true;});
+ await bob.locator('#chat-settings').click();await bob.locator('#manage-devices').click();await bob.locator('#add-own-device:not([disabled])').click();await bob.locator('#copy-device-join').click();await submitPassword(bob,'927451');await bob.locator('.app-toast').filter({hasText:'设备链接已复制'}).waitFor();
  const ownLink=await bob.evaluate(()=>navigator.clipboard.readText()),otherDevice=await newPage(!mobile);otherDevice.on('pageerror',error=>errors.push(error.message));
- await otherDevice.goto(ownLink);await otherDevice.locator('.device-inline-code').waitFor();assert.equal(await otherDevice.locator('.numeric-password-page').count(),0);
- await bob.bringToFront();await bob.locator('#refresh-devices').click();await bob.getByRole('button',{name:'安全码一致，允许加入',exact:true}).waitFor();
- assert.equal(await bob.locator('.pending-device-card .device-inline-code').textContent(),await otherDevice.locator('.device-inline-code').textContent());await bob.getByRole('button',{name:'安全码一致，允许加入',exact:true}).click();
- await otherDevice.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);const untouched=await snapshot(otherDevice);assert.equal(untouched.roomId,previous.roomId);assert.notEqual(untouched.archiveId,previous.archiveId);
- await bob.locator('#device-back').click();
+ await otherDevice.goto(ownLink);await bob.bringToFront();
+ await otherDevice.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);assert.equal(await otherDevice.locator('.device-inline-code').count(),0);
+ const untouched=await snapshot(otherDevice);assert.equal(untouched.roomId,previous.roomId);assert.notEqual(untouched.archiveId,previous.archiveId);
+ await bob.locator('.device-list-row').first().waitFor();await bob.locator('#device-back').click();
+ // Restore the no-lock fixture before the separate reentry/credential journey.
+ await bob.locator('#room-lock-settings').click();bob.once('dialog',d=>d.accept());await bob.locator('[data-remove-room-lock]').click();await submitPassword(bob,'927451');await bob.locator('.auto-lock-page').waitFor();await bob.locator('#auto-lock-back').click();
  await alice.bringToFront();await alice.locator('#chat-settings').click();await alice.locator('#help-peer-enter').click();
  let repairCreates=0;alice.on('request',request=>{if(request.method()==='POST'&&request.url().includes('/repair-links'))repairCreates++;});
- const generate=alice.locator(`[data-device-id="${previous.id}"]`).getByRole('button',{name:'生成进入链接',exact:true});
- await generate.click();await alice.getByRole('dialog',{name:'生成新的进入链接？',exact:true}).waitFor();assert.match(await alice.locator('.simple-confirm').innerText(),/成功进入后.*将被移出/);await alice.locator('[data-close]').click();await alice.locator('.simple-confirm').waitFor({state:'detached'});assert.equal(repairCreates,0,'Cancel must not create a repair link');
- await generate.click();await alice.locator('[data-help-action]').click();await alice.locator('.app-toast').filter({hasText:'聊天链接已复制'}).waitFor();
- const replacement=await alice.evaluate(()=>navigator.clipboard.readText());assert.ok(replacement.length<100);assert.notEqual(replacement,invite);await alice.locator('#device-back').click();await alice.locator('.is-settings-page .space-back:visible, .is-settings-page .settings-dismiss-handle:visible').click();
+ const generate=alice.locator(`[data-device-id="${previous.id}"]`);
+ await generate.click();await alice.locator('.peer-device-continue').click();await alice.getByRole('dialog',{name:'替换这台设备？',exact:true}).waitFor();assert.match(await alice.locator('.simple-confirm').innerText(),/成功进入后.*将被移出/);await alice.locator('[data-close]').click();await alice.locator('.simple-confirm').waitFor({state:'detached'});assert.equal(repairCreates,0,'Cancel must not create a repair link');
+ await generate.click();await alice.locator('.peer-device-continue').click();await alice.locator('[data-help-action]').click();await alice.locator('[data-copy-peer-link]').click();await alice.locator('.app-toast').filter({hasText:'聊天链接已复制'}).waitFor();
+ const replacement=await alice.evaluate(()=>navigator.clipboard.readText());assert.ok(replacement.length<100);assert.notEqual(replacement,invite);await alice.locator('[data-peer-wait]').click();
  const wrongType=await newPage(!mobile);await wrongType.goto(replacement);await wrongType.locator('.app-toast').filter({hasText:'这条链接用于接替'}).waitFor();assert.equal(await wrongType.locator('#message-input').count(),0);
  await bob.bringToFront();await bob.goto(replacement);await bob.locator('.app-toast').filter({hasText:'已进入密室'}).waitFor({timeout:30000});await bob.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false,{},{timeout:20000});await bob.getByText('before-replacement',{exact:true}).waitFor();
  const next=await snapshot(bob);assert.notEqual(next.id,previous.id);assert.equal(next.archiveId,previous.archiveId);
@@ -75,7 +78,7 @@ try{
  await bob.getByRole('dialog',{name:'清除本浏览器数据？',exact:true}).getByRole('button',{name:'取消',exact:true}).click();await bob.getByRole('dialog',{name:'清除本浏览器数据？',exact:true}).waitFor({state:'detached'});
  assert.equal(await bob.evaluate(async()=>!!await(await import('/src/lib/vault.ts')).readStoredVault()),true,'Cancelling global clear retains locked data');
  assert.equal(await bob.getByRole('dialog',{name:'无法解锁？',exact:true}).count(),0,'Previous help closes before the destructive confirmation');
- await submitPassword(bob,'111111');await bob.locator('.app-toast').waitFor();assert.equal(await bob.locator('.numeric-password-description').textContent(),'');
+ await submitPassword(bob,'111111');await bob.locator('.numeric-password-description.is-error').waitFor();await bob.waitForTimeout(400);
  await submitPassword(bob,'927451');await bob.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);assert.equal((await snapshot(bob)).archiveId,next.archiveId);
  await bob.locator('#chat-settings').click();await bob.locator('#room-lock-settings').click();
  bob.once('dialog',d=>d.dismiss());await bob.locator('[data-remove-room-lock]').click();assert.equal(await bob.evaluate(async()=>(await(await import('/src/lib/vault.ts')).readRoomProtection()).method),'password');
@@ -86,7 +89,7 @@ try{
  if(process.env.QR_VISUAL_DIR)await bob.screenshot({path:path.join(process.env.QR_VISUAL_DIR,'archive-setup.png')});
  const phrase='a private recovery phrase';
  await fillFormInput(bob,bob.locator('[data-card-form] input[name=password]'),phrase);await fillFormInput(bob,bob.locator('[data-card-form] input[name=confirm]'),phrase);await bob.locator('[data-card-form] button[type=submit]').click();
- await submitPassword(bob,'927451');await bob.locator('[data-card-image][src]').waitFor();
+ await bob.locator('[data-card-image][src]').waitFor();
  await bob.waitForFunction(async()=>{const v=await import('/src/lib/vault.ts'),k=await import('/src/lib/browser-room-key.ts');try{const s=await v.unlockVault(await k.browserRoomKey(),undefined,await v.readStoredVault());return !!s.vault.archiveState?.completeAt;}catch{return false;}},{},{timeout:30000});
 
  if(process.env.QR_VISUAL_DIR)await bob.screenshot({path:path.join(process.env.QR_VISUAL_DIR,'archive-card.png')});
@@ -95,18 +98,18 @@ try{
    // Chromium's simulated iPhone uses a controlled OS share receiver; the PNG
    // handed to it is still generated by the actual product and re-imported.
    await bob.evaluate(()=>{Object.defineProperty(navigator,'canShare',{configurable:true,value:()=>true});Object.defineProperty(navigator,'share',{configurable:true,value:async data=>{window.savedTestCard=data.files[0];}});});
-   await bob.locator('[data-download]').click();await submitPassword(bob,'927451');await bob.waitForFunction(()=>!!window.savedTestCard);
+   await bob.locator('[data-download]').click();await bob.waitForFunction(()=>!!window.savedTestCard);
    await writeFile(cardPath,Buffer.from(await bob.evaluate(async()=>Array.from(new Uint8Array(await window.savedTestCard.arrayBuffer())))));
- }else{const downloadPromise=bob.waitForEvent('download');await bob.locator('[data-download]').click();await submitPassword(bob,'927451');await(await downloadPromise).saveAs(cardPath);}
+ }else{const downloadPromise=bob.waitForEvent('download');await bob.locator('[data-download]').click();await(await downloadPromise).saveAs(cardPath);}
  const choose=async selector=>{const chooserPromise=bob.waitForEvent('filechooser');await bob.locator(selector).click();await (await chooserPromise).setFiles(cardPath);};
- await choose('[data-verify] input[type=file]');await fillFormInput(bob,bob.locator('[data-verify] input[name=password]'),'incorrect long password');await bob.locator('[data-verify] button[type=submit]').click();await bob.locator('.app-toast').filter({hasText:'恢复口令不正确'}).waitFor();
- await fillFormInput(bob,bob.locator('[data-verify] input[name=password]'),phrase);await bob.locator('[data-verify] button[type=submit]').click();await bob.getByText('已保存并验证',{exact:true}).waitFor();
+ await choose('[data-verify] input[type=file]');await fillFormInput(bob,bob.locator('[data-verify] input[name=password]'),'incorrect long password');await bob.locator('[data-verify] button[type=submit]').click();await bob.locator('[data-archive-error]').filter({hasText:'恢复口令不正确'}).waitFor();
+ await fillFormInput(bob,bob.locator('[data-verify] input[name=password]'),phrase);await bob.locator('[data-verify] button[type=submit]').click();await bob.locator('.archive-managed-status').waitFor();
  // A password change verifies the old password and does not revoke anything on cancellation.
  await bob.locator('[data-change-password]').click();
  await fillFormInput(bob,bob.locator('[data-card-form] input[name=original]'),'a wrong previous phrase');
  await fillFormInput(bob,bob.locator('[data-card-form] input[name=password]'),'a newly protected phrase');
  await fillFormInput(bob,bob.locator('[data-card-form] input[name=confirm]'),'a newly protected phrase');
- await bob.locator('[data-card-form] button[type=submit]').click();await bob.locator('.app-toast').filter({hasText:'恢复口令不正确'}).waitFor();
+ await bob.locator('[data-card-form] button[type=submit]').click();await bob.locator('[data-archive-error]').filter({hasText:'恢复口令不正确'}).waitFor();
  assert.equal(await bob.locator('.archive-change-confirm').count(),0);
  await fillFormInput(bob,bob.locator('[data-card-form] input[name=original]'),phrase);
  await bob.locator('[data-card-form] button[type=submit]').click();await bob.locator('.archive-change-confirm [data-cancel]').click();await bob.locator('.archive-change-confirm').waitFor({state:'detached'});
@@ -118,19 +121,19 @@ try{
  await bob.locator('[data-card-form] button[type=submit]').click();await bob.locator('.archive-change-confirm [data-confirm]').click();await submitPassword(bob,'927451');
  await bob.locator('[data-card-image][src]').waitFor({timeout:30000});assert.equal(rotationRequests,2);
  assert.equal((await fetch(`http://127.0.0.1:${service.port}/api/private-archives/${oldAuthority.id}`,{headers:{Authorization:`Bearer ${oldAuthority.token}`}})).status,401,'Every old image stops online reads after the successful rotation');
- assert.match(await bob.locator('[data-card-status]').textContent(),/尚未完成/,'Changing a password never counts as original-image verification');
+ assert.equal(await bob.evaluate(()=>app.session.vault.roomArchiveV2.cardVerified),false,'Changing a password never counts as original-image verification');
  // Keep the previously saved card for the ordinary restore path below. The
  // rotated credential is tested here, then exported and reverified using the new password.
  if(mobile)await bob.evaluate(()=>{window.savedTestCard=null;});
  const nextDownload=mobile?null:bob.waitForEvent('download');await bob.locator('[data-download]').click();await submitPassword(bob,'927451');
  if(mobile){await bob.waitForFunction(()=>!!window.savedTestCard);await writeFile(cardPath,Buffer.from(await bob.evaluate(async()=>Array.from(new Uint8Array(await window.savedTestCard.arrayBuffer())))));}else await(await nextDownload).saveAs(cardPath);
- await choose('[data-verify] input[type=file]');await fillFormInput(bob,bob.locator('[data-verify] input[name=password]'),'a newly protected phrase');await bob.locator('[data-verify] button[type=submit]').click();await bob.getByText('已保存并验证',{exact:true}).waitFor();
- await bob.locator('[data-back]').click();await bob.locator('#chamber-switch-space').click();await bob.locator(`${list} #space-create`).click();await bob.locator('#copy-invite').waitFor();
+ await choose('[data-verify] input[type=file]');await fillFormInput(bob,bob.locator('[data-verify] input[name=password]'),'a newly protected phrase');await bob.locator('[data-verify] button[type=submit]').click();await bob.locator('.archive-managed-status').waitFor();
+ await bob.locator('.archive-page:not(.local-page-outgoing) [data-back]').click();await bob.locator('#chamber-switch-space').click();await bob.locator(`${list} #space-create`).click();await bob.locator('#copy-invite').waitFor();
  const fresh=await snapshot(bob);assert.notEqual(fresh.roomId,next.roomId);assert.notEqual(fresh.archiveId,next.archiveId);
  await bob.locator('#chat-settings').click();await bob.locator('#archive-restore').click();await choose('[data-restore-form] input[type=file]');await bob.waitForFunction(()=>!document.querySelector('[data-restore-submit]').disabled);await fillFormInput(bob,bob.locator('[data-restore-form] input[name=password]'),'a newly protected phrase');await bob.locator('[data-restore-submit]').click();
- await bob.locator('[data-progress-title]').filter({hasText:'恢复完成'}).waitFor();assert.ok(Number((await bob.locator('[data-count=messages]').textContent()).split('/')[0].trim())>=2);assert.equal(await bob.locator('.archive-progress-overlay progress').getAttribute('value'),'100');
+ await bob.locator('[data-progress-title]').filter({hasText:'恢复完成'}).waitFor();assert.ok(Number((await bob.locator('[data-count=messages]').textContent()).split('/')[0].trim())>=2);assert.equal(await bob.locator('.archive-page progress').getAttribute('value'),'100');
  if(process.env.QR_VISUAL_DIR)await bob.screenshot({path:path.join(process.env.QR_VISUAL_DIR,'archive-restored.png')});
- await bob.locator('[data-finish]').click();await bob.locator('.is-settings-page[aria-label="设置"]').waitFor();await bob.locator('.is-settings-page .space-back:visible, .is-settings-page .settings-dismiss-handle:visible').click();
+ await bob.locator('[data-finish]').click();await bob.locator('#chat-settings').waitFor();
  await bob.locator('.private-archive-message').filter({hasText:'before-replacement'}).waitFor();await bob.locator('.private-archive-message').filter({hasText:'after-replacement'}).waitFor();assert.ok(await bob.locator('.private-archive-message').evaluateAll(rows=>rows.every(row=>{const text=row.querySelector('.message-text'),label=row.querySelector('small'),time=row.querySelector('time');return !text||(label.getBoundingClientRect().bottom<=text.getBoundingClientRect().top+1&&text.getBoundingClientRect().bottom<=time.getBoundingClientRect().top+1);})), 'Private history labels and timestamps never overlap message text');if(process.env.QR_VISUAL_DIR)await bob.screenshot({path:path.join(process.env.QR_VISUAL_DIR,'restored-chat.png')});
  await bob.locator('#chat-settings').click();await bob.locator('#chamber-switch-space').click();const selected=bob.locator(`${list} .space-row.is-selected`);await selected.dispatchEvent('contextmenu');bob.once('dialog',d=>d.dismiss());await bob.locator('#space-delete').click();assert.equal(await bob.locator(`${list} .space-row`).count(),2);
  await bob.locator(`${list} .space-row.is-selected`).dispatchEvent('contextmenu');bob.once('dialog',d=>d.accept());await bob.locator('#space-delete').click();await bob.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);

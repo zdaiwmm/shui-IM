@@ -795,7 +795,7 @@ export async function createStore({
     return publicDeviceLink(statements.deviceLink.get(linkId));
   }
 
-  function claimDeviceLink(linkId, secret, bundle, accessToken, deviceName, capabilities = []) {
+  function claimDeviceLink(linkId, secret, bundle, accessToken, deviceName, capabilities = [], candidateProof) {
     cleanupExpiredRecoveryRequests();
     cleanupExpiredDeviceLinks(nowIso());
     db.exec('BEGIN IMMEDIATE');
@@ -809,7 +809,7 @@ export async function createStore({
       if (link.claimed_device_id) {
         if (link.claimed_device_id !== bundle.deviceId) throw new Error('DEVICE_LINK_CLAIMED');
         const existing = getMember(link.room_id, bundle.deviceId);
-        if (!existing || canonicalStringify({
+        if (!existing || (existing.joinProof??undefined)!==candidateProof || !timingSafeEqual(Buffer.from(db.prepare('SELECT access_hash FROM members WHERE room_id = ? AND device_id = ?').get(link.room_id,bundle.deviceId).access_hash),hashToken(accessToken)) || canonicalStringify({
           deviceId: existing.deviceId,
           encryptionKey: existing.encryptionKey,
           signingKey: existing.signingKey,
@@ -829,7 +829,7 @@ export async function createStore({
         JSON.stringify(bundle.encryptionKey),
         JSON.stringify(bundle.signingKey),
         bundle.mlsKeyPackage ?? null,
-        null,
+        candidateProof ?? null,
         hashToken(accessToken),
         deviceName,
         'pending',

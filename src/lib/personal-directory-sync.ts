@@ -23,7 +23,7 @@ export async function syncPersonalDirectory(session: VaultSession, signal: Abort
   const versionKey=`${own.identity.id}:${vault.roomId}`;
   readVersions.set(versionKey,Math.max(readVersions.get(versionKey)??0,vault.personalDirectoryRevision??0));
   const space = (await localSpaces(session)).find(item => item.roomId === vault.roomId);
-  if (!space) throw new Error('本机空间目录尚未保存');
+  if (!space) throw new Error('本机密室目录尚未保存');
   const participants: PersonalDirectoryEntry['participants'] = [];
   for (const binding of vault.personalPeers ?? [own]) {
     const member = vault.members.find(member => member.deviceId === (binding === own ? vault.identity.publicBundle.deviceId : undefined)) ??
@@ -97,7 +97,7 @@ export async function readOwnPersonalDirectory(stored: StoredPersonalIdentity, c
   const entries: PersonalDirectoryEntry[] = [], seen = new Set<string>();
   for (const record of records) {
     signal.throwIfAborted();
-    if (seen.has(record.roomId)) throw new Error('身份目录包含重复空间'); seen.add(record.roomId);
+    if (seen.has(record.roomId)) throw new Error('身份目录包含重复密室'); seen.add(record.roomId);
     const minimum=Math.max(minimumRevisions.get(record.roomId)??0,readVersions.get(`${stored.identity.id}:${record.roomId}`)??0);
     entries.push(await usePersonalIdentity(stored, credential, entropy => openPersonalDirectory(record, stored.identity, entropy, minimum)));
     readVersions.set(`${stored.identity.id}:${record.roomId}`,record.revision);

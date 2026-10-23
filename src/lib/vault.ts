@@ -62,7 +62,7 @@ let selectedSpace = savedSpace();
 export function currentSpaceId(): string { return selectedSpace; }
 export function vaultSpaceId(stored: StoredVault): string { return stored.spaceId ?? 'current'; }
 export async function selectLocalSpace(id: string): Promise<void> {
-  if (id !== 'current' && !/^[a-zA-Z0-9_-]{1,80}$/.test(id)) throw new Error('空间编号不正确');
+  if (id !== 'current' && !/^[a-zA-Z0-9_-]{1,80}$/.test(id)) throw new Error('密室编号不正确');
   await withVaultLifecycle(async () => { selectedSpace = id; });
 }
 function rememberSpace(id: string): void {
@@ -1011,7 +1011,7 @@ export async function deleteSpaceVault(session: VaultSession): Promise<void> {
     const id = vaultSpaceId(session.stored);
     const stored = await readStoredVaultUnlocked(id);
     if (!stored) return;
-    if (!sameStoredVault(stored, session.stored)) throw new Error('空间状态已变化，请重新打开后重试');
+    if (!sameStoredVault(stored, session.stored)) throw new Error('密室状态已变化，请重新打开后重试');
     await transaction('vault', 'readwrite', store => store.delete(id));
     clearDraftCheckpoints(id);
   });
@@ -1458,7 +1458,7 @@ export async function unlockLocalSpaceForManagement(id: string, credential: Plat
     }), stored.passwordFormat);
   }
   if (!stored || stored.v !== 3 || stored.unlockMethod !== 'platform') {
-    throw new Error('请先打开此空间完成访问密钥升级');
+    throw new Error('请先打开此密室完成访问密钥升级');
   }
   const proof = credential?.record.credentialId === stored.platform.credentialId
     ? credential.prfOutput.slice() : await verify(stored.platform);
@@ -1730,7 +1730,7 @@ export async function prepareRecoveryPackage(session: VaultSession): Promise<Pre
 }
 
 async function prepareRecoveryPackageLocked(session: VaultSession, mutation: VaultMutation): Promise<PreparedRecoveryExport> {
-  if(session.vault.migrationSource||session.vault.personalBinding&&session.vault.personalMigration?.state!=='staged')throw new Error('此空间使用助记词身份恢复，不能导出旧设备私钥恢复包');
+  if(session.vault.migrationSource||session.vault.personalBinding&&session.vault.personalMigration?.state!=='staged')throw new Error('此密室使用助记词身份恢复，不能导出旧设备私钥恢复包');
   if ((session.stored.v !== 2 && session.stored.v !== 3) || (session.stored.unlockMethod !== 'platform' && session.stored.unlockMethod !== 'password')) {
     throw new Error('请先完成设备保险库升级');
   }
@@ -2493,7 +2493,7 @@ export async function loadStickerPacks(session: VaultSession): Promise<StickerPa
     if (bytes > MAX_PACK_BYTES) throw new Error('贴纸合集超出限制');
     total += bytes;
   }
-  if (total > MAX_PACK_LIBRARY_BYTES) throw new Error('贴纸空间超出限制');
+  if (total > MAX_PACK_LIBRARY_BYTES) throw new Error('贴纸密室超出限制');
   return packs;
 }
 
@@ -2507,7 +2507,7 @@ export async function installStickerPack(session: VaultSession, id: string, titl
     const packs = await loadStickerPacks(session);
     if (packs.some(pack => pack.id === id)) return;
     if (packs.length >= MAX_STICKER_PACKS || packs.flatMap(pack => pack.items).reduce((sum, item) => sum + item.size, 0)
-      + files.reduce((sum, file) => sum + file.size, 0) > MAX_PACK_LIBRARY_BYTES) throw new Error('贴纸空间已满，请先移除部分合集');
+      + files.reduce((sum, file) => sum + file.size, 0) > MAX_PACK_LIBRARY_BYTES) throw new Error('贴纸密室已满，请先移除部分合集');
     const items: MemeFavorite[] = []; const originals: StoredLocalRecord[] = []; const digests = new Set<string>();
     for (const file of files) {
       signal.throwIfAborted();
@@ -2590,7 +2590,7 @@ export async function saveMemeFavorite(session: VaultSession, file: File, signal
     const items = await loadMemeFavorites(session);
     if (items.some(item => item.digest === digest)) return false;
     if (items.length >= MAX_MEME_FAVORITES || items.reduce((size, item) => size + item.size, file.size) > MAX_MEME_LIBRARY_BYTES) {
-      throw new Error('收藏空间已满，请先取消部分收藏');
+      throw new Error('收藏密室已满，请先取消部分收藏');
     }
     const item: MemeFavorite = { id: crypto.randomUUID(), digest, name: file.name.slice(0, 120), type: file.type, size: file.size, savedAt: Date.now() };
     const original = await encryptLocalRecord(session, 'memeFavorites', item.id, toBase64Url(bytes));

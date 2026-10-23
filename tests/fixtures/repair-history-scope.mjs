@@ -37,8 +37,8 @@ export async function repairHistoryScopeJourney({ origin, newPage, send, errors 
   await Promise.all([recipient.waitForEvent('download'), recipient.locator('.file-attachment').filter({ hasText: 'retained-original.bin' }).click()]);
   const sourceId = await recipient.evaluate(() => app.session.vault.identity.publicBundle.deviceId);
   await helper.locator('#chat-settings').click(); await helper.locator('#help-peer-enter').click();
-  await helper.locator(`[data-device-id="${sourceId}"]`).getByRole('button', { name: '生成进入链接', exact: true }).click();
-  await helper.locator('[data-help-action]').click(); await helper.locator('.app-toast').filter({ hasText: '聊天链接已复制' }).waitFor();
+  await helper.locator(`[data-device-id="${sourceId}"]`).click();
+  await helper.locator('.peer-device-continue').click();await helper.locator('[data-help-action]').click();await helper.locator('[data-copy-peer-link]').click(); await helper.locator('.app-toast').filter({ hasText: '聊天链接已复制' }).waitFor();
   const link = await helper.evaluate(() => navigator.clipboard.readText());
   await helper.close(); // Completion must wait until this browser returns to foreground chat.
   const original = await recipient.evaluate(async () => {

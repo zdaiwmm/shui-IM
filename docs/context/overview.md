@@ -1,3 +1,5 @@
+设置与恢复V1.4（2026-10-23）：设置分类和导航在`space-drawer.ts`，原位创建在`room-creation-view.ts`，凭证与恢复完整页在`archive-settings.ts`，本人链接授权在`app.ts`／`invite-link.ts`及device-link存储路径。回归新增`settings-v14.e2e`并保留new-room-flows/mobile、numeric-password、设备与归档测试；确认及实施证据见[本需求](../requirements/2026-10-23-settings-17-prototype/README.md)，契约为NEW_ROOM_ARCHIVES、SECURITY、D-077与视觉V1.24。
+
 系统审计四项修复：服务端邀请与归档事务授权在storage/room-archives；本机发送意图和顺序在app.ts、outbox-order.ts、vault.ts；Mac磁盘暂存及流预算在backup-stream、backup、backup-transfer、backup-limits。验收新增admission-lifecycle、offline-outbox和backup-large-database，范围及交付见[修复记录](../requirements/2026-10-23-system-audit-fixes/README.md)。
 
 24项页面与凭证精修：`archive-settings.ts`、`archive-card-image.ts`、`room-archive-crypto.ts`、`room-archive.ts`与`server/room-archives.mjs`管理三步回验、整图和签名CAS读取能力轮换；`form-input.ts`、`chat-keyboard-layout.ts`与`room-polish.css`负责输入及顶部抽屉几何。验收以chamber-polish、new-room-flows/mobile、mobile-safari-feedback、numeric-password、presence-circuit与归档单测为入口；范围和失败历史由[24项V1](../requirements/2026-10-22-chamber-24-polish/README.md)拥有，安全由NEW_ROOM_ARCHIVES与SECURITY拥有。

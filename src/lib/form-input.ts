@@ -71,6 +71,7 @@ export function mountFormInputs(root: HTMLElement): () => void {
     for (const attribute of ['type', 'inputmode', 'autocomplete', 'autocapitalize', 'autocorrect', 'spellcheck', 'maxlength', 'minlength', 'min', 'max', 'step', 'pattern', 'placeholder', 'dir']) {
       const value = original.getAttribute(attribute); if (value !== null) editor.setAttribute(attribute, value);
     }
+    editor.setAttribute('name', original.getAttribute('name') ?? original.id ?? 'value');
     editor.id = 'form-input-draft'; editor.setAttribute('aria-labelledby', 'form-input-title');
     let initialValue = original.value;
     const codeGroup = original.closest<HTMLElement>('[data-form-input-code]');
@@ -121,6 +122,14 @@ export function mountFormInputs(root: HTMLElement): () => void {
     const active = () => original.isConnected && root.contains(original) && !original.disabled && !original.readOnly
       && !document.hidden && root.getAttribute('aria-hidden') !== 'true'
       && !document.documentElement.classList.contains('privacy-obscured') && !original.closest('[hidden], .is-closing');
+    // Password managers may fill the underlying form while the editor owns focus.
+    // Adopt that explicit replacement so Done neither discards nor overwrites it.
+    const synchronizeAutofill = (event: Event) => {
+      if(event.target!==original||finished||composing||!active()||original.value===initialValue)return;
+      if(event.isTrusted||editor.value===initialValue){initialValue=original.value;editor.value=initialValue;}
+    };
+    root.addEventListener('input',synchronizeAutofill,{signal:events.signal});
+    root.addEventListener('change',synchronizeAutofill,{signal:events.signal});
     const commitDraft = (value: string) => {
       if (codeGroup) {
         codeGroup.dataset.formInputCommit = '';
@@ -154,6 +163,8 @@ export function mountFormInputs(root: HTMLElement): () => void {
       if (!active() || !next.isConnected) { finish(false); return; }
       delete original.dataset.formInputActive; original = next; initialValue = next.value;
       original.dataset.formInputActive = 'true'; editor.value = initialValue;
+      editor.setAttribute('name',original.getAttribute('name')??original.id??'value');
+      editor.setAttribute('autocomplete',original.getAttribute('autocomplete')??'off');
       title.textContent = titleFor(original); updateHint(); commitRequested = false;
       editor.focus({preventScroll:true}); editor.select();
     };
