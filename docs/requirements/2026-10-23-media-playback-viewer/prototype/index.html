@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>媒体查看器修订 V1</title><link rel="stylesheet" href="./review.css"></head>
+<body><header><span>QUIET ROOM / 交互审阅</span><h1>媒体查看器修订 <small>V1 · 待设计确认</small></h1><p>调整查看器控件与错误显示。仅使用合成样本，不读取聊天或保险箱。</p></header>
+<main><aside aria-label="原型审阅控制">
+<label>查看来源<select id="source"><option value="chat">聊天 · 页内回退／翻页</option><option value="safe">保险箱相册</option></select></label>
+<label>媒体<select id="kind"><option value="video">视频</option><option value="photo">图片</option></select></label>
+<label>界面状态<select id="state"><option value="normal">可播放／正常查看</option><option value="loading">加载中</option><option value="tap">浏览器要求点按播放</option><option value="decode">视频格式无法播放</option><option value="network">加载失败，可重试</option><option value="empty">相册为空</option><option value="locked">隐私清理后</option></select></label>
+<label>页面明暗<select id="scheme"><option value="light">浅色</option><option value="dark">深色</option></select></label>
+<label>响应式视口<select id="size"><option value="390,844">390 × 844</option><option value="320,640">320 × 640</option><option value="844,390">844 × 390 横向</option><option value="960,640">960 × 640 桌面</option></select></label>
+<label>文字大小<select id="font"><option value="16">100%</option><option value="32">200%</option></select></label>
+<button id="reenter" type="button">模拟关闭后重新进入</button><button id="conceal" type="button">模拟隐私清理</button>
+<a href="./flow.html" target="_blank">查看业务流程 V1</a>
+<p class="note">可点击播放、快进／后退、声音、倍速、进度、翻页、关闭、详情、收藏和保险箱删除确认。播放与缓存状态为模拟，不代表产品已修复。</p>
+</aside><div class="workspace"><div class="preview"><iframe id="preview" title="媒体查看器可交互原型" src="./viewer.html" allow="fullscreen"></iframe></div><p class="caption" id="caption">中央播放控件与底部进度条分离；按钮使用现有深色媒体表面。</p><details><summary>布局自查数据</summary><output id="geometry">正在读取当前可见布局…</output></details><p class="note">这是响应式原型视口，不是 iPhone／Safari 设备模拟。系统全屏、解码及安全清理须在正式实现和真机中另行验证。</p></div></main>
+<script type="module" src="./review.js"></script></body></html>

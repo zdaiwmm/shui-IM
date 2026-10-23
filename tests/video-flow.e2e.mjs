@@ -26,12 +26,7 @@ try {
   page.on('download', () => downloadCount++);
   await page.goto(`http://localhost:${server.httpServer.address().port}/__video_flow`);
   const ids = await page.evaluate(async () => {
-    await import('/src/styles.css');
-    await import('/src/chat-layout.css');
-    await import('/src/gallery.css');
-    await import('/src/chat-interactions.css');
-    await import('/src/cover.css');
-    await import('/src/call.css');
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const { QuietRoomApp } = await import('/src/app.ts');
     const vault = await import('/src/lib/vault.ts');
     const { encryptFileAttachment, encryptImageFile } = await import('/src/lib/file-crypto.ts');
@@ -103,6 +98,7 @@ try {
     const galleryDocument = await encrypt(new File(['video regression gallery file\n'], '保险箱文档.txt', { type: 'text/plain', lastModified: 5 }));
     const restoredVideo = await encrypt(new File([videoBlob], '单独恢复的视频.webm', { type: 'video/webm', lastModified: 6 }));
     const delayedVideo = await encrypt(new File([videoBlob], '迟到的视频.webm', { type: 'video/webm', lastModified: 7 }));
+    const invalidVideo = await encrypt(new File(['synthetic invalid video bytes'], '无法解码.webm', { type: 'video/webm' }));
     const sentAt = '2026-09-04T10:00:00.000Z';
     const message = (seq, kind, manifest, senderId = own.deviceId) => ({
       seq, clientMsgId: crypto.randomUUID(), senderId,
@@ -145,7 +141,7 @@ try {
       app.uiPreferences = {}; app.restoreChatAnchorOnNextRender = false;
       if (destination === 'gallery') app.renderGallery(); else app.renderChat();
     };
-    window.videoFlow = { app, root, session, vault, originals, records, restored, delayed, requests, readGate, createdUrls, revokedUrls, reopen, manifests: { photo, chatVideo, chatDocument, galleryVideo, galleryDocument, restoredVideo, delayedVideo } };
+    window.videoFlow = { app, root, session, vault, originals, records, restored, delayed, requests, readGate, createdUrls, revokedUrls, reopen, manifests: { photo, chatVideo, chatDocument, galleryVideo, galleryDocument, restoredVideo, delayedVideo, invalidVideo } };
     readGate.blobId = chatVideo.blobId;
     await reopen();
     return Object.fromEntries(Object.entries(window.videoFlow.manifests).map(([name, manifest]) => [name, manifest.blobId]));
@@ -154,8 +150,11 @@ try {
   const capture = async name => {
     if (/^(video-chat-390|video-viewer-390|inline-video-controls-dark-390|safe-video-confirm-390)$/.test(name)) await auditP1Surface(page,name);
     if (!visualQaDirectory) return;
+    await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+    await page.waitForFunction(()=>document.getAnimations().every(animation=>
+      animation.effect?.getComputedTiming().iterations===Infinity||(!animation.pending&&animation.playState!=='running')));
     await mkdir(visualQaDirectory, { recursive: true });
-    await page.screenshot({ path: path.join(visualQaDirectory, `${name}.png`), fullPage: true, animations: 'disabled' });
+    await page.screenshot({ path: path.join(visualQaDirectory, `${name}.png`), animations: 'disabled' });
   };
   const awaitPlayingVideo = async () => {
     await page.waitForFunction(() => {
@@ -228,6 +227,9 @@ try {
   const readsBeforeRuntimeReactivation = await page.evaluate(() => window.videoFlow.requests.reads);
   await page.evaluate(async () => {
     const f = window.videoFlow;
+    // Persist a real, authenticated playback file alongside its JPEG poster.
+    // Re-entry first mounts the poster, then the actual click must promote it.
+    await f.vault.saveMediaPlayback(f.session, f.manifests.chatVideo, f.app.imageCache.get(f.manifests.chatVideo.blobId).blob);
     f.app.cleanupRuntime(false);
     await f.reopen();
   });
@@ -263,6 +265,9 @@ try {
   await page.waitForFunction(() => Date.now() >= window.videoFlow.app.suppressMediaClickUntil);
   await chatPreview.click();
   await chatPreview.click();
+  await page.locator('.viewer-stage video').waitFor();
+  assert.equal(await page.locator('.viewer-stage video').evaluate(video => video.src === video.poster), false,
+    'Re-entry passed the JPEG poster to the video decoder instead of the authenticated playback cache');
   await awaitPlayingVideo();
   await page.waitForFunction(() => document.fullscreenElement === document.querySelector('.viewer-stage video'));
   assert.equal(await page.locator('[data-viewer-close]').isVisible(), false, 'A custom viewer header appeared before the native full-screen player');
@@ -409,6 +414,10 @@ try {
     await page.locator('.viewer-stage video').evaluate(video => { video.volume = 0; });
     await page.locator('[data-video-mute][aria-label="开启声音"]').click();
     assert.equal(await page.locator('.viewer-stage video').evaluate(video => !video.muted && video.volume > 0), true, 'Unmuting did not restore native-player zero volume');
+    await page.locator('[data-video-speed]').click();
+    assert.equal(await page.locator('[data-video-speed]').innerText(), '1.5×');
+    assert.equal(await page.locator('.viewer-stage video').evaluate(video => video.playbackRate), 1.5);
+    await page.locator('[data-video-speed]').click(); await page.locator('[data-video-speed]').click();
     await page.locator('.viewer-video-seek').evaluate(input => {
       const x = input.getBoundingClientRect().x + 80;
       for (const [type, offset] of [['pointerdown', 0], ['pointermove', 150], ['pointerup', 150]]) input.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'touch', pointerId: 299, isPrimary: true, button: 0, clientX: x + offset, clientY: 690 }));
@@ -416,15 +425,30 @@ try {
     });
     assert.equal(await page.locator('.image-viewer').evaluate(viewer => viewer.classList.contains('is-transitioning')), false, 'Seeking paged the viewer');
     assert(await page.locator('.viewer-stage video').evaluate(video => Math.abs(video.currentTime - video.duration / 2) < 0.15));
-    for (const width of [320, 390, 1024]) {
-      await page.setViewportSize({ width, height: 844 });
+    for (const [width, height, font] of [[320,844,16], [390,844,16], [1024,844,16], [844,390,32], [320,640,32]]) {
+      await page.setViewportSize({ width, height });
+      await page.waitForFunction(([width,height])=>innerWidth===width&&innerHeight===height,[width,height]);
+      await page.evaluate(font => { document.documentElement.style.fontSize = `${font}px`; }, font);
       assert(await page.locator('.viewer-video-controls').evaluate(controls => {
         const children = [...controls.querySelectorAll('button, input, .viewer-video-time')];
         return children.every(child => { const rect = child.getBoundingClientRect(); return rect.left >= 0 && rect.right <= innerWidth && child.scrollWidth <= child.clientWidth + 1; });
       }), 'Video controls overflowed the viewport');
+      const geometry = await page.evaluate(() => {
+        const center = document.querySelector('.viewer-video-center').getBoundingClientRect();
+        const bottom = document.querySelector('.viewer-video-bottom').getBoundingClientRect();
+        const seek = document.querySelector('.viewer-video-seek'), r = seek.getBoundingClientRect();
+        const viewer=document.querySelector('.image-viewer'), title=viewer.querySelector('.viewer-header > div');
+        return { separated: center.bottom + 8 <= bottom.top,
+          hit: document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2) === seek,
+          playButtons: document.querySelectorAll('[data-video-play]').length,
+          titleFits:title.scrollWidth<=title.clientWidth+1,
+          backdrop:getComputedStyle(viewer,'::before').backgroundColor };
+      });
+      assert.deepEqual(geometry, { separated: true, hit: true, playButtons: 1, titleFits:true, backdrop:safe?'rgb(0, 0, 0)':'rgb(20, 18, 20)' }, `Video controls overlap or intercept seeking at ${width}x${height}, ${font}px`);
       if (!safe) assert(await page.locator('[data-video-fullscreen]').evaluate(button => getComputedStyle(button).color === getComputedStyle(document.querySelector('[data-viewer-close]')).color), 'Video buttons did not follow the viewer theme');
-      await capture(`inline-video-controls-${width}`);
+      await capture(`inline-video-controls-${width}-${height}-${font}`);
     }
+    await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ colorScheme: 'dark' });
     await capture('inline-video-controls-dark-390');
@@ -511,7 +535,8 @@ try {
   assert.equal(await safeVideo.getAttribute('data-revealed'), 'true', 'Closing the viewer reset this visit’s reveal state');
 
   const safeChatVideo = page.locator(`.gallery-tile[data-blob-id="${ids.chatVideo}"]`);
-  await safeChatVideo.click(); await safeChatVideo.click();
+  if (await safeChatVideo.getAttribute('data-revealed') !== 'true') await safeChatVideo.click();
+  await safeChatVideo.click();
   await awaitPlayingVideo();
   await page.locator('.viewer-stage').click({ position: { x: 12, y: 120 } });
   await page.locator('[data-video-delete]').waitFor();
@@ -744,6 +769,138 @@ try {
     return { covered: f.app.privacyCovered, cacheSize: f.app.imageCache.size, mediaNodes: f.root.querySelectorAll('img, video, .image-viewer').length, unreleasedUrls: [...f.createdUrls].filter(url => !f.revokedUrls.has(url)).length };
   });
   assert.deepEqual(lateState, { covered: true, cacheSize: 0, mediaNodes: 0, unreleasedUrls: 0 }, 'Late video decryption recreated visible content or retained an object URL after lock');
+
+  // Safe also reaches the real promotion path after its runtime/URLs are gone.
+  await page.evaluate(async () => { const f = window.videoFlow; f.app.cleanupRuntime(false); await f.reopen('gallery'); f.app.uiPreferencesHydrated=true; });
+  const cachedSafeVideo = page.locator(`.gallery-tile[data-blob-id="${ids.chatVideo}"]`);
+  await cachedSafeVideo.locator('img').evaluate(image => image.decode());
+  await page.evaluate(() => { const f=window.videoFlow; f.promotedEntry=f.app.imageCache.get(f.manifests.chatVideo.blobId); f.promotedPoster=f.promotedEntry.url; });
+  assert.equal(await page.evaluate(() => window.videoFlow.promotedEntry.previewOnly), true);
+  await cachedSafeVideo.click(); await cachedSafeVideo.click(); await awaitPlayingVideo();
+  await page.locator('.viewer-stage').focus();
+  await page.keyboard.press('Space');
+  assert.equal(await page.locator('.viewer-stage video').evaluate(video=>video.paused),true,'Space on the video stage did not pause playback');
+  await page.keyboard.press('Space'); await awaitPlayingVideo();
+  await page.keyboard.press('Tab');
+  assert.equal(await page.locator('.image-viewer').getAttribute('data-video-controls'),'visible','Keyboard navigation did not reveal the Safe controls');
+  for (let step=0;step<8&&!await page.locator('.viewer-video-seek').evaluate(el=>el===document.activeElement);step++) await page.keyboard.press('Tab');
+  assert.equal(await page.locator('.viewer-video-seek').evaluate(el=>el===document.activeElement),true,'The progress input is absent from keyboard navigation');
+  await page.locator('.viewer-stage video').evaluate(video=>{video.pause();video.currentTime=.7;});
+  const beforeKeyboardSeek=await page.locator('.viewer-stage video').evaluate(video=>video.currentTime);
+  await page.keyboard.press('ArrowLeft');
+  assert(await page.locator('.viewer-stage video').evaluate((video,before)=>video.currentTime<before,beforeKeyboardSeek),'Keyboard seeking did not move playback');
+  const promotion = await page.evaluate(() => {
+    const f=window.videoFlow, c=f.app.imageCache.get(f.manifests.chatVideo.blobId);
+    f.playbackUrl=c.url;
+    return { sameEntry:c===f.promotedEntry, previewOnly:c.previewOnly, displayCopy:c.displayCopy,
+      mime:c.blob.type, posterRetained:c.posterUrl===f.promotedPoster, videoIsPoster:c.url===c.posterUrl,
+      accounted:f.app.imageCacheBytes===[...f.app.imageCache.values()].reduce((sum,item)=>sum+item.bytes,0) };
+  });
+  assert.deepEqual(promotion,{sameEntry:true,previewOnly:false,displayCopy:true,mime:'video/webm',posterRetained:true,videoIsPoster:false,accounted:true});
+  const exactOriginal = await page.evaluate(async () => {
+    const f=window.videoFlow, m=f.manifests.chatVideo;
+    const c=await f.app.loadImage(m,false,true);
+    const actual=new Uint8Array(await c.blob.arrayBuffer()), expected=new Uint8Array(await f.originals.get(m.blobId).arrayBuffer());
+    return { exact:actual.length===expected.length&&actual.every((byte,index)=>byte===expected[index]), displayCopy:c.displayCopy,
+      sameEntry:c===f.promotedEntry, posterRetained:c.posterUrl===f.promotedPoster,
+      oldPlaybackRevoked:f.revokedUrls.has(f.playbackUrl), posterNotRevoked:!f.revokedUrls.has(f.promotedPoster),
+      accounted:f.app.imageCacheBytes===[...f.app.imageCache.values()].reduce((sum,item)=>sum+item.bytes,0) };
+  });
+  assert.deepEqual(exactOriginal,{exact:true,displayCopy:false,sameEntry:true,posterRetained:true,oldPlaybackRevoked:true,posterNotRevoked:true,accounted:true});
+  await rememberPlayer(); await closePlayer(); await assertPlayerReleased('Promoted Safe playback close');
+
+  // Exercise the browser's genuine decoder failure, without adding a history row.
+  await page.evaluate(() => {const f=window.videoFlow; f.app.openImageViewer([f.manifests.invalidVideo]);});
+  await page.locator('.image-viewer[data-video-state="error"] .viewer-video-feedback').waitFor();
+  await page.waitForFunction(()=>!document.fullscreenElement&&!document.querySelector('.image-viewer')?.hasAttribute('data-native-video'));
+  assert.equal(await page.locator('[data-video-play]').isVisible(),false,'A playback error left the central play control over its message');
+  assert.equal(await page.locator('.viewer-video-feedback button').isVisible(),false,'A permanent decoder error offered an ineffective replay action');
+  for (const [width,height,font] of [[320,640,32],[844,390,32],[390,844,16]]) {
+    await page.setViewportSize({width,height}); await page.evaluate(font=>{document.documentElement.style.fontSize=`${font}px`;},font);
+    await page.waitForFunction(([width,height])=>innerWidth===width&&innerHeight===height,[width,height]);
+    const feedbackGeometry = await page.locator('.viewer-video-feedback').evaluate(el=>{
+      const r=el.getBoundingClientRect(), hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+      return { inside:r.left>=0&&r.right<=innerWidth&&r.top>=0&&r.bottom<=innerHeight,
+        hit:hit?.closest('.viewer-video-feedback')===el, rect:r.toJSON(), target:hit?.outerHTML.slice(0,240) };
+    });
+    await capture(`video-decoder-error-${width}-${height}-${font}`);
+    assert(feedbackGeometry.inside&&feedbackGeometry.hit,`Playback error is clipped or covered at ${width}×${height}/${font}: ${JSON.stringify(feedbackGeometry)}`);
+  }
+  await page.evaluate(()=>{document.documentElement.style.fontSize='';});
+  await capture('video-decoder-error-390'); await closePlayer();
+
+  await page.evaluate(()=>{
+    const f=window.videoFlow, source=f.records.find(record=>record.seq===4), play=HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play=()=>Promise.reject(new DOMException('Synthetic activation requirement','NotAllowedError'));
+    try {f.app.openImageViewer([f.manifests.galleryVideo],0,undefined,[],[{clientMsgId:source.clientMsgId,assetIndex:0,source}]);document.querySelector('.viewer-stage video').autoplay=false;}
+    finally {HTMLMediaElement.prototype.play=play;}
+  });
+  await page.locator('.image-viewer[data-video-state="needs-activation"] .viewer-video-feedback button').click();
+  await awaitPlayingVideo();
+  assert.equal(await page.locator('.viewer-video-feedback').isVisible(),false,'Successful explicit playback did not clear its activation prompt');
+  await closePlayer();
+
+
+  // Recreate both application instances after a real document reload. Only the
+  // encrypted caches survive; the tested video must use its authenticated
+  // playback copy and has no original chunk service available.
+  assert.equal(await page.evaluate(async () => {
+    const f=window.videoFlow;
+    for (const manifest of [f.manifests.chatVideo,f.manifests.galleryVideo]) {
+      const original=f.originals.get(manifest.blobId);
+      await f.vault.saveMediaPlayback(f.session,manifest,original.slice(0,original.size,'video/webm'));
+      if ((await f.vault.loadMediaPlayback(f.session,manifest))?.type!=='video/webm') return false;
+      if ((await f.vault.loadMediaPreview(f.session,manifest))?.type!=='image/jpeg') return false;
+    }
+    return true;
+  }),true,'Cold re-entry fixture has no persisted JPEG poster');
+  for (const destination of ['chat','gallery']) {
+    await page.reload();
+    await page.evaluate(async destination => {
+      await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
+      const {QuietRoomApp}=await import('/src/app.ts'), vault=await import('/src/lib/vault.ts');
+      const session=await vault.unlockVault('video-flow-passphrase'), root=document.querySelector('#app'), app=new QuietRoomApp(root);
+      const records=await vault.loadHistoryPage(session), manifest=records.find(record=>record.seq===(destination==='gallery'?4:2)).payload.file;
+      app.updateSafetyCode=async()=>{}; app.updateBackgroundNotificationControl=async()=>{};
+      app.flushUiPreferencesSave=()=>{}; app.unreadCounter.markRead=async()=>{};
+      app.session=session; app.privacyCovered=false; app.runtimeEpoch++; app.runtimeAbort=new AbortController();
+      app.pending=new Map(); app.messages=new Map(records.map(record=>[record.seq,record]));
+      app.uiPreferences=await vault.loadUiPreferences(session); app.uiPreferencesHydrated=true; app.restoreChatAnchorOnNextRender=false;
+      const realFetch=window.fetch.bind(window), requests={reads:0};
+      window.fetch=(input,init)=>{
+        const url=new URL(typeof input==='string'?input:input.url,location.href);
+        const chunk=url.pathname.match(/\/blobs\/([^/]+)\/chunks\/\d+$/);
+        if (chunk) {
+          if (chunk[1]===manifest.blobId) requests.reads++;
+          return Promise.reject(Error('Cold fixture has no chunk service'));
+        }
+        return realFetch(input,init);
+      };
+      window.videoFlow={app,root,session,vault,requests,manifests:{chatVideo:manifest}};
+      if (destination==='gallery') app.renderGallery(); else app.renderChat();
+    },destination);
+    const preview=page.locator(`${destination==='gallery'?'.gallery-tile':'.message .image-preview'}[data-blob-id="${destination==='gallery'?ids.galleryVideo:ids.chatVideo}"]`);
+    await preview.locator('img').evaluate(image=>image.decode());
+    assert.equal(await page.evaluate(()=>window.videoFlow.app.imageCache.get(window.videoFlow.manifests.chatVideo.blobId).previewOnly),true,'A cold thumbnail should begin with the persisted preview');
+    if (await preview.getAttribute('data-revealed')!=='true') await preview.click();
+    await preview.click();
+    try {await awaitPlayingVideo();} catch(cause) {
+      const state=await page.evaluate(()=>{
+        const f=window.videoFlow, c=f.app.imageCache.get(f.manifests.chatVideo.blobId), v=document.querySelector('.viewer-stage video');
+        return {reads:f.requests.reads,covered:f.app.privacyCovered,viewers:document.querySelectorAll('.image-viewer').length,
+          cache:c&&{previewOnly:c.previewOnly,displayCopy:c.displayCopy,mime:c.blob.type},
+          video:v&&{readyState:v.readyState,paused:v.paused,time:v.currentTime,width:v.videoWidth,error:v.error?.message},
+          feedback:document.querySelector('.viewer-stage')?.textContent};
+      });
+      throw new Error(`${destination} cold playback failed: ${JSON.stringify(state)}`,{cause});
+    }
+    assert.deepEqual(await page.evaluate(()=>{
+      const f=window.videoFlow, cached=f.app.imageCache.get(f.manifests.chatVideo.blobId), video=document.querySelector('.viewer-stage video');
+      return {reads:f.requests.reads,videoSource:video.src!==video.poster,previewOnly:cached.previewOnly,displayCopy:cached.displayCopy};
+    }),{reads:0,videoSource:true,previewOnly:false,displayCopy:true},`${destination} cold playback did not promote its authenticated playback cache`);
+    await rememberPlayer(); await closePlayer(); await assertPlayerReleased(`${destination} cold playback close`);
+    await page.evaluate(()=>window.videoFlow.app.lockNow());
+  }
   assert.deepEqual(errors, [], `Video regression raised browser errors: ${errors.join('; ')}`);
   console.log(JSON.stringify({ videoPreview: 'verified original with local poster and play button', viewer: { autoplay: true, maximized: true, mixedPagingInline: true, stablePagingHeader: true, longPressDoesNotPlay: true, closeReleasesMedia: true, incomingCallStopsPlayback: true }, safe: { label: '相册', photosAndVideos: true, firstClickReveals: true, secondClickPlays: true, genericFilesExcluded: true }, restore: 'album-only video stays outside chat history', ordinaryDownloads: 2, lifecycle: { lockRevokesOriginalAndPoster: true, lateLoadCannotRepopulateCache: true } }, null, 2));
 } finally {
