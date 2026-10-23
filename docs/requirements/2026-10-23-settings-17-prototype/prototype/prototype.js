@@ -67,7 +67,7 @@ function chatMarkup() {
 }
 function settingsMarkup() {
   const groups=[
-    {title:'聊天体验',items:[['palette','外观','appearance','#6b78a3'],['heart','在线状态样式','presence','#c45271'],['bell','消息通知','notifications','#538f67']]},
+    {title:'聊天体验',items:[['palette','外观','appearance','#6b78a3'],['heart','在线状态样式','presence','#c45271']]},
     {title:'隐私保护',items:[['lock','应用锁与自动锁定','lock','#8d76a2'],['eyeoff','入口遮蔽页','cover-settings','#8b9671']]},
     {title:'密室与设备',items:[['spaces','切换密室','spaces','#9d865f'],['phone','设备管理','devices','#6691ad'],['link','帮对方进入密室','peer','#6f8b8c']]},
     {title:'备份与恢复',items:[['key','恢复凭证','credential','#ab8b55'],['download','聊天记录恢复','restore','#788e75']]},

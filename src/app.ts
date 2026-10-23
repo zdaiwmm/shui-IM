@@ -213,9 +213,7 @@ import {
   createRepairRequest,
   verifyRecoveryMembershipChain,
 } from './lib/mls';
-import { DeviceNotifications, reconcileSpaceNotifications } from './lib/device-notifications';
-import { mountNotificationSettings } from './lib/notification-settings';
-import { mountNotificationCopy } from './lib/notification-copy-ui';
+import { reconcileSpaceNotifications } from './lib/device-notifications';
 import './notifications.css';
 import {
   createPlatformCredential,
@@ -6903,7 +6901,6 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
         ...((isChamberVault(session.vault) || session.vault.roomArchiveV2) ? [{ id: 'chamber-switch-space', label: '切换密室', icon: spaceIcons.spaces, keepOpen: true, run: (showSpaceList: () => void) => { this.settingsReturn = null; showSpaceList(); } }] : []),
         { id: 'appearance-settings', label: '外观', icon: spaceIcons.appearance, run: forward(() => this.renderAppearanceSettings()) },
         ...(this.desktopBrowser ? [{ id: 'app-access-settings', label: '在应用中打开', icon: spaceIcons.app, run: forward(() => this.renderAppAccess()) }] : []),
-        {id:'notification-settings',label:'消息通知',icon:spaceIcons.bell,run:forward(()=>this.renderNotificationPreferences(spaces))},
         { id: 'manage-devices', label: '设备管理', icon: spaceIcons.device, run: forward(() => this.renderDeviceManager()) },
         ...(!isChamberVault(session.vault)?[{id:'help-peer-enter',label:'帮对方进入密室',icon:spaceIcons.device,run:forward(()=>this.renderDeviceManager('peer'))}]:[]),
         ...(session.vault.roomArchiveV2 ? [
@@ -6996,21 +6993,6 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     });
   }
 
-  private renderNotificationPreferences(spaces:PrivateSpace[]):void {
-    const session=this.session,signal=this.runtimeAbort?.signal,epoch=this.runtimeEpoch;if(!session||!signal||this.privacyCovered)return;this.setActiveSurface('away');
-    this.root.innerHTML=`<section class="notification-page device-shell chamber-settings-page"><header class="subpage-header"><h1>消息通知</h1></header><main class="device-content"></main><footer class="chamber-page-footer"><button class="text-button" data-notification-back>返回</button></footer></section>`;
-    const page=this.root.querySelector<HTMLElement>('.notification-page')!;
-    const entries=spaces.map(space=>({roomId:space.roomId,name:space.name,...(space.roomId===session.vault.roomId?{}:{unavailable:'进入对应密室后可设置'})}));
-    const manager=new DeviceNotifications(entries,async(roomId,verify,action)=>{
-      if(!this.isRuntimeActive(epoch,session)||roomId!==session.vault.roomId)throw new DOMException('此密室暂不可用','AbortError');
-      if(verify&&session.vault.roomArchiveV2){const protection=await readRoomProtection();if(protection&&protection.method!=='automatic')await this.verifyRoomOperation();}
-      if(!this.isRuntimeActive(epoch,session))throw new DOMException('操作已结束','AbortError');return action(session.vault);
-    },signal);
-    mountNotificationSettings(page.querySelector<HTMLElement>('main')!,manager,{systemSurface:operation=>this.withSystemSurface(operation),openCopy:()=>{
-      this.transitionPage('forward',()=>mountNotificationCopy(this.root,{signal,isActive:()=>this.isRuntimeActive(epoch,session),backIcon:icons.back,onBack:()=>this.transitionPage('backward',()=>this.renderNotificationPreferences(spaces))}));
-    }});
-    page.querySelector('[data-notification-back]')!.addEventListener('click',()=>this.transitionPage('backward',()=>this.renderChat()));
-  }
   private renderDesktopSettings(spaces: PrivateSpace[], scrollTop = 0): void {
     const session = this.session, signal = this.runtimeAbort?.signal;
     if (!session || !signal || this.privacyCovered) return;

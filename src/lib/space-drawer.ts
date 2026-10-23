@@ -94,7 +94,7 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
     handle?.addEventListener('pointercancel',clearDrag);
 
     bindSpaceAvatarPlayback(sheet, AbortSignal.any([signal, pageLifetime.signal]));
-    if (previousPage && priorTitle !== title && (!settingsSheet || priorTitle === '在线状态样式')) animatePageReplacement(sheet, previousPage, sheet.querySelector<HTMLElement>(':scope > .space-drawer')!, title === '切换密室' || (title === '设置' && priorTitle === '在线状态样式'), signal);
+    if (previousPage && priorTitle !== title && (!settingsSheet || priorTitle === '在线状态样式' || priorTitle === '切换密室')) animatePageReplacement(sheet, previousPage, sheet.querySelector<HTMLElement>(':scope > .space-drawer')!, title === '设置', signal);
     sheet.querySelector('.space-close')?.addEventListener('click', close);
     sheet.querySelector('.space-back')?.addEventListener('click', () => { back!(); sheet.querySelector<HTMLButtonElement>('.space-back,.space-close')?.focus(); });
   }
