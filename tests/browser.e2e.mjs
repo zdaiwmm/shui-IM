@@ -876,6 +876,22 @@ try {
 
   const imageCount = await joiner.locator('.message.incoming .image-preview').count();
   const creatorChatImageCount = await creator.locator('.message.outgoing .image-preview').count();
+  await creator.evaluate(() => {
+    const app = window.__legacyApp;
+    window.__anchorTrace = [];
+    for (const name of ['captureChatAnchor', 'restoreChatAnchor', 'finishChatAnchorRestore', 'renderChat', 'renderGallery']) {
+      const original = app[name];
+      app[name] = function (...args) {
+        const result = original.apply(this, args);
+        window.__anchorTrace.push({ name, at: performance.now(), y: scrollY, top: app.chatViewportTop, surface: app.activeSurface,
+          anchor: { ...app.uiPreferences.chatAnchor }, restoring: app.chatRestoreAnchor && { ...app.chatRestoreAnchor },
+          passed: name === 'restoreChatAnchor' ? args[1] : null,
+          scrollIntent: app.chatScrollIntent, pendingBottom: app.chatBottomFollowPending });
+        if (window.__anchorTrace.length > 3000) window.__anchorTrace.shift();
+        return result;
+      };
+    }
+  });
   await creator.locator('#message-list').evaluate((list) => {
     // This is a deliberate history-reading gesture, not a native focus scroll
     // racing the just-completed send. Cancel bottom follow before positioning.
@@ -983,7 +999,7 @@ try {
   });
   invariant(
     chatAnchorAfterGallery.id === chatAnchorBeforeGallery.id && Math.abs(chatAnchorAfterGallery.offset - chatAnchorBeforeGallery.offset) <= 3,
-    `Returning from the gallery lost the previous chat position: ${JSON.stringify({ chatAnchorBeforeGallery, chatAnchorAfterGallery })}`,
+    `Returning from the gallery lost the previous chat position: ${JSON.stringify({ chatAnchorBeforeGallery, chatAnchorAfterGallery, trace: await creator.evaluate(() => window.__anchorTrace) })}`,
   );
   if (visualQaDirectory) {
     await creator.screenshot({ path: path.join(visualQaDirectory, 'chat-mobile.png') });
