@@ -693,3 +693,21 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .space-navigation-cover { position:fixed; inset:0; z-index:300; pointer-events:none; }
 #app .space-navigation-cover > .space-drawer { transform:translateX(0); }
 #app .space-navigation-cover.is-closing > .space-drawer { transform:translateX(-100%); }
+
+/* Voice V1: only the 40px control is painted; duration and receipts stay outside. */
+#app :is(.message, .message-action-preview):is(.incoming, .outgoing) .message-bubble.voice-bubble,
+:root[data-color-scheme='dark'] #app :is(.message, .message-action-preview):is(.incoming, .outgoing) .message-bubble.voice-bubble {
+  background: none; border: 0; border-radius: 0; box-shadow: none;
+  padding: 0; overflow: visible; color: var(--ink);
+}
+#app :is(.incoming, .outgoing) .message-bubble.voice-bubble .message-meta,
+#app :is(.incoming, .outgoing) .message-bubble.voice-bubble .message-meta time {
+  color: var(--message-time-on-wall);
+}
+#app .voice-bubble .message-reply-quote {
+  max-width: 220px; margin: 0 0 5px; color: var(--ink);
+  background: color-mix(in srgb, var(--surface-raised) 88%, var(--ink));
+}
+#app .message-action-group .message-action-preview:has(> .voice-bubble) {
+  overflow: visible; border-radius: 0;
+}

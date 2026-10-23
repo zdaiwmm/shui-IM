@@ -1,7 +1,19 @@
 # 本地验证结论 V1
 
 日期：2026-10-23。基线：`d0a997d4c03d04be3157c976dfe7c53cb32668ce`。
-范围仅为独立原型与隔离对照，正式产品代码未改动。
+下方原型阶段记录对应源6fb273b，正式实施与音频续查另见本节。正式气泡获用户确认后实施；本批正式录音格式未改变。
+
+## 正式实施与iOS 27.2续查
+
+- 用户明确确认原型V1并授权气泡实施，补充目标iOS 27.2、尚未试听对比。正式组件已实现40px主体／44px按钮、按时长伸缩、外置秒数、真实播放声波状态、切换时释放原文但保留数值位置；回执更新不重建播放器。PRODUCT／DESIGN／移动规范V1.24及真实组件样例同步。
+- `tests/voice-message-ui.e2e.mjs`按真实main.ts的样式次序加载，Chromium／桌面WebKit均通过320/390/768/1440px明暗16种组合、原生WAV播放／暂停／切换续播、回执保留及锁定撤销URL。完整产品门禁与CI由本需求交付证据拥有。
+- 调用iphone-debug的doctor，结果为未连接USB iPhone，没有请求真实麦克风、截图或操作其他设备。没有iOS 27.2物理录放证据。
+- 新增`audio-codec-probe.mjs`隔离复现：同一桌面WebKit生成的AAC/MP4约2.2秒、单声道48kHz，系统afinfo解析成功，HTMLAudioElement读到时长，Web Audio解码却失败。给合成图增加静音输出连接仍失败；已知PCM WAV解码成功；Opus录音解码成功。失败已进一步定位为该环境的AAC/Web Audio路径，不能称为iPhone录音文件损坏。
+- 在独立诊断包装器中强制内部WebM/Opus，64k／128k两轮均跑通基线录音器、24kHz WAV及加解密，输出0%削波、完整文件SHA-256相同。JSON位于忽略的`.evidence/webkit-opus-comparison.json`；正式voice-recorder编码顺序不变。
+- 官方[WebKit说明](https://webkit.org/blog/16574/webkit-features-in-safari-18-4/)说明现代MediaRecorder支持WebM/Opus，但能力探测只能证明支持，不能替代iOS 27.2实际链路验证。[326286](https://bugs.webkit.org/show_bug.cgi?id=326286)的已记录复现版本不构成本任务27.2根因证据。
+- 独立诊断页增加同一基准WAV录音前／后播放、主动4秒默认采集／Opus／关闭AEC请求选项，回读设置时去除设备ID。录音不上传、不入聊天或持久存储，隐藏／离开销毁。下一步需连接该iPhone并使用可信本地HTTPS对照；不建议据此关闭通话AEC、强制改系统设置或承诺音质已修复。
+
+## 原型阶段记录（6fb273b）
 
 ## 结论与证据级别
 
