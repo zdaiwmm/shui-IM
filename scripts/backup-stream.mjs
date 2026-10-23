@@ -1,5 +1,4 @@
 import { mkdtemp, mkdir, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { sendBackup } from '../server/backup-transfer.mjs';
 import { withBackupLock } from '../server/backup-lock.mjs';
@@ -15,7 +14,7 @@ try {
     const previous = await readBackupState(root);
     await writeBackupState(root, { lastVerifiedAt: previous?.lastVerifiedAt, snapshotCreatedAt: previous?.snapshotCreatedAt,
       lastAttemptAt: new Date().toISOString(), lastAttemptSucceeded: false });
-    const ownedTemporary = path.join(tmpdir(), 'quiet-room-mac-export');
+    const ownedTemporary = path.join(root, '.quiet-room-mac-export');
     await rm(ownedTemporary, { recursive: true, force: true });
     await mkdir(ownedTemporary, { mode: 0o700 });
     temporary = await mkdtemp(path.join(ownedTemporary, 'snapshot-'));

@@ -36,7 +36,7 @@ describe('server ciphertext storage', () => {
       const rotated='c'.repeat(43),expiry=store.rotateNewRoomInvitation(roomId,invite,rotated);
       expect(Date.parse(expiry)).toBe(now+2*ttl);expect(store.authenticateInvite(roomId,invite)).toBe(false);
       clock.mockReturnValue(now+ttl+60_000);expect(store.rotateNewRoomInvitation(roomId,invite,rotated)).toBe(expiry);
-      store.joinRoom(roomId,withMls(joiner),'proof','d'.repeat(43),'iPhone',['room-archive-v2']);
+      store.joinRoom(roomId,withMls(joiner),'proof','d'.repeat(43),'iPhone',['room-archive-v2'],undefined,rotated);
       const linkId=crypto.randomUUID(),secret='e'.repeat(43),deadline=new Date(Date.now()+ttl).toISOString();
       expect(store.createRepairLink(roomId,creator,joiner,linkId,secret,deadline).expiresAt).toBe(deadline);
       expect(()=>store.createRepairLink(roomId,creator,joiner,crypto.randomUUID(),secret,new Date(Date.now()+ttl+1).toISOString())).toThrow('INVALID_REPAIR_LINK');

@@ -1,3 +1,5 @@
+系统审计四项修复：服务端邀请与归档事务授权在storage/room-archives；本机发送意图和顺序在app.ts、outbox-order.ts、vault.ts；Mac磁盘暂存及流预算在backup-stream、backup、backup-transfer、backup-limits。验收新增admission-lifecycle、offline-outbox和backup-large-database，范围及交付见[修复记录](../requirements/2026-10-23-system-audit-fixes/README.md)。
+
 24项页面与凭证精修：`archive-settings.ts`、`archive-card-image.ts`、`room-archive-crypto.ts`、`room-archive.ts`与`server/room-archives.mjs`管理三步回验、整图和签名CAS读取能力轮换；`form-input.ts`、`chat-keyboard-layout.ts`与`room-polish.css`负责输入及顶部抽屉几何。验收以chamber-polish、new-room-flows/mobile、mobile-safari-feedback、numeric-password、presence-circuit与归档单测为入口；范围和失败历史由[24项V1](../requirements/2026-10-22-chamber-24-polish/README.md)拥有，安全由NEW_ROOM_ARCHIVES与SECURITY拥有。
 
 邀请与隐私引导（2026-10-21）：24小时共享时限在`room-link-lifetime.mjs`、`short-invites.mjs`与storage；恢复凭证直达和状态、自动应用锁及标题在`app.ts`／`archive-settings.ts`，本机顺序保存在`spaces.ts`加密目录。验收入口`new-room-invite-privacy`、`new-room-passkey`与`new-room-flows/mobile`，范围及证据见[需求V2](../requirements/2026-10-21-invite-privacy/README.md)。

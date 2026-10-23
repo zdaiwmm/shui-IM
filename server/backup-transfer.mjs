@@ -1,3 +1,4 @@
+import { MAX_BACKUP_TOTAL_BYTES, backupFileLimit } from './backup-limits.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { mkdir, open, rename, rm, lstat, realpath } from 'node:fs/promises';
@@ -5,8 +6,7 @@ import path from 'node:path';
 import { exportConsistentBackup, verifyBackup } from './backup.mjs';
 import { backupCapacityPolicy, checkBackupCapacity } from '../scripts/backup-capacity.mjs';
 
-const MAX_FILE = 256 * 1024 ** 2;
-const MAX_TOTAL = 12 * 1024 ** 3;
+const MAX_TOTAL = MAX_BACKUP_TOTAL_BYTES;
 const MAX_FILES = 100_000;
 const MAX_HEADER = 4096;
 const ID = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
@@ -50,11 +50,12 @@ export function binaryReader(input) {
 export async function sendBackup({ dataDir, temporaryRoot, output, input }) {
   const session = randomUUID();
   await writeHeader(output, { type: 'start', version: 1, session });
-  let manifestDigest;
+  let manifestDigest, totalBytes=0, fileCount=0;
   const result = await exportConsistentBackup({ dataDir, backupRoot: temporaryRoot,
     exportFile: async (name, source) => {
       const info = await lstat(source);
-      if (!SAFE_PATH.test(name) || !info.isFile() || info.size > MAX_FILE || await realpath(source) !== source) throw Error('BACKUP_SOURCE_INVALID');
+      if (!SAFE_PATH.test(name) || !info.isFile() || info.size > backupFileLimit(name) || await realpath(source) !== source) throw Error('BACKUP_SOURCE_INVALID');
+      if (++fileCount > MAX_FILES || (totalBytes += info.size) > MAX_TOTAL) throw Error('BACKUP_FILE_LIMIT_OR_PATH');
       await writeHeader(output, { type: 'file', name, bytes: info.size });
       const hash = createHash('sha256'); let sent = 0;
       for await (const bytes of createReadStream(source)) {
@@ -110,7 +111,7 @@ export async function receiveBackup({ root, input, output, maxTotal = MAX_TOTAL,
         return { backupDir: final, verified: true, createdAt: header.createdAt, bytes: total };
       }
       if (header.type !== 'file' || !SAFE_PATH.test(header.name) || names.has(header.name) || manifestDigest || names.size >= maxFiles ||
-          !Number.isSafeInteger(header.bytes) || header.bytes < 0 || header.bytes > MAX_FILE ||
+          !Number.isSafeInteger(header.bytes) || header.bytes < 0 || header.bytes > backupFileLimit(header.name) ||
           (header.name === 'manifest.json' && header.bytes > 8 * 1024 ** 2) || total + header.bytes > maxTotal) throw Error('BACKUP_FILE_LIMIT_OR_PATH');
       await checkCapacity(header.bytes);
       names.add(header.name); total += header.bytes;

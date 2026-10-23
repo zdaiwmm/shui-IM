@@ -1,3 +1,4 @@
+import { compareOutboxItems } from './outbox-order';
 import { isWindowMessage, expiredMessage } from './message-window';
 import { mergeHistoryProjection } from './history-projection';
 import { mediaCacheBudget, mediaCacheEvictions, MEDIA_CACHE_FILE_BYTES, type MediaCacheEntry } from './media-cache-policy';
@@ -2806,8 +2807,9 @@ async function commitMlsVaultAndRecords(
   const nextVault = structuredClone(session.vault);
   if (!nextVault.mls) throw new Error('MLS 本机状态不存在');
   nextVault.mls.groupState = nextGroupState;
+  if (records.outbox?.intent) nextVault.outboxSequence = Math.max(nextVault.outboxSequence ?? 0, records.outbox.intent.sequence);
   if (records.outbox?.envelope?.v === 2 && records.outbox.envelope.retention) {
-    nextVault.mls.sendSequence = records.outbox.envelope.retention.sendSequence;
+    nextVault.mls.sendSequence = Math.max(nextVault.mls.sendSequence ?? 0, records.outbox.envelope.retention.sendSequence);
     if (nextVault.mls.window) nextVault.mls.window.generated += 1;
   }
   if (records.history && nextVault.mls.window && !isWindowMessage(records.history.payload)) {
@@ -2908,8 +2910,8 @@ export async function finishVaultRecovery(session: VaultSession, nextVault: Vaul
   clearDraftCheckpoints(vaultSpaceId(session.stored));
 }
 
-export function loadOutbox(session: VaultSession): Promise<OutboxItem[]> {
-  return loadLocalRecords<OutboxItem>(session, 'outbox');
+export async function loadOutbox(session: VaultSession): Promise<OutboxItem[]> {
+  return (await loadLocalRecords<OutboxItem>(session, 'outbox')).sort(compareOutboxItems);
 }
 
 export function deleteOutboxItem(session: VaultSession, clientMsgId: string, mutation?: VaultMutation): Promise<void> {

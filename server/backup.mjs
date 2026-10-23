@@ -1,7 +1,9 @@
+import { MAX_BACKUP_DATABASE_BYTES } from './backup-limits.mjs';
+import { assertBackupCapacity, checkBackupCapacity } from '../scripts/backup-capacity.mjs';
 import { withBackupLock } from './backup-lock.mjs';
 import { pruneDailyBackups } from './backup-retention.mjs';
 import { createHash, randomUUID } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { createReadStream, statfsSync } from 'node:fs';
 import {
   cp,
   link,
@@ -85,9 +87,9 @@ export async function createConsistentBackup({ dataDir, backupRoot, now = new Da
   });
 }
 
-// Streaming exports stage only SQLite in bounded tmpfs. The receiver, not the
+// Streaming exports stage only SQLite on capacity-checked backup storage. The receiver, not the
 // source, verifies and publishes the complete snapshot before acknowledging it.
-export async function exportConsistentBackup({ dataDir, backupRoot, exportFile, maxDatabaseBytes = 256 * 1024 ** 2 }) {
+export async function exportConsistentBackup({ dataDir, backupRoot, exportFile, maxDatabaseBytes = MAX_BACKUP_DATABASE_BYTES }) {
   await mkdir(backupRoot, { recursive: true, mode: 0o700 });
   return createBackupLocked({ dataDir, backupRoot, now: new Date(), exportFile, maxDatabaseBytes });
 }
@@ -112,9 +114,15 @@ async function createBackupLocked({ dataDir, backupRoot, now, exportFile, maxDat
     try {
       if (exportFile) {
         const bytes = Number(source.prepare('PRAGMA page_count').get().page_count) * Number(source.prepare('PRAGMA page_size').get().page_size);
-        if (!Number.isSafeInteger(maxDatabaseBytes) || maxDatabaseBytes < 1 || bytes > maxDatabaseBytes) throw new Error('BACKUP_DATABASE_LIMIT');
+        if (!Number.isSafeInteger(maxDatabaseBytes) || maxDatabaseBytes < 1 || maxDatabaseBytes > MAX_BACKUP_DATABASE_BYTES || bytes > maxDatabaseBytes) throw new Error('BACKUP_DATABASE_LIMIT');
+        await checkBackupCapacity(destination, {policy:'reserve',pendingBytes:bytes});
       }
-      await sqliteBackup(source, backupDatabase, { rate: 256 });
+      const pageSize = Number(source.prepare('PRAGMA page_size').get().page_size);
+      await sqliteBackup(source, backupDatabase, { rate: 256, ...(exportFile ? {progress: ({totalPages}) => {
+        if (totalPages * pageSize > maxDatabaseBytes) throw new Error('BACKUP_DATABASE_LIMIT');
+        assertBackupCapacity(statfsSync(destination), {policy:'reserve'});
+        return 256;
+      }} : {}) });
       if (exportFile && (await stat(backupDatabase)).size > maxDatabaseBytes) throw new Error('BACKUP_DATABASE_LIMIT');
     } finally {
       source.close();
