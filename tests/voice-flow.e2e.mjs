@@ -239,5 +239,5 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await creator.evaluate(() => { navigator.mediaDevices.getUserMedia = window.__voiceWrappedGetUserMedia; });
   creator.off('pageerror', onError); joiner.off('pageerror', onError);
   assert.deepEqual(errors, []);
-  process.stdout.write('Voice E2E passed: record, pause, resume, preview, held-release encrypted delivery, playback, seek, reply, cancel, upload retry, history and privacy cleanup.\n');
+  process.stdout.write('Voice E2E passed: record, pause, resume, preview, held-release encrypted delivery, playback, reply, cancel, upload retry, history and privacy cleanup.\n');
 }

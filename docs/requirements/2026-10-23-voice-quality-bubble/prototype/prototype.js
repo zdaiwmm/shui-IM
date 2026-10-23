@@ -19,7 +19,7 @@ function buildMessage(message,index){
  const action=message.state==='playing'?'暂停':message.state==='loading'?'取消加载':['error','send-error'].includes(message.state)?'重试':'播放';
  button.setAttribute('aria-label',`${action}${message.seconds}秒语音`);button.setAttribute('aria-busy',String(message.state==='loading'||message.state==='pending'));button.setAttribute('aria-pressed',String(message.state==='playing'));
  button.innerHTML=`<span class="sound-icon">${icons}</span>`;
- const duration=document.createElement('span');duration.className='voice-duration';duration.textContent=`${message.seconds}″`;duration.setAttribute('aria-hidden','true');line.append(button,duration);content.append(line);
+ const duration=document.createElement('span');duration.className='voice-duration';duration.textContent=`${message.seconds}″`;duration.setAttribute('aria-hidden','true');button.append(duration);line.append(button);content.append(line);
  const meta=document.createElement('div');meta.className='voice-meta';meta.innerHTML=`<time>10:${String(20+index).padStart(2,'0')}</time>${message.direction==='outgoing'?receipt:''}`;if(message.direction==='outgoing')meta.setAttribute('aria-label',`${message.state==='pending'?'等待发送':message.state==='send-error'?'发送失败':'已发送，未收到已读回执'}`);content.append(meta);
  if(['pending','send-error'].includes(message.state))meta.querySelector('svg')?.remove();
  const status=document.createElement('div');status.className=`voice-status${['error','send-error'].includes(message.state)?' error':''}`;status.textContent=stateLabel(message);status.setAttribute('role','status');if(!status.textContent)status.hidden=true;content.append(status);

@@ -31,8 +31,15 @@ try{
     await page.setViewportSize({width,height:844});
     for(const scheme of ['light','dark']){
      await page.evaluate(scheme=>document.documentElement.dataset.colorScheme=scheme,scheme);
-     const rows=await page.locator('.voice-bubble').evaluateAll(bubbles=>bubbles.map(bubble=>{const button=bubble.querySelector('.voice-play'),time=bubble.querySelector('.voice-time'),meta=bubble.querySelector('.message-meta'),b=button.getBoundingClientRect(),t=time.getBoundingClientRect(),m=meta.getBoundingClientRect(),style=getComputedStyle(bubble),paint=getComputedStyle(button,'::before');return{width:b.width,height:b.height,paintedHeight:b.height-parseFloat(paint.top)-parseFloat(paint.bottom),transparent:style.backgroundColor==='rgba(0, 0, 0, 0)'&&style.backgroundImage==='none',outside:bubble.closest('.outgoing')?t.right<=b.left:t.left>=b.right,metaBelow:m.top>=b.bottom,seconds:time.textContent};}));
-     assert.equal(rows.length,5);for(const row of rows){assert.equal(row.height,44);assert.equal(row.paintedHeight,40);assert(row.transparent&&row.outside&&row.metaBelow,`${name} ${width} ${scheme}: ${JSON.stringify(row)}`);}
+     const rows=await page.locator('.voice-bubble').evaluateAll(bubbles=>bubbles.map(bubble=>{
+      const button=bubble.querySelector('.voice-play'),time=bubble.querySelector('.voice-time'),icon=bubble.querySelector('.voice-sound'),meta=bubble.querySelector('.message-meta');
+      const b=button.getBoundingClientRect(),t=time.getBoundingClientRect(),i=icon.getBoundingClientRect(),m=meta.getBoundingClientRect(),style=getComputedStyle(bubble),paint=getComputedStyle(button,'::before'),outgoing=Boolean(bubble.closest('.outgoing'));
+      return{width:b.width,height:b.height,paintedHeight:b.height-parseFloat(paint.top)-parseFloat(paint.bottom),transparent:style.backgroundColor==='rgba(0, 0, 0, 0)'&&style.backgroundImage==='none',
+       inside:time.parentElement===button&&t.left>=b.left+13&&t.right<=b.right-13&&t.top>=b.top+2&&t.bottom<=b.bottom-2,
+       gap:outgoing?i.left-t.right:t.left-i.right,iconDirection:getComputedStyle(icon).transform,expectedDirection:outgoing?'matrix(-1, 0, 0, 1, 0, 0)':'none',
+       textColor:getComputedStyle(time).color,iconColor:getComputedStyle(icon).color,metaBelow:m.top>=b.bottom,seconds:time.textContent};
+     }));
+     assert.equal(rows.length,5);for(const row of rows){assert.equal(row.height,44);assert.equal(row.paintedHeight,40);assert(row.transparent&&row.inside&&row.metaBelow,`${name} ${width} ${scheme}: ${JSON.stringify(row)}`);assert.equal(row.gap,8);assert.equal(row.iconDirection,row.expectedDirection);assert.equal(row.textColor,row.iconColor);}
      assert(rows[0].width>=84&&rows[0].width<rows[1].width);assert.equal(rows[3].width,rows[4].width);assert.equal(rows[0].seconds,'1″');assert.equal(await page.locator('.voice-player input').count(),0);assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`${name} ${width} ${scheme} horizontal overflow`);geometry.push({width,scheme,rows});
      if(evidence&&width===390)await page.screenshot({path:`${evidence}/implemented-${name}-${scheme}.png`,fullPage:true});
     }

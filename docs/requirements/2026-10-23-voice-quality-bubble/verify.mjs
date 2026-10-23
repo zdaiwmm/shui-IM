@@ -38,7 +38,9 @@ for(const [name,engine]of [['chromium',chromium],['webkit',webkit]].filter(([nam
    await page.setViewportSize({width,height:width===320?568:1000});
    for(const scheme of ['light','dark']){
     await page.evaluate(scheme=>document.documentElement.dataset.colorScheme=scheme,scheme);
-    const fit=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,voiceWidths:Array.from(document.querySelectorAll('.voice-hit'),element=>element.getBoundingClientRect().width)}));assert(fit.scrollWidth<=fit.width,`${name} ${width} ${scheme} horizontal overflow`);sizes.push({width,scheme,fit:true});
+    const fit=await page.evaluate(()=>({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,voiceWidths:Array.from(document.querySelectorAll('.voice-hit'),element=>element.getBoundingClientRect().width)}));assert(fit.scrollWidth<=fit.width,`${name} ${width} ${scheme} horizontal overflow`);
+    const details=await page.locator('.voice-hit').evaluateAll(buttons=>buttons.map(button=>{const time=button.querySelector('.voice-duration'),icon=button.querySelector('.sound-icon'),b=button.getBoundingClientRect(),t=time.getBoundingClientRect(),i=icon.getBoundingClientRect(),outgoing=Boolean(button.closest('.outgoing'));return{inside:time.parentElement===button&&t.left>=b.left&&t.right<=b.right,gap:outgoing?i.left-t.right:t.left-i.right,direction:getComputedStyle(icon).transform,expected:outgoing?'matrix(-1, 0, 0, 1, 0, 0)':'none'};}));
+    for(const detail of details){assert(detail.inside);assert.equal(detail.gap,8);assert.equal(detail.direction,detail.expected);}sizes.push({width,scheme,fit:true,details});
     await page.screenshot({path:path.join(evidence,`${name}-${width}-${scheme}.png`),fullPage:true});
    }
   }

@@ -39,8 +39,10 @@ export class VoicePlayer {
     this.element.setAttribute('role', 'group');
     this.element.setAttribute('aria-label', `语音消息，${voiceTime(payload.durationMs)}`);
     this.element.innerHTML = `
-      <button class="voice-control voice-play" type="button" aria-label="播放语音"><span class="voice-sound">${voiceIcons.sound}</span></button>
-      <time class="voice-time" aria-label="${voiceMessageSeconds(payload.durationMs)}秒">${voiceMessageSeconds(payload.durationMs)}″</time>
+      <button class="voice-control voice-play" type="button" aria-label="播放语音">
+        <span class="voice-sound">${voiceIcons.sound}</span>
+        <time class="voice-time" aria-label="${voiceMessageSeconds(payload.durationMs)}秒">${voiceMessageSeconds(payload.durationMs)}″</time>
+      </button>
       <span class="voice-play-status" role="status" aria-live="polite"></span>`;
     this.button = this.element.querySelector('button')!;
     this.status = this.element.querySelector('.voice-play-status')!;
