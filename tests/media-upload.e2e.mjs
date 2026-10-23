@@ -27,7 +27,7 @@ try {
     app.connectionState = 'disconnected'; app.retryOperation = operation => operation();
     Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
     const blobs = new Map();
-    const gate = { release: null, hold: true, fail: false, requests: 0, failCommit: false, failDownload: false, holdDownload: false, downloadRelease: null, downloads: 0 };
+    const gate = { release: null, hold: true, fail: false, requests: 0, failCommit: false, failDownload: false, holdDownload: false, downloadRelease: null, downloadWaiters: [], downloads: 0 };
     const realFetch = window.fetch.bind(window);
     window.fetch = async (input, init = {}) => {
       const url = new URL(typeof input === 'string' ? input : input.url, location.href);
@@ -47,7 +47,10 @@ try {
         if (match[2] !== undefined) {
           gate.downloads++;
           if (gate.failDownload) throw Error('Synthetic failed download');
-          if (gate.holdDownload) await new Promise(resolve => { gate.downloadRelease = resolve; });
+          if (gate.holdDownload) await new Promise(resolve => {
+            gate.downloadWaiters.push(resolve);
+            gate.downloadRelease = () => { for (const release of gate.downloadWaiters.splice(0)) release(); };
+          });
           return new Response(blob.chunks.get(Number(match[2])));
         }
         if (match[3]) { blob.completed = true; return Response.json({ ok: true }); }
@@ -303,6 +306,7 @@ try {
     await page.waitForFunction(id => document.querySelector(`[data-client-msg-id="${id}"] .image-preview`)?.dataset.imageState === 'loaded', id);
     assert.equal(await preview.getAttribute('aria-busy'), 'false');
     assert.equal(await preview.getAttribute('data-revealed'), String(kind === 'expression'));
+    console.log(`${kind}: cold download failure and same-capsule retry passed`);
   }
   console.log('File scoped progress, submission-only retry, offline labels and image/album/expression download retries passed');
   // A commit failure must retain the original selected bytes and retry in place.
