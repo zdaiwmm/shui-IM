@@ -47,18 +47,23 @@ try {
   });
   // Natural first-message boundary: active MLS group with no message window yet.
   assert.equal((await local(b)).generated, null);
-  await contextB.setOffline(true);
-  // Playwright's offline emulation does not close already established sockets.
-  // Close the native transport as the TCP-loss signal, retaining RoomSocket retries.
-  await b.evaluate(() => auditApp.socket.socket.close());
-  await b.waitForFunction(() => auditApp.connectionState !== 'connected');
+  // Complete the real close handshake before HTTP offline emulation: toggling
+  // offline first can strand a graceful close until the browser's 30s timeout.
+  // Retain RoomSocket's own reconnect path and observe state without RAF.
+  const disconnectB = async () => {
+    await b.evaluate(() => auditApp.socket.socket?.close());
+    await b.waitForFunction(() => auditApp.connectionState !== 'connected', undefined, {polling:100});
+    await contextB.setOffline(true);
+  };
+  await disconnectB();
   await b.locator('#message-input').fill('AUDIT first offline message');
   await b.locator('#composer').evaluate(form => form.requestSubmit());
   await b.waitForFunction(() => !auditApp.sendingTextDrafts.size);
   result.firstOffline = await local(b);
   assert.equal(result.firstOffline.outbox.length, 1);
   assert.equal(result.firstOffline.draft, '');
-  await contextB.setOffline(false); await ready(b); await b.waitForTimeout(2000);
+  await contextB.setOffline(false); await ready(b);
+  await b.waitForFunction(() => auditApp.outbox.size === 0, undefined, {polling:100});
   result.firstOfflineAfterReconnect = await local(b);
   assert.equal(result.firstOfflineAfterReconnect.outbox.length, 0);
   assert.equal(result.firstOfflineAfterReconnect.text.includes('AUDIT first offline message'), true);
@@ -71,7 +76,7 @@ try {
   // Pick valid descending UUIDs to make the otherwise ~50% ordering deterministic.
   // No MLS, IndexedDB, socket or server behavior is replaced.
   const ids = ['ffffffff-ffff-4fff-bfff-fffffffffff1', '11111111-1111-4111-8111-111111111112'];
-  await contextB.setOffline(true); await b.evaluate(() => auditApp.socket.socket.close()); await b.waitForFunction(() => auditApp.connectionState !== 'connected');
+  await disconnectB();
   await b.evaluate(async ids => {
     for (let i = 0; i < ids.length; i++) await auditApp.enqueuePayload({ v: 1, kind: 'text', text: `AUDIT queued ${i + 1}`, sentAt: new Date().toISOString() }, ids[i]);
   }, ids);
@@ -91,8 +96,7 @@ try {
   const roomId = await b.evaluate(() => auditApp.session.vault.roomId);
   assert.deepEqual(service.store.messagesAfter(roomId, 0).filter(x => ids.includes(x.envelope.clientMsgId)).map(x => x.envelope.clientMsgId), ids);
   // Cross a real 128-generation boundary while disconnected, without injecting MLS state.
-  await contextB.setOffline(true); await b.evaluate(() => auditApp.socket.socket.close());
-  await b.waitForFunction(() => auditApp.connectionState !== 'connected');
+  await disconnectB();
   await b.evaluate(async () => {
     for (let i=0;i<130;i++) await auditApp.enqueuePayload({v:1,kind:'text',text:`WINDOW offline ${i}`,sentAt:new Date().toISOString()});
     const v=await import('/src/lib/vault.ts');const queued=await v.loadOutbox(auditApp.session);

@@ -30,3 +30,5 @@
 - 全浏览器首次运行前5项通过，第6项draft-refresh仍挂旧attemptSend暂停钩子而超时；只将夹具暂停点迁移至真实sendOutboxItem与提交续程，保留IDB abort、提交后刷新、ABA及不重复发送断言，Chromium/WebKit均通过，剩余入口继续顺序执行；不把旧失败覆盖成一次全套通过。
 
 - 保险库旧专项调用sendPayloadLocked并假定内部自动发送，拆分后仅产生两次显式重试；改用公开sendPayload并等待实际drain，保留三次同密文/发送前落盘断言，全部保险库生命周期用例通过。业务实现没有因这两项夹具失败再变更。
+
+- 新offline-outbox重复运行一次停在禁网后的WebSocket正常关闭握手，尚未进入130条提交；浏览器可等待30秒才触发close。夹具改为先确认实际关闭，再禁HTTP并保留RoomSocket重连，状态轮询不依赖RAF；定向130条/网络取消再次通过。首条回网也改为等待真实队列收敛而非固定2秒。最终冻结干净提交后使用delivery:evidence入口重新执行完整门禁，不用分段日志冒充一次全套成功。
