@@ -1,23 +1,12 @@
 # Quiet Room 当前状态
 
-## 附件24/20紧凑状态候选（2026-10-23）
+## 附件紧凑状态与主线组合已发布（2026-10-23 20:44）
 
-- 用户确认[原型V1与流程](../requirements/2026-10-23-media-status-compact/README.md)并授权正式实施、完整验证后合并，生产未授权。起始main d0a997d，交付适配已合入语音、媒体查看器、倍速及设置修订的main c9f38d9；独占codex/media-status-prototype-20261023，PR #388拥有精确CI和合并结果。
-- 候选统一24px过程／失败、20px完成与44px重试热区，文件准备即独立卡片，修复下载重试反馈结构、进度串用及离线／显现提示；同消息ID、原附件、遮蔽与已读条件保持。d012a7c本地完整门禁通过140文件／1,073项、79/79浏览器，精确PR完整CI39943325241 attempt2成功；早期锚点失败与原样复验历史保留。f0dc468的接收提示收尾与精确完整CI39947281507 attempt2通过；历史恢复步骤Promise GC异常及一次原样复验记录保留。因主线设置已合入且产生实际文本冲突，最终组合版本2026.10.23.6重新跑本地全量及精确CI，结果与合并由PR #388拥有。真机未验证，不代表生产已更新。
-
-
-## 设置与恢复V1.4已合并，未发布（2026-10-23）
-
-用户明确确认[本轮V1.4](../requirements/2026-10-23-settings-17-prototype/README.md)并授权实施。独占任务基于d0a997d，设计提交d06a9dd；覆盖设置分类／系统取色／独立子页、原位创建、设备链接认证、凭证与恢复完整页及其他17项反馈。产品源c2ed3fc的干净本地完整验收已通过（1075项、80浏览器入口）；旧恢复测试补正式退出后定向通过，PR #386已按源3e6ca9395c3c4957726e0d89824bdbb974f2372b合并为6d83e8d66bbcf0489e66ba22acd1bca76d55262c，精确CI由该PR续记，失败历史和未验证范围由需求记录拥有。契约D-077／NEW_ROOM_ARCHIVES／SECURITY及视觉V1.26已同步。未授权本批生产发布，线上状态仍以下方独立发布证据为准。
-
-## 媒体播放与查看器 V1 已合并，本任务未发布（2026-10-23）
-
-- 用户已确认[媒体V1原型与流程](../requirements/2026-10-23-media-playback-viewer/README.md)，授权正式实施、完整回归及固定D交付；独占任务`codex/media-playback-viewer-20261023`，基线`d0a997d4c03d04be3157c976dfe7c53cb32668ce`。修复JPEG预览条目未升级为视频来源，保留封面／遮蔽与原件；控件分区、错误状态、数值倍速、键盘及图片高对比样式按V1实现。
-- [PR #387](https://github.com/zdaiwmm/shui-IM/pull/387)按最终源`5d3d31a8ba0bcd3e3e0a77f9e81b91075dce772c`合并为应用`759f2a40480bd055470ef507fed0d7efb3b05645`／2026.10.23.3，完整文件树相同。已整合先行进入main的语音PR #385，原型仍V1、规范V1.25；未纳入尚未合并的设置PR #386。
-- 初代真实缓存负例准确失败，初代本地78/78通过；最终干净组合构建／类型、140文件／1073项及6项媒体／语音／隐私／完整双端浏览器全部通过。[最终PR完整CI39940501341](https://github.com/zdaiwmm/shui-IM/actions/runs/39940501341) attempt1全绿、Full application verification通过（79个浏览器入口及全量门禁）。初代清理测试超时与旧恢复面板CI超时、各一次定向复验的历史保留于需求记录。
-- [精确main完整CI39941779517](https://github.com/zdaiwmm/shui-IM/actions/runs/39941779517) attempt1全绿、Full application verification通过，已独立核对完整应用SHA。独立文档树仅对账；生产未授权、未发布，iPhone Safari真机及实际编码矩阵未验证。原实现树有活动V1预览，保留待后续验收／发布；下方生产事实保持其原应用SHA。
-- 收尾在同一V1范围发现200%文字的1.5×数值超出固定圆形按钮，正式组件及原CSS负例已复现。倍速按文字自然加宽，保持44px最小热区；完整视频专项首次修复验证通过。[PR #390](https://github.com/zdaiwmm/shui-IM/pull/390)按干净源`7f98830caf4490b4b988448f4ccbe70cefa4c259`合并为最终应用`dfac745731ac432fe96032345b6badde64c34c0d`／2026.10.23.4，完整文件树相同，包含全部媒体V1修复。
-- 续修本地构建／类型及140文件／1073项通过，[精确PR完整CI39944787623](https://github.com/zdaiwmm/shui-IM/actions/runs/39944787623) attempt1全绿、Full application verification通过（79个浏览器入口及全量门禁）。[最终应用main完整CI39945974639](https://github.com/zdaiwmm/shui-IM/actions/runs/39945974639) attempt2全绿、Full application verification通过，head已独立核对；首轮WebKit邀请目录请求错误仅该失败分片原样复验一次后通过，原因未确认，原断言及首次记录保留。文档只对账，本任务未执行生产发布，Safari真机与编码矩阵仍未验证。 收尾时设置PR #386独立合并为`6d83e8d66bbcf0489e66ba22acd1bca76d55262c`；本需求仅在文档分支保留双方状态，媒体应用证据仍对应上述dfac7457，不将新设置组合的验证归于本任务。
+- 用户针对已合并版本回复「确认，发布生产」。实际应用`c3fa0761fa7b97005e4515568333493759cd7243`／2026.10.23.6来自[PR #388](https://github.com/zdaiwmm/shui-IM/pull/388)，与最终源e190bb7完整文件树相同；前一生产为76583015／2026.10.23.1。本批包含此前已合并的[语音V1](../requirements/2026-10-23-voice-quality-bubble/README.md)、[设置V1.4](../requirements/2026-10-23-settings-17-prototype/README.md)、[媒体查看器及倍速](../requirements/2026-10-23-media-playback-viewer/README.md)与[附件24/20](../requirements/2026-10-23-media-status-compact/README.md)，各需求保存原确认、实现及有界失败历史。
+- 附件过程／失败24px、完成20px、重试热区至少44px；文件准备即独立卡片，下载重试、上传进度、连接／显现提示及回执位置已修复。附件规范V1.27、设置V1.26、查看器V1.25及语音V1.24同时保留；设置设备／恢复语义以PRODUCT、NEW_ROOM_ARCHIVES与SECURITY的已确认契约为准。
+- 最终源干净本地完整门禁通过140文件／1,075项、80/80浏览器，0失败／0未运行。[精确PR完整CI39950049081](https://github.com/zdaiwmm/shui-IM/actions/runs/39950049081) attempt2与[精确main完整CI39952747000](https://github.com/zdaiwmm/shui-IM/actions/runs/39952747000) attempt1均成功，Full application verification通过。PR首轮恢复面板超时经一次原样复验通过、原因未定，原断言及失败记录保留。
+- 固定只读预检PREFLIGHT_OK后，唯一[正式云发布39954370227](https://github.com/zdaiwmm/shui-IM/actions/runs/39954370227)取得精确DEPLOY_VERIFIED；初次回读仅backup starting，核对原5分钟探针后只续跑同SHA readback-only，于2026-10-23T12:44:13.352Z取得READBACK_OK，3,207ms。应用／备份running且healthy、TURN运行且探针none，精确SHA／镜像、HTTPS／数据库／存储、公开与容器资源及新WebSocket一致，维护门absent；公网版本2026.10.23.6，管理员及通话启用。
+- 完整证据见[本轮发布记录](../../RELEASING.md#release-media-status-compact-20261023)，脱敏回执位于公共Git元数据quiet-room-deliveries/evidence/media-status-release-20261023/。独立文档树只对账，应用SHA不随文档合并前进；源树有活动原型／忽略缓存／专属回执，当前对账树使用中，按门禁保留，其他任务不处理。iPhone／iOS27／Safari真机及独立安全审阅仍未验证。下方均为此前发布的历史事实。
 
 ## 系统审计四项修复已发布（2026-10-23 09:42）
 

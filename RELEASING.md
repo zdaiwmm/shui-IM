@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+<a id="release-media-status-compact-20261023"></a>
+## 附件紧凑状态与主线组合已发布（2026-10-23 20:44）
+
+- 用户在本聊天确认合并版本c3fa076／2026.10.23.6后回复「确认，发布生产」；本轮固定完整应用`c3fa0761fa7b97005e4515568333493759cd7243`，未改变目标。应用与最终源`e190bb777db3a9381555c3184858e833597958ce`的完整文件树均为`f9408e97186ad033211fe272df7b68e0c773bb5c`，由[PR #388](https://github.com/zdaiwmm/shui-IM/pull/388)合并。本批包含已合入主线的语音#385、设置#386、查看器#387及倍速#390；产品／安全取舍分别由各需求记录拥有，不纳入未合并分支。
+- [附件V1](docs/requirements/2026-10-23-media-status-compact/README.md)统一24px过程／失败、20px完成与至少44px重试热区，修复下载重试反馈结构、上传进度串用、提交失败复用及状态提示，固定接收回执位置；附件原件、消息身份、遮蔽及已读条件保持原契约。
+- 最终干净源本地check:full单次通过140文件／1,075项、80/80浏览器入口，0失败／0未运行，浏览器1,249.80秒。[精确PR完整CI39950049081](https://github.com/zdaiwmm/shui-IM/actions/runs/39950049081) attempt2成功、[精确main完整CI39952747000](https://github.com/zdaiwmm/shui-IM/actions/runs/39952747000) attempt1成功，Full application verification均通过。PR首轮恢复批准面板退场超时，一次原样失败任务复验通过，原因未定；更早夹具及CI异常由需求记录／PR保留，未放宽断言或限时。
+- 固定[只读云预检39954073168](https://github.com/zdaiwmm/shui-IM/actions/runs/39954073168)取得PREFLIGHT_OK，117,012ms；随后固定入口publish.mjs --cloud --with-readback --environment production按既有production审核登记本次用户授权，唯一[正式云发布39954370227](https://github.com/zdaiwmm/shui-IM/actions/runs/39954370227)取得精确DEPLOY_VERIFIED。请求7472b2d3-d378-4e82-8796-f850a6ed5002仅派发一次，从`76583015b4c9d7d404e0f5bf66d12974065aba7d`切换，批次20261023T123550Z；工作流来源与应用均为获批SHA，未修改保护、helper、云权限或健康门槛。
+- 云回执开始2026-10-23T12:35:08.564Z、完成12:38:30.399Z；外层cloud-publish 250,186ms含审核等待，工作流执行3分35秒。linux/amd64镜像`sha256:ce88dbc1b5808233acb25fa46d956eb5cf859a0e293e720cbddbabce50abee90`，归档SHA-256 `cf04d6f3e8633854dcbb3688a7953a990fab55f266e14d5250595d620377e825`、210,066,178字节，绑定精确main CI39952747000／attempt1。
+- 首次独立回读12:38:50.749Z仅因backup starting未通过；应用healthy、目标SHA／镜像一致、维护门absent。核实compose既有5分钟启动期和探针间隔后，只续跑同SHA的readback-only，未再次切换、重启或调整检查。最终回读2026-10-23T12:44:10.144Z启动、12:44:13.352Z完成，3,207ms取得READBACK_OK：应用／备份running且healthy，TURN运行且探针none；精确提交、实际镜像、HTTPS／数据库／存储、公开及容器产物和新WebSocket一致，维护门absent；管理员及通话启用。额外公网Service Worker核对版本2026.10.23.6。
+- 脱敏预检／发布及初次／最终回读证据保存在公共Git元数据quiet-room-deliveries/evidence/media-status-release-20261023/。第二个无部署配置工作树仅对账，不部署文档提交；本任务源树仍有活动原型、忽略缓存与专属回执，对账树仍被当前会话使用，按清理门禁保留，其他任务不处理。iPhone／iOS27／Safari真机及独立安全审阅未验证；上线回读不替代既有高安全声明门槛。
+
 <a id="release-system-audit-fixes-20261023"></a>
 ## 系统审计四项修复已发布（2026-10-23 09:42）
 
