@@ -331,6 +331,41 @@ try {
     return { sentArms: 1, deliveredArms: 1, pendingAndFailure: 'explicit', retry: true, accessibleDescriptions: true };
   });
 
+  results.outgoingChatReceiptAnchor = await page.evaluate(async () => {
+    const { app, fresh, message, root } = window.regression; fresh();
+    app.messages = new Map(Array.from({ length: 60 }, (_, index) => [index + 1, message(index + 1)]));
+    app.renderChat();
+    const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const finishNavigation = () => new Promise(resolve => {
+      const check = () => document.querySelector('#app')?.dataset.pageTransition ? requestAnimationFrame(check) : resolve();
+      check();
+    });
+    const list = document.querySelector('#message-list');
+    list.dispatchEvent(new WheelEvent('wheel', { deltaY: -160, bubbles: true }));
+    window.scrollTo(0, document.documentElement.scrollHeight - innerHeight - 160);
+    await settle();
+    const saved = structuredClone(app.captureChatAnchor());
+    app.transitionPage('forward', () => app.renderGallery());
+    if (!list.isConnected || !list.closest('[inert]')) throw Error('Outgoing receipt fixture did not retain the retiring chat');
+    // A socket acknowledgement/receipt may finish during the exit animation.
+    // Its render must not consume the next chat entry's saved-position intent.
+    app.renderMessages();
+    await finishNavigation();
+    app.transitionPage('backward', () => app.renderChat());
+    await finishNavigation(); await settle();
+    const restored = app.captureChatAnchor();
+    if (restored?.clientMsgId !== saved.clientMsgId || Math.abs(restored.offset - saved.offset) > 2 || restored.pinnedToBottom) {
+      throw Error(`A receipt in the outgoing chat lost the gallery return position: ${JSON.stringify({ saved, restored })}`);
+    }
+    // A temporary interaction block (for example portrait guidance) still
+    // owns its current chat. It must catch up before interaction resumes.
+    root.inert = true;
+    app.messages.set(61, message(61)); app.renderMessages();
+    root.inert = false;
+    if (!document.querySelector('[data-client-msg-id="message-61"]')) throw Error('An interaction block discarded an active-chat update');
+    return { saved, restored, outgoingReceiptPreserved: true, blockedActiveChatUpdated: true };
+  });
+
   // A saved offset may sit deep inside a tall photo. A cold 128px placeholder
   // must not replace that anchor with the next message before the photo decodes.
   results.coldImageAnchor = await page.evaluate(async () => {
