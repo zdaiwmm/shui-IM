@@ -794,9 +794,17 @@ try {
   for (let step=0;step<8&&!await page.locator('.viewer-video-seek').evaluate(el=>el===document.activeElement);step++) await page.keyboard.press('Tab');
   assert.equal(await page.locator('.viewer-video-seek').evaluate(el=>el===document.activeElement),true,'The progress input is absent from keyboard navigation');
   await page.locator('.viewer-stage video').evaluate(video=>{video.pause();video.currentTime=.7;});
+  // Setting currentTime starts an asynchronous seek. The native range keeps
+  // its old value until media events update it, possibly at its lower bound.
+  // Start the keyboard assertion only after the requested baseline is visible.
+  await page.waitForFunction(()=>{
+    const video=document.querySelector('.viewer-stage video'),seek=document.querySelector('.viewer-video-seek');
+    return !video.seeking && Math.abs(video.currentTime-.7)<.01 && Math.abs(seek.valueAsNumber-video.currentTime)<.051;
+  });
   const beforeKeyboardSeek=await page.locator('.viewer-stage video').evaluate(video=>video.currentTime);
   await page.keyboard.press('ArrowLeft');
   assert(await page.locator('.viewer-stage video').evaluate((video,before)=>video.currentTime<before,beforeKeyboardSeek),'Keyboard seeking did not move playback');
+  console.log('VIDEO_KEYBOARD_SEEK_OK',JSON.stringify({before:beforeKeyboardSeek,after:await page.locator('.viewer-stage video').evaluate(video=>video.currentTime)}));
   const promotion = await page.evaluate(() => {
     const f=window.videoFlow, c=f.app.imageCache.get(f.manifests.chatVideo.blobId);
     f.playbackUrl=c.url;
