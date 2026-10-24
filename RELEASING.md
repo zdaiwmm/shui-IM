@@ -1,5 +1,18 @@
 # Quiet Room 固定发布流程
 
+<a id="release-admin-v1-20261025"></a>
+## 后台管理工作区 V1 已发布（2026-10-25 04:10）
+
+- 用户确认[后台V1](docs/requirements/2026-10-25-admin-v1/README.md)，明确免原型直接实施，要求功能与视觉交互一并交付；随后对完整应用SHA明确回复「确认该提交，授权本批预检及发布审批」，无独立消息permalink。[PR #408](https://github.com/zdaiwmm/shui-IM/pull/408)合并为实际应用`cd8bf37ebc64618834ff4046beb75529a506374e`／2026.10.24.6，与最终源`9093036326ca305fb53902fe5266fccda61577de`完整文件树同为`d66bfe841ba468c767113bb62dd497535a4ae1b9`；前一生产b9afc40／2026.10.24.3。本批包含主线已确认的九主题与进入／表情状态修复，未纳入其他未合并任务。
+- 后台重组为总览、密室管理、归档与备份、表情资源、运维诊断、安全与审计六入口，落实九主题、桌面侧栏、手机导航、筛选、详情、焦点及危险操作范围确认。新版本人归档、旧版备份与服务器灾备分别表达；来源密室删除后独立归档保留，接口仅投影必要元数据。灾备状态经独立只读状态卷传递有界白名单摘要；原认证、来源、CSRF、新因素及密码学边界由SECURITY、NEW_ROOM_ARCHIVES与需求记录拥有。
+- 最终源干净树本地完整浏览器82/82通过，0失败／0未运行，runner 1332.14秒；当前后台Chromium与本机HTTPS桌面WebKit专项通过，九主题明暗同时验证真实配色和4.5对比度。此前组合94860c0构建通过、1070项单元通过、11项因本机96%磁盘容量门槛阻塞，并记录备份临时目录ENOTEMPTY；没有降低容量策略。原导航过渡4.0829对比度失败通过同步文字／底色及更强配色断言修正，早期候选、主动中断及其他失败保留于需求记录，不冒用其结果。
+- [精确PR完整CI40124097710](https://github.com/zdaiwmm/shui-IM/actions/runs/40124097710)与[精确main完整CI40125845098](https://github.com/zdaiwmm/shui-IM/actions/runs/40125845098)均attempt1全部成功，含全部单元／集成、浏览器分片、真实通话、双架构镜像、凭据扫描和Full application verification。九主题与进入修复原批次的WebKit／视频失败原因未定，历史继续保留；本批成功不表示那些旧失败已被定位修复。
+- 固定[只读预检40126602588](https://github.com/zdaiwmm/shui-IM/actions/runs/40126602588)原先停在production必需审核；用户授权后正常批准同一运行并续跑，取得PREFLIGHT_OK，未重派预检。唯一[正式云发布40127938112](https://github.com/zdaiwmm/shui-IM/actions/runs/40127938112)正常通过本批已有环境审批，固定入口核对精确DEPLOY_VERIFIED；请求`857e4b92-d1c7-46c0-99f7-377b5e9cde5d`仅派发一次。环境保护、云权限及root helper未修改。
+- 发布回执开始`2026-10-24T20:02:15.481Z`、完成`20:05:31.487Z`，批次`20261024T200253Z`；外层cloud-publish 251028ms含正常审核等待。工作流来源与应用均为获批SHA，linux/amd64镜像`sha256:419cb01ef7d517b6eca146e667d6b2264765c3070baf240d32e2b015d8b8afc5`，归档摘要`db9e24f4b8d1467beb4b4d233b555122da69c8c5edfc0044d381816aca535be4`、210107627字节，绑定精确main CI40125845098／attempt1。
+- 首次独立回读`2026-10-24T20:05:48.777Z`仅备份starting，应用healthy、精确SHA／镜像一致、维护门absent；只读核实备份启动`20:05:18.499252707Z`及既有五分钟探针／启动期后，待healthy仅续跑同SHA readback-only。最终`20:10:53.824Z`至`20:10:57.015Z`取得READBACK_OK，3190ms：应用／备份running且healthy，TURN运行且探针none；SHA／镜像、HTTPS／数据库／存储、公开及容器资源、新WebSocket一致，管理员及通话启用，维护门absent。没有二次切换。
+- 用户另明确授权重设管理员随机密码并保留原TOTP。受信任维护完成保护配置替换，由本次新进程启用；真实HTTPS的新密码／原动态码、会话和退出均通过，验证会话已注销。线上后台releaseId为2026.10.24.6，新增状态通道available，读取mac-pull模式及有效回执；此证据不代表每台设备最新内容已备份。密码、种子及会话材料不进入仓库或发布证据。
+- 白名单证据保存于公共Git元数据`quiet-room-deliveries/evidence/admin-v1-20261025/reviewed-summary.json`。独立文档树不含部署配置，知识库提交不替代线上应用SHA；资源按固定清理入口逐项核验，保留项另存机械结果，其他任务不处理。真实iPhone／iOS27／Safari与独立安全审阅尚未验证，公开高安全声明仍受既有门禁约束。
+
 <a id="release-ui-13-fixes-20261025"></a>
 ## 贴纸、设备接入与十三项体验修复已发布（2026-10-25 00:30）
 
