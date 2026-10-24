@@ -2,6 +2,7 @@ import { afterMotion, motion } from './motion';
 import type { ImageManifest } from './types';
 import { photoDetailGroups, type PhotoTags } from './photo-detail-model';
 import { readPhotoMetadata } from './photo-metadata';
+import { createElement, X } from 'lucide';
 
 export function mountPhotoDetails(viewer: HTMLElement, options: {
   manifest: ImageManifest;
@@ -22,12 +23,12 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
   panel.addEventListener('animationend', event => { if (event.animationName === 'photo-details-enter') panel.classList.remove('is-opening'); });
   panel.setAttribute('aria-label', '图片详情');
   panel.innerHTML = `<button class="photo-details-handle" type="button" aria-label="展开全屏图片详情" aria-expanded="false"></button>
-    <header><h2>图片详情</h2></header>
+    <header><h2>图片详情</h2><button class="photo-details-close" type="button" data-photo-details-close aria-label="关闭图片详情">${createElement(X).outerHTML}</button></header>
     <p class="photo-details-status" role="status">正在读取图片属性</p>
-    <div class="photo-details-content" tabindex="0" aria-label="图片属性"></div><button class="photo-details-footer" type="button" data-photo-details-close aria-label="收起图片详情">收起详情</button>`;
-  const close = panel.querySelector<HTMLButtonElement>('[data-photo-details-close]')!;
+    <div class="photo-details-content" tabindex="0" aria-label="图片属性"></div>`;
+  const close=panel.querySelector<HTMLButtonElement>('[data-photo-details-close]')!;
+  close.addEventListener('click',options.close);
   const expandButton = panel.querySelector<HTMLButtonElement>('.photo-details-handle')!;
-  close.addEventListener('click', options.close);
   panel.addEventListener('keydown', event => {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); options.close(); }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') event.stopPropagation();
@@ -99,12 +100,12 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
     panel.classList.remove('is-opening');
     panel.classList.add('is-expanded');
     expandButton.setAttribute('aria-expanded', 'true');
-    expandButton.setAttribute('aria-disabled', 'true');
+    expandButton.setAttribute('aria-label', '关闭图片详情');
     if (!reducedMotion) resizeAnimation = panel.animate([
       { transform: `translateY(${top - panel.getBoundingClientRect().top}px)` }, { transform: 'translateY(0)' },
     ], { duration: motion.panel, easing: motion.settle });
   };
-  expandButton.addEventListener('click', () => { if (performance.now() >= suppressExpandClickUntil) expand(); });
+  expandButton.addEventListener('click', () => { if (performance.now() >= suppressExpandClickUntil) { if(panel.classList.contains('is-expanded'))options.close();else expand(); } });
   let drag: { x: number; y: number; offset: number; distance: number; content: boolean; allowed: boolean } | undefined;
   const beginDrag = (x: number, y: number, target: EventTarget | null) => {
     if (closing || (target instanceof Element && target.closest('button') && target !== expandButton)) return;

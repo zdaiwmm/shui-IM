@@ -8,6 +8,7 @@ const SHELL = ['/', '/manifest.webmanifest', '/icon.svg', '/favicon.svg?v=202610
 function isCacheableAsset(url) {
   return url.origin === self.location.origin && (
     url.pathname.startsWith('/assets/') ||
+    url.pathname.startsWith('/space-avatars/') ||
     url.pathname === '/icon.svg' || url.pathname === '/favicon.svg' || url.pathname === '/favicon-32.png' ||
     url.pathname === '/icon-192.png' || url.pathname === '/icon-512.png' ||
     url.pathname === '/manifest.webmanifest'

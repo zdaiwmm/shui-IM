@@ -254,9 +254,9 @@ try {
   assert.ok(expanded.handleWidth>=44&&expanded.handleHeight>=44,'detail handle must retain a full touch target');
   assert.ok(Math.abs(expanded.top) < 1 && Math.abs(expanded.height) < 1, JSON.stringify(expanded));
   await page.locator('.photo-details-content').focus(); await page.keyboard.press('Tab');
-  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('photo-details-footer')), true, 'content proceeds to the sole close action');
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('photo-details-handle')), true, 'content proceeds to the sole close action');
   await page.keyboard.press('Tab');
-  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('photo-details-handle')), true, 'fullscreen focus must stay in the sheet');
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('photo-details-close')), true, 'fullscreen focus must stay in the sheet');
   await capture('photo-details-fullscreen-dark');
   await page.locator('[data-photo-details-close]').click();
   await page.waitForSelector('.photo-details', { state: 'detached' });
