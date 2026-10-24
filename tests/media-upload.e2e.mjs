@@ -27,7 +27,14 @@ try {
     app.connectionState = 'disconnected'; app.retryOperation = operation => operation();
     Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
     const blobs = new Map();
-    const gate = { release: null, hold: true, fail: false, requests: 0, failCommit: false, failDownload: false, holdDownload: false, downloadRelease: null, downloadWaiters: [], downloads: 0 };
+    const gate = { release: null, hold: true, fail: false, requests: 0, failCommit: false, failDownload: false, holdDownload: false, skipLocalPreviewCache: false, downloadRelease: null, downloadWaiters: [], downloads: 0 };
+    const cacheLocalImage = app.cacheLocalImage.bind(app);
+    app.cacheLocalImage = (manifest, blob, ...args) => {
+      // Sending normally caches the selected File before enqueue. Cold cases
+      // explicitly omit that optimization; verified downloaded Blobs still cache.
+      if (gate.skipLocalPreviewCache && blob instanceof File) return;
+      return cacheLocalImage(manifest, blob, ...args);
+    };
     const realFetch = window.fetch.bind(window);
     window.fetch = async (input, init = {}) => {
       const url = new URL(typeof input === 'string' ? input : input.url, location.href);
@@ -172,10 +179,10 @@ try {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' });
     }
-    // These are the first uses of their originals. Later variants deliberately
-    // reuse a verified cache entry and may complete handoff in the same task.
+    // Force two cold previews; normal sends cache their File before enqueue
+    // and may complete handoff in the same task without any download request.
     const stalledExpression = variant === 'expression' || variant === 'tall-expression';
-    await page.evaluate(stall => { const g = window.mediaFixture.gate; g.hold = false; g.fail = false; g.holdDownload = stall; }, stalledExpression);
+    await page.evaluate(stall => { const g = window.mediaFixture.gate; g.hold = false; g.fail = false; g.holdDownload = stall; g.skipLocalPreviewCache = stall; }, stalledExpression);
     await draft.getByRole('button', { name: '重试', exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll('.media-upload').length === 0);
     const message = page.locator(`.message[data-client-msg-id="${id}"]`);
