@@ -194,7 +194,7 @@ try {
       await page.evaluate(method=>{fixture.session.vault.personalBinding=method==='renderBackupSettings'?undefined:{identity:{id:'synthetic-ui-root'}};fixture.fresh(0);fixture.app[method]();},method);await page.clock.runFor(100);
       assert.equal(await page.locator('.chamber-settings-page').count(),1,JSON.stringify({width,method,dom:await page.locator('#app').evaluate(n=>n.innerHTML.slice(0,400)),errors}));
       const layout=await page.locator('.chamber-settings-page').evaluate(p=>{const b=p.querySelector('.chamber-page-footer button').getBoundingClientRect(),f=p.querySelector('.chamber-page-footer').getBoundingClientRect();return {width:b.width,height:b.height,inside:b.bottom<=innerHeight+1,padding:b.left-f.left,overflow:document.documentElement.scrollWidth>innerWidth+1};});
-      assert.ok(layout.width>0&&layout.height>=44&&layout.inside&&layout.padding===20&&!layout.overflow,JSON.stringify({width,method,layout}));
+      assert.ok(layout.width>0&&layout.height>=44&&layout.inside&&layout.padding===(width>=1024?28:20)&&!layout.overflow,JSON.stringify({width,method,layout}));
       await capture(`settings-${method}-${width}`);
     }
   }
