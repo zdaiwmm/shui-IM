@@ -40,7 +40,7 @@ try {
     assert.equal(await page.locator('#chamber-migration-settings').count(),0);
     assert.equal(await page.locator('#backup-settings').textContent(),'恢复卡');
     const desktop=page.locator('.desktop-settings-page');
-    if(await desktop.count())await desktop.locator('.space-back').click();else await page.locator('.space-drawer-overlay:not(.is-closing) .settings-dismiss-handle').click();
+    if(await desktop.count())await desktop.locator('.space-back').click();else await page.locator('.space-drawer-overlay:not(.is-closing) :is(.settings-dismiss-handle,.settings-desktop-close):visible').click();
     await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
   }
   // Existing backup deep links still use normal navigation and retain drafts.

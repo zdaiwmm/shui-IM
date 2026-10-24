@@ -36,7 +36,7 @@ try {
  await page.locator('.app-toast').waitFor();await page.waitForFunction(n=>window.credentialRequests>n,beforeChange.requests);
  assert.equal(await page.locator('.auto-lock-page').count(),1,'Canceled replacement preserves the origin page');
  assert.equal(await page.evaluate(async()=>(await(await import('/src/lib/vault.ts')).readRoomProtection()).revision),beforeChange.revision);
- await page.locator('#auto-lock-back').click();await page.locator('.is-settings-page[aria-label="设置"]').waitFor();await page.locator('.is-settings-page .space-back:visible, .is-settings-page .settings-dismiss-handle:visible').click();
+ await page.locator('#auto-lock-back').click();await page.locator('.is-settings-page[aria-label="设置"]').waitFor();await page.locator('.is-settings-page .space-back:visible, .is-settings-page .settings-dismiss-handle:visible, .is-settings-page .settings-desktop-close:visible').click();
  await page.evaluate(()=>{sessionStorage.setItem('cancel-next-unlock','1');app.manualLock();});await page.locator('[data-room-unlock]:not(:disabled)').waitFor();await page.locator('.app-toast').waitFor();
  const requests=await page.evaluate(()=>window.credentialRequests);await page.locator('[data-room-unlock]').click();await page.locator('#copy-invite').waitFor();
  assert.equal(await page.evaluate(()=>window.credentialRequests),requests+1,'Unlock after canceled replacement performs a fresh assertion');
