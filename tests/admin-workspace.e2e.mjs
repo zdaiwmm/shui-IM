@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createServer as createNetServer } from 'node:net';
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 import { startServer } from '../server/index.mjs';
 import { makeAdminConfig, totp } from '../server/admin-auth.mjs';
 import { canonicalStringify } from '../server/protocol.mjs';
@@ -27,7 +27,8 @@ try {
   service.store.roomArchives.register(room.roomId,owner.deviceId,descriptor,'creator',proof);
   const unsigned={v:2,archiveId:descriptor.id,id:randomUUID(),enc:randomBytes(32).toString('base64url'),ciphertext:randomBytes(64).toString('base64url')};
   service.store.roomArchives.put(room.roomId,owner.deviceId,descriptor.id,{...unsigned,signature:sign(null,Buffer.from(canonicalStringify(unsigned)),signing.privateKey).toString('base64url')});
-  browser=await chromium.launch(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
+  if(process.env.ADMIN_BROWSER&&!['chromium','webkit'].includes(process.env.ADMIN_BROWSER))throw new Error('Unknown admin browser');
+  browser=process.env.ADMIN_BROWSER==='webkit'?await webkit.launch():await chromium.launch(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
   const page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(20_000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
   const capture=async name=>{if(screenshots)await page.screenshot({path:path.join(screenshots,`${name}.png`),fullPage:true,animations:'disabled'});};
   const nav=async name=>{const b=page.locator('#admin-nav').getByRole('button',{name,exact:true});if(!await b.isVisible())await page.getByRole('button',{name:'打开后台导航',exact:true}).click();await b.click();await page.getByRole('heading',{name:name==='表情资源'?'表情管理':name,exact:true}).waitFor();};
@@ -66,5 +67,5 @@ try {
   assert.equal(service.store.roomState(room.roomId),null);await nav('归档与备份');await page.getByRole('button',{name:'本人归档',exact:true}).click();await page.getByRole('button',{name:descriptor.id,exact:true}).waitFor();await page.getByText('来源密室已移除，归档保留',{exact:true}).waitFor();await capture('retained-archive');
   await page.route('**/admin-api/archives?*',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'合成读取失败'})}));await page.getByRole('button',{name:'刷新归档列表',exact:true}).click();await page.getByText('合成读取失败',{exact:true}).waitFor();await page.unroute('**/admin-api/archives?*');await page.getByRole('button',{name:'重试',exact:true}).click();await page.getByRole('button',{name:descriptor.id,exact:true}).waitFor();
   await page.reload();await page.getByRole('heading',{name:'归档与备份',exact:true}).waitFor();await page.getByRole('button',{name:descriptor.id,exact:true}).waitFor();
-  assert.deepEqual(errors,[]);console.log('Admin workspace passed: real authentication, six entries, format filters, metadata boundaries, protected deletion, retained archives, retry, refresh, responsive navigation and rendered states.');
+  assert.deepEqual(errors,[]);console.log(browser.browserType().name()+' admin workspace passed: real authentication, six entries, format filters, metadata boundaries, protected deletion, retained archives, retry, refresh, responsive navigation and rendered states.');
 }finally{await browser?.close();await service?.close();await rm(directory,{recursive:true,force:true});}

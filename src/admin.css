@@ -339,7 +339,7 @@ summary { cursor: pointer; min-height: 44px; padding-block: 10px; }
 .sidebar-nav .nav-item { border-radius: 10px; padding: 10px 12px; gap: 12px; font-size: .875rem; font-weight: 500; text-align: left; }
 .sidebar-nav .nav-item svg { width: 18px; height: 18px; stroke-width: 1.7; flex: 0 0 auto; }
 .sidebar-nav .nav-item:hover:not(:disabled) { background: color-mix(in srgb,var(--selected) 55%,var(--surface)); }
-.tabler-shell .nav-item[aria-current=page] { font-weight: 650; background: var(--selected); }
+.tabler-shell .nav-item[aria-current=page] { color: var(--ink); font-weight: 650; background: var(--selected); }
 .sidebar-note { margin-top: auto; padding: 24px 12px 0; border-top: 1px solid var(--border); display: grid; gap: 6px; font-size: .75rem; }
 .sidebar-note svg { width: 18px; height: 18px; color: var(--accent); }
 .sidebar-note strong { color: var(--ink); font-weight: 500; }
