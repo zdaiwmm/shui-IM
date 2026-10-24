@@ -1090,6 +1090,9 @@ try {
   await joiner.locator('.document-reader[data-state="ready"] .reader-text').waitFor();
   invariant(await joiner.locator('.reader-text').textContent() === documentFile.buffer.toString(), 'Peer reader changed the verified original text');
   await joiner.getByRole('button', { name: '关闭阅读器', exact: true }).click();
+  // Status labels finish their visible stage before painting the newest state.
+  // Closing the ready reader must not assume that transition is synchronous.
+  await peerDocument.locator('.file-attachment-meta').filter({ hasText: '再次打开' }).waitFor();
   invariant((await peerDocument.locator('.file-attachment-meta').textContent())?.includes('再次打开'), 'Readable peer document did not return to its open state');
 
   const currentChatFiles = '#app > .chat-shell #message-list .message .file-attachment';
