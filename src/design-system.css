@@ -721,20 +721,19 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .space-navigation-cover > .space-drawer { transform:translateX(0); }
 #app .space-navigation-cover.is-closing > .space-drawer { transform:translateX(-100%); }
 
-/* Voice V1.1: the control contains icon/duration; time and receipts stay below. */
-#app :is(.message, .message-action-preview):is(.incoming, .outgoing) .message-bubble.voice-bubble,
-:root[data-color-scheme='dark'] #app :is(.message, .message-action-preview):is(.incoming, .outgoing) .message-bubble.voice-bubble {
-  background: none; border: 0; border-radius: 0; box-shadow: none;
-  padding: 0; overflow: visible; color: var(--ink);
+/* Voice V2.3 shares text-message surfaces. Metadata overlays the full-width
+   control in the same grid cell, so tapping the timestamp also plays/pauses. */
+#app .message-bubble.voice-bubble { padding: 0; overflow: visible; }
+#app .voice-player > .message-meta {
+  grid-area: control; align-self: center; justify-self: end;
+  position: relative; z-index: 1; margin: 0 12px 0 0;
+  transform: translateY(3px); flex-wrap: nowrap; white-space: nowrap;
+  pointer-events: none;
 }
-#app :is(.incoming, .outgoing) .message-bubble.voice-bubble .message-meta,
-#app :is(.incoming, .outgoing) .message-bubble.voice-bubble .message-meta time {
-  color: var(--message-time-on-wall);
+#app .is-failed .voice-player > .message-meta {
+  grid-area: meta; justify-self: stretch; margin: 0; padding: 0 12px 6px;
+  transform: none; flex-wrap: wrap; white-space: normal; pointer-events: auto;
 }
 #app .voice-bubble .message-reply-quote {
-  max-width: 220px; margin: 0 0 5px; color: var(--ink);
-  background: color-mix(in srgb, var(--surface-raised) 88%, var(--ink));
-}
-#app .message-action-group .message-action-preview:has(> .voice-bubble) {
-  overflow: visible; border-radius: 0;
+  max-width: calc(100% - 22px); margin: 8px 11px 4px;
 }

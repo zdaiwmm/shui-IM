@@ -25,7 +25,7 @@ Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请�
 
 # Quiet Room 项目地图
 
-微信式语音气泡：`voice-player.ts`与`voice-messages.css`管理40px主体／44px按钮、按时长伸缩、图标内侧相邻秒数及暂停续播；`design-system.css`隔离透明外层与深色渐变。真实组件、媒体播放／切换及回执回归为`voice-message-ui.e2e.mjs`，并与voice-flow/lifecycle联合。确认及iOS27.2杂音续查由[本需求记录](../requirements/2026-10-23-voice-quality-bubble/README.md)拥有；AAC/Web Audio与Opus的本机对照不代表真机音质修复。
+融合消息体系的语音V2.3：`voice-player.ts`、`voice-messages.css`与`design-system.css`管理40主体／44目标、总宽默认最多220、同排右侧下移3px的时间／回执，以及共享消息主题；`app.ts`把独立回执放入播放器网格，刷新不打断播放。真实几何、四配色／200%文字、加载／重试及原生播放回归为`voice-message-ui.e2e.mjs`，并与voice-flow/lifecycle联合；确认由[本次V2.3](../requirements/2026-10-24-voice-bubble-integrated/README.md)拥有。iOS27.2杂音续查仍由[旧语音需求](../requirements/2026-10-23-voice-quality-bubble/README.md)拥有；合成对照不代表真机音质修复。
 
 重新接入历史归属：`vault.ts`为新本机主密钥分配独立记录范围，逐槽核验原历史所有者并在新槽位关联；`app.ts`覆盖原目录不可见的接替与旧错误会话刷新，保留两份来源槽位。`vault-lifecycle`验证缺失／篡改投影、较早检查点、取消及陈旧守卫；`new-room-flows/mobile`共享`fixtures/repair-history-scope.mjs`覆盖新建另一密室、邀请方离线后上线、原历史／附件／撤回及旧故障会话。边界及阶段见[历史归属V1](../requirements/2026-10-22-repair-history-scope/README.md)。
 
