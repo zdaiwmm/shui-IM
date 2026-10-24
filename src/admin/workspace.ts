@@ -66,6 +66,7 @@ type Detail = Omit<Room, 'devices' | 'backups'> & {
 };
 type Backup = {
     sampledAt?: string;
+    maxAgeMs?: number;
     available: boolean;
     healthy?: boolean;
     code: string;
@@ -459,10 +460,10 @@ export class AdminWorkspace {
     private disaster(host: HTMLElement, data: Backup, time: string) {
         this.stamp(host, time);
         const area = section('服务器灾备', '与本人历史归档独立，用于服务器数据恢复。');
-        const labels: Record<string, string> = { NOT_CONNECTED: '未接入状态源', INVALID_RECEIPT: '回执无效或不可读', STALE_STATUS: '状态摘要已过期或无效', BACKUP_STATE_INVALID_OR_MISSING: '回执缺失或无效', BACKUP_STALE: '恢复点已过期', BACKUP_LAST_ATTEMPT_FAILED: '最近尝试失败', BACKUP_FRESH: '回执检查通过' };
+        const labels: Record<string, string> = { NOT_CONNECTED: '未接入状态源', INVALID_RECEIPT: '回执无效或不可读', STALE_STATUS: '状态摘要已过期或无效', MAC_BACKUP_RECEIPT_MISSING: '缺少有效 Mac 落盘回执', BACKUP_STATE_INVALID_OR_MISSING: '回执缺失或无效', BACKUP_STALE: '恢复点已过期', BACKUP_LAST_ATTEMPT_FAILED: '最近尝试失败', BACKUP_FRESH: '回执检查通过' };
         area.append(badge(labels[data.code] ?? '状态未知', !data.available ? 'muted' : data.healthy ? 'success' : 'warning'));
         if (data.available)
-            area.append(facts([['状态采样于', date(data.sampledAt)], ['备份模式', data.destination === 'mac-pull' ? 'Mac 主动拉取' : '服务器本地模式'], ['恢复点创建于', date(data.snapshotCreatedAt)], ['独立验证完成于', date(data.lastVerifiedAt)], ['最近尝试', date(data.lastAttemptAt)], ['最近尝试结果', data.lastAttemptSucceeded ? '成功' : '失败或未知']]));
+            area.append(facts([['状态采样于', date(data.sampledAt)], ['恢复点有效期', `${(data.maxAgeMs ?? 129600000) / 3600000} 小时`], ['备份模式', data.destination === 'mac-pull' ? 'Mac 主动拉取' : '服务器本地模式'], ['恢复点创建于', date(data.snapshotCreatedAt)], ['独立验证完成于', date(data.lastVerifiedAt)], ['最近尝试', date(data.lastAttemptAt)], ['最近尝试结果', data.lastAttemptSucceeded ? '成功' : '失败或未知']]));
         else
             area.append(note('当前应用未取得可核验的灾备状态。需由受信任运维接入只读状态回执；页面不会据此判断灾备成功。'));
         area.append(note('回执健康不等于本轮重新扫描全部备份，也不代表完成恢复演练。后台不下载快照、不执行生产恢复。'));

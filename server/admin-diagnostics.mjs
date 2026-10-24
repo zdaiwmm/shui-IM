@@ -17,13 +17,16 @@ export async function adminBackupStatus(file, now = Date.now()) {
             return { available: false, code: 'INVALID_RECEIPT' };
         const raw = JSON.parse(buffer.subarray(0, bytesRead).toString('utf8'));
         const sampledAt = Date.parse(typeof raw.sampledAt === 'string' ? raw.sampledAt : '');
-        if (!Number.isFinite(sampledAt) || sampledAt > now || now - sampledAt > 120_000)
+        if (!Number.isFinite(sampledAt) || sampledAt > now || now - sampledAt > 120000)
             return { available: false, code: 'STALE_STATUS' };
         const timestamp = value => typeof value === 'string' && value.length <= 40 && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
         const state = { lastVerifiedAt: timestamp(raw.lastVerifiedAt), snapshotCreatedAt: timestamp(raw.snapshotCreatedAt), lastAttemptAt: timestamp(raw.lastAttemptAt), lastAttemptSucceeded: raw.lastAttemptSucceeded === true,
             destination: raw.destination === 'mac-pull' ? 'mac-pull' : 'local' };
-        const health = backupStateHealth(state, now);
-        return { available: true, sampledAt: new Date(sampledAt).toISOString(), ...state, ...health };
+        const mode = raw.mode ?? 'local', maxAgeMs = raw.maxAgeMs ?? 36 * 60 * 60 * 1000;
+        if (!['local', 'mac-pull'].includes(mode) || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 60000)
+            return { available: false, code: 'INVALID_RECEIPT' };
+        const health = mode === 'mac-pull' && state.destination !== 'mac-pull' ? { healthy: false, code: 'MAC_BACKUP_RECEIPT_MISSING' } : backupStateHealth(state, now, maxAgeMs);
+        return { available: true, mode, maxAgeMs, sampledAt: new Date(sampledAt).toISOString(), ...state, ...health };
     }
     catch {
         return { available: false, code: 'INVALID_RECEIPT' };

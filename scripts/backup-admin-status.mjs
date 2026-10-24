@@ -4,6 +4,10 @@ import path from 'node:path';
 export async function publishBackupAdminStatus(backupRoot, statusRoot, now = Date.now()) {
     if (!statusRoot)
         return;
+    const mode = process.env.BACKUP_MODE ?? 'local';
+    const maxAgeMs = Number(process.env.BACKUP_MAX_AGE_MS ?? 36 * 60 * 60 * 1000);
+    if (!['local', 'mac-pull'].includes(mode) || !Number.isSafeInteger(maxAgeMs) || maxAgeMs < 60000)
+        throw new Error('INVALID_BACKUP_CONFIGURATION');
     let handle, raw = {};
     try {
         handle = await open(path.join(backupRoot, '.backup-state.json'), 'r');
@@ -25,7 +29,7 @@ export async function publishBackupAdminStatus(backupRoot, statusRoot, now = Dat
     if (!raw || typeof raw !== 'object' || Array.isArray(raw))
         raw = {};
     const timestamp = value => typeof value === 'string' && value.length <= 40 && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
-    const state = { sampledAt: new Date(now).toISOString(), lastVerifiedAt: timestamp(raw.lastVerifiedAt), snapshotCreatedAt: timestamp(raw.snapshotCreatedAt), lastAttemptAt: timestamp(raw.lastAttemptAt), lastAttemptSucceeded: raw.lastAttemptSucceeded === true, destination: raw.destination === 'mac-pull' ? 'mac-pull' : 'local' };
+    const state = { mode, maxAgeMs, sampledAt: new Date(now).toISOString(), lastVerifiedAt: timestamp(raw.lastVerifiedAt), snapshotCreatedAt: timestamp(raw.snapshotCreatedAt), lastAttemptAt: timestamp(raw.lastAttemptAt), lastAttemptSucceeded: raw.lastAttemptSucceeded === true, destination: raw.destination === 'mac-pull' ? 'mac-pull' : 'local' };
     await mkdir(statusRoot, { recursive: true, mode: 0o700 });
     const temporary = path.join(statusRoot, `.backup-${process.pid}.tmp`);
     await writeFile(temporary, JSON.stringify(state) + '\n', { mode: 0o600 });

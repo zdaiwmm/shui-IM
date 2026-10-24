@@ -10,7 +10,7 @@ import { generateIdentity } from '../src/lib/crypto';
 import { newArchiveKey, sealArchiveObject, archiveWriterProof, archiveReadToken } from '../src/lib/room-archive-crypto';
 
 const cleanup:(()=>Promise<void>)[]=[];
-afterEach(async()=>{vi.useRealTimers();for(const run of cleanup.splice(0))await run();});
+afterEach(async()=>{vi.useRealTimers();vi.unstubAllEnvs();for(const run of cleanup.splice(0))await run();});
 async function fixture(){const dir=await mkdtemp(path.join(tmpdir(),'admin-metadata-'));let store=await createStore({dataDir:dir});cleanup.push(async()=>{store.close();await rm(dir,{recursive:true,force:true});});const owner=await generateIdentity();const room=store.createRoom(owner.publicBundle,'a'.repeat(43),'b'.repeat(43),'synthetic device');return {dir,owner,room,get store(){return store;},async restart(){store.close();store=await createStore({dataDir:dir});}};}
 describe('administrator metadata projections',()=>{
   it('distinguishes new archives from old checkpoints without exposing capabilities or content',async()=>{
@@ -60,6 +60,12 @@ describe('bounded diagnostic evidence',()=>{
     const projected=path.join(dir,'status','backup.json');
     expect(await adminBackupStatus(projected,now+37*60*60_000)).toMatchObject({available:true,healthy:false,code:'BACKUP_STALE'});
     expect(JSON.stringify(await adminBackupStatus(projected,now+37*60*60_000))).not.toMatch(/never expose|private\/snapshot|secret/);
+    const source=JSON.parse(await (await import('node:fs/promises')).readFile(file,'utf8'));
+    await writeFile(path.join(dir,'.backup-state.json'),JSON.stringify({...source,destination:'local',snapshotCreatedAt:new Date(now-120_000).toISOString()}));
+    vi.stubEnv('BACKUP_MODE','mac-pull');await publishBackupAdminStatus(dir,path.join(dir,'status'),now);
+    expect(await adminBackupStatus(projected,now)).toMatchObject({available:true,healthy:false,code:'MAC_BACKUP_RECEIPT_MISSING'});
+    vi.stubEnv('BACKUP_MODE','local');vi.stubEnv('BACKUP_MAX_AGE_MS','60000');await publishBackupAdminStatus(dir,path.join(dir,'status'),now);
+    expect(await adminBackupStatus(projected,now)).toMatchObject({available:true,healthy:false,code:'BACKUP_STALE',maxAgeMs:60000});
     await writeFile(file,'x'.repeat(4097));expect(await adminBackupStatus(file)).toMatchObject({available:false,code:'INVALID_RECEIPT'});
     await writeFile(file,'{}');expect(await adminBackupStatus(file)).toMatchObject({available:false,code:'STALE_STATUS'});
     await writeFile(path.join(dir,'sw.js'),"const RELEASE_ID = '2026.10.25.1';\n");expect(await adminReleaseId(dir)).toBe('2026.10.25.1');
