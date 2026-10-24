@@ -108,6 +108,30 @@ try {
   const received=await a.evaluate(()=>[...auditApp.messages.values()].filter(m=>m.payload.kind==='text'&&m.payload.text.startsWith('WINDOW offline')).map(m=>m.payload.text));
   assert.equal(received.length,130); assert.deepEqual(received,Array.from({length:130},(_,i)=>`WINDOW offline ${i}`));
   result.windowBoundaryReceived=received.length;
+  // Drop only the transport submission after real MLS ciphertext has committed.
+  // Cancellation must preserve that advanced ratchet, and the next generation
+  // must still decrypt after a real browser reload and reconnect.
+  await b.waitForFunction(()=>!auditApp.outboxDrain&&!auditApp.sending.size);
+  await b.evaluate(()=>{window.heldSend=auditApp.socket.sendEnvelope;auditApp.socket.sendEnvelope=()=>false;});
+  await b.locator('#message-input').fill('CANCEL generated but unsubmitted');
+  await b.locator('#composer').evaluate(form=>form.requestSubmit());
+  await b.waitForFunction(()=>[...auditApp.outbox.values()].some(item=>item.payload.text==='CANCEL generated but unsubmitted'&&item.envelope));
+  const cancelled=await b.evaluate(async()=>{
+    const v=await import('/src/lib/vault.ts'),item=[...auditApp.pending.values()].find(item=>item.payload.text==='CANCEL generated but unsubmitted');
+    const before=auditApp.session.vault.mls.groupState;
+    await auditApp.cancelPendingMessage(item);
+    auditApp.socket.sendEnvelope=window.heldSend;
+    return {id:item.clientMsgId,durable:(await v.loadOutbox(auditApp.session)).some(x=>x.clientMsgId===item.clientMsgId),ratchetPreserved:auditApp.session.vault.mls.groupState===before};
+  });
+  assert.equal(cancelled.durable,false);assert.equal(cancelled.ratchetPreserved,true);
+  await disconnectB();await b.goto('about:blank');await contextB.setOffline(false);await b.goto(origin);await ready(b);
+  assert.equal((await local(b)).outbox.some(x=>x.id===cancelled.id),false);
+  await b.locator('#message-input').fill('AFTER cancellation still decrypts');
+  await b.locator('#composer').evaluate(form=>form.requestSubmit());
+  await a.getByText('AFTER cancellation still decrypts',{exact:true}).waitFor();
+  assert.equal(await a.getByText('CANCEL generated but unsubmitted',{exact:true}).count(),0);
+  assert.equal(service.store.messagesAfter(roomId,0).some(x=>x.envelope.clientMsgId===cancelled.id),false);
+  result.cancelledGeneratedCiphertext={durableRemoved:true,ratchetPreserved:true,reloadNoRetry:true,nextMessageDecrypted:true,serverNeverAccepted:true};
   // A network blackhole inside the vault lease must be cancelled by locking.
   // Route only the real window-refresh GET; retain the actual fetch/abort path.
   let releaseHeld, reachedHeld;

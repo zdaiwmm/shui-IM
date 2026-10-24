@@ -56,7 +56,7 @@ try{
     transitionMediaCapsule(host,draw('上传中'));transitionMediaCapsule(host,draw('加密中'));transitionMediaCapsule(host,draw('已发送'));
     await new Promise(resolve=>setTimeout(resolve,550));const result={painted,text:host.textContent};clearMediaCapsule(host);host.remove();return result;
   });
-  assert.deepEqual(capsuleProof.painted.map(x=>x.text),['上传中','已发送']);assert.ok(capsuleProof.painted[1].time-capsuleProof.painted[0].time>=220,JSON.stringify(capsuleProof));
+  assert.deepEqual(capsuleProof.painted.map(x=>x.text),['上传中','已发送']);assert.ok(capsuleProof.painted[1].time-capsuleProof.painted[0].time>=390,JSON.stringify(capsuleProof));
   await page.locator('#open-memes').click();await page.locator('.emoji-tile').first().waitFor();
   await page.evaluate(()=>{window.savedPacks=app.memePicker.options.packs;app.memePicker.options.packs=()=>new Promise(()=>{});});
   await page.locator('[data-shortcut=add]').click();await page.locator('.meme-search-dialog').waitFor();await page.waitForFunction(()=>document.querySelector('.meme-status')?.textContent!=='正在加载贴纸…');await page.evaluate(()=>{app.memePicker.options.packs=window.savedPacks;});await page.locator('.meme-page-back button').click();await page.locator('.meme-search-dialog').waitFor({state:'detached'});assert.ok(await page.locator('.emoji-tile').count()>0,'Returning from sticker addition restores emoji content');
