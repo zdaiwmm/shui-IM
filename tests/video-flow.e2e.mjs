@@ -794,6 +794,12 @@ try {
   for (let step=0;step<8&&!await page.locator('.viewer-video-seek').evaluate(el=>el===document.activeElement);step++) await page.keyboard.press('Tab');
   assert.equal(await page.locator('.viewer-video-seek').evaluate(el=>el===document.activeElement),true,'The progress input is absent from keyboard navigation');
   await page.locator('.viewer-stage video').evaluate(video=>{video.pause();video.currentTime=.7;});
+  // Assigning currentTime starts an asynchronous seek. Let the player's real
+  // timeupdate synchronize the native range before sending an Arrow key.
+  await page.waitForFunction(()=>{
+    const video=document.querySelector('.viewer-stage video'),seek=document.querySelector('.viewer-video-seek');
+    return !video.seeking&&Math.abs(Number(seek.value)-video.currentTime)<.05;
+  });
   const beforeKeyboardSeek=await page.locator('.viewer-stage video').evaluate(video=>video.currentTime);
   await page.keyboard.press('ArrowLeft');
   assert(await page.locator('.viewer-stage video').evaluate((video,before)=>video.currentTime<before,beforeKeyboardSeek),'Keyboard seeking did not move playback');
