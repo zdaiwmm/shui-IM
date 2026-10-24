@@ -4,7 +4,7 @@
 
 - 用户授权[进入修复V1.3](../requirements/2026-10-25-expression-entry-repair/README.md)仅取证修复两项发布阻塞，免原型／流程图且保留原验收标准。[PR #410](https://github.com/zdaiwmm/shui-IM/pull/410)只修两个浏览器夹具的同步前提：等待键盘／视口／交接所有者结束，再测原工具反向位移；等待真实视频seek和控件同步，再执行原键盘跳转断言。产品、阈值、默认超时及组合交接覆盖保持。
 - 最终源de8d41e与合并主线`3f34a9f5a8979e4164907aaba5f86c5bb1cf644a`树一致；[精确PR CI40129591542](https://github.com/zdaiwmm/shui-IM/actions/runs/40129591542)及[精确main CI40130424473](https://github.com/zdaiwmm/shui-IM/actions/runs/40130424473)均attempt1完整成功，141文件／1081单元、82浏览器入口、通话、双架构及Full application verification通过。原失败与未运行历史继续保留；本机专项两引擎位移均0、视频0.7→0.6通过，不冒充一次本机全套门禁。
-- 功能修复已包含在下方受批生产cd8bf37／2026.10.24.6，本任务只读回读于2026-10-24T20:45:25Z取得READBACK_OK，3242ms；SHA／镜像／公开及容器资源／健康／WebSocket一致，无新的生产切换。主线相对生产只有文档和测试变化，文档SHA不替代线上应用。真实iPhone／iOS27／Safari未验证。
+- 功能修复已包含在下方受批生产cd8bf37／2026.10.24.6，本任务只读回读于2026-10-24T20:45:28.648Z完成并取得READBACK_OK，3242ms；SHA／镜像／公开及容器资源／健康／WebSocket一致，无新的生产切换。主线相对生产只有文档和测试变化，文档SHA不替代线上应用。真实iPhone／iOS27／Safari未验证。
 - 旧源树因dist／node_modules被固定清理检查保留；当前树及证据仍在使用。常规fetch遇已有未知异常引用，未修改未知引用；GitHub实时主线及合并树通过API核验，本机main仍为4356531、origin/main停在已获取的6973445，不能写为同步完成。
 
 ## 后台工作区、九主题与进入修复已发布（2026-10-25 04:10）
