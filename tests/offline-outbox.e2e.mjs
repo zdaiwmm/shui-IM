@@ -118,10 +118,10 @@ try {
   await b.waitForFunction(()=>[...auditApp.outbox.values()].some(item=>item.payload.text==='CANCEL generated but unsubmitted'&&item.envelope));
   const cancelled=await b.evaluate(async()=>{
     const v=await import('/src/lib/vault.ts'),item=[...auditApp.pending.values()].find(item=>item.payload.text==='CANCEL generated but unsubmitted');
-    const before=auditApp.session.vault.mls.groupState;
+    const sequence=auditApp.outbox.get(item.clientMsgId).envelope.retention.sendSequence;
     await auditApp.cancelPendingMessage(item);
     auditApp.socket.sendEnvelope=window.heldSend;
-    return {id:item.clientMsgId,durable:(await v.loadOutbox(auditApp.session)).some(x=>x.clientMsgId===item.clientMsgId),ratchetPreserved:auditApp.session.vault.mls.groupState===before};
+    return {id:item.clientMsgId,durable:(await v.loadOutbox(auditApp.session)).some(x=>x.clientMsgId===item.clientMsgId),sequence,ratchetPreserved:auditApp.session.vault.mls.sendSequence>=sequence};
   });
   assert.equal(cancelled.durable,false);assert.equal(cancelled.ratchetPreserved,true);
   await disconnectB();await b.goto('about:blank');await contextB.setOffline(false);await b.goto(origin);await ready(b);
@@ -130,7 +130,11 @@ try {
   await b.locator('#composer').evaluate(form=>form.requestSubmit());
   await a.getByText('AFTER cancellation still decrypts',{exact:true}).waitFor();
   assert.equal(await a.getByText('CANCEL generated but unsubmitted',{exact:true}).count(),0);
-  assert.equal(service.store.messagesAfter(roomId,0).some(x=>x.envelope.clientMsgId===cancelled.id),false);
+  const serverMessages=service.store.messagesAfter(roomId,0);
+  assert.equal(serverMessages.some(x=>x.envelope.clientMsgId===cancelled.id),false);
+  await b.waitForFunction(()=>[...auditApp.messages.values()].some(m=>m.payload.text==='AFTER cancellation still decrypts'));
+  const nextId=await b.evaluate(()=>[...auditApp.messages.values()].find(m=>m.payload.text==='AFTER cancellation still decrypts').clientMsgId);
+  assert.ok(serverMessages.find(x=>x.envelope.clientMsgId===nextId).envelope.retention.sendSequence>cancelled.sequence);
   result.cancelledGeneratedCiphertext={durableRemoved:true,ratchetPreserved:true,reloadNoRetry:true,nextMessageDecrypted:true,serverNeverAccepted:true};
   // A network blackhole inside the vault lease must be cancelled by locking.
   // Route only the real window-refresh GET; retain the actual fetch/abort path.
