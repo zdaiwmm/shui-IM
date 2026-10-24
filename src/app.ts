@@ -1,4 +1,6 @@
 import { mountSubmissionFeedback } from './lib/ui-notice';
+import { updateTabUnread } from './lib/tab-unread';
+import { cancelOutboxItem, hasOutboxItem } from './lib/vault';
 import { RefreshCw } from 'lucide';
 import { compareOutboxItems } from './lib/outbox-order';
 import { mountRoomCreation } from './lib/room-creation-view';
@@ -527,6 +529,7 @@ export class QuietRoomApp {
   private unreadCounter: UnreadCounter;
   private pending = new Map<string, DecryptedMessage>();
   private outbox = new Map<string, OutboxItem>();
+  private cancellingOutbox = new Set<string>();
   private pendingReceipts = new Map<string, DeliveryReceipt>();
   private serverQueue = new Map<number, ServerMessage>();
   private livePresenceMessages = new WeakSet<ServerMessage>();
@@ -814,8 +817,10 @@ export class QuietRoomApp {
       this.renderReleaseUpdateBanner();
     });
     this.unreadCounter = new UnreadCounter(count => {
+      updateTabUnread(count);
       document.querySelectorAll<HTMLElement>('.cover-unread').forEach(label => { label.textContent = String(count); });
     });
+    updateTabUnread(this.unreadCounter.count);
     this.privacyCurtain = document.createElement('div');
     this.privacyCurtain.className = 'privacy-curtain';
     this.privacyCurtain.setAttribute('aria-hidden', 'true');
@@ -1550,10 +1555,11 @@ export class QuietRoomApp {
       (invitation.kind === 'device' || invitation.kind === 'repair');
     const replaceChamberInvite = vault?.pairingState === 'joining' && !!vault.pendingChamberInvitation &&
       invitation.kind === 'participant' && invitation.invite.roomId === vault.roomId && invitation.invite.accessToken !== (vault.inviteToken??vault.accessToken);
+    const enterDeviceFromPendingInvite=vault?.pairingState==='joining'&&!!vault.pendingChamberInvitation&&invitation.kind==='device';
     const resumeChamberInvite = vault?.pairingState === 'joining' && !!vault.pendingChamberInvitation &&
       invitation.kind === 'participant' && invitation.invite.roomId === vault.roomId && invitation.invite.accessToken === (vault.inviteToken??vault.accessToken);
     if (this.routingInvitation || this.nativeSurfaceActive() || vault?.pendingJointRecovery || (!replaceArchiveRepair&&vault?.pendingRepair) ||
-        vault?.pendingRecovery || (!replaceArchiveRepair && !replaceEndedDeviceTask && !replaceChamberInvite && !resumeChamberInvite && vault?.pairingState && vault.pairingState !== 'ready')) {
+        vault?.pendingRecovery || (!replaceArchiveRepair && !replaceEndedDeviceTask && !replaceChamberInvite && !resumeChamberInvite && !enterDeviceFromPendingInvite && vault?.pairingState && vault.pairingState !== 'ready')) {
       history.replaceState(null, '', location.pathname + location.search);
       if (!this.privacyCovered) this.showNotice('当前任务尚未完成。新邀请未打开，请完成当前任务后重新打开新邀请。', 'error');
       return;
@@ -1575,7 +1581,7 @@ export class QuietRoomApp {
         this.showNotice('邀请链接不完整，请让对方重新发送完整链接。', 'error');
         return;
       }
-      if ((replaceEndedDeviceTask || replaceChamberInvite) && this.session) await this.beginNewSpace(invitation);
+      if ((replaceEndedDeviceTask || replaceChamberInvite || enterDeviceFromPendingInvite) && this.session) await this.beginNewSpace(invitation);
       else if (this.session) await this.openSession(); else await this.renderGateway();
     } catch (cause) {
       if (!this.privacyCovered) this.showNotice(cause instanceof Error ? cause.message : '邀请暂未打开，请重新打开链接', 'error');
@@ -4638,6 +4644,12 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     this.currentSpaceName = spaces.find(space => space.roomId === session.vault.roomId)?.name ?? '密室';
     this.currentSpaceAvatar = spaces.find(space => space.roomId === session.vault.roomId)?.avatar;
     this.inviteReturnToSpaces ||= spaces.length > 1;
+    // A device link owns a new isolated slot; an older code claim is retained,
+    // but must not consume this distinct admission intent after local unlock.
+    if(invitation.kind==='device'&&session.vault.pairingState==='joining'&&session.vault.pendingChamberInvitation){
+      if(invitation.invite.roomId===session.vault.roomId&&invitation.invite.creatorFingerprint!==session.vault.creatorFingerprint)throw new SecurityViolation('设备链接与本机密室身份不一致');
+      await this.beginNewSpace(invitation);return;
+    }
     if (invitation.kind === 'participant' && invitation.invite.roomId === session.vault.roomId &&
         invitation.invite.creatorFingerprint !== session.vault.creatorFingerprint) {
       throw new SecurityViolation('邀请与本机密室的创建者身份不一致');
@@ -7139,6 +7151,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
           ` : ''}
         </div>
         <div class="notice" id="notice" role="status" hidden></div>
+        <div class="chat-history-loading" role="status" hidden></div>
         <section class="message-list" id="message-list" aria-label="聊天消息">${(isChamberVault(this.session.vault) || Boolean(this.session.vault.roomArchiveV2)) ? `<details class="chamber-privacy-guide" ${(this.session.vault.roomArchiveV2 ? this.session.vault.roomArchiveV2.cardVerified : this.session.vault.personalGuide?.mnemonicViewed || this.session.vault.personalGuide?.mnemonicChecked) && this.session.vault.personalGuide?.coverRead && this.session.vault.personalGuide?.autoLockRead ? '' : 'open'}><summary>让你的密室更安心</summary><ol>
             ${this.session.vault.roomArchiveV2 ? `${this.roomGuideStep('cover','01','入口遮蔽',this.entranceCoverEnabled(),'进入时先打开遮蔽页')}${this.roomGuideStep('lock','02','应用锁与自动锁定',this.roomLockEnabled,'进入时需要验证身份')}${this.roomGuideStep('archive','03','聊天记录恢复凭证',Boolean(this.session.vault.roomArchiveV2.cardVerified),'可在任意新密室中找回您的历史记录',true)}` : `<li><button type="button" data-personal-guide="mnemonic"><b>01</b><span><strong>助记词</strong><small>${this.session.vault.personalGuide?.mnemonicViewed ? '已查看，请妥善保存' : this.session.vault.personalGuide?.mnemonicChecked ? '已核对助记词' : '密室进不去时，用它找回并恢复记录'}</small></span><span aria-hidden="true">›</span></button></li>
             <li><button type="button" data-personal-guide="cover"><b>02</b><span><strong>入口遮蔽</strong><small>${this.session.vault.recoveryExperience?.coverEnabled ? '已开启' : '了解伪装入口，按需开启'}</small></span><span aria-hidden="true">›</span></button></li>
@@ -9850,25 +9863,30 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       if(!item.envelope&&session.vault.protocol==='mls-rfc9420')await this.ensureMessageWindow(item.intent?.windowEventSeq!==undefined&&item.intent.windowEventSeq===(session.vault.mls?.lastEventSeq??0));
       const prepared = item.envelope ? item : session.vault.protocol === 'mls-rfc9420'
         ? await withVaultMutation(session, async mutation => {
-          if (!this.isRuntimeActive(epoch, session) || this.accessFailure) return;
+          if (!this.isRuntimeActive(epoch, session) || this.accessFailure || this.cancellingOutbox.has(clientMsgId) || this.outbox.get(clientMsgId)!==item) return;
           if (!item.intent || item.intent.senderId !== session.vault.identity.publicBundle.deviceId) throw new Error('MLS 待发密文缺失，已停止发送');
-          if (!this.isRuntimeActive(epoch, session) || this.accessFailure) return;
+          if (!this.isRuntimeActive(epoch, session) || this.accessFailure || this.cancellingOutbox.has(clientMsgId)) return;
+          if(!await hasOutboxItem(session,clientMsgId,mutation))return;
           const encrypted = await encryptMlsApplication(session.vault, item.payload, clientMsgId);
-          if (!this.isRuntimeActive(epoch, session) || this.accessFailure) return;
+          if (!this.isRuntimeActive(epoch, session) || this.accessFailure || this.cancellingOutbox.has(clientMsgId)) return;
           const next = { ...item, intent: {...item.intent, windowEventSeq: undefined}, envelope: encrypted.envelope };
           await commitMlsSend(session, next, encrypted.nextGroupState, mutation); return next;
         })
         : await prepareLegacyOutboxItem(session, clientMsgId);
       if (!prepared?.envelope) return false;
       const envelope = prepared.envelope;
-      if (!this.isRuntimeActive(epoch, session)) return false;
+      if (!this.isRuntimeActive(epoch, session) || this.cancellingOutbox.has(clientMsgId) || this.outbox.get(clientMsgId)!==item) return false;
       // Projections and ACK reconciliation may retain this pending item's
       // identity. Attach the durable upgrade without replacing that object.
       this.outbox.set(clientMsgId, Object.assign(item, prepared));
       if (this.accessFailure) return false;
       if (this.deferUnsupportedPayload(item)) return false;
-      const accepted = this.socket?.sendEnvelope(envelope, item.payload.kind !== 'gallery-image' && item.payload.kind !== 'gallery-file'
-        && item.payload.kind !== 'reaction' && item.payload.kind !== 'message-delete' && item.payload.kind !== 'media-read' && item.payload.kind !== 'message-read');
+      const accepted=await withVaultMutation(session,async mutation=>{
+        if(!this.isRuntimeActive(epoch,session)||this.accessFailure||this.cancellingOutbox.has(clientMsgId)||this.outbox.get(clientMsgId)!==item||!await hasOutboxItem(session,clientMsgId,mutation))return false;
+        if(!this.isRuntimeActive(epoch,session)||this.cancellingOutbox.has(clientMsgId))return false;
+        return this.socket?.sendEnvelope(envelope,item.payload.kind!=='gallery-image'&&item.payload.kind!=='gallery-file'
+          &&item.payload.kind!=='reaction'&&item.payload.kind!=='message-delete'&&item.payload.kind!=='media-read'&&item.payload.kind!=='message-read');
+      });
       this.scheduleRetry(clientMsgId);
       return accepted === true;
     } catch (cause) {
@@ -9931,7 +9949,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
   }
 
   private scheduleRetry(clientMsgId: string): void {
-    if (this.accessFailure) return;
+    if (this.accessFailure || this.cancellingOutbox.has(clientMsgId) || !this.outbox.has(clientMsgId)) return;
     this.clearRetry(clientMsgId, false);
     const count = (this.retryCounts.get(clientMsgId) ?? 0) + 1;
     this.retryCounts.set(clientMsgId, count);
@@ -11265,14 +11283,39 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       const note = document.createElement('p');
       note.className = 'message-delete-note';
       note.setAttribute('role', 'note');
-      note.textContent = '这条消息尚未送达；隐藏后仍会在连接恢复时尝试发送。';
+      note.textContent = '删除将取消后续发送，连接恢复后也不会再发送。';
       list.append(note);
     }
-    add('delete-local', remainsInOutbox ? '仅本机隐藏（仍会发送）' : '仅为我删除', () => void this.deleteMessageForThisDevice(message));
+    add('delete-local', remainsInOutbox ? '删除并取消发送' : '仅为我删除', () => void (remainsInOutbox ? this.cancelPendingMessage(message) : this.deleteMessageForThisDevice(message)));
     this.positionMessageActions(actions, article);
     // These are choices, not a selected answer. Keyboard navigation can move
     // focus into either item without painting a default selected state.
     actions.focus({ preventScroll: true });
+  }
+
+  private async cancelPendingMessage(message:DecryptedMessage):Promise<void>{
+    const session=this.session,epoch=this.runtimeEpoch,id=message.clientMsgId;
+    const confirmed=[...this.messages.values()].find(item=>item.clientMsgId===id&&!['pending','failed'].includes(item.status));
+    if(confirmed){await this.deleteMessageForThisDevice(confirmed);return;}
+    if(!['pending','failed'].includes(message.status)){await this.deleteMessageForThisDevice(message);return;}
+    if(!session||this.privacyCovered||!this.isOwnMessage(message)||this.cancellingOutbox.has(id)||
+        !['pending','failed'].includes(message.status)||!this.outbox.has(id))return;
+    this.cancellingOutbox.add(id);this.clearRetry(id);this.closeMessageActions(false,false);
+    try{
+      await withVaultMutation(session,async mutation=>{
+        if(!this.isRuntimeActive(epoch,session))throw new DOMException('取消已结束','AbortError');
+        await cancelOutboxItem(session,id,mutation);
+        if(!this.isRuntimeActive(epoch,session))return;
+        this.outbox.delete(id);this.pending.delete(id);
+        this.uiPreferences.hiddenChatMessageIds=[...new Set([...(this.uiPreferences.hiddenChatMessageIds??[]),id.toLowerCase()])];
+      });
+      if(this.isRuntimeActive(epoch,session)){
+        if(this.replyTarget?.clientMsgId===id)this.replyTarget=null;
+        this.renderMessages({scroll:'preserve'});this.renderReplyDraft();this.showNotice('已删除，不再发送');
+        void this.resumeOutbox();
+      }
+    }catch(cause){if(this.isRuntimeActive(epoch,session)){this.cancellingOutbox.delete(id);this.operationalError(cause,'删除未能保存，消息仍保留在待发箱');this.scheduleRetry(id);}}
+    finally{this.cancellingOutbox.delete(id);}
   }
 
   private async deleteMessageForThisDevice(message: DecryptedMessage): Promise<void> {
@@ -12073,6 +12116,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     }
     this.historyLoading = true;
     list.dataset.historyLoading = 'true';
+    const loading=this.root.querySelector<HTMLElement>('.chat-history-loading');
+    if(loading){loading.textContent='正在加载历史消息';loading.hidden=false;}
     try {
       const older = await loadHistoryPage(session, { limit: 200, beforeSeq: firstSeq, signal: this.runtimeAbort?.signal });
       if (!this.isRuntimeActive(epoch, session) || this.activeSurface !== 'chat'
@@ -12088,6 +12133,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     } finally {
       if (this.isRuntimeActive(epoch, session)) this.historyLoading = false;
       delete list.dataset.historyLoading;
+      if(loading)loading.hidden=true;
     }
   }
 

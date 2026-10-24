@@ -32,6 +32,20 @@ try{
   const participantLink=await page.evaluate(()=>navigator.clipboard.readText());
   const peerContext=await browser.newContext({viewport:{width:393,height:852},isMobile:true,hasTouch:true}),peer=await peerContext.newPage();peer.on('pageerror',error=>errors.push(error.message));
   await peer.goto(participantLink);await peer.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);await page.bringToFront();await page.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);
+  assert.equal(await page.title(),'chamber1');
+  await page.locator('#chat-settings').click();await page.locator('#chamber-switch-space').click();
+  await page.locator('.space-row.is-selected').press('F2');await page.locator('#space-rename').click();await page.locator('#space-name').waitFor();
+  await fillFormInput(page,page.locator('#space-name'),'chamber-renamed');
+  await page.locator('#space-name-form button[type=submit]').click();await page.locator('#space-name-form').waitFor({state:'detached'});
+  assert.equal(await page.title(),'chamber-renamed');
+  const cardName=await page.evaluate(async()=>{const {createArchiveCardImage,archiveCardLabel}=await import('/src/lib/archive-card-image.ts');const {protectArchiveCard}=await import('/src/lib/room-archive-crypto.ts');const text=await protectArchiveCard(app.session.vault.roomArchiveV2.key,'synthetic-card-password');return archiveCardLabel(await createArchiveCardImage(text,app.currentSpaceName));});
+  assert.equal(cardName,'chamber-renamed');await page.locator('.space-return').click();await page.locator('.settings-dismiss-handle').click();
+  for(const count of [1,12,150,0]){
+    await page.evaluate(async count=>{const {updateTabUnread}=await import('/src/lib/tab-unread.ts');updateTabUnread(count);},count);
+    if(count)await page.waitForFunction(count=>document.querySelector('link[rel=icon]')?.dataset.unread===String(count),count);
+    else await page.waitForFunction(()=>!document.querySelector('link[rel=icon][data-unread]'));
+  }
+  await page.locator('.is-settings-sheet').waitFor({state:'detached'});await page.waitForFunction(()=>app.activeSurface==='chat');
   await page.locator('#message-input').fill('synthetic before device admission');await page.locator('#composer').evaluate(form=>form.requestSubmit());await peer.getByText('synthetic before device admission',{exact:true}).waitFor();
 
   // Started capsule transitions finish; intermediate targets that never painted are coalesced.
@@ -42,9 +56,10 @@ try{
     transitionMediaCapsule(host,draw('上传中'));transitionMediaCapsule(host,draw('加密中'));transitionMediaCapsule(host,draw('已发送'));
     await new Promise(resolve=>setTimeout(resolve,550));const result={painted,text:host.textContent};clearMediaCapsule(host);host.remove();return result;
   });
-  assert.deepEqual(capsuleProof.painted.map(x=>x.text),['上传中','已发送']);assert.ok(capsuleProof.painted[1].time-capsuleProof.painted[0].time>=220,JSON.stringify(capsuleProof));
+  assert.deepEqual(capsuleProof.painted.map(x=>x.text),['上传中','已发送']);assert.ok(capsuleProof.painted[1].time-capsuleProof.painted[0].time>=390,JSON.stringify(capsuleProof));
   await page.locator('#open-memes').click();await page.locator('.emoji-tile').first().waitFor();
-  await page.locator('[data-shortcut=add]').click();await page.locator('.meme-search-dialog').waitFor();await page.locator('.meme-page-back button').click();await page.locator('.meme-search-dialog').waitFor({state:'detached'});assert.ok(await page.locator('.emoji-tile').count()>0,'Returning from sticker addition restores emoji content');
+  await page.evaluate(()=>{window.savedPacks=app.memePicker.options.packs;app.memePicker.options.packs=()=>new Promise(()=>{});});
+  await page.locator('[data-shortcut=add]').click();await page.locator('.meme-search-dialog').waitFor();await page.waitForFunction(()=>document.querySelector('.meme-status')?.textContent!=='正在加载贴纸…');await page.evaluate(()=>{app.memePicker.options.packs=window.savedPacks;});await page.locator('.meme-page-back button').click();await page.locator('.meme-search-dialog').waitFor({state:'detached'});assert.ok(await page.locator('.emoji-tile').count()>0,'Returning from sticker addition restores emoji content');
   const connections=await page.locator('.chamber-presence-capsule').evaluate(n=>{const svg=n.querySelector('svg.presence-circuit'),matrix=svg.getScreenCTM();return [...n.querySelectorAll('.presence-dot')].map((dot,index)=>{const r=dot.getBoundingClientRect(),p=svg.createSVGPoint();p.x=index?100:0;p.y=12;const end=p.matrixTransform(matrix);return {x:Math.abs(end.x-r.left-r.width/2),y:Math.abs(end.y-r.top-r.height/2)};});});assert.ok(connections.every(p=>p.x<1&&p.y<1),JSON.stringify(connections));
   await page.locator('#chat-settings').click();
   await page.locator('.space-setting-section>h3').first().waitFor();assert.equal(await page.locator('#notification-settings').count(),0);
@@ -109,7 +124,16 @@ try{
   await page.locator('#copy-device-join').click();await page.locator('.numeric-password-page').waitFor();assert.equal(creates,0,'No link exists before local verification');await page.locator('[data-numeric-left]').click();await page.locator('.numeric-password-page').waitFor({state:'detached'});assert.equal(creates,0,'Cancellation must not mint a link');
   await page.locator('#copy-device-join').click();await submitPassword(page,'654321');await page.locator('.app-toast').filter({hasText:'密码'}).waitFor();assert.equal(creates,0);await page.waitForTimeout(400);await submitPassword(page,'123456');await page.locator('.app-toast').filter({hasText:'设备链接已复制'}).waitFor();assert.equal(creates,1);
   const link=await page.evaluate(()=>navigator.clipboard.readText());const otherContext=await browser.newContext({viewport:{width:1200,height:850}}),other=await otherContext.newPage();other.on('pageerror',error=>errors.push(error.message));
+  await other.goto(origin);await other.locator('#create-room').waitFor();
+  const oldSlot=await other.evaluate(async()=>{
+    const {automaticRoomCredential}=await import('/src/lib/browser-room-key.ts');const v=await import('/src/lib/vault.ts');const {generateIdentity}=await import('/src/lib/crypto.ts');
+    const identity=await generateIdentity(),roomId=crypto.randomUUID(),createdAt=new Date().toISOString();
+    const {newArchiveKey}=await import('/src/lib/room-archive-crypto.ts');
+    const pending={roomArchiveV2:{key:newArchiveKey()},v:3,roomId,accessToken:'A'.repeat(43),role:'joiner',pairingSecret:'B'.repeat(43),creatorFingerprint:'C'.repeat(43),identity,members:[{...identity.publicBundle,role:'joiner',status:'pending',joinProof:null}],lastSeq:0,pairingState:'joining',createdAt,pendingChamberInvitation:{requestId:crypto.randomUUID(),version:1,expiresAt:new Date(0).toISOString()}};
+    const proof=await automaticRoomCredential();const session=await v.createVault(pending,'','platform',proof);return v.vaultSpaceId(session.stored);
+  });
   await other.goto(link);await page.bringToFront();await other.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false,{},{timeout:30000});assert.equal(await other.locator('.device-inline-code').count(),0,'The authorized short link joins without a safety-code step');
+  assert.equal(await other.evaluate(async slot=>(await import('/src/lib/vault.ts')).localSpaceExists(slot),oldSlot),true,'The old provisional vault is retained');
   assert.notEqual(await other.evaluate(()=>app.session.vault.roomArchiveV2.key.descriptor.id),await page.evaluate(()=>app.session.vault.roomArchiveV2.key.descriptor.id));assert.equal(await other.evaluate(async()=>(await(await import('/src/lib/vault.ts')).loadHistory(app.session)).length),0,'A new device receives no pre-join history');
   await page.evaluate(()=>app.renderChat());await page.setViewportSize({width:393,height:568});
   if(!await page.locator('.is-settings-sheet').count())await page.locator('#chat-settings').click();
@@ -125,5 +149,5 @@ try{
   await page.locator('.room-creation-page').waitFor();await capture('create-from-room-list');await page.locator('#copy-invite').waitFor();
 
   assert.deepEqual(errors,[]);console.log('Settings V1.4 real UI passed: continuous creation, groups, page navigation, cover, empty states, autofill, first credential without app lock, file verification and authenticated code-free device admission.');
-}catch(error){console.error('V14_PAGE_ERRORS',errors);console.error('V14_UI_STATE',await page?.locator('body').innerText());throw error;}
+}catch(error){console.error('V14_PAGE_ERRORS',errors);console.error('V14_UI_STATE',await page?.locator('body').innerText());console.error('V14_SEND_STATE',await page?.evaluate(()=>({surface:app.activeSurface,connection:app.connectionState,pending:app.pending.size,outbox:app.outbox.size,sending:[...app.sending],phase:app.session?.vault.mls?.phase})));throw error;}
 finally{await browser?.close();await vite?.close();await service?.close();await rm(dataDir,{recursive:true,force:true});}

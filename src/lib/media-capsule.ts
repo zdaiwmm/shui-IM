@@ -1,10 +1,13 @@
 import { motion, reducedMotion, travelFrames } from './motion';
 
-type Effect = { animations: Animation[]; widths: number[]; duration: number; pending?: () => void };
+type Effect = { animations: Animation[]; widths: number[]; duration: number; pending?: () => void; holdTimer?:number; releaseHold?:()=>void; cleanup?:()=>void };
 const effects = new WeakMap<HTMLElement, Effect>();
 
 export function clearMediaCapsule(host: HTMLElement): void {
-  effects.get(host)?.animations.forEach(animation => animation.cancel());
+  const previous=effects.get(host);
+  previous?.animations.forEach(animation => animation.cancel());
+  window.clearTimeout(previous?.holdTimer);previous?.releaseHold?.();
+  previous?.cleanup?.();
   effects.delete(host);
   host.querySelectorAll(':scope > .media-capsule-retiring').forEach(layer => layer.remove());
 }
@@ -54,7 +57,19 @@ export function transitionMediaCapsule(host: HTMLElement, paint: () => void, con
   host.style.width = ''; paint();
   const width = host.getBoundingClientRect().width;
   const height = host.getBoundingClientRect().height;
-  if (!oldWidth || !width || !oldHeight || !height || reducedMotion() || document.hidden || !host.isConnected) return;
+  if (reducedMotion() || document.hidden || !host.isConnected) return;
+  if(!oldWidth||!width||!oldHeight||!height){
+    const effect:Effect={animations:[],widths:[width],duration:400};effects.set(host,effect);
+    const cancel=()=>clearMediaCapsule(host);
+    const preference=matchMedia('(prefers-reduced-motion: reduce)');
+    const settle=()=>{window.clearTimeout(effect.holdTimer);effect.cleanup?.();if(effects.get(host)===effect){effects.delete(host);effect.pending?.();}};
+    const finish=()=>{if(preference.matches||document.hidden)settle();};
+    signal?.addEventListener('abort',cancel,{once:true});
+    preference.addEventListener('change',finish);document.addEventListener('visibilitychange',finish);
+    effect.cleanup=()=>{signal?.removeEventListener('abort',cancel);preference.removeEventListener('change',finish);document.removeEventListener('visibilitychange',finish);};
+    effect.holdTimer=window.setTimeout(settle,400);
+    return;
+  }
   if (!contentChanged && Math.abs(width - oldWidth) < .1) return;
   host.style.width = `${width}px`;
   const widths = travelFrames(oldWidth, width, velocity, motion.panel).map(value => Math.max(1,value));
@@ -72,13 +87,14 @@ export function transitionMediaCapsule(host: HTMLElement, paint: () => void, con
   }
   const effect: Effect = { animations, widths, duration: motion.panel }; effects.set(host,effect);
   const preference = matchMedia('(prefers-reduced-motion: reduce)');
-  const finish = () => { if (preference.matches || document.hidden) animations.forEach(animation => { try { animation.finish(); } catch { animation.cancel(); } }); };
+  const finish = () => { if (preference.matches || document.hidden) { window.clearTimeout(effect.holdTimer);effect.releaseHold?.();animations.forEach(animation => { try { animation.finish(); } catch { animation.cancel(); } }); } };
   const cancel = () => clearMediaCapsule(host);
   signal?.addEventListener('abort',cancel,{once:true});
   preference.addEventListener('change',finish); document.addEventListener('visibilitychange',finish);
-  void Promise.allSettled(animations.map(animation=>animation.finished)).then(()=>{
-    signal?.removeEventListener('abort',cancel);
-    preference.removeEventListener('change',finish); document.removeEventListener('visibilitychange',finish);
+  effect.cleanup=()=>{signal?.removeEventListener('abort',cancel);preference.removeEventListener('change',finish);document.removeEventListener('visibilitychange',finish);};
+  const minimum=new Promise<void>(resolve=>{effect.releaseHold=resolve;effect.holdTimer=window.setTimeout(resolve,400);});
+  void Promise.allSettled([...animations.map(animation=>animation.finished),minimum]).then(()=>{
+    effect.cleanup?.();
     retiring.remove(); if(effects.get(host)===effect){effects.delete(host);effect.pending?.();}
   });
 }

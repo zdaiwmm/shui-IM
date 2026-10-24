@@ -135,12 +135,9 @@ export async function rememberLocalSpace(session: VaultSession, inheritedCode?: 
     let entry = spaces.find(s => s.roomId === vault.roomId);
     let sequence:number|undefined;
     if (!entry) {
-      let name=`密室 ${spaces.length+1}`;
-      if(vault.roomArchiveV2){
-        sequence=Math.max(directory.roomSequence??0,spaces.length)+1;
-        if(!Number.isSafeInteger(sequence)||sequence>=Number.MAX_SAFE_INTEGER)throw new Error('密室编号超出范围');
-        name=`chamber${sequence}`;
-      }
+      sequence=Math.max(directory.roomSequence??0,spaces.length)+1;
+      if(!Number.isSafeInteger(sequence)||sequence>=Number.MAX_SAFE_INTEGER)throw new Error('密室编号超出范围');
+      const name=`chamber${sequence}`;
       entry={roomId:vault.roomId,name,createdAt:vault.createdAt};spaces.push(entry);
     }
     if (!entry.createdAt && Number.isFinite(Date.parse(vault.createdAt))) entry.createdAt = vault.createdAt;

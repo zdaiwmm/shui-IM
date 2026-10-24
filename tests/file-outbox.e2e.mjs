@@ -22,11 +22,12 @@ try {
     const { QuietRoomApp } = await import('/src/app.ts');
     const { encryptMessage, generateIdentity } = await import('/src/lib/crypto.ts');
     const { randomBase64Url } = await import('/src/lib/base64.ts');
+    const vault=await import('/src/lib/vault.ts');
     const check = (value, message) => { if (!value) throw Error(message); };
     const [identity, peerIdentity] = await Promise.all([generateIdentity(), generateIdentity()]);
     const own = { ...identity.publicBundle, role: 'creator', status: 'active', capabilities: ['file-message-v1', 'reply-v2'] };
     const peer = { ...peerIdentity.publicBundle, role: 'joiner', status: 'active', capabilities: ['file-message-v1', 'reply-v2'] };
-    const session = { vault: { v: 1, roomId: crypto.randomUUID(), role: 'creator', protocol: 'legacy-v1', members: [own, peer], identity } };
+    const session=await vault.createVault({v:1,roomId:crypto.randomUUID(),accessToken:randomBase64Url(32),role:'creator',protocol:'legacy-v1',members:[own,peer],identity,lastSeq:0},'synthetic-file-outbox-password','password');
     const root = document.querySelector('#app');
     const app = new QuietRoomApp(root);
     root.innerHTML = '<div id="notice" hidden></div>';
@@ -60,6 +61,7 @@ try {
       const clientMsgId = crypto.randomUUID();
       const item = { clientMsgId, payload, createdAt: sentAt };
       if (withEnvelope) item.envelope = await encryptMessage(session.vault, payload, clientMsgId);
+      await vault.saveOutboxItem(session,item);
       app.outbox.set(clientMsgId, item);
       app.pending.set(clientMsgId, { seq: Number.MAX_SAFE_INTEGER, clientMsgId, senderId: own.deviceId, payload, acceptedAt: sentAt, status: 'pending' });
       return item;

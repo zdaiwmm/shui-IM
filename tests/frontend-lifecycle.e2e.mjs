@@ -780,6 +780,10 @@ try {
       window.pendingHistory = direction === 'older' ? app.loadOlderHistory(document.querySelector('#message-list')) : app.loadNewerHistory(document.querySelector('#message-list'));
     }, direction);
     await page.waitForFunction(() => typeof window.releaseHistory === 'function');
+    if(direction==='older'){
+      assert.equal(await page.locator('.chat-history-loading').isVisible(),true,'Slow real history decryption must expose visible loading');
+      assert.equal(await page.locator('.chat-history-loading').textContent(),'正在加载历史消息');
+    }
     results[`history-${direction}`] = await page.evaluate(async () => {
       const { app } = window.regression;
       app.lockNow();

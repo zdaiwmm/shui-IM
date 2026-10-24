@@ -2918,6 +2918,34 @@ export function deleteOutboxItem(session: VaultSession, clientMsgId: string, mut
   return deleteLocalRecord(session, 'outbox', clientMsgId, mutation);
 }
 
+export async function hasOutboxItem(session:VaultSession,clientMsgId:string,mutation?:VaultMutation):Promise<boolean>{
+  if(!ownsVaultMutation(session,mutation))return withVaultMutation(session,lease=>hasOutboxItem(session,clientMsgId,lease));
+  return Boolean(await transaction('outbox','readonly',store=>store.get(`${localDataScope(session.vault)}:${clientMsgId}`),session.stored));
+}
+
+/** Cancel durable work and retain only an encrypted local deletion projection.
+ * Never rewind the MLS ratchet: a generated but unsubmitted generation is skipped. */
+export async function cancelOutboxItem(session:VaultSession,clientMsgId:string,mutation?:VaultMutation):Promise<void>{
+  if(!ownsVaultMutation(session,mutation))return withVaultMutation(session,lease=>cancelOutboxItem(session,clientMsgId,lease));
+  const preferences=await loadUiPreferences(session);
+  const hidden=new Set(preferences.hiddenChatMessageIds??[]);hidden.add(clientMsgId.toLowerCase());
+  if(hidden.size>20_000)throw new Error('本机删除记录超过上限');
+  preferences.hiddenChatMessageIds=[...hidden];
+  const record=await encryptLocalRecord(session,'preferences',uiPreferenceId(session),preferences);
+  const nextStored={...session.stored,payload:await encryptPayload(session.vault,session.key)};
+  const database=await openDatabase();
+  await new Promise<void>((resolve,reject)=>{
+    const tx=database.transaction(['vault','outbox','preferences'],'readwrite');
+    // Validate the exact vault under the same lifecycle/CAS owner as a send.
+    putCurrentVault(tx,nextStored,session.stored);
+    tx.objectStore('outbox').delete(`${localDataScope(session.vault)}:${clientMsgId}`);
+    tx.objectStore('preferences').put(record);
+    tx.oncomplete=()=>{database.close();session.stored=nextStored;resolve();};
+    tx.onabort=()=>{database.close();reject(tx.error??new Error('取消发送未能保存'));};
+    tx.onerror=()=>reject(tx.error??new Error('取消发送未能保存'));
+  });
+}
+
 export function savePendingReceipt(session: VaultSession, receipt: DeliveryReceipt, mutation?: VaultMutation): Promise<void> {
   return putLocalRecord(session, 'receiptOutbox', receipt.clientMsgId, receipt, mutation);
 }

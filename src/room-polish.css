@@ -444,3 +444,32 @@ html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confi
 #app .archive-backup-counts dd { margin:0; font-variant-numeric:tabular-nums; color:var(--ink); }
 
 #app .message .media-upload-tile .media-upload-status:not([data-state=failed]) { top:50%; left:50%; right:auto; bottom:auto; translate:-50% -50%; }
+
+/* V1.31: visible waiting, clear selection, and usable settings bottom edge. */
+#app .is-settings-sheet.space-drawer-overlay { background:oklch(10% .01 285 / .76); }
+#app .is-settings-sheet > .space-drawer { box-shadow:0 12px 32px color-mix(in srgb,var(--ink) 36%,transparent); }
+#app .is-settings-sheet .settings-dismiss-handle { position:absolute; inset:auto 0 0; height:44px; background:linear-gradient(transparent,var(--paper)); }
+#app .is-settings-sheet .space-drawer-scroll { padding-bottom:48px; scroll-padding-bottom:48px; }
+#app .space-radio { width:24px; height:24px; border:2px solid var(--ink-muted); flex:none; font-style:normal; }
+#app [aria-checked=true] .space-radio { border-color:var(--accent); background:var(--accent); color:var(--on-accent); }
+#app .space-radio svg { width:16px; height:16px; stroke-width:3; }
+#app .room-creation-page .chamber-brand svg { width:192px; height:192px; }
+#app .room-creation-page .gateway-heading h1 { color:var(--accent); }
+#app .room-creation-page:not(.is-ready):not(.is-failed) .chamber-dialogue-left { animation:room-wait-left 1.8s ease-in-out infinite; }
+#app .room-creation-page:not(.is-ready):not(.is-failed) .chamber-dialogue-right { animation:room-wait-right 1.8s ease-in-out infinite; }
+@keyframes room-wait-left { 0%,100% { transform:translateX(0); } 50% { transform:translateX(-5px); } }
+@keyframes room-wait-right { 0%,100% { transform:translateX(0); } 50% { transform:translateX(5px); } }
+.chat-history-loading { position:fixed; top:calc(env(safe-area-inset-top) + 68px); left:50%; translate:-50% 0; z-index:9; display:flex; align-items:center; gap:8px; padding:8px 14px; border-radius:18px; background:var(--surface); color:var(--ink); box-shadow:0 2px 12px color-mix(in srgb,var(--ink) 16%,transparent); font-size:.8125rem; pointer-events:none; }
+.chat-history-loading::before { content:''; width:14px; height:14px; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:room-create-spin 900ms linear infinite; }
+.chat-history-loading[hidden],.message-list[data-history-loading=true]::before { display:none; }
+#app .message .media-upload-tile.media-upload-expression .media-upload-status { top:auto; bottom:-28px; left:auto; right:0; translate:none; }
+#app .media-upload-expression .media-upload-copy { display:none; }
+#app .media-upload-expression .media-upload-status[data-state=failed] .media-upload-copy { display:flex; }
+#app .media-upload:has(.media-upload-expression) { padding-bottom:28px; }
+#app .photo-details > header { display:flex; align-items:center; justify-content:space-between; }
+#app .photo-details-close { display:grid; place-items:center; width:44px; height:44px; border:0; border-radius:50%; background:transparent; color:var(--ink); }
+#app .photo-details-close svg { width:20px; height:20px; }
+@media(max-height:580px) { #app .room-creation-page .chamber-brand svg { width:144px; height:144px; } }
+@media(prefers-reduced-motion:reduce) {
+  #app .room-creation-page .chamber-dialogue,.chat-history-loading::before { animation:none !important; }
+}

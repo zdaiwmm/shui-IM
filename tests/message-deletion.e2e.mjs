@@ -230,6 +230,7 @@ try {
       payload: message.payload,
       createdAt: message.acceptedAt,
     }]));
+    for(const item of app.outbox.values())await vaultModule.saveOutboxItem(session,item);
     app.uiPreferences = {};
     app.uiPreferencesHydrated = true;
     app.connectionState = 'disconnected';
@@ -549,10 +550,7 @@ try {
   });
   assert.deepEqual(deviceProjection, { linkedDeviceSeesTarget: true, deletingDeviceHidesTarget: true });
 
-  // Pending and failed attachments remain durable outbox work even when this
-  // device hides their chat rows. They cannot be deleted for everyone before
-  // the server assigns a sequence, but they must still expose the red local
-  // deletion path.
+  // Pending and failed rows cancel durable work instead of merely hiding it.
   await page.evaluate(() => {
     const state = window.messageDeletion;
     state.pendingDeleteSnapshots = {
@@ -575,8 +573,8 @@ try {
     label: button.querySelector('span')?.textContent?.trim(),
     danger: button.dataset.danger,
   })));
-  assert.deepEqual(pendingChoices, [{ action: 'delete-local', label: '仅本机隐藏（仍会发送）', danger: 'true' }]);
-  assert.equal(await page.locator('.message-delete-note').innerText(), '这条消息尚未送达；隐藏后仍会在连接恢复时尝试发送。');
+  assert.deepEqual(pendingChoices, [{ action: 'delete-local', label: '删除并取消发送', danger: 'true' }]);
+  assert.equal(await page.locator('.message-delete-note').innerText(), '删除将取消后续发送，连接恢复后也不会再发送。');
   await sampleDanger(page.locator('[data-message-action="delete-local"]'), 'pending image delete locally');
   await page.locator('[data-message-action="delete-local"]').click();
   await page.locator(messageSelector(fixture.ids.pendingImage)).waitFor({ state: 'detached' });
@@ -593,52 +591,29 @@ try {
     label: button.querySelector('span')?.textContent?.trim(),
     danger: button.dataset.danger,
   })));
-  assert.deepEqual(failedChoices, [{ action: 'delete-local', label: '仅本机隐藏（仍会发送）', danger: 'true' }]);
-  assert.equal(await page.locator('.message-delete-note').innerText(), '这条消息尚未送达；隐藏后仍会在连接恢复时尝试发送。');
+  assert.deepEqual(failedChoices, [{ action: 'delete-local', label: '删除并取消发送', danger: 'true' }]);
+  assert.equal(await page.locator('.message-delete-note').innerText(), '删除将取消后续发送，连接恢复后也不会再发送。');
   await page.locator('[data-message-action="delete-local"]').click();
   await page.locator(messageSelector(fixture.ids.failedFile)).waitFor({ state: 'detached' });
 
   const pendingLocalDeletion = await page.evaluate(async () => {
-    const { app, ids, pendingDeleteSnapshots, session, vaultModule } = window.messageDeletion;
-    app.flushUiPreferencesSave();
+    const {app,ids,session,vaultModule}=window.messageDeletion;
     await app.preferenceSaveChain;
-    const saved = await vaultModule.loadUiPreferences(session);
-    const imageMessage = app.pending.get(ids.pendingImage);
-    if (!imageMessage) throw new Error('Pending image was removed instead of hidden');
-
-    // A socket ACK changes only delivery metadata and retains the MAX sentinel
-    // until sync. The local projection must not flash the row back into view.
-    imageMessage.status = 'stored';
-    app.renderMessages({ scroll: 'preserve' });
-    const hiddenAfterAck = !document.querySelector(`.message[data-client-msg-id="${ids.pendingImage}"]`);
-
-    // Model the subsequent sync assigning a real sequence. The durable local
-    // preference follows the client message ID across that transition.
-    app.pending.delete(ids.pendingImage);
-    imageMessage.seq = 10;
-    app.messages.set(10, imageMessage);
-    app.renderMessages({ scroll: 'preserve' });
-    return {
-      savedHiddenIds: saved.hiddenChatMessageIds,
-      hiddenAfterAck,
-      hiddenAfterSync: !document.querySelector(`.message[data-client-msg-id="${ids.pendingImage}"]`),
-      confirmedRecordRetained: app.messages.get(10) === imageMessage,
-      failedRecordRetained: app.pending.get(ids.failedFile) === pendingDeleteSnapshots.failedMessage,
-      imageOutboxRetained: app.outbox.get(ids.pendingImage) === pendingDeleteSnapshots.imageOutbox,
-      fileOutboxRetained: app.outbox.get(ids.failedFile) === pendingDeleteSnapshots.fileOutbox,
-      encryptedVaultUnchanged: JSON.stringify(session.stored) === pendingDeleteSnapshots.storedVault,
-    };
+    const saved=await vaultModule.loadUiPreferences(session);
+    const durable=await vaultModule.loadOutbox(session);
+    const sent=[];app.socket={sendEnvelope:envelope=>{sent.push(envelope.clientMsgId);return true;}};
+    app.connectionState='connected';
+    await app.resumeOutbox();
+    await app.sendOutboxItem(ids.pendingImage);
+    await app.sendOutboxItem(ids.failedFile);
+    return {savedHiddenIds:saved.hiddenChatMessageIds,image:app.outbox.has(ids.pendingImage),file:app.outbox.has(ids.failedFile),
+      pending:app.pending.size,durable:durable.map(x=>x.clientMsgId),sent};
   });
-  assert.deepEqual(pendingLocalDeletion, {
-    savedHiddenIds: [fixture.ids.ownLocalImage, fixture.ids.pendingImage, fixture.ids.failedFile],
-    hiddenAfterAck: true,
-    hiddenAfterSync: true,
-    confirmedRecordRetained: true,
-    failedRecordRetained: true,
-    imageOutboxRetained: true,
-    fileOutboxRetained: true,
-    encryptedVaultUnchanged: true,
+  assert.deepEqual(pendingLocalDeletion,{
+    savedHiddenIds:[fixture.ids.ownLocalImage,fixture.ids.pendingImage,fixture.ids.failedFile],
+    image:false,file:false,pending:0,durable:[],sent:[],
   });
+  await page.evaluate(()=>{window.messageDeletion.app.connectionState='disconnected';});
 
   // A confirmed tombstone can arrive after a long-press menu captured its
   // source message. The live menu must disappear synchronously, and even the

@@ -1,5 +1,9 @@
 # Security model
 
+## Pending cancellation and browser chrome, 2026-10-24
+
+The confirmed [thirteen-item V1](docs/requirements/2026-10-24-ui-13-fixes/README.md) changes pending-message deletion into durable cancellation. One lifecycle/CAS-protected IndexedDB transaction removes the encrypted outbox record, saves only an encrypted local deletion projection and refreshes the stored vault snapshot. Transport submission rechecks the durable outbox under that same lease; late preparation cannot resurrect cancelled work. MLS state never rewinds. Ciphertext already accepted by the server cannot be recalled by cancelling later retries; confirmed deletion and Safe copies retain their existing semantics. A device admission URL may open a fresh slot while an earlier invitation-code task remains stored; original verification, independent key material, membership approval and join-history bounds still apply. The favicon uses only the existing current-room count-only observer, including its established locked count visibility. It contains no names or message data. Only shipped public Fluent/avatar assets enter the release-versioned shell cache; authenticated catalog and chat resources remain excluded.
+
 ## 2026-10-23 首次凭证与本人设备链接授权
 
 用户确认[本轮V1.4](docs/requirements/2026-10-23-settings-17-prototype/README.md)。首次凭证从密码设置直接生成完整原图、导出并回验，不要求设置或验证应用锁；无锁浏览器可自动解密的风险保持。只有当前同一加密封装与正确口令回验成功才标记完成。已完成凭证的重新导出、改密和轮换保留独立操作认证、原口令及现有CAS边界。此例外替代下方首次预览／导出强制应用锁的旧表述，不扩展到其他敏感操作。

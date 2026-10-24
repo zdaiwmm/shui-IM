@@ -716,7 +716,11 @@ export class MemePicker {
       button.dataset.shortcut = key;
       button.addEventListener('click', action); bar.append(button); return button;
     };
-    control('add', '添加贴纸', memeIcons.add, () => { this.rememberView(); this.searchReturn={kind:this.kind,favorite:this.favoriteView,emojiGroup:this.emojiGroup}; void this.switchKind('stickers').then(() => this.openSearch()); });
+    control('add', '添加贴纸', memeIcons.add, () => {
+      this.rememberView(); this.searchReturn={kind:this.kind,favorite:this.favoriteView,emojiGroup:this.emojiGroup};
+      // The remote catalog must not wait for decrypting every installed pack.
+      this.kind='stickers'; this.favoriteView=false; this.panel.dataset.kind=this.kind; this.openSearch();
+    });
     control('emoji', 'Emoji', memeIcons.smile, () => { void this.switchKind('emoji'); }).setAttribute('aria-pressed', String(this.kind === 'emoji' && !this.favoriteView));
     control('favorites', '收藏表情', memeIcons.star, () => { void this.switchKind('stickers', true); }).setAttribute('aria-pressed', String(this.favoriteView));
     for (const node of bar.querySelectorAll<HTMLElement>('[data-shortcut^="pack:"]')) {
@@ -877,7 +881,7 @@ export class MemePicker {
         const img = document.createElement('img'); img.alt = ''; img.draggable = false; img.dataset.avatarEmoji = item.id;
         // 128px originals must not be stretched beyond physical pixel density.
         img.style.maxWidth = `${128 / Math.max(1, devicePixelRatio)}px`;
-        img.loading = 'lazy'; img.decoding = 'async'; img.src = `/space-avatars/${item.id}-still.webp`; tile.append(img); fluent.append(tile);
+        img.decoding = 'async'; img.src = `/space-avatars/${item.id}-still.webp`; tile.append(img); fluent.append(tile);
         tile.addEventListener('pointerdown', event => event.preventDefault());
         tile.addEventListener('click', () => void this.perform({ id:item.id, title:item.label, localAsset:`/space-avatars/${item.id}.webp` }, 'send'));
       }
@@ -1015,8 +1019,10 @@ export class MemePicker {
   private async getFile(item: PickerItem, signal: AbortSignal): Promise<File> {
     signal.throwIfAborted();
     if ('localAsset' in item && typeof item.localAsset === 'string' && avatarEmoji.some(row => row.id === item.id) && item.localAsset === `/space-avatars/${item.id}.webp`) {
+      const retained=this.cache.media.get(item.id); if(retained)return retained;
       const response = await fetch(item.localAsset, {signal}); if (!response.ok) throw new Error('表情加载失败，请重试');
-      return validateMemeFile(await response.blob(), item.title, signal);
+      const file=await validateMemeFile(await response.blob(), item.title, signal); signal.throwIfAborted();
+      this.rememberMedia(item.id,file); return file;
     }
     const cached = [...this.tiles.values()].find(state => state.item.id === item.id && state.file)?.file; if (cached) return cached;
     const retained = this.cache.media.get(item.id); if (retained) { this.cache.media.delete(item.id); this.cache.media.set(item.id, retained); return retained; }
