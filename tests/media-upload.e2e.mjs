@@ -172,12 +172,15 @@ try {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' });
     }
-    await page.evaluate(expression => { const g = window.mediaFixture.gate; g.hold = false; g.fail = false; g.holdDownload = expression; }, variant.includes('expression'));
+    // These are the first uses of their originals. Later variants deliberately
+    // reuse a verified cache entry and may complete handoff in the same task.
+    const stalledExpression = variant === 'expression' || variant === 'tall-expression';
+    await page.evaluate(stall => { const g = window.mediaFixture.gate; g.hold = false; g.fail = false; g.holdDownload = stall; }, stalledExpression);
     await draft.getByRole('button', { name: '重试', exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll('.media-upload').length === 0);
     const message = page.locator(`.message[data-client-msg-id="${id}"]`);
     if (variant.includes('expression')) {
-      await message.locator('.media-upload-handoff').waitFor();
+      if (stalledExpression) await message.locator('.media-upload-handoff').waitFor();
       assert.equal(await message.locator('.media-upload-handoff .media-upload-status').count(), 0, 'Expression handoff has only the live message status, including while thumbnail loading is stalled');
       assert.equal(await message.locator('.message-meta').count(), 1);
       await page.evaluate(() => { const g = window.mediaFixture.gate; g.holdDownload = false; g.downloadRelease?.(); });
