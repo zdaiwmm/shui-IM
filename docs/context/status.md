@@ -6,6 +6,13 @@
 - 本任务独占 `codex/admin-v1-redesign-20261025`，起始基线171ca9a。新旧归档与服务器灾备分别表达，独立归档保留、后台元数据白名单、只读状态摘要与来源/CSRF/新因素门禁保持。
 - 本地构建、真实新旧后台与采集专项已通过；最终组合完整检查、精确 CI、合并和发布仍待取证。真实iPhone与独立安全审阅尚未验证。该段不声明已部署。
 
+## 九套外观主题已合并，生产受CI阻断（2026-10-25）
+
+- 用户确认[九主题V1](../requirements/2026-10-25-appearance-nine/README.md)，直接实施且不制作原型，要求合并／发布。应用由[PR #406](https://github.com/zdaiwmm/shui-IM/pull/406)合并为`258b279b40478c8c51067d3e99683230bba785f1`／2026.10.24.4；经典保留，松绿／雾紫差异拉开，新增海盐、玫瑰、赤陶、柠黄、石墨。旧ID、明暗独立、本机保存与失败回退保持，视觉规范V1.32。
+- 源a776ef5与应用文件树同为`059f1062f2be67cb60742ae12d2e9f2036eecda8`；干净本地80/80浏览器一次通过，1372.82秒。Chromium／桌面WebKit的18套配色、对比度及各72个语音布局通过；本机单元1065项通过、11项受96%磁盘容量门槛阻断，一次定向复核同样失败，未降低门槛。[精确PR CI40117048002](https://github.com/zdaiwmm/shui-IM/actions/runs/40117048002) attempt1含1076项单元及Full application verification全部通过。
+- [精确应用main CI40118802391](https://github.com/zdaiwmm/shui-IM/actions/runs/40118802391)首轮及唯一完整重跑均在WebKit工具面板反向动画原断言失败，跳变分别1.6694／1.8958px，门槛<0.5px；测试与动效源码未由本任务修改，根因未定。本轮停止继续重跑和发布，保留原失败及未运行范围，不把PR绿色替代main门禁。
+- 本任务未执行生产预检或切换，未取得DEPLOY_VERIFIED／READBACK_OK；生产层级仍以此前已发布记录及其独立回读为准。真实iPhone／iOS27／Safari未验证。独立[验证记录PR #407](https://github.com/zdaiwmm/shui-IM/pull/407)仅更新事实和地图，不改变应用或触发发布；源与文档树保留接续，发布后清理未执行。
+
 ## 贴纸、设备接入与十三项体验修复已发布（2026-10-25 00:30）
 
 - 用户确认[十三项V1](../requirements/2026-10-24-ui-13-fixes/README.md)，明确免本次原型和流程图；收到最终完整SHA及CI／预检结果后回复「确认，发布生产」。[PR #401](https://github.com/zdaiwmm/shui-IM/pull/401)和[测试补修 #402](https://github.com/zdaiwmm/shui-IM/pull/402)已合并，实际应用`b9afc40a53d0cdf594f33d17df526f5af5a03abc`／2026.10.24.3，与补修源946efda完整文件树同为`8171d64cb9db6c5d6589c964bd69f3a1cb4c0817`；前一生产d6c4a84／2026.10.24.2。
