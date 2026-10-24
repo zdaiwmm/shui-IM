@@ -1,5 +1,13 @@
 # Quiet Room 当前状态
 
+## 紧凑语音气泡已发布（2026-10-24 10:01）
+
+- 用户确认[语音V2.3](../requirements/2026-10-24-voice-bubble-integrated/README.md)及实施中收窄要求，收到完整SHA后回复「确认，发布生产」。[PR #397](https://github.com/zdaiwmm/shui-IM/pull/397)已合并为实际应用`975c766a2048d1cdd52240a310a4de28f5f2cecb`／2026.10.24.1，与最终源70aa3cf完整文件树同为`ab4cf2d766fdfce98804e92486ab0139078b7494`；前一生产c87c3ba／2026.10.23.7。
+- 声波／秒数与时间／原回执同排靠右略下，沿用现有消息主题与分组圆角；普通字号完整气泡（含长引用）最多220px，大字保留可读空间与44px热区。正常过程文案移除，必要失败与重试保留；视觉规范V1.29，回执和加密契约未变。
+- 最终干净源构建与80/80本机浏览器单次完整通过，0失败／0未运行，1303.568秒；Chromium／桌面WebKit语音和时间线专项通过。初始本机单元1064项通过、11项受既有容量门槛阻塞，独立CI完整单元通过。[精确PR完整CI40048868932](https://github.com/zdaiwmm/shui-IM/actions/runs/40048868932) attempt2及[精确main完整CI40050684047](https://github.com/zdaiwmm/shui-IM/actions/runs/40050684047) attempt1成功，含Full application verification；PR首轮原server用例5秒超时仅有界重跑一次通过，原因未定，原失败记录保留。
+- 原[只读预检40051367079](https://github.com/zdaiwmm/shui-IM/actions/runs/40051367079)在用户精确确认后接续既有审核并取得PREFLIGHT_OK。唯一[正式云发布40051698189](https://github.com/zdaiwmm/shui-IM/actions/runs/40051698189)取得精确DEPLOY_VERIFIED；首次回读仅backup starting，核实原5分钟启动期后只续跑同SHA回读，于`2026-10-24T02:01:58.161Z`取得READBACK_OK，24097ms。应用／备份healthy，TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、公开及容器资源摘要、新WebSocket一致，维护门absent。
+- 完整事实见[本批发布记录](../../RELEASING.md#release-voice-bubble-integrated-20261024)，脱敏证据在公共Git元数据`quiet-room-deliveries/evidence/voice-bubble-release-20261024/`。独立文档树只对账，生产应用不随文档SHA前进；源树的忽略缓存／专属回执及当前活动对账树按规则保留，最终机械核验回执独立保存，其他任务不处理。iPhone／iOS27／Safari真机及独立安全审阅未验证。下方均为此前批次的历史事实。
+
 ## 22项界面修复已发布（2026-10-24 06:43）
 
 - 用户确认[22项V1](../requirements/2026-10-24-ui-22-refinements/README.md)免原型直接实施，随后多次明确继续发布、无需重复授权。本批原产品[PR #393](https://github.com/zdaiwmm/shui-IM/pull/393)及必要续修[PR #395](https://github.com/zdaiwmm/shui-IM/pull/395)均已合并，应用固定`c87c3ba65f121bec9c3841c8556b6c1a41aea541`／2026.10.23.7，与最终源0c2028c完整文件树同为`bf3b85cba08993a07ddfa7be1276e90156e8adbc`。
