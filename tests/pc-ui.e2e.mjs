@@ -64,7 +64,8 @@ try {
     await page.locator('#open-memes').click();await page.locator('.emoji-tile').first().waitFor();
     const expressions=await page.locator('.meme-panel').boundingBox();assert.ok(expressions.x>=0&&expressions.y>=0&&expressions.x+expressions.width<=1440&&expressions.y+expressions.height<=900,JSON.stringify(expressions));
     await page.keyboard.press('Escape');
-    for(const scheme of ['light','dark'])for(const theme of ['blue','green','purple','apricot']) {
+    const themes=await page.evaluate(async()=>(await import('/src/lib/appearance.ts')).THEMES.map(theme=>theme.id));
+    for(const scheme of ['light','dark'])for(const theme of themes) {
       await page.evaluate(async({scheme,theme})=>{const appearance=await import('/src/lib/appearance.ts');appearance.saveTheme(localStorage,theme);appearance.saveColorScheme(localStorage,scheme);appearance.applyAppearance();},{scheme,theme});
       await page.locator('#chat-settings').click();await page.locator('.is-settings-sheet.is-visible .settings-desktop-close').waitFor();
       await page.locator('.settings-desktop-close').focus();await page.keyboard.press('Shift+Tab');
