@@ -27,7 +27,14 @@ try {
     app.connectionState = 'disconnected'; app.retryOperation = operation => operation();
     Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
     const blobs = new Map();
-    const gate = { release: null, hold: true, fail: false, requests: 0, failCommit: false, failDownload: false, holdDownload: false, downloadRelease: null, downloadWaiters: [], downloads: 0 };
+    const gate = { release: null, hold: true, fail: false, requests: 0, failCommit: false, failDownload: false, holdDownload: false, skipLocalPreviewCache: false, downloadRelease: null, downloadWaiters: [], downloads: 0 };
+    const cacheLocalImage = app.cacheLocalImage.bind(app);
+    app.cacheLocalImage = (manifest, blob, ...args) => {
+      // Sending normally caches the selected File before enqueue. Cold cases
+      // explicitly omit that optimization; verified downloaded Blobs still cache.
+      if (gate.skipLocalPreviewCache && blob instanceof File) return;
+      return cacheLocalImage(manifest, blob, ...args);
+    };
     const realFetch = window.fetch.bind(window);
     window.fetch = async (input, init = {}) => {
       const url = new URL(typeof input === 'string' ? input : input.url, location.href);
@@ -172,10 +179,19 @@ try {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' });
     }
-    await page.evaluate(() => { const g = window.mediaFixture.gate; g.hold = false; g.fail = false; });
+    // Force two cold previews; normal sends cache their File before enqueue
+    // and may complete handoff in the same task without any download request.
+    const stalledExpression = variant === 'expression' || variant === 'tall-expression';
+    await page.evaluate(stall => { const g = window.mediaFixture.gate; g.hold = false; g.fail = false; g.holdDownload = stall; g.skipLocalPreviewCache = stall; }, stalledExpression);
     await draft.getByRole('button', { name: '重试', exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll('.media-upload').length === 0);
     const message = page.locator(`.message[data-client-msg-id="${id}"]`);
+    if (variant.includes('expression')) {
+      if (stalledExpression) await message.locator('.media-upload-handoff').waitFor();
+      assert.equal(await message.locator('.media-upload-handoff .media-upload-status').count(), 0, 'Expression handoff has only the live message status, including while thumbnail loading is stalled');
+      assert.equal(await message.locator('.message-meta').count(), 1);
+      await page.evaluate(() => { const g = window.mediaFixture.gate; g.holdDownload = false; g.downloadRelease?.(); });
+    }
     await message.locator('.image-preview[data-image-state="loaded"]').first().waitFor();
     assert.equal(await message.count(), 1);
     const delivered = variant.includes('expression') ? message.locator('.image-preview') : message.locator('.message-bubble');
@@ -288,7 +304,7 @@ try {
   // A failed received image, album cell or expression must rebuild its live
   // ring on retry, retain the capsule/ID and complete real decryption.
   for (const kind of ['image', 'image-album', 'expression']) {
-    const id = await page.evaluate(kind => {
+    const id = await page.evaluate(async kind => {
       const f = window.mediaFixture;
       const source = [...f.app.pending.values()].find(message => kind === 'expression'
         ? message.payload.presentation === 'expression' : message.payload.kind === kind && !message.payload.presentation);
@@ -297,6 +313,9 @@ try {
         const cached = f.app.imageCache.get(manifest.blobId);
         if (cached) for (const key of ['url','posterUrl','concealedUrl']) if (cached[key]) URL.revokeObjectURL(cached[key]);
         f.app.imageCache.delete(manifest.blobId);
+        // Earlier cold handoffs now populate the authenticated persistent
+        // preview/chunk cache too. This case specifically injects network failure.
+        await f.vault.deleteCachedMediaBlob(f.session, manifest.blobId);
       }
       f.app.renderedMessages.delete(source.clientMsgId);
       f.gate.failDownload = true; f.app.renderMessages();

@@ -10,7 +10,8 @@ export type RoomProtection = { v: 1; revision: string } & (
   { method: 'password'; wrapper: Pick<StoredPasswordVault, 'spaceId' | 'kdf' | 'passwordFormat' | 'wrappedKey'> }
 );
 let held: { revision: string; secret: string } | undefined;
-export function clearBrowserRoomKey(): void { held = undefined; }
+let unlockGeneration = 0;
+export function clearBrowserRoomKey(): void { held = undefined; unlockGeneration++; }
 export async function browserRoomKey(create = false): Promise<string | null> {
   let record = await readRoomProtection();
   if (!record && create) {
@@ -25,11 +26,13 @@ export async function browserRoomKey(create = false): Promise<string | null> {
   return held?.revision === record.revision ? held.secret : null;
 }
 export async function unlockBrowserRoomKey(password: string): Promise<string> {
+  const generation = unlockGeneration;
   const record = await readRoomProtection();
   if (!record || record.method !== 'password') throw new Error('本机保护状态已改变');
   const raw = await withRoomUnlockThrottle(async () => {try{return await unwrapPasswordMaster({ ...record.wrapper, v: 3, unlockMethod: 'password', payload: { iv: '', ciphertext: '' } }, password);}catch(cause){if(cause instanceof DOMException && cause.name==='OperationError')throw new Error('应用锁密码不正确，请重试');throw cause;}});
   try {
     if (canonicalStringify(await readRoomProtection()) !== canonicalStringify(record)) throw new Error('应用锁已改变，请重试');
+    if (generation !== unlockGeneration) throw new DOMException('验证已结束', 'AbortError');
     const secret = toBase64Url(raw); held = { revision: record.revision, secret }; return secret;
   } finally { raw.fill(0); }
 }
@@ -73,6 +76,7 @@ async function protectWithPlatform(raw: Uint8Array<ArrayBuffer>, credential: Exc
   return {v:1,revision:crypto.randomUUID(),method:'platform',platform:credential.record,iv:toBase64Url(iv),ciphertext:toBase64Url(ciphertext)};
 }
 export async function unlockBrowserRoomPlatform(proof: Uint8Array<ArrayBuffer>):Promise<string> {
+  const generation = unlockGeneration;
   const record=await readRoomProtection();
   try {
     if(!record||record.method!=='platform')throw new Error('本机保护状态已改变');
@@ -80,6 +84,7 @@ export async function unlockBrowserRoomPlatform(proof: Uint8Array<ArrayBuffer>):
     const raw=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:fromBase64Url(record.iv),additionalData:platformAad(record.platform)},key,fromBase64Url(record.ciphertext)));
     try {
       if(raw.length!==32||canonicalStringify(await readRoomProtection())!==canonicalStringify(record))throw new Error('应用锁已改变，请重试');
+      if(generation!==unlockGeneration)throw new DOMException('验证已结束','AbortError');
       const secret=toBase64Url(raw);held={revision:record.revision,secret};return secret;
     }finally{raw.fill(0);}
   }finally{proof.fill(0);}
