@@ -1,8 +1,13 @@
 export const THEMES = [
   { id: 'blue', name: '经典', color: '#89be87' },
-  { id: 'green', name: '松绿', color: 'oklch(44% .12 155)' },
-  { id: 'purple', name: '雾紫', color: 'oklch(50% .16 300)' },
+  { id: 'green', name: '松绿', color: 'oklch(43% .085 175)' },
+  { id: 'purple', name: '雾紫', color: 'oklch(46% .085 305)' },
   { id: 'apricot', name: '暖杏', color: 'oklch(49% .12 58)' },
+  { id: 'sea', name: '海盐', color: 'oklch(46% .13 245)' },
+  { id: 'rose', name: '玫瑰', color: 'oklch(45% .13 355)' },
+  { id: 'terracotta', name: '赤陶', color: 'oklch(46% .13 35)' },
+  { id: 'lemon', name: '柠黄', color: 'oklch(85% .17 100)' },
+  { id: 'graphite', name: '石墨', color: 'oklch(42% .006 255)' },
 ] as const;
 export type Theme = typeof THEMES[number]['id'];
 export const THEME_KEY = 'quiet-room:appearance';
