@@ -35,4 +35,5 @@
 - 上述冷／热修正首次定向复验的10种交接全部通过；后续原有冷下载重试用例在第325行未出现预期网络错误。核对发现新增的真实冷下载已填充加密本机预览／分块，原用例只清内存，客户端正确命中本机预览。此为不同的夹具隔离失败：使用原有 `deleteCachedMediaBlob` 清除此合成用例的两层缓存再注入网络故障，保持原错误／重试断言，针对性复验一次；不改产品缓存规则或时限。
 - 最终本机定向复验：7214f24 的媒体专项 Chromium／桌面WebKit均完整通过，含10种交接、明确冷／热缓存、三类下载故障及原字节／同ID／锁定清理；voice-gestures、chat-tools、presence-circuit三个未运行入口补跑均通过。产品源码自5c236cb之后未变：5c236cb的构建、入口专项两浏览器及frontend-lifecycle、desktop-privacy、system-surfaces、privacy-surface、new-room-passkey、new-room-flows全部通过。77项全套结果加定向补齐覆盖81个入口，但不写成最终文件树的一次完整本机门禁。
 - 产品提交5c236cb的[完整PR CI 40117774494](https://github.com/zdaiwmm/shui-IM/actions/runs/40117774494)通过：140文件／1075单元、全部浏览器分片、通话、双架构镜像及Full application verification。后续只改媒体测试隔离及本记录；最终PR head仍须取得自己的完整CI后才合并，不以旧结果直接合并。
+- 交付期间实时main合入[九主题PR #406](https://github.com/zdaiwmm/shui-IM/pull/406)，main／origin/main核实为258b279，本机共享main仍为4356531。58173b3因版本清单和文档前置段冲突没有触发CI，未合并。只在本任务树集成精确258b279，保留其九主题、原需求记录和测试；本批视觉补充顺延为V1.33，完成勾／标题／设备行检查扩展到全部18套明暗。版本清单以主线已提交的24.4为原样历史，再为本批分配唯一新版本，不覆盖九主题记录；组合候选须重新验证及完整CI。
 - 提交／PR／CI／合并：[PR #404](https://github.com/zdaiwmm/shui-IM/pull/404)；最终候选、完整本地与远端证据持续记录在PR描述及对应CI，不把旧文件树结果挪用为新SHA通过。生产发布不在本次授权范围内。

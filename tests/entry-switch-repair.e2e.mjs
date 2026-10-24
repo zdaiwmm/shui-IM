@@ -158,9 +158,11 @@ try {
 
   // Real card builders and the production cascade under every existing palette.
   await page.evaluate(() => { fixture.app.leaveSpace = entryRepair.leave; });
+  const themes = await page.evaluate(async () => (await import('/src/lib/appearance.ts')).THEMES.map(theme => theme.id));
+  assert.equal(themes.length, 9, 'Include all nine palettes from the integrated main');
   for (const scheme of ['light', 'dark']) {
     await page.emulateMedia({ colorScheme: scheme });
-    for (const theme of ['blue', 'green', 'purple', 'apricot']) {
+    for (const theme of themes) {
       await page.evaluate(async ({ scheme, theme }) => {
         document.documentElement.dataset.colorScheme = scheme; document.documentElement.dataset.theme = theme;
         const root = document.querySelector('#app');

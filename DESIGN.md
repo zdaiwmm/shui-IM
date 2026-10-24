@@ -1,6 +1,6 @@
 # Quiet Room Design System
 
-## 2026-10-25 进入与状态修复（V1.32）
+## 2026-10-25 进入与状态修复（V1.33）
 
 用户确认[修复V1／V1.1／V1.2](docs/requirements/2026-10-25-expression-entry-repair/README.md)，免原型及流程图实施。沿用P1：创建完成勾及在线样式选中勾使用 action-surface / action-ink，避免部分浅色配色的 on-accent 深字；在线样式页标题使用 ink。设备行明确图标、正文及尾部标记三列，整行采用 border-box，保留当前分组与详情入口。
 
@@ -143,7 +143,7 @@ Debug mobile UI in the actual local project through the Codex browser, using ver
 
 Messages are the primary surface when two people read a private conversation on a phone in daylight or at night. The interface uses compact typography, opaque controls, quiet borders and limited elevation. Browser chrome and a tall native keyboard are part of the available-space constraint.
 
-`src/design-tokens.css` owns shared foundations, including the standalone administration entry; `src/design-system.css` owns app component rules; `src/appearance.css` supplies the other three local palettes. The existing `blue` storage identifier now means **经典** and retains compatibility with saved preferences. 松绿、雾紫、暖杏 remain available. The independent brightness preference offers system (default), light and dark. Old, malformed or unavailable storage falls back to system. Explicit light/dark overrides the OS inside the app; selecting system resumes OS changes. Palette and brightness save immediately in the current browser/PWA data space, synchronize same-origin tabs and preserve the previous effective value and selection after a failed write. There is no cross-device sync. The synthetic preview never reads private messages. This is the approved [V1 fidelity correction](docs/requirements/2026-10-11-p1-fidelity/README.md).
+`src/design-tokens.css` owns shared foundations, including the standalone administration entry; `src/design-system.css` owns app component rules; `src/appearance.css` supplies the other eight local palettes. The existing `blue` storage identifier now means **经典** and retains compatibility with saved preferences. The nine palettes are 经典、松绿、雾紫、暖杏、海盐、玫瑰、赤陶、柠黄、石墨. Classic retains its approved reference; pine is cooler and violet is muted to separate their previous overlap. Lemon uses bright message fills with dark ink and graphite actions; graphite uses neutral surfaces. All nine have independent light/dark roles, including wallpaper and outgoing gradients. See the confirmed [nine-palette V1](docs/requirements/2026-10-25-appearance-nine/README.md). The independent brightness preference offers system (default), light and dark. Old, malformed or unavailable storage falls back to system. Explicit light/dark overrides the OS inside the app; selecting system resumes OS changes. Palette and brightness save immediately in the current browser/PWA data space, synchronize same-origin tabs and preserve the previous effective value and selection after a failed write. There is no cross-device sync. The synthetic preview never reads private messages. This is the approved [V1 fidelity correction](docs/requirements/2026-10-11-p1-fidelity/README.md).
 
 | Role | Classic light | Classic dark |
 | --- | --- | --- |

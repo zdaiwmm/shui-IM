@@ -65,7 +65,7 @@ try{
    const geometry=[];
    for(const width of [320,390,768,1440]){
     await page.setViewportSize({width,height:844});
-    for(const scheme of ['light','dark'])for(const theme of ['blue','green','purple','apricot']){
+    for(const scheme of ['light','dark'])for(const theme of ['blue','green','purple','apricot','sea','rose','terracotta','lemon','graphite']){
      await page.evaluate(({scheme,theme})=>{document.documentElement.dataset.colorScheme=scheme;document.documentElement.dataset.theme=theme;},{scheme,theme});
      geometry.push({width,scheme,theme,rows:await checkGeometry(name+' '+width+' '+scheme+' '+theme)});
      if(evidence&&width===390&&theme==='blue')await page.screenshot({path:`${evidence}/implemented-${name}-${scheme}.png`,fullPage:true});
@@ -74,7 +74,7 @@ try{
    // Enlarged copy must preserve the single row without covering the duration.
    await page.setViewportSize({width:320,height:844});
    await page.evaluate(()=>document.documentElement.style.fontSize='32px');
-   for(const scheme of ['light','dark'])for(const theme of ['blue','green','purple','apricot']){
+   for(const scheme of ['light','dark'])for(const theme of ['blue','green','purple','apricot','sea','rose','terracotta','lemon','graphite']){
     await page.evaluate(({scheme,theme})=>{document.documentElement.dataset.colorScheme=scheme;document.documentElement.dataset.theme=theme;},{scheme,theme});
     await checkGeometry(name+' 200% '+scheme+' '+theme);
    }
@@ -135,7 +135,7 @@ try{
    await page.evaluate(()=>{const app=window.__voiceUiApp;app.messages.get(2).status='stored';app.renderMessages();});
    await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await first.locator('.voice-wave-1').evaluate(element=>getComputedStyle(element).animationName),'none');
    await page.evaluate(()=>window.__voiceUiApp.lockNow());assert(await page.evaluate(()=>!window.__firstVoice.url&&!window.__firstVoice.audio.hasAttribute('src')));assert.deepEqual(errors,[]);
-   console.log(`${name}: integrated single-row voice geometry, four palettes, 200% copy, native playback/pause/switch resume, silent load/cancel, failure/retry, receipt preservation and lock cleanup passed (${geometry.length} layouts)`);
+   console.log(`${name}: integrated single-row voice geometry, nine palettes, 200% copy, native playback/pause/switch resume, silent load/cancel, failure/retry, receipt preservation and lock cleanup passed (${geometry.length} layouts)`);
    await context.close();
   }finally{await browser.close();}
  }
