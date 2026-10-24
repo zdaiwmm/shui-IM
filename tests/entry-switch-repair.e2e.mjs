@@ -175,9 +175,10 @@ try {
       const r = card.getBoundingClientRect(), content = card.firstElementChild;
       return r.width <= 420 && r.left >= 0 && r.right <= innerWidth && getComputedStyle(content, '::before').content === 'none';
     }), true, `Connection card fits ${width}px without a side stripe`);
+    assert.equal(await page.locator('.room-connection-header > strong').evaluate(title => title.getBoundingClientRect().left < innerWidth / 2), true, 'Waiting-page title stays at the leading edge');
     if (process.argv[2]) {
       await mkdir(process.argv[2], { recursive: true });
-      await page.screenshot({ path: `${process.argv[2]}/connection-card-${width}.png` });
+      await page.screenshot({ path: `${process.argv[2]}/connection-card-${width}.png`, animations: 'disabled' });
     }
   }
   assert.deepEqual(errors, []);
