@@ -1,4 +1,5 @@
 import {createShortInvites} from './short-invites.mjs';
+import { createAdminData } from './admin-data.mjs';
 import { ROOM_LINK_TTL_MS } from '../src/lib/room-link-lifetime.mjs';
 import { createRoomArchives } from './room-archives.mjs';
 import { createSpaceDirectories } from './space-directories.mjs';
@@ -358,6 +359,7 @@ export async function createStore({
   const chamberHistoryRecovery = createChamberHistoryRecovery(db, { getMember, chamberInvitations, personalDirectory });
   const chamberLifecycle = createChamberLifecycle(db, { getMember, roomState, chamberInvitations, personalDirectory });
   const cloudBackups = createCloudBackups(db, { authenticatedDevice });
+  const adminData = createAdminData(db, { maxRoomStorageBytes, maxTotalStorageBytes, maxMessagesPerRoom, maxRoomMessageBytes, maxTotalMessageBytes });
   const spaceDirectories = createSpaceDirectories(db, { authenticatedDevice });
   const browserCatalogs = createSpaceDirectories(db, { authenticatedDevice }, true);
   const browserAccess = createBrowserAccess({ db, getMember, assertDeviceActive: (roomId,deviceId) => {
@@ -1649,6 +1651,7 @@ export async function createStore({
   }
 
   return {
+    adminData,
     chamberInvitations,
     chamberHistory,
     roomArchives,

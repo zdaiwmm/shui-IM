@@ -3,18 +3,16 @@ import './appearance.css';
 import { mountAppearance } from './lib/appearance';
 import { bindTooltips } from './lib/tooltips';
 import { bindControlFeedback } from './lib/control-feedback';
-import { createElement, Pencil, Trash2, ArrowLeft, LayoutDashboard, Images, RefreshCw, LogOut, Upload, Save, X, Download, Menu, MoreHorizontal } from 'lucide';
+import { createElement, Pencil, Trash2, ArrowLeft, LayoutDashboard, Images, RefreshCw, LogOut, Upload, Save, X, Download, Menu, MoreHorizontal, MessageSquare, Archive, Activity, ShieldCheck } from 'lucide';
+import { AdminWorkspace } from './admin/workspace';
+import { chamberMark } from './lib/entry-art';
 import { table, row, badge, iconButton, pageToolbar, loadingState, emptyState, errorState, pagination } from './admin/ui';
 
-type Room = { roomId: string; createdAt: string; lastSeenAt: string | null; devices: number; backups: number; messageCount: number; backupChatCount: number; backupGalleryCount: number };
-type Detail = { roomId: string; devices: { deviceId: string; role: string; name: string; status: string; lastSeenAt: string | null }[];
-  backups: { id: string; deviceId: string; revision: number; active: number; updatedAt: string; recoveryBytes: number; historyBytes: number; chatCount: number; galleryCount: number }[] };
 const root = document.querySelector<HTMLElement>('#admin')!;
 mountAppearance();
 bindTooltips(root);
 bindControlFeedback(root);
 let csrf = '';
-let offset = 0;
 let view = 0;
 let viewRequests = new AbortController();
 let previewCleanup: (() => void)[] = [];
@@ -54,7 +52,6 @@ let sessionActivity = 0;
 let lastAdminActivity = 0;
 let sessionRenewing = false;
 let lastSessionRenewal = 0;
-const date = (value: string | null) => value ? new Date(value).toLocaleString() : '暂无记录';
 const size = (value: number) => `${(value / 1024).toFixed(1)} KiB`;
 
 async function requestApi<T>(route: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
@@ -112,34 +109,34 @@ for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
 }
 
 function frame(title: string) {
-  leaveView();
-  view += 1;
-  try { sessionStorage.setItem('quiet-admin-view', title === '采集任务' ? 'collection-jobs' : title === '表情采集' ? 'collection' : 'rooms'); } catch { /* Storage may be unavailable. */ }
-  const expressionView = title === '表情管理' || title === '资源详情';
-  const collectionView = title === '表情采集' || title === '采集任务';
-  root.innerHTML = `<div class="admin-shell tabler-shell"><aside class="admin-sidebar navbar navbar-vertical"><div class="brand"><span class="brand-mark avatar bg-primary text-white">C</span><div><strong>Chamber</strong><small>管理控制台</small></div><button class="admin-mobile-menu" id="admin-menu" type="button" aria-label="打开后台导航" aria-expanded="false" aria-controls="admin-nav"></button></div>
-    <nav class="sidebar-nav" id="admin-nav" aria-label="后台导航"><button id="rooms-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>会话管理</span></button><button id="expressions-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>表情管理</span></button><button id="collection-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>表情采集</span></button></nav>
-    <div class="sidebar-note">管理员会话</div></aside>
-    <main class="admin-main"><header class="topbar navbar navbar-expand-md"><div><p class="eyebrow">QUIET ROOM / ADMIN</p><h1></h1></div><button id="logout" class="logout-button btn btn-outline-secondary" type="button">退出后台</button></header>
-    <div class="content-wrap"><div id="content"></div></div><div id="status" role="status" aria-live="polite"></div></main></div>`;
-  root.querySelector('h1')!.textContent = title;
-  const mobileMenu = root.querySelector<HTMLButtonElement>('#admin-menu')!; mobileMenu.append(createElement(Menu));
-  mobileMenu.addEventListener('click', () => { const open = mobileMenu.getAttribute('aria-expanded') !== 'true'; mobileMenu.setAttribute('aria-expanded', String(open)); mobileMenu.setAttribute('aria-label', open ? '关闭后台导航' : '打开后台导航'); root.querySelector('.admin-sidebar')!.classList.toggle('navigation-open', open); });
-  root.querySelector('.nav-icon')!.replaceChildren(createElement(LayoutDashboard));
-  root.querySelectorAll('.nav-icon')[1]!.replaceChildren(createElement(Images));
-  root.querySelectorAll('.nav-icon')[2]!.replaceChildren(createElement(Download));
-  const activeNav = expressionView ? '#expressions-nav' : collectionView ? '#collection-nav' : '#rooms-nav';
-  root.querySelector<HTMLButtonElement>(activeNav)!.setAttribute('aria-current', 'page');
-  const logout = root.querySelector<HTMLButtonElement>('#logout')!;
-  const logoutIcon = createElement(LogOut); logoutIcon.setAttribute('aria-hidden', 'true'); logout.prepend(logoutIcon);
-  logout.addEventListener('click', async () => {
-    logout.disabled = true;
-    try { await api('/logout', 'POST'); login(); }
-    catch (error) { report(error); if (logout.isConnected) logout.disabled = false; }
+  leaveView(); view += 1;
+  const resourceTitles = ['表情管理', '资源详情', '表情采集', '采集任务', '内置动画'];
+  const keys: Record<string,string> = {'总览':'overview','密室管理':'rooms','密室详情':'rooms','归档与备份':'archives','归档详情':'archives','运维诊断':'diagnostics','安全与审计':'security','表情管理':'expressions','资源详情':'expressions','表情采集':'collection','采集任务':'collection-jobs','内置动画':'bundled'};
+  const key = keys[title] ?? 'overview';
+  try { sessionStorage.setItem('quiet-admin-view', key); } catch { /* Optional navigation memory. */ }
+  root.innerHTML = `<a class="admin-skip-link" href="#content">跳至主要内容</a><div class="admin-shell tabler-shell"><aside class="admin-sidebar"><div class="brand"><span class="brand-mark">${chamberMark()}</span><div><strong>Chamber</strong><small>管理工作区</small></div><button class="admin-mobile-menu" id="admin-menu" type="button" aria-label="打开后台导航" aria-expanded="false" aria-controls="admin-nav"></button></div>
+    <nav class="sidebar-nav" id="admin-nav" aria-label="后台导航"><p class="admin-nav-label">工作区</p></nav>
+    <div class="sidebar-note"><span id="privacy-icon" aria-hidden="true"></span><strong>私密聊天仅显示元数据</strong><small>公开表情在资源库单独管理</small></div></aside>
+    <main class="admin-main"><header class="topbar"><div><p class="eyebrow">CHAMBER / 管理工作区</p><h1></h1></div><button id="logout" class="logout-button" type="button">退出后台</button></header>
+    <div class="content-wrap"><div id="resource-navigation"></div><div id="content" tabindex="-1"></div></div><div id="status" role="status" aria-live="polite"></div></main></div>`;
+  const heading=root.querySelector('h1')!;heading.textContent=title;heading.tabIndex=-1;heading.focus({preventScroll:true});
+  const mobileMenu=root.querySelector<HTMLButtonElement>('#admin-menu')!;mobileMenu.append(createElement(Menu));
+  mobileMenu.addEventListener('click',()=>{const open=mobileMenu.getAttribute('aria-expanded')!=='true';mobileMenu.setAttribute('aria-expanded',String(open));mobileMenu.setAttribute('aria-label',open?'关闭后台导航':'打开后台导航');root.querySelector('.admin-sidebar')!.classList.toggle('navigation-open',open);});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape'&&mobileMenu.getAttribute('aria-expanded')==='true'){mobileMenu.click();mobileMenu.focus();}},{signal:viewRequests.signal});
+  const nav=root.querySelector('#admin-nav')!;
+  const entries=[['overview','总览',LayoutDashboard,()=>void workspace.overview()],['rooms','密室管理',MessageSquare,()=>void rooms()],['archives','归档与备份',Archive,()=>void workspace.archives()],['expressions','表情资源',Images,()=>void expressions()],['diagnostics','运维诊断',Activity,()=>void workspace.diagnostics()],['security','安全与审计',ShieldCheck,()=>void workspace.security()]] as const;
+  entries.forEach(([id,label,icon,run],index)=>{
+    if(index===4){const group=document.createElement('p');group.className='admin-nav-label';group.textContent='管理';nav.append(group);}
+    const button=document.createElement('button');button.type='button';button.id=`${id}-nav`;button.className='nav-item';const graphic=createElement(icon);graphic.setAttribute('aria-hidden','true');const text=document.createElement('span');text.textContent=label;button.append(graphic,text);
+    if(key===id||(id==='expressions'&&resourceTitles.includes(title)))button.setAttribute('aria-current','page');button.addEventListener('click',run);nav.append(button);
   });
-  root.querySelector('#rooms-nav')!.addEventListener('click', () => void rooms());
-  root.querySelector('#expressions-nav')!.addEventListener('click', () => void expressions());
-  root.querySelector('#collection-nav')!.addEventListener('click', () => void collection());
+  root.querySelector('#privacy-icon')!.append(createElement(ShieldCheck));
+  if(resourceTitles.includes(title)){
+    const sub=document.createElement('nav');sub.className='admin-tabs resource-navigation';sub.setAttribute('aria-label','表情资源分栏');
+    for(const[label,id,run]of [['表情管理','expressions',()=>void expressions()],['表情采集','collection',()=>void collection()],['采集任务','collection-jobs',()=>void collectionJobs()],['内置动画','bundled',()=>void bundled()]]as const){const b=document.createElement('button');b.type='button';b.textContent=label;if(id===key)b.setAttribute('aria-current','page');b.addEventListener('click',run);sub.append(b);}root.querySelector('#resource-navigation')!.append(sub);
+  }
+  const logout=root.querySelector<HTMLButtonElement>('#logout')!;const icon=createElement(LogOut);icon.setAttribute('aria-hidden','true');logout.prepend(icon);
+  logout.addEventListener('click',async()=>{logout.disabled=true;try{await api('/logout','POST');login();}catch(error){report(error);if(logout.isConnected)logout.disabled=false;}});
 }
 
 function report(error: unknown, tone: 'danger' | 'success' = 'danger') {
@@ -155,8 +152,8 @@ function login() {
   sessionGeneration += 1; window.clearInterval(sessionTimer); sessionTimer = undefined; sessionActivity = 0;
   view += 1;
   try { sessionStorage.removeItem('quiet-admin-view'); } catch { /* Storage may be unavailable. */ } csrf = '';
-  offset = 0; expressionPage = 1; expressionStatus = 'all';
-  root.innerHTML = `<div class="login"><p class="eyebrow">QUIET ROOM</p><h1>登录会话管理</h1><p>使用管理员密码与 Google Authenticator 动态验证码。</p>
+  expressionPage = 1; expressionStatus = 'all';
+  root.innerHTML = `<div class="login"><div class="login-brand">${chamberMark()}</div><p class="eyebrow">CHAMBER / ADMIN</p><h1>登录管理工作区</h1><p>使用管理员密码与 Google Authenticator 动态验证码。</p>
     <form><label>管理员密码<input name="password" type="password" autocomplete="current-password" required /></label>
     <label>动态验证码<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required /></label>
     <button class="primary" type="submit">验证并登录</button></form><p id="status" role="alert"></p></div>`;
@@ -168,81 +165,23 @@ function login() {
     const values = new FormData(form);
     const body = { password: String(values.get('password')), code: String(values.get('code')) };
     form.reset();
-    try { const result = await api<{ csrf: string }>('/login', 'POST', body); if (!form.isConnected) return; csrf = result.csrf; startSessionRenewal(); await rooms(); }
+    try { const result = await api<{ csrf: string }>('/login', 'POST', body); if (!form.isConnected) return; csrf = result.csrf; startSessionRenewal(); await workspace.overview(); }
     catch (error) { if (form.isConnected) report(error); }
     finally { body.password = ''; body.code = ''; if (button.isConnected) button.disabled = false; }
   });
 }
 
-async function rooms() {
-  frame('会话管理'); const epoch = view;
-  const content = root.querySelector('#content')!; content.append(loadingState('正在读取会话…'));
-  try {
-    const data = await api<{ rooms: Room[] }>(`/rooms?offset=${offset}`);
-    if (epoch !== view) return;
-    content.textContent = '';
-    if (!data.rooms.length && offset > 0) { offset = Math.max(0, offset - 50); await rooms(); return; }
-    content.append(pageToolbar('所有会话', `本页 ${data.rooms.length} 个会话`, { label: '刷新会话列表', icon: RefreshCw, run: () => void rooms() }));
-    const list = table(['会话', '最近活动', '活跃设备', '有效备份', '已备份聊天', '已备份保险箱']);
-    for (const room of data.rooms) {
-      const button = document.createElement('button'); button.className = 'room-id'; button.textContent = room.roomId;
-      button.addEventListener('click', () => void detail(room.roomId));
-      row(list.body, [button, date(room.lastSeenAt), room.devices, room.backups, room.backupChatCount ?? room.messageCount, room.backupGalleryCount ?? 0]);
-    }
-    content.append(list.wrapper);
-    if (!data.rooms.length) content.append(emptyState('暂无会话。'));
-    content.append(pagination({ page: offset / 50 + 1, pageSize: 50, hasNext: data.rooms.length === 50, label: '会话分页', change: page => { offset = (page - 1) * 50; void rooms(); } }));
-  } catch (error) { if (epoch === view) content.replaceChildren(errorState(error, () => void rooms())); }
-}
-
-async function detail(id: string) {
-  frame('会话详情'); const epoch = view;
-  const content = root.querySelector('#content')!;
-  const back = iconButton('返回会话列表', ArrowLeft, () => void rooms()); content.append(back);
-  const code = document.createElement('p'); code.className = 'room-id'; code.textContent = id; content.append(code);
-  try {
-    const data = await api<Detail>(`/rooms/${id}`);
-    if (epoch !== view) return;
-    content.append(pageToolbar('设备与备份', `${data.devices.length} 台设备`));
-    const devices = table(['参与方 / 设备', '状态', '最近活动', '恢复备份', '备份聊天', '备份保险箱']);
-    for (const device of data.devices) {
-      const backup = data.backups.find(b => b.deviceId === device.deviceId && b.active);
-      const status = ({ active: ['活跃', 'success'], pending: ['待授权', 'warning'], revoked: ['已撤销', 'danger'] } as Record<string, [string, 'success' | 'warning' | 'danger']>)[device.status] ?? [device.status, 'muted'];
-      const identity = document.createElement('div'); const name = document.createElement('strong'); name.textContent = `${device.role === 'creator' ? '创建者' : '受邀者'} · ${device.name}`;
-      const deviceId = document.createElement('p'); deviceId.className = 'room-id'; deviceId.textContent = device.deviceId; identity.append(name, deviceId);
-      row(devices.body, [identity,
-        badge(status[0], status[1]),
-        date(device.lastSeenAt), backup ? `${date(backup.updatedAt)} · 版本 ${backup.revision} · ${size(backup.recoveryBytes)}` : '暂无有效备份',
-        backup ? `${backup.chatCount ?? 0} 条` : '—', backup ? `${backup.galleryCount ?? 0} 项` : '—']);
-    }
-    content.append(devices.wrapper);
-    const cleanup = document.createElement('section'); cleanup.className = 'cleanup';
-    cleanup.innerHTML = `<h2>清理整个会话</h2><p>会话、设备授权、在线加密备份和原始附件将被删除。参与者无法再从服务器恢复。离线保存的副本无法远程删除。</p>
-      <button id="open-cleanup" class="danger" type="button">准备清理</button><div id="cleanup-form"></div>`;
-    content.append(cleanup);
-    cleanup.querySelector('#open-cleanup')!.addEventListener('click', () => {
-      const host = cleanup.querySelector('#cleanup-form')!;
-      host.innerHTML = `<form><label>完整会话编号<input name="confirmRoomId" autocomplete="off" required /></label>
-        <label>再次输入管理员密码<input name="password" type="password" autocomplete="current-password" required /></label>
-        <label>新的动态验证码<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required /></label>
-        <button class="danger" type="submit">确认清理会话</button></form>`;
-      const form = host.querySelector('form')!;
-      form.addEventListener('submit', async event => {
-        event.preventDefault(); const button = form.querySelector('button')!;
-        if (button.disabled) return;
-        const values = new FormData(form);
-        const body = { confirmRoomId: String(values.get('confirmRoomId')), password: String(values.get('password')), code: String(values.get('code')) };
-        form.reset(); button.disabled = true;
-        try { await api(`/rooms/${id}`, 'DELETE', body); if (epoch === view) { await rooms(); report('会话已清理。', 'success'); } }
-        catch (error) { if (epoch === view) report(error); }
-        finally { body.password = ''; body.code = ''; if (button.isConnected) button.disabled = false; }
-      });
-    });
-  } catch (error) { if (epoch === view) content.append(errorState(error, () => void detail(id))); }
+const workspace=new AdminWorkspace({root,api,frame,epoch:()=>view,report,resources:()=>void expressions(),jobs:()=>void collectionJobs()});
+async function rooms(){await workspace.rooms();}
+function bundled(){
+  frame('内置动画');const content=root.querySelector('#content')!;
+  content.append(pageToolbar('随应用提供的 Fluent 动画','应用内置内容，采用版本发布管理。'));
+  const copy=document.createElement('p');copy.className='admin-note';copy.textContent='Emoji 入口中的 64 个 Microsoft Fluent 动画随应用打包，与后台公开贴纸资源库分别维护。更新通过应用代码、来源许可校验及正式发布流程完成。';content.append(copy);
+  const facts=document.createElement('dl');facts.className='admin-facts';facts.innerHTML='<div><dt>资源类型</dt><dd>应用内置动画</dd></div><div><dt>后台修改</dt><dd>只读，不提供上下架或上传替换</dd></div><div><dt>用户收藏与已添加合集</dt><dd>保存在各自本机加密数据中</dd></div>';content.append(facts);
 }
 
 type Expression = { id: string; kind: 'gifs' | 'stickers'; title: string; tags: string; author: string; source: string; status: string; count: number; autoHide?: boolean; items?: { position: number; title: string }[] };
-let expressionKind: 'gifs' | 'stickers' = 'gifs';
+let expressionKind: 'gifs' | 'stickers' = 'stickers';
 let expressionPage = 1;
 let expressionStatus = 'all';
 
@@ -345,14 +284,13 @@ async function collectionJobs() {
 async function collection() {
   frame('表情采集'); const epoch = view;
   const content = root.querySelector<HTMLElement>('#content')!;
-  content.innerHTML = `<div class="resource-toolbar"><label>采集渠道<select id="collection-channel"><option value="signal">Signal Stickers · 贴图合集</option><option value="noto">Google Noto · 动画表情</option></select></label><div class="actions"><button id="open-collection-jobs">采集任务</button><button id="review-collected">管理已入库资源</button></div></div>
+  content.innerHTML = `<div class="resource-toolbar"><label>采集渠道<select id="collection-channel"><option value="signal">Signal Stickers · 贴图合集</option><option value="noto">Google Noto · 动画表情</option></select></label><div class="actions"><button id="review-collected">管理已入库资源</button></div></div>
     <section class="source-panel" aria-labelledby="source-title"><div class="source-heading"><div><h2 id="source-title"></h2><p>选择资源加入后台队列，完整下载并校验后自动上架。</p></div><form id="source-search" class="source-search"><input name="keyword" placeholder="搜索表情" maxlength="80" aria-label="搜索表情"><button class="primary" type="submit">搜索</button></form></div><div id="source-results" class="source-results" aria-live="polite"></div><div id="source-pagination"></div></section>`;
   const channel = content.querySelector<HTMLSelectElement>('#collection-channel')!;
   channel.value = collectionChannel;
   const selectedChannel = collectionChannel;
   content.querySelector('#source-title')!.textContent = selectedChannel === 'noto' ? 'Google Noto 动画表情' : 'Signal Stickers 贴图包';
   channel.addEventListener('change', () => { collectionChannel = channel.value; void collection(); });
-  content.querySelector('#open-collection-jobs')!.addEventListener('click', () => { collectionJobStatus = 'running'; void collectionJobs(); });
   content.querySelector('#review-collected')!.addEventListener('click', () => { expressionKind = selectedChannel === 'noto' ? 'gifs' : 'stickers'; expressionStatus = 'all'; expressionPage = 1; void expressions(); });
   let page = 1; let generation = 0;
   let jobs: CollectionJob[] = [];
@@ -609,5 +547,6 @@ root.textContent = '正在验证后台会话…';
 void api<{ csrf: string }>('/session').then(result => {
   csrf = result.csrf; startSessionRenewal();
   let previous = ''; try { previous = sessionStorage.getItem('quiet-admin-view') || ''; } catch { /* Use the default view. */ }
-  return previous === 'collection-jobs' ? collectionJobs() : previous === 'collection' ? collection() : rooms();
+  const destinations:Record<string,()=>Promise<unknown>|void>={overview:workspace.overview,rooms,archives:()=>workspace.archives(),expressions,collection,'collection-jobs':collectionJobs,diagnostics:workspace.diagnostics,security:workspace.security,bundled};
+  return (destinations[previous]??workspace.overview)();
 }).catch(login);
