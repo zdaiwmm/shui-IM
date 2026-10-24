@@ -304,7 +304,7 @@ try {
   // A failed received image, album cell or expression must rebuild its live
   // ring on retry, retain the capsule/ID and complete real decryption.
   for (const kind of ['image', 'image-album', 'expression']) {
-    const id = await page.evaluate(kind => {
+    const id = await page.evaluate(async kind => {
       const f = window.mediaFixture;
       const source = [...f.app.pending.values()].find(message => kind === 'expression'
         ? message.payload.presentation === 'expression' : message.payload.kind === kind && !message.payload.presentation);
@@ -313,6 +313,9 @@ try {
         const cached = f.app.imageCache.get(manifest.blobId);
         if (cached) for (const key of ['url','posterUrl','concealedUrl']) if (cached[key]) URL.revokeObjectURL(cached[key]);
         f.app.imageCache.delete(manifest.blobId);
+        // Earlier cold handoffs now populate the authenticated persistent
+        // preview/chunk cache too. This case specifically injects network failure.
+        await f.vault.deleteCachedMediaBlob(f.session, manifest.blobId);
       }
       f.app.renderedMessages.delete(source.clientMsgId);
       f.gate.failDownload = true; f.app.renderMessages();
