@@ -7,6 +7,7 @@ import { startServer } from '../server/index.mjs';
 import { makeAdminConfig, totp, verifyAdmin } from '../server/admin-auth.mjs';
 import { createExpressionCatalog } from '../server/expression-catalog.mjs';
 import { generateIdentity } from '../src/lib/crypto';
+import { newArchiveKey, sealArchiveObject, archiveWriterProof } from '../src/lib/room-archive-crypto';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { vi.useRealTimers(); for (const fn of cleanups.splice(0)) await fn(); });
@@ -97,6 +98,21 @@ describe('isolated session administration', () => {
     const identity = await generateIdentity();
     const { roomId } = server.store.createRoom(identity.publicBundle, 't'.repeat(43), 'i'.repeat(43), '<img src=x onerror=alert(1)>');
     const headers = { Cookie: cookie, 'X-CSRF-Token': csrf };
+    const archive = newArchiveKey();
+    server.store.roomArchives.register(roomId,identity.publicBundle.deviceId,archive.descriptor,'creator',archiveWriterProof(archive,roomId,identity.publicBundle.deviceId));
+    const object=await sealArchiveObject(archive,{text:'synthetic private archive'});
+    server.store.roomArchives.put(roomId,identity.publicBundle.deviceId,archive.descriptor.id,object);
+    for (const route of ['/admin-api/overview','/admin-api/diagnostics','/admin-api/events','/admin-api/archives',`/admin-api/archives/${archive.descriptor.id}`]) {
+      expect((await send(route)).status).toBe(401);
+      expect((await send(route,'GET',undefined,{...headers,Host:'ai.shui.click'})).status).toBe(404);
+      expect((await send(route,'GET',undefined,{...headers,Origin:'https://evil.invalid'})).status).toBe(403);
+      const result=await send(route,'GET',undefined,headers);expect(result.status).toBe(200);
+      const metadata=await result.text();
+      for(const secret of [config.totpSecret,archive.seed,archive.descriptor.readHash,object.ciphertext,'synthetic private archive'])expect(metadata).not.toContain(secret);
+    }
+    expect((await send('/admin-api/archives?source=invalid','GET',undefined,headers)).status).toBe(400);
+    expect((await send('/admin-api/rooms?format=invalid','GET',undefined,headers)).status).toBe(400);
+    expect((await send(`/admin-api/archives/${archive.descriptor.id}`,'DELETE',{},headers)).status).toBe(404);
     const upload = { kind: 'gifs', title: '<img src=x onerror=alert(1)>', tags: 'cat', files: [{ data: 'R0lGODlhAQABAIAAAAAAAP///yH5BAAAAAAALAAAAAABAAEAAAIBRAA7' }] };
     expect((await send('/admin-api/expressions')).status).toBe(401);
     expect((await send('/admin-api/expressions', 'POST', upload, { Cookie: cookie })).status).toBe(403);
@@ -140,6 +156,8 @@ describe('isolated session administration', () => {
     const deleted = await send(`/admin-api/rooms/${roomId}`, 'DELETE', { confirmRoomId: roomId, password, code: nextCode }, headers);
     expect({ status: deleted.status, body: await deleted.json() }).toEqual({ status: 200, body: { deleted: true } });
     expect(server.store.roomState(roomId)).toBeNull();
+    const retained=await send('/admin-api/archives?source=removed','GET',undefined,headers);
+    expect((await retained.json()).archives[0]).toMatchObject({id:archive.descriptor.id,sourceExists:0,writerActive:0,objects:1});
     await server.close();
     server = await startServer({ port: 0, host: '127.0.0.1', dataDir: dir, adminConfig: config, quiet: true });
     expect((await send('/admin-api/login', 'POST', { password, code: nextCode })).status).toBe(401);

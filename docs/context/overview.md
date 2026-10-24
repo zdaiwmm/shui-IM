@@ -55,6 +55,8 @@ CI 镜像与双独立环境：`scripts/ci-image.mjs`、`scripts/deploy-config.mj
 
 备份与恢复双入口：`src/lib/backup-settings-ui.ts`、`src/lib/history-restore-ui.ts`；跨设备授权在 `cloud-backup.ts` / `local-history-backup.ts`，角色级开关在 `server/cloud-backups.mjs`。验证含 `tests/backup-access.e2e.mjs`；边界见 [恢复契约](../../RECOVERY_BACKUPS.md) 与 [需求记录](../requirements/2026-09-28-backup-recovery/README.md)。
 
+后台工作区 V1：`src/admin/workspace.ts` 实现六入口的查询与详情，`server/admin-data.mjs` 投影新旧归档元数据，`server/admin-diagnostics.mjs` 有界读取只读回执。回归为 `admin-data.test.ts`、`admin-workspace.e2e.mjs` 与既有后台专项；来源删除不影响新版归档。范围见[本次需求](../requirements/2026-10-25-admin-v1/README.md)。
+
 后台组件层：`src/admin/ui.ts`、`src/admin.css`，页面与验证契约见
 [后台组件与页面](../workflows/admin-ui.md)。后台页面由 `src/admin.ts` 编排，共用表格、分页、状态与错误处理组件。
 

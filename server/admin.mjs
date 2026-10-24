@@ -11,7 +11,7 @@ const secret = () => randomBytes(32).toString('base64url');
 const hash = value => createHash('sha256').update(value).digest('hex');
 
 export async function createAdminConsole({ config: suppliedConfig, configFile, origin = 'https://admin.mijiu.cloud',
-  data, expressions, json, readJson, readExpressionJson = readJson, headers, staticDir, onDelete }) {
+  data, readModel, diagnostics, expressions, json, readJson, readExpressionJson = readJson, headers, staticDir, onDelete }) {
   let config = suppliedConfig;
   if (!config && configFile) {
     const info = await stat(configFile);
@@ -81,52 +81,80 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
     session.expires = Math.min(now + sessionIdleMs, session.absolute);
     setCookie(response, token, session.expires, now);
     if (['GET', 'POST'].includes(request.method) && pathname === '/admin-api/session') {
-      json(request, response, 200, { csrf: session.csrf }); return true;
+      json(request, response, 200, { csrf: session.csrf, expiresAt: new Date(session.absolute).toISOString() }); return true;
     }
     if (request.method === 'POST' && pathname === '/admin-api/logout') {
       sessions.delete(hash(token)); clearCookie(response); json(request, response, 200, { loggedOut: true }); return true;
     }
     const url = new URL(request.url, adminOrigin);
+    if (request.method === 'GET' && readModel) {
+      try {
+        const offset = Number(url.searchParams.get('offset') ?? 0);
+        if (pathname === '/admin-api/overview') {
+          const jobs=expressions?.jobs()??[];
+          json(request,response,200,{...readModel.summary(),diagnostics:await diagnostics(),jobs:{running:jobs.filter(j=>j.status==='running').length,queued:jobs.filter(j=>j.status==='queued').length,failed:jobs.filter(j=>j.status==='failed').length},
+            resources:{stickers:expressions?.list({kind:'stickers',keyword:'',page:1,status:'all'}).total??0,gifs:expressions?.list({kind:'gifs',keyword:'',page:1,status:'all'}).total??0}});return true;
+        }
+        if(pathname==='/admin-api/archives') {json(request,response,200,readModel.archives({offset,roomId:url.searchParams.get('roomId')??'',source:url.searchParams.get('source')??'all'}));return true;}
+        if(/^\/admin-api\/archives\/[A-Za-z0-9_-]{43}$/.test(pathname)) {
+          const value=readModel.archive(pathname.split('/')[3]);json(request,response,value?200:404,value??{error:'归档不存在'});return true;
+        }
+        if(pathname==='/admin-api/events') {json(request,response,200,readModel.events({offset,q:url.searchParams.get('q')??''}));return true;}
+        if(pathname==='/admin-api/diagnostics') {json(request,response,200,{...readModel.summary(),diagnostics:await diagnostics()});return true;}
+      }catch(error){if(error.message!=='INVALID_ADMIN_FILTER')throw error;json(request,response,400,{error:'筛选条件不正确'});return true;}
+    }
     if (expressions && pathname.startsWith('/admin-api/expressions')) {
+      let auditTargets=[];
+      const expressionJson=(request,response,status,body)=>{
+        if(request.method!=='GET'&&readModel&&status<400){
+          const parts=pathname.split('/'),target=parts[3]==='jobs'?parts[4]:parts[3];
+          const action=pathname.endsWith('/cancel')?'collection-cancel':pathname.endsWith('/retry')?'collection-retry':pathname.endsWith('/collect')?'collection-start':
+            request.method==='POST'?'expression-create':request.method==='PATCH'?(pathname.endsWith('/status')?'expression-status':'expression-update'):url.searchParams.has('position')?'expression-item-delete':'expression-delete';
+          const targets=auditTargets.length?auditTargets:[typeof body?.id==='string'?body.id:target&&/^[A-Za-z0-9_-]{1,128}$/.test(target)?target:'catalog'];
+          try{for(const id of targets)readModel.recordEvent(action,action.startsWith('collection')?'collection':'expression',id);}
+          catch{json(request,response,503,{error:'操作可能已完成，但审计记录失败。请刷新确认结果，不要重复提交。'});return;}
+        }
+        json(request,response,status,body);
+      };
       try {
         const match = pathname.match(/^\/admin-api\/expressions\/([a-zA-Z0-9_-]{1,128})(?:\/media\/(\d{1,3}))?$/);
         if (pathname === '/admin-api/expressions' && request.method === 'GET') {
-          json(request, response, 200, expressions.list({ kind: url.searchParams.get('kind') ?? 'gifs', keyword: url.searchParams.get('keyword') ?? '',
+          expressionJson(request, response, 200, expressions.list({ kind: url.searchParams.get('kind') ?? 'gifs', keyword: url.searchParams.get('keyword') ?? '',
             status: url.searchParams.get('status') ?? 'all', page: Number(url.searchParams.get('page') ?? 1) }));
         } else if (pathname === '/admin-api/expressions' && request.method === 'POST') {
-          json(request, response, 201, await expressions.create(await readExpressionJson(request)));
+          expressionJson(request, response, 201, await expressions.create(await readExpressionJson(request)));
         } else if (pathname === '/admin-api/expressions/status' && request.method === 'PATCH') {
-          json(request, response, 200, expressions.updateStatus(await readJson(request)));
+          const body=await readJson(request);const result=expressions.updateStatus(body);auditTargets=body.ids;expressionJson(request,response,200,result);
         } else if (pathname === '/admin-api/expressions/collect' && request.method === 'POST') {
-          json(request, response, 202, expressions.start(await readJson(request)));
+          expressionJson(request, response, 202, expressions.start(await readJson(request)));
         } else if (pathname === '/admin-api/expressions/source' && request.method === 'GET') {
-          json(request, response, 200, await expressions.sourceSearch({ keyword: url.searchParams.get('keyword') ?? '', channel: url.searchParams.get('channel') ?? 'signal', kind: url.searchParams.get('channel') === 'noto' ? 'gifs' : 'stickers', page: Number(url.searchParams.get('page') ?? 1) }));
+          expressionJson(request, response, 200, await expressions.sourceSearch({ keyword: url.searchParams.get('keyword') ?? '', channel: url.searchParams.get('channel') ?? 'signal', kind: url.searchParams.get('channel') === 'noto' ? 'gifs' : 'stickers', page: Number(url.searchParams.get('page') ?? 1) }));
         } else if (pathname.match(/^\/admin-api\/expressions\/source\/(?:[a-f0-9]{32}|noto-[a-f0-9_]{4,80})\/media$/) && request.method === 'GET') {
           const result = await expressions.sourcePreview(pathname.split('/')[4]);
           headers(request, response); response.writeHead(200, { 'Content-Type': result.type, 'Content-Length': result.bytes.length, 'Cache-Control': 'no-store' }); response.end(result.bytes);
         } else if (match && match[2] === undefined && request.method === 'DELETE' && url.searchParams.has('position')) {
-          json(request, response, 200, expressions.removeItem(match[1], Number(url.searchParams.get('position'))));
+          expressionJson(request, response, 200, expressions.removeItem(match[1], Number(url.searchParams.get('position'))));
         } else if (pathname === '/admin-api/expressions/jobs' && request.method === 'GET') {
-          json(request, response, 200, { jobs: expressions.jobs() });
+          expressionJson(request, response, 200, { jobs: expressions.jobs() });
         } else if (pathname.match(/^\/admin-api\/expressions\/jobs\/[a-f0-9-]{36}\/cancel$/) && request.method === 'POST') {
-          json(request, response, 200, expressions.cancel(pathname.split('/')[4]));
+          expressionJson(request, response, 200, expressions.cancel(pathname.split('/')[4]));
         } else if (pathname.match(/^\/admin-api\/expressions\/jobs\/[a-f0-9-]{36}\/retry$/) && request.method === 'POST') {
-          json(request, response, 202, expressions.retry(pathname.split('/')[4]));
+          expressionJson(request, response, 202, expressions.retry(pathname.split('/')[4]));
         } else if (match && match[2] !== undefined && request.method === 'GET') {
           const result = expressions.preview(match[1], Number(match[2]));
           headers(request, response); response.writeHead(200, { 'Content-Type': result.type, 'Content-Length': result.bytes.length, 'Cache-Control': 'no-store' }); response.end(result.bytes);
         } else if (match && match[2] === undefined && request.method === 'GET') {
-          json(request, response, 200, expressions.detail(match[1]));
+          expressionJson(request, response, 200, expressions.detail(match[1]));
         } else if (match && match[2] === undefined && request.method === 'PATCH') {
-          json(request, response, 200, expressions.update(match[1], await readJson(request)));
+          expressionJson(request, response, 200, expressions.update(match[1], await readJson(request)));
         } else if (match && match[2] === undefined && request.method === 'DELETE') {
-          json(request, response, 200, expressions.remove(match[1]));
-        } else json(request, response, 404, { error: 'NOT_FOUND' });
+          expressionJson(request, response, 200, expressions.remove(match[1]));
+        } else expressionJson(request, response, 404, { error: 'NOT_FOUND' });
       } catch (error) {
         const code = error.message;
         const upstreamError = ['MEME_UPSTREAM_UNAVAILABLE', 'MEME_DNS_REJECTED', 'MEME_INVALID_CATALOG', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'ABORT_ERR'].includes(code)
           || ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'ABORT_ERR'].includes(error.code);
-        json(request, response, code === 'MEME_NOT_FOUND' ? 404 : code === 'MEME_BUSY' ? 409 : upstreamError ? 503 : 400,
+        expressionJson(request, response, code === 'MEME_NOT_FOUND' ? 404 : code === 'MEME_BUSY' ? 409 : upstreamError ? 503 : 400,
           { error: code === 'MEME_NOT_FOUND' ? '资源不存在' : code === 'MEME_BUSY' ? '任务队列或预览繁忙，请稍后重试' : upstreamError ? '来源连接或目录读取失败，请重新搜索' : '资源参数不正确或操作失败' });
       }
       return true;
@@ -134,12 +162,13 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
     if (request.method === 'GET' && pathname === '/admin-api/rooms') {
       const offset = Number(url.searchParams.get('offset') ?? 0);
       if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000) { json(request, response, 400, { error: '页码不正确' }); return true; }
-      json(request, response, 200, { rooms: data.rooms(offset) }); return true;
+      try { json(request,response,200,readModel?readModel.roomList({offset,q:url.searchParams.get('q')??'',format:url.searchParams.get('format')??'all',state:url.searchParams.get('state')??'all'}):{rooms:data.rooms(offset)}); }
+      catch(error){if(error.message!=='INVALID_ADMIN_FILTER')throw error;json(request,response,400,{error:'筛选条件不正确'});}return true;
     }
     const match = pathname.match(/^\/admin-api\/rooms\/([0-9a-f-]{36})$/i);
     if (match && isUuid(match[1])) {
       if (request.method === 'GET') {
-        try { json(request, response, 200, data.room(match[1])); }
+        try { json(request, response, 200, { ...(readModel?.room(match[1])??{}), ...data.room(match[1]) }); }
         catch (error) { if (error.message !== 'BACKUP_UNAVAILABLE') throw error; json(request, response, 404, { error: '会话不存在或已清理' }); }
         return true;
       }

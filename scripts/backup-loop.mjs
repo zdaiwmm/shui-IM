@@ -3,6 +3,7 @@ import path from 'node:path';
 import { checkBackupCapacity } from './backup-capacity.mjs';
 import { createConsistentBackup } from '../server/backup.mjs';
 import { readBackupState, writeBackupState } from './backup-state.mjs';
+import { publishBackupAdminStatus } from './backup-admin-status.mjs';
 
 const dataDir = path.resolve(process.env.DATA_DIR ?? './data');
 const backupRoot = path.resolve(process.env.BACKUP_DIR ?? './backups');
@@ -27,8 +28,16 @@ process.once('SIGINT', stop);
 
 const mode = process.env.BACKUP_MODE ?? 'local';
 if (!['local', 'mac-pull'].includes(mode)) throw new Error('INVALID_BACKUP_CONFIGURATION');
+let statusPublishedAt=0;
+async function publishStatus() {
+  if(Date.now()-statusPublishedAt<30_000)return;
+  statusPublishedAt=Date.now();
+  try{await publishBackupAdminStatus(backupRoot,process.env.BACKUP_ADMIN_STATUS_DIR);}
+  catch{process.stderr.write('Administrator backup status publication failed\n');}
+}
 
 while (!stopping) {
+  await publishStatus();
   if (mode === 'mac-pull') {
     await new Promise(resolve => setTimeout(resolve, 1000));
     continue;
@@ -50,6 +59,7 @@ while (!stopping) {
   }
   const nextRunAt = succeeded ? Math.max(Date.now(), startedAt + nextDelay) : Date.now() + nextDelay;
   while (!stopping && Date.now() < nextRunAt) {
+    await publishStatus();
     await new Promise((resolve) => setTimeout(resolve, Math.min(1000, nextRunAt - Date.now())));
   }
 }

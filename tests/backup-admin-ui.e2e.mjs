@@ -12,8 +12,11 @@ import { animatedGif } from './fixtures/photo-fixtures.mjs';
 import { wastickers } from './fixtures/wastickers.mjs';
 
 async function navigateAdmin(page, name) {
-  const button = page.getByRole('button', { name, exact: true });
-  if (!await button.isVisible()) await page.getByRole('button', { name: '打开后台导航', exact: true }).click();
+  if (['表情管理','表情采集','采集任务','内置动画'].includes(name) && !await page.getByRole('button',{name,exact:true}).count()) {
+    await navigateAdmin(page,'表情资源');
+  }
+  const button=page.getByRole('button',{name,exact:true});
+  if(!await button.isVisible())await page.getByRole('button',{name:'打开后台导航',exact:true}).click();
   await button.click();
 }
 
@@ -186,29 +189,33 @@ try {
   const admin = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = []; admin.on('pageerror', error => errors.push(error.message));
   await admin.goto(`http://localhost:${port}`);
-  await admin.getByRole('heading', { name: '登录会话管理' }).waitFor();
+  await admin.getByRole('heading', { name: '登录管理工作区' }).waitFor();
   await snapshot(admin, 'admin-login-desktop');
   await admin.locator('[name=password]').fill(password);
   await admin.locator('[name=code]').fill(totp(config.totpSecret));
   await admin.getByRole('button', { name: '验证并登录' }).click();
-  await admin.getByRole('heading', { name: '会话管理', exact: true }).waitFor();
-  await admin.getByRole('button', { name: roomId }).waitFor();
+  await admin.getByRole('heading', { name: '总览', exact: true }).waitFor();
+  await navigateAdmin(admin, '密室管理');
+  await admin.getByRole('button', { name: roomId,exact:true }).waitFor();
   await admin.reload();
-  await admin.getByRole('button', { name: roomId }).waitFor();
-  assert.equal(await admin.getByRole('heading', { name: '登录会话管理' }).count(), 0, 'Reload restores a valid administrator session');
+  await admin.getByRole('button', { name: roomId, exact: true }).waitFor();
+  assert.equal(await admin.getByRole('heading', { name: '登录管理工作区' }).count(), 0, 'Reload restores a valid administrator session');
+  await admin.getByRole('button',{name:roomId,exact:true}).click();
+  await admin.getByRole('button',{name:'关联归档',exact:true}).click();
   await admin.getByRole('columnheader',{name:'已备份聊天',exact:true}).waitFor();
   await admin.getByRole('columnheader',{name:'已备份保险箱',exact:true}).waitFor();
-  const inventoryRow = admin.locator('tr').filter({has:admin.getByRole('button',{name:roomId,exact:true})});
-  assert.deepEqual((await inventoryRow.locator('td').allTextContents()).slice(-2),['3','3'],'Admin did not show independently backed up messages and media assets');
+  const backupCells=await admin.locator('.admin-section table tbody tr').first().locator('td').allTextContents();
+  assert.deepEqual(backupCells.slice(3,5),['3','3'],'Legacy backup counts remain separately inspectable');
+  await admin.getByRole('button',{name:'返回密室列表',exact:true}).click();
   await snapshot(admin, 'admin-rooms-desktop');
   assert.equal(await admin.locator('#rooms-nav').getAttribute('aria-current'), 'page');
   assert.equal(await admin.getByText('后台服务正常').count(), 0, 'no unverified health claim');
   await admin.route('**/admin-api/rooms?*', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: '会话读取暂时失败' }) }));
-  await admin.getByRole('button', { name: '刷新会话列表' }).click();
+  await admin.getByRole('button', { name: '刷新密室列表' }).click();
   await admin.getByText('会话读取暂时失败').waitFor();
   await admin.unroute('**/admin-api/rooms?*');
   await admin.getByRole('button', { name: '重试', exact: true }).click();
-  await admin.getByRole('button', { name: roomId }).waitFor();
+  await admin.getByRole('button', { name: roomId, exact: true }).waitFor();
   const sourcePackId = 'a'.repeat(32);
   // First task read is a user navigation, not an automatic renewal poll.
   await admin.evaluate(() => { Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => false }); });
@@ -460,10 +467,11 @@ try {
   await admin.getByText('第 1 / 1 页 · 共 0 项', { exact: true }).waitFor();
   await admin.emulateMedia({ colorScheme: 'light' });
   await admin.setViewportSize({ width: 1280, height: 900 });
-  await navigateAdmin(admin, '会话管理');
-  await admin.getByRole('button', { name: roomId }).waitFor();
-  await admin.getByRole('button', { name: roomId }).click();
-  await admin.getByRole('heading', { name: '清理整个会话' }).waitFor();
+  await navigateAdmin(admin, '密室管理');
+  await admin.getByRole('button', { name: roomId, exact: true }).waitFor();
+  await admin.getByRole('button', { name: roomId, exact: true }).click();
+  await admin.getByRole('button',{name:'危险操作',exact:true}).click();
+  await admin.getByRole('heading', { name: '清理实时密室' }).waitFor();
   await snapshot(admin, 'admin-detail-desktop');
   await admin.setViewportSize({ width: 390, height: 844 });
   await snapshot(admin, 'admin-detail-mobile');
@@ -472,7 +480,7 @@ try {
   assert.equal(await admin.locator('[name=confirmRoomId]').getAttribute('required'), '');
   await admin.clock.install();
   await admin.reload();
-  await admin.getByRole('button', { name: roomId }).waitFor();
+  await admin.getByRole('button', { name: roomId, exact: true }).waitFor();
   await admin.bringToFront();
   let renewals = 0;
   admin.on('request', request => { if (request.url().endsWith('/admin-api/session') && request.method() === 'POST') renewals++; });
@@ -510,21 +518,22 @@ try {
   assert.equal(jobReads, hiddenJobReads, 'Hidden pages stop task polling while server jobs continue');
   await admin.evaluate(() => { delete document.visibilityState; });
   await admin.getByRole('button', { name: '退出后台' }).click();
-  await admin.getByRole('heading', { name: '登录会话管理' }).waitFor();
+  await admin.getByRole('heading', { name: '登录管理工作区' }).waitFor();
   assert.equal((await admin.request.get(`http://localhost:${port}/admin-api/rooms`)).status(), 401);
   await admin.reload();
-  await admin.getByRole('heading', { name: '登录会话管理' }).waitFor();
+  await admin.getByRole('heading', { name: '登录管理工作区' }).waitFor();
   await admin.route('**/admin-api/session', route => route.fulfill({
     status: route.request().method() === 'POST' ? 401 : 200, contentType: 'application/json',
     body: JSON.stringify(route.request().method() === 'POST' ? { code: 'SESSION_EXPIRED', error: '后台登录已过期，请重新验证' } : { csrf: 'synthetic-expiry-test' }),
   }));
   await admin.route('**/admin-api/rooms?*', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rooms: [] }) }));
+  await admin.evaluate(()=>sessionStorage.setItem('quiet-admin-view','rooms'));
   await admin.reload();
-  await admin.getByRole('heading', { name: '会话管理', exact: true }).waitFor();
+  await admin.getByRole('heading', { name: '密室管理', exact: true }).waitFor();
   await admin.bringToFront();
   await admin.keyboard.press('Shift');
   await admin.clock.runFor(5 * 60_000);
-  await admin.getByRole('heading', { name: '登录会话管理' }).waitFor();
+  await admin.getByRole('heading', { name: '登录管理工作区' }).waitFor();
   await admin.getByText('后台登录已过期，请重新验证', { exact: true }).waitFor();
   const expiredRenewals = renewals;
   await admin.clock.runFor(10 * 60_000);

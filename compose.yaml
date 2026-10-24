@@ -27,6 +27,7 @@ services:
       HOST: 0.0.0.0
       PORT: 8080
       DATA_DIR: /app/data
+      ADMIN_BACKUP_STATUS_FILE: /app/admin-status/backup.json
       MAX_BLOB_BYTES: 268437504
       MAX_ROOM_STORAGE_BYTES: 1073741824
       MAX_TOTAL_STORAGE_BYTES: 10737418240
@@ -47,6 +48,7 @@ services:
       - "127.0.0.1:8080:8080"
     volumes:
       - quiet-room-data:/app/data
+      - quiet-room-admin-status:/app/admin-status:ro
 
   quiet-room-backup:
     <<: *quiet-room-image
@@ -73,6 +75,7 @@ services:
     environment:
       DATA_DIR: /app/data
       BACKUP_DIR: /app/backups
+      BACKUP_ADMIN_STATUS_DIR: /app/admin-status
       BACKUP_MODE: ${BACKUP_MODE:-local}
       BACKUP_INTERVAL_MS: ${BACKUP_INTERVAL_MS:-86400000}
       BACKUP_MAX_AGE_MS: ${BACKUP_MAX_AGE_MS:-129600000}
@@ -80,6 +83,8 @@ services:
     volumes:
       - quiet-room-data:/app/data:ro
       - ${QUIET_ROOM_BACKUP_DIR:-./backups}:/app/backups
+      - quiet-room-admin-status:/app/admin-status
 
 volumes:
   quiet-room-data:
+  quiet-room-admin-status:

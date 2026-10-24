@@ -24,7 +24,8 @@ export function createRoomArchives(db,{maxArchiveBytes=1024**3,maxTotalBytes=10*
   if (![maxArchiveBytes,maxTotalBytes].every(n=>Number.isSafeInteger(n)&&n>0)) throw new Error('INVALID_ARCHIVE_BUDGET');
   db.exec(`CREATE TABLE IF NOT EXISTS private_archives_v2(id TEXT PRIMARY KEY,room_id TEXT NOT NULL,device_id TEXT NOT NULL,descriptor TEXT NOT NULL,owner_role TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS private_archive_access_v2(archive_id TEXT PRIMARY KEY REFERENCES private_archives_v2(id),read_hash TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS private_archive_objects_v2(cursor INTEGER PRIMARY KEY AUTOINCREMENT,archive_id TEXT NOT NULL REFERENCES private_archives_v2(id),id TEXT NOT NULL,record TEXT NOT NULL,bytes INTEGER NOT NULL,UNIQUE(archive_id,id));`);
+    CREATE TABLE IF NOT EXISTS private_archive_objects_v2(cursor INTEGER PRIMARY KEY AUTOINCREMENT,archive_id TEXT NOT NULL REFERENCES private_archives_v2(id),id TEXT NOT NULL,record TEXT NOT NULL,bytes INTEGER NOT NULL,UNIQUE(archive_id,id));
+    CREATE TABLE IF NOT EXISTS private_archive_admin_meta_v1(archive_id TEXT PRIMARY KEY REFERENCES private_archives_v2(id),created_at TEXT,last_written_at TEXT);`);
   const descriptor=id=>{const row=db.prepare('SELECT descriptor FROM private_archives_v2 WHERE id=?').get(id);if(!row)throw new Error('BACKUP_NOT_FOUND');return JSON.parse(row.descriptor);};
   const readable=(id,token)=>{
     if(typeof token!=='string'||!keyPattern.test(token))throw new Error('UNAUTHORIZED');
@@ -62,6 +63,7 @@ export function createRoomArchives(db,{maxArchiveBytes=1024**3,maxTotalBytes=10*
       }
       if(db.prepare('SELECT COUNT(*) AS n FROM private_archives_v2 WHERE room_id=? AND device_id=?').get(roomId,deviceId).n>=4||db.prepare('SELECT COUNT(*) AS n FROM private_archives_v2').get().n>=100_000)throw new Error('BACKUP_QUOTA');
       db.prepare('INSERT INTO private_archives_v2 VALUES(?,?,?,?,?)').run(d.id,roomId,deviceId,canonicalStringify(d),role);
+      db.prepare('INSERT INTO private_archive_admin_meta_v1(archive_id,created_at) VALUES(?,?)').run(d.id,new Date().toISOString());
       db.exec('COMMIT');
       }catch(cause){db.exec('ROLLBACK');throw cause;}
     },
@@ -80,6 +82,7 @@ export function createRoomArchives(db,{maxArchiveBytes=1024**3,maxTotalBytes=10*
         const all=db.prepare('SELECT COALESCE(SUM(bytes),0) AS n FROM private_archive_objects_v2').get().n;
         if(own+size>maxArchiveBytes||all+size>maxTotalBytes)throw new Error('BACKUP_QUOTA');
         db.prepare('INSERT INTO private_archive_objects_v2(archive_id,id,record,bytes) VALUES(?,?,?,?)').run(id,object.id,record,size);
+        db.prepare('INSERT INTO private_archive_admin_meta_v1(archive_id,last_written_at) VALUES(?,?) ON CONFLICT(archive_id) DO UPDATE SET last_written_at=excluded.last_written_at').run(id,new Date().toISOString());
         db.exec('COMMIT');
       }catch(e){db.exec('ROLLBACK');throw e;}
     },

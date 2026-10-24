@@ -7,6 +7,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { createStore } from './storage.mjs';
 import { verifyPersonalDeviceBinding } from './personal-protocol.mjs';
 import { createAdminConsole } from './admin.mjs';
+import { adminBackupStatus, adminReleaseId } from './admin-diagnostics.mjs';
 import { createExpressionCatalog } from './expression-catalog.mjs';
 import { callIceConfiguration, createCallService } from './calls.mjs';
 import { createPushService, validatePushAuthorization, validatePushSubscription } from './push.mjs';
@@ -413,6 +414,15 @@ export async function startServer(options = {}) {
   const memes = createExpressionCatalog({ dataDir });
   const admin = await createAdminConsole({ config: options.adminConfig, configFile: options.adminConfigFile ?? process.env.ADMIN_CONFIG_FILE,
     origin: adminOrigin, data: store.cloudBackups, expressions: memes, json, readJson,
+    readModel: store.adminData,
+    diagnostics: async () => {
+      let calls={configured:false,relayConfigured:false,valid:false};
+      try {const value=callIceConfiguration(options);calls={configured:true,relayConfigured:value.relayConfigured,valid:true};}catch { /* Never expose config values or credentials. */ }
+      return {checkedAt:new Date().toISOString(),health:await store.healthCheck(),releaseId:await adminReleaseId(staticDir),
+        backup:await adminBackupStatus(options.adminBackupStatusFile??process.env.ADMIN_BACKUP_STATUS_FILE),
+        services:{pushEnabled:Boolean(pushService.enabled),calls,webSocketConnections:[...clientsByRoom.values()].reduce((sum,set)=>sum+set.size,0)},
+        policy:{incompleteBlobTtlMs,orphanRoomTtlMs,maxConnectionsPerRoom,maxConnectionsTotal}};
+    },
     readExpressionJson: async request => JSON.parse((await readBody(request, 70 * 1024 * 1024)).toString('utf8')),
     headers: applySecurityHeaders, staticDir,
     onDelete: async roomId => {

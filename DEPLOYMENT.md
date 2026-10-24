@@ -585,6 +585,8 @@ data deletion.
 
 ## 可选会话管理后台（admin.mijiu.cloud）
 
+V1 状态通道：基础 Compose 的 `quiet-room-admin-status` 为单独状态卷，备份容器可写、应用只读；镜像预建目录归运行用户所有。只发布有界的白名单摘要，不向应用挂载整个灾备目录。既有备份路径、只读数据挂载、容量及恢复门禁保持。应用环境 `ADMIN_BACKUP_STATUS_FILE` 与备份环境 `BACKUP_ADMIN_STATUS_DIR` 指向该通道；不可读或过期时后台显示未知。普通升级由固定发布入口创建该卷，不需要新增 root helper。
+
 应用默认不开启后台。自动加密备份不依赖管理员登录，后台管理会话/设备/备份元数据、清理会话和公开表情资源库，不能获取恢复码或解密聊天内容。功能和风险边界见 [RECOVERY_BACKUPS.md](./RECOVERY_BACKUPS.md) 与 [MEMES.md](./MEMES.md)。新资源库初始为空，需先启用后台并上架资源。手动上传要求安装新版后台 Nginx 配置，仅精确资源入口允许 70 MiB 请求体（容纳 50 MiB 表情包的 Base64 JSON），其他后台入口保持 64 KiB。本段是部署准备说明，不是发布授权或已安装记录。 2026-09-10 本批已安装 70 MiB 配置并回读，精确提交、摘要和旧配置备份见 [发布记录](RELEASING.md#本次线上发布记录)。
 
 1. 在受信任的交互终端运行 `node scripts/admin-setup.mjs --out /secure/path/admin.json`。输入至少 16 字符的管理员密码两次，扫描 Google Authenticator 二维码并验证动态码。脚本拒绝覆盖已有文件，以 0600 权限创建配置。不要把二维码、密码、种子或生成的 JSON 提交、记录到工单或终端日志。

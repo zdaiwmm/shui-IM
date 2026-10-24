@@ -25,6 +25,7 @@ try {
   await page.locator('[name=password]').fill('synthetic-live-test-password');
   await page.locator('[name=code]').fill(totp(config.totpSecret));
   await page.getByRole('button', { name: '验证并登录' }).click();
+  await page.getByRole('button', { name: '表情资源', exact: true }).click();
   await page.getByRole('button', { name: '表情采集', exact: true }).click();
   for (const [channel, keyword, id] of [['signal', 'cat meme', '8771105c23a9dc10df5aafb55105ef02'], ['noto', 'white flag', 'noto-1f3f3_fe0f']]) {
     await page.locator('#collection-channel').selectOption(channel);

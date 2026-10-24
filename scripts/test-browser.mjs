@@ -80,6 +80,7 @@ export const browserGroups = Object.freeze({
     'tests/prototype-fidelity.e2e.mjs',
     'tests/history-restore.e2e.mjs',
     'tests/backup-admin-ui.e2e.mjs',
+    'tests/admin-workspace.e2e.mjs',
     'tests/admin-collection-ui.e2e.mjs',
     'tests/chat-image-privacy.e2e.mjs',
     'tests/gallery-loading.e2e.mjs',

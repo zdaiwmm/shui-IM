@@ -175,6 +175,8 @@ sizes. The immutable source and regression boundaries live with
 
 ## Backup policy
 
+Administrator status projection (2026-10-25): the backup worker publishes a small allowlisted receipt every 30 seconds to a separate named status volume; the application mounts only this volume read-only. The projection includes sampling time, verified/snapshot/attempt times, attempt result and local/Mac mode, never backup paths or files. The admin reader bounds it to 4 KiB and rejects samples older than 120 seconds or in the future; the original 36-hour backup health check remains authoritative for freshness. Publication failure does not change snapshot/retention or initiate a backup. A current sample is not a restore drill, a new checksum scan, or proof that clients uploaded their latest history.
+
 The included backup worker uses SQLite's online backup API against the live WAL database, removes incomplete attachment reservations from the snapshot, copies only completed immutable ciphertext chunks, verifies SQLite with `PRAGMA quick_check`, and writes SHA-256 checksums for the database and every chunk. It stages into a partial directory and publishes the backup by atomic rename only after verification.
 
 Compose runs that worker once at startup and then every 24 hours by default. It retains the latest verified snapshot for each of three distinct UTC dates by default (minimum two). Invalid/unknown points are retained for investigation. Configure `QUIET_ROOM_BACKUP_DIR` as a mount whose data is replicated to a different failure domain. A second directory on the same disk is not disaster recovery.
