@@ -1,5 +1,13 @@
 # Quiet Room 当前状态
 
+## 贴纸、设备接入与十三项体验修复已发布（2026-10-25 00:30）
+
+- 用户确认[十三项V1](../requirements/2026-10-24-ui-13-fixes/README.md)，明确免本次原型和流程图；收到最终完整SHA及CI／预检结果后回复「确认，发布生产」。[PR #401](https://github.com/zdaiwmm/shui-IM/pull/401)和[测试补修 #402](https://github.com/zdaiwmm/shui-IM/pull/402)已合并，实际应用`b9afc40a53d0cdf594f33d17df526f5af5a03abc`／2026.10.24.3，与补修源946efda完整文件树同为`8171d64cb9db6c5d6589c964bd69f3a1cb4c0817`；前一生产d6c4a84／2026.10.24.2。
+- P1 V1.31包含贴纸／Fluent、设置遮罩及入口、历史loading、创建及在线选中反馈、本人设备接入、待发取消、图片详情和表情状态、chamberN／改名／未读favicon。原子待发取消不回退MLS，普通新设备不能获取加入前历史。产品与安全契约由PRODUCT、SECURITY、MEMES、DESIGN及D-078拥有。
+- 原产品源干净构建及本地80/80浏览器通过，1354.68秒；后续只改测试等待与记录，完整主聊天专项通过，不冒用旧树全量结果。本地1064项单元通过、11项受磁盘容量门槛阻塞，独立最终CI140文件／1075项全过。[补修PR完整CI40108765789](https://github.com/zdaiwmm/shui-IM/actions/runs/40108765789)及[精确main完整CI40109543492](https://github.com/zdaiwmm/shui-IM/actions/runs/40109543492)均attempt1全部成功，含全部浏览器、通话、双架构镜像和Full application verification；原main即时文案断言失败及更早失败保留于需求记录。
+- 固定[只读预检40110723449](https://github.com/zdaiwmm/shui-IM/actions/runs/40110723449)取得PREFLIGHT_OK，唯一[正式云发布40111067279](https://github.com/zdaiwmm/shui-IM/actions/runs/40111067279)取得精确DEPLOY_VERIFIED。首次独立回读仅备份starting，核实既有五分钟启动期后仅续跑同SHA只读回读，于`2026-10-24T16:30:56.279Z`取得READBACK_OK，3111ms：应用／备份healthy，TURN运行且探针none，精确SHA／镜像、HTTPS／数据库／存储、公开及容器资源、新WebSocket一致，维护门absent，公开版本2026.10.24.3。
+- 完整事实见[本批发布记录](../../RELEASING.md#release-ui-13-fixes-20261025)，白名单证据位于公共Git元数据`quiet-room-deliveries/evidence/ui-13-fixes-20261025/reviewed-summary.json`。独立对账树无部署配置，文档SHA不替代线上应用；本批源树的忽略文件／专属回执及活动对账树按清理门禁保留，机械结果单独保存，其他任务不处理。真实iPhone／iOS27／Safari及独立安全审阅尚未验证。下方均为此前批次历史事实。
+
 ## 界面一致性与自动备份控制已发布（2026-10-24 21:43）
 
 - 用户确认[界面V1及自动备份S1](../requirements/2026-10-24-ui-consistency-backup/README.md)，明确免原型和流程图，收到最终完整SHA与验证结果后回复「确认，发布这个提交」。[PR #399](https://github.com/zdaiwmm/shui-IM/pull/399)合并为实际应用`d6c4a84b0811c4b5419e23b87616d4c8bcaaab2c`／2026.10.24.2，与最终源dfa721e完整文件树同为`8250e28feb38e8bf70e71d37641db7dd254a15ac`；前一生产975c766／2026.10.24.1。

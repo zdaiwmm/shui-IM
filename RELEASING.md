@@ -1,5 +1,17 @@
 # Quiet Room 固定发布流程
 
+<a id="release-ui-13-fixes-20261025"></a>
+## 贴纸、设备接入与十三项体验修复已发布（2026-10-25 00:30）
+
+- 用户确认[十三项V1](docs/requirements/2026-10-24-ui-13-fixes/README.md)，明确免本次原型和流程图；收到完整应用SHA、版本、CI与预检结果后回复「确认，发布生产」，无独立消息permalink。[产品PR #401](https://github.com/zdaiwmm/shui-IM/pull/401)及[测试补修PR #402](https://github.com/zdaiwmm/shui-IM/pull/402)已合并，实际应用固定`b9afc40a53d0cdf594f33d17df526f5af5a03abc`／2026.10.24.3，与补修源`946efdaca25279012044dbe1bafdc9697009f009`完整文件树同为`8171d64cb9db6c5d6589c964bd69f3a1cb4c0817`；前一生产d6c4a84／2026.10.24.2。
+- V1.31修复贴纸目录、Fluent重复加载、深色设置下沿与底部入口、历史loading、创建动效、在线样式选中圈、本人设备链接、待发删除取消、图片详情关闭、表情状态过渡、chamberN命名与改名同步、未读favicon。取消待发原子移除持久队列且不回退MLS；本人设备接入及新设备历史边界保持。长期语义由PRODUCT、SECURITY、MEMES、DESIGN及D-078拥有。
+- 产品源b7416f8的干净构建与本地80/80浏览器单次完整通过，0失败／0未运行，1354.68秒；完整本地单元1064项通过、11项受既有BACKUP_CAPACITY_LOW阻塞，未降低门槛。补修只改测试与记录，完整主聊天专项通过；新文件树不冒用原80项本地证据。原main CI40108062739的阅读器即时文案断言失败后改为等待真实状态再执行原断言，确切触发时序未记录，未改产品代码、期望或默认超时；更早夹具与失败由需求记录保留。
+- [补修PR完整CI40108765789](https://github.com/zdaiwmm/shui-IM/actions/runs/40108765789)与[精确main完整CI40109543492](https://github.com/zdaiwmm/shui-IM/actions/runs/40109543492)均attempt1全部成功，含140文件／1075项单元、全部浏览器分组、通话、审计、凭据扫描、双架构镜像及Full application verification。
+- 固定[只读云预检40110723449](https://github.com/zdaiwmm/shui-IM/actions/runs/40110723449)取得PREFLIGHT_OK，155783ms。用户精确确认后，唯一[正式云发布40111067279](https://github.com/zdaiwmm/shui-IM/actions/runs/40111067279)经既有production正常审核取得精确DEPLOY_VERIFIED；请求`16378f4f-ba33-4801-a3a2-1e42fe5b2040`只派发一次，批次`20261024T162124Z`，工作流来源与应用均为获批SHA。未修改环境保护、helper、云权限或健康门槛。
+- 云回执开始`2026-10-24T16:20:44.036Z`、完成`16:25:29.990Z`，外层cloud-publish356821ms含正常审核等待。linux/amd64实际镜像`sha256:be8d5ddcc40644cd375aedeba5c476769c00edf0dac1775c91b4fc05e29d40a7`，归档摘要`5d4de0890693e76d6be9600acad313efa84c32a27f1c61d70c54a3f8b9d64da6`、210068654字节，绑定精确main CI40109543492／attempt1。
+- 首次独立回读`16:25:57.539Z`至`16:25:58.543Z`仅备份starting未通过，996ms；应用healthy、精确SHA／镜像一致、维护门absent。核实备份启动`16:25:15.07512793Z`及既有五分钟探针／启动期后，只等待并续跑同SHA readback-only，未重启或再次切换。最终回读`2026-10-24T16:30:53.166Z`至`16:30:56.279Z`取得READBACK_OK，3111ms：应用／备份running且healthy，TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、公开及容器资源摘要、新WebSocket一致，维护门absent，管理员及通话启用。公开Service Worker另核对版本2026.10.24.3。
+- 白名单脱敏授权、CI、预检／发布及首次／最终回读保存在公共Git元数据`quiet-room-deliveries/evidence/ui-13-fixes-20261025/reviewed-summary.json`。一次证据保存的权限审核超时未执行，受控重试一次成功，生产不受影响。第二个无部署配置工作树仅对账，文档提交不替代线上应用；本批资源按固定清理入口核验，忽略文件、专属元数据及活动目录保留，其他任务不处理。真实iPhone／iOS27／Safari及独立安全审阅未验证，上线回读不替代高安全公开声明门槛。下方均为此前批次历史证据。
+
 <a id="release-ui-consistency-backup-20261024"></a>
 ## 界面一致性与自动备份控制已发布（2026-10-24 21:43）
 
