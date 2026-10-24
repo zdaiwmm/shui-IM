@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { readTheme, saveTheme, THEME_KEY, COLOR_SCHEME_KEY, readColorScheme, saveColorScheme, resolveColorScheme } from '../src/lib/appearance';
+import { THEMES, readTheme, saveTheme, THEME_KEY, COLOR_SCHEME_KEY, readColorScheme, saveColorScheme, resolveColorScheme } from '../src/lib/appearance';
 describe('local appearance preference', () => {
   it('keeps the original palette for unavailable or malformed storage', () => {
     expect(readTheme({ getItem: () => 'untrusted-value' })).toBe('blue');
@@ -11,6 +11,16 @@ describe('local appearance preference', () => {
     saveTheme(storage, 'green'); expect(values.get(THEME_KEY)).toBe('green');
     expect(() => saveTheme({ setItem() { throw Error('denied'); } }, 'purple')).toThrow('denied');
     expect(readTheme(storage)).toBe('green');
+  });
+  it('round-trips all nine palettes and preserves the four existing identifiers', () => {
+    expect(THEMES.map(theme => theme.id)).toEqual(['blue', 'green', 'purple', 'apricot', 'sea', 'rose', 'terracotta', 'lemon', 'graphite']);
+    const values = new Map<string, string>([[COLOR_SCHEME_KEY, 'dark']]);
+    const storage = { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); } };
+    for (const theme of THEMES) {
+      saveTheme(storage, theme.id);
+      expect(readTheme(storage)).toBe(theme.id);
+      expect(readColorScheme(storage)).toBe('dark');
+    }
   });
   it('defaults old, malformed and inaccessible brightness preferences to system', () => {
     for (const value of [null, 'automatic', '', 'DARK']) expect(readColorScheme({ getItem: () => value })).toBe('system');
