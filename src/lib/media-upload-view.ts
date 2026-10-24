@@ -224,7 +224,14 @@ export class MediaUploadView {
     overlay.inert = true;
     overlay.setAttribute('aria-hidden', 'true');
     const previews = this.tile.querySelector('.media-upload-previews')!;
-    overlay.append(previews, this.status);
+    overlay.append(previews);
+    // Expressions already have the live message's time and send state below
+    // their image. Moving the old status here loses its expression styles and
+    // paints a second progress label over that same footer.
+    if (this.tile.classList.contains('media-upload-expression')) {
+      clearMediaCapsule(this.status);
+      this.status.remove();
+    } else overlay.append(this.status);
     bubble.append(overlay);
     const cleanup = () => {
       observer.disconnect();
@@ -238,7 +245,8 @@ export class MediaUploadView {
       if (![...bubble.querySelectorAll('.image-preview')].every(node => node.getAttribute('data-image-state') === 'loaded')) return;
       observer.disconnect();
       previews.remove();
-      retireMediaCapsule(this.status,signal,cleanup);
+      if (this.tile.classList.contains('media-upload-expression')) cleanup();
+      else retireMediaCapsule(this.status,signal,cleanup);
     };
     // Observe only this short-lived handoff, never the timeline or document.
     const observer = new MutationObserver(settle);

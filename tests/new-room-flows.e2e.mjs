@@ -49,7 +49,13 @@ try{
  // device has its own keys and archive, and needs no manual safety-code approval.
  await bob.bringToFront();await bob.evaluate(async()=>{await(await import('/src/lib/browser-room-key.ts')).protectBrowserRoomKey(await(await import('/src/lib/password-protection.ts')).deriveNumericPasswordCredential('927451'));app.roomLockEnabled=true;});
  await bob.locator('#chat-settings').click();await bob.locator('#manage-devices').click();await bob.locator('#add-own-device:not([disabled])').click();await bob.locator('#copy-device-join').click();await submitPassword(bob,'927451');await bob.locator('.app-toast').filter({hasText:'设备链接已复制'}).waitFor();
- const ownLink=await bob.evaluate(()=>navigator.clipboard.readText()),otherDevice=await newPage(!mobile);otherDevice.on('pageerror',error=>errors.push(error.message));
+ const ownLink=await bob.evaluate(()=>navigator.clipboard.readText());
+ // An unclaimed link never turns its authorizer into a pending new device.
+ await bob.reload();await submitPassword(bob,'927451');await bob.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);
+ assert.equal((await snapshot(bob)).id,previous.id,'An unused device link preserves the original endpoint after application-lock reentry');
+ await bob.getByText('before-replacement',{exact:true}).waitFor();
+ await bob.locator('#chat-settings').click();await bob.locator('#manage-devices').click();
+ const otherDevice=await newPage(!mobile);otherDevice.on('pageerror',error=>errors.push(error.message));
  await otherDevice.goto(ownLink);await bob.bringToFront();
  await otherDevice.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);assert.equal(await otherDevice.locator('.device-inline-code').count(),0);
  const untouched=await snapshot(otherDevice);assert.equal(untouched.roomId,previous.roomId);assert.notEqual(untouched.archiveId,previous.archiveId);
