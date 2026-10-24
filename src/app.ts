@@ -12236,7 +12236,10 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
         applyGifDisplayGeometry(dimensionedPreview);
       }
     }
-    bubble.append(this.createMessageMeta(message));
+    const meta = this.createMessageMeta(message);
+    // Keep receipt updates separate from the playback control and its media.
+    const metaHost = message.payload.kind === 'audio' ? bubble.querySelector('.voice-player')! : bubble;
+    metaHost.append(meta);
     article.append(bubble);
     this.mountMessageActions(article, message);
     return article;

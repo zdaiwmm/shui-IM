@@ -106,7 +106,7 @@ export class VoicePlayer {
     this.element.setAttribute('aria-busy', String(this.loading));
     this.button.setAttribute('aria-label', this.loading ? '取消加载语音' : this.error ? '重试播放语音' : this.audio.paused ? '播放语音' : '暂停语音');
     this.button.setAttribute('aria-description', `已播放${voiceTime(this.positionMs)}，共${voiceTime(this.payload.durationMs)}`);
-    const status = this.loading ? '正在解密语音…' : this.error || (state === 'paused' ? '已暂停' : '');
+    const status = this.error;
     if (this.status.textContent !== status) this.status.textContent = status;
   }
 
