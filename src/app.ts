@@ -1643,14 +1643,24 @@ export class QuietRoomApp {
       void this.renderUnlock(preparedStored, true, autoUnlock);
       return;
     }
-    const hasVault = await hasStoredVault();
+    const localRead = async <T>(read: () => Promise<T>): Promise<T> => {
+      // A suspended tab can hold the cross-tab storage lease. A completed
+      // cover gesture must still acknowledge the entry and offer cancellation.
+      const timer = window.setTimeout(() => {
+        if (!canRender()) return;
+        this.gatewayTemplate('正在打开密室', '正在读取本机数据，请稍候。', '<button class="secondary-button" type="button" data-cancel-gateway-open>取消</button>');
+        this.root.querySelector('[data-cancel-gateway-open]')!.addEventListener('click', () => this.lockNow());
+      }, 250);
+      try { return await read(); } finally { window.clearTimeout(timer); }
+    };
+    const hasVault = await localRead(() => hasStoredVault());
     if (!canRender()) return;
     if (jointEntry && !hasVault) { this.renderJointRecovery(jointEntry); return; }
     if (hasVault) {
       // A second hash event can be rejected while the first storage read is in
       // flight. Keep the first validated target through original-vault unlock.
       if (jointEntry || inviteLink.kind !== 'invalid') history.replaceState(inviteLink.kind === 'participant' ? history.state : null, '', location.pathname + location.search + entryHash);
-      const stored = await readStoredVault();
+      const stored = await localRead(() => readStoredVault());
       if (!canRender()) return;
       if (!stored) this.renderCorruptVault();
       else void this.renderUnlock(stored, trustedCoverActivation, autoUnlock);
@@ -1659,7 +1669,7 @@ export class QuietRoomApp {
       if (inviteLink.kind === 'participant') this.renderJoin(inviteLink.invite);
       else if (inviteLink.kind === 'device') this.renderJoinDevice(inviteLink.invite);
       else if (inviteLink.kind === 'repair') this.renderJoinRepair(inviteLink.invite);
-      else {const profile=await readBrowserAccessRecord() as {record?:PlatformCredentialRecord}|undefined;if(!canRender())return;if(profile?.record)this.renderBrowserAccessUnlock(profile.record);else this.renderFirstRun(null);}
+      else {const profile=await localRead(() => readBrowserAccessRecord()) as {record?:PlatformCredentialRecord}|undefined;if(!canRender())return;if(profile?.record)this.renderBrowserAccessUnlock(profile.record);else this.renderFirstRun(null);}
     }
   }
 

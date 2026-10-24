@@ -73,6 +73,26 @@ try {
   assert.equal(await page.locator('#message-input').count(), 0, 'A pre-lock result cannot open chat over its successor');
   await submitPassword(page, '012345'); await page.locator('#message-input').waitFor();
 
+  // Model another tab retaining the real cross-tab storage lease. Entry must
+  // acknowledge the gesture while it waits, and cancellation must stay safe.
+  await page.evaluate(async () => {
+    fixture.app.lockNow();
+    window.storageLease = navigator.locks.request('quiet-room:vault:current', async () => {
+      window.storageStalled = true;
+      await new Promise(resolve => { window.releaseStorage = resolve; });
+    });
+  });
+  await page.waitForFunction(() => window.storageStalled);
+  await page.evaluate(() => { window.waitingEntry = fixture.app.renderGateway({ trustedCoverActivation: true, autoUnlock: false }); });
+  await page.locator('[data-cancel-gateway-open]').waitFor();
+  assert.equal(await page.locator('.cover-trigger').count(), 0, 'A slow local read cannot leave an apparently dead cover hotspot');
+  await page.locator('[data-cancel-gateway-open]').click();
+  await page.locator('.cover-trigger').waitFor();
+  await page.evaluate(async () => { releaseStorage(); await storageLease; await waitingEntry; });
+  assert.equal(await page.locator('.cover-trigger').count(), 1, 'The cancelled read cannot reveal its late gateway');
+  await page.evaluate(() => fixture.app.renderGateway({ trustedCoverActivation: true, autoUnlock: false }));
+  await submitPassword(page, '012345'); await page.locator('#message-input').waitFor();
+
   // Also stop a proof inside actual decryption, before browser-room-key can
   // publish its in-memory authority. Lock must invalidate that late result.
   await page.evaluate(async () => {
