@@ -768,7 +768,7 @@ export class QuietRoomApp {
       lock: () => this.manualLock(),
     });
     this.desktopWorkspace = new DesktopWorkspace(root, {
-      context: () => this.privacyCovered ? null : this.session && this.runtimeAbort ? { owner: this.session, signal: this.runtimeAbort.signal, sidebar: !isChamberVault(this.session.vault) }
+      context: () => this.privacyCovered ? null : this.session && this.runtimeAbort ? { owner: this.session, signal: this.runtimeAbort.signal, sidebar: !isChamberVault(this.session.vault) && !this.session.vault.roomArchiveV2 }
         : this.browserProfile && this.browserAccessAbort ? { owner: this.browserProfile, signal: this.browserAccessAbort.signal } : null,
       mount: async (host, signal) => {
         const session = this.session;
@@ -7026,7 +7026,10 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
         }
         this.spaceDrawerOpen = false;
         if (!signal.aborted && !this.privacyCovered && this.session === session && !this.root.querySelector('.space-invite-overlay:not(.is-closing),.space-profile-overlay')) {
-          if (previousSurface === 'chat' && !this.root.querySelector('.chat-shell')) this.renderChat(sheet);
+          if (previousSurface === 'chat' && !this.root.querySelector('.chat-shell')) {
+            this.renderChat(sheet);
+            this.root.querySelector<HTMLButtonElement>('#chat-settings')?.focus({ preventScroll: true });
+          }
           else { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); }
         }
       },
@@ -7072,7 +7075,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       return;
     }
     const settings = this.settingsReturn;
-    if (settings?.session === this.session && this.runtimeAbort && !this.privacyCovered && !matchMedia(desktopWidth).matches) {
+    if (settings?.session === this.session && this.runtimeAbort && !this.privacyCovered
+      && (!matchMedia(desktopWidth).matches || isChamberVault(this.session.vault) || this.session.vault.roomArchiveV2)) {
       // A settings child returns directly to its parent. Rebuilding chat first
       // exposes its wallpaper beneath the incoming horizontal transition.
       this.cancelViewportWork();

@@ -6,7 +6,7 @@ import { mountDialog } from './dialog';
 import { bindHalfSheetHandle } from './half-sheet';
 import { spaceAvatarMarkup, bindSpaceAvatarPlayback } from './space-avatar';
 import type { PrivateSpace } from './spaces';
-import { Image, createElement, Bell, Settings, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, Plus, ChevronRight, Trash2, PanelLeftClose, Palette, MonitorDown, ArrowLeft } from 'lucide';
+import { Image, createElement, Bell, Settings, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, Plus, ChevronRight, Trash2, PanelLeftClose, Palette, MonitorDown, ArrowLeft, X } from 'lucide';
 import { formatPendingCountdown, pendingSpaceExpiry } from './spaces';
 export type PresenceStyle = 'capsule' | 'heart';
 export function readPresenceStyle(): PresenceStyle { try { return localStorage.getItem('quiet-room:presence-style') === 'heart' ? 'heart' : 'capsule'; } catch { return 'capsule'; } }
@@ -59,7 +59,9 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
   let busy = false, listScrollTop = options.listScrollTop ?? 0, settingsScrollTop = options.settingsScrollTop ?? 0;
   let pageLifetime = new AbortController();
   signal.addEventListener('abort', () => pageLifetime.abort(), { once: true });
-  const dialog = embedded ? { close: (_options?: { animate?: boolean; restoreFocus?: boolean }) => { /* Embedded navigation owns its page lifetime. */ } } : mountDialog(sheet, { signal: options.signal, isActive: () => !options.signal.aborted, beforeClose: () => !busy, onClose: () => {
+  const dialog = embedded ? { close: (_options?: { animate?: boolean; restoreFocus?: boolean }) => { /* Embedded navigation owns its page lifetime. */ } } : mountDialog(sheet, { signal: options.signal, isActive: () => !options.signal.aborted,
+    returnFocus: root.querySelector<HTMLElement>(options.initialSettings ? ':scope > .chat-shell #chat-settings' : ':scope > .chat-shell #open-spaces'),
+    beforeClose: () => !busy, onClose: () => {
     lifetime.abort(); if (!handingOff) options.closed(sheet);
   } });
   if (embedded) signal.addEventListener('abort', () => sheet.remove(), { once: true });
@@ -92,10 +94,11 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
     sheet.classList.toggle('is-settings-sheet', settingsSheet);
     const fullPage=listing&&!embedded;
     const leading=!embedded?'':back?`<button class="icon-button space-back" aria-label="返回">${createElement(ArrowLeft).outerHTML}</button>`:`<button class="icon-button space-close" aria-label="${options.presentation==='sidebar'?'收起密室侧栏':'返回聊天'}">${createElement(options.presentation==='sidebar'?PanelLeftClose:ArrowLeft).outerHTML}</button>`;
-    const trailing=`${listing&&options.allowCreate!==false?`<button class="icon-button space-create" id="space-create" type="button" aria-label="新增密室">${createElement(Plus).outerHTML}<span>新增</span></button>`:''}${listing&&embedded?`<button class="icon-button" id="space-settings" aria-label="设置">${spaceIcons.settings}</button>`:''}`;
+    const trailing=`${listing&&options.allowCreate!==false?`<button class="icon-button space-create" id="space-create" type="button" aria-label="新增密室">${createElement(Plus).outerHTML}<span>新增</span></button>`:''}${listing&&embedded?`<button class="icon-button" id="space-settings" aria-label="设置">${spaceIcons.settings}</button>`:''}${settingsSheet?`<button class="icon-button settings-desktop-close" type="button" aria-label="关闭设置">${createElement(X).outerHTML}</button>`:''}`;
     const controls=`${footer}${!embedded&&back&&title!=='设置'&&!listing?'<button class="text-button space-back" type="button">返回</button>':''}${fullPage?'<button class="text-button space-return" type="button">返回</button>':''}`;
     sheet.innerHTML=`<section class="space-drawer"><header class="space-drawer-header">${leading}<h2>${title}</h2>${trailing}</header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${controls?`<footer class="space-drawer-footer">${controls}</footer>`:''}${settingsSheet?'<button class="settings-dismiss-handle" type="button" aria-label="上滑关闭设置"><span></span></button>':''}</section>`;
     sheet.querySelector('.space-return')?.addEventListener('click',()=>{if(listReturnSettings)settings();else close();});
+    sheet.querySelector('.settings-desktop-close')?.addEventListener('click',close);
     const handle=sheet.querySelector<HTMLElement>('.settings-dismiss-handle');
     handle?.addEventListener('click',close);
     let drag:{id:number;y:number}|undefined;const panel=sheet.querySelector<HTMLElement>(':scope > .space-drawer')!;

@@ -25,6 +25,8 @@ Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请�
 
 # Quiet Room 项目地图
 
+PC适配V1：`app.ts`的桌面上下文同时识别Chamber与新密室无侧栏；`desktop-polish.css`在完整产品样式后加载，管理桌面设置720px限宽、关闭按钮、子页阅读轨及图库无侧栏头部。`space-drawer.ts`复用原关闭与焦点管理；真实新密室Chromium／WebKit专项为`tests/pc-ui.e2e.mjs`，由完整浏览器门禁执行。确认、例外及验证层级见[本需求](../requirements/2026-10-25-pc-ui/README.md)。
+
 十三项体验修复：[需求V1](../requirements/2026-10-24-ui-13-fixes/README.md)；`tab-unread.ts`绘制只读未读favicon，`vault.ts`／`app.ts`原子取消待发并核验发送前持久记录；`meme-picker.ts`独立读取添加目录，公共Fluent缓存由`public/sw.js`按版本管理。对应回归沿用settings-v14、message-deletion、frontend-lifecycle及meme-picker／media-upload。
 
 融合消息体系的语音V2.3：`voice-player.ts`、`voice-messages.css`与`design-system.css`管理40主体／44目标、总宽默认最多220、同排右侧下移3px的时间／回执，以及共享消息主题；`app.ts`把独立回执放入播放器网格，刷新不打断播放。真实几何、四配色／200%文字、加载／重试及原生播放回归为`voice-message-ui.e2e.mjs`，并与voice-flow/lifecycle联合；确认由[本次V2.3](../requirements/2026-10-24-voice-bubble-integrated/README.md)拥有。iOS27.2杂音续查仍由[旧语音需求](../requirements/2026-10-23-voice-quality-bubble/README.md)拥有；合成对照不代表真机音质修复。
