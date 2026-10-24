@@ -42,10 +42,14 @@ try {
   assert.equal(await page.evaluate(() => window.fixture.app.privacyCovered && !window.fixture.app.desktopAccess.peek()), true);
 
   await page.evaluate(() => { window.fixture.fresh(); window.fixture.app.renderAppearanceSettings(); });
+  const themeIds = ['blue', 'green', 'purple', 'apricot', 'sea', 'rose', 'terracotta', 'lemon', 'graphite'];
+  assert.deepEqual(await page.locator('[name="appearance"]').evaluateAll(inputs => inputs.map(input => input.value)), themeIds);
   const palettes = new Set();
+  const dangerByScheme = new Map();
+  await page.setViewportSize({ width: 390, height: 844 });
   for (const scheme of ['light', 'dark']) {
-    await page.emulateMedia({ colorScheme: scheme });
-    for (const theme of ['blue', 'green', 'purple', 'apricot']) {
+    await systemAppearance(scheme);
+    for (const theme of themeIds) {
       await page.locator(`[name="appearance"][value="${theme}"]`).check();
       const colors = await page.evaluate(() => {
         const style = getComputedStyle(document.documentElement);
@@ -59,11 +63,24 @@ try {
         };
         const contrast = (a,b) => { const x=luminance(a),y=luminance(b); return (Math.max(x,y)+.05)/(Math.min(x,y)+.05); };
         return { theme: document.documentElement.dataset.theme, accent: style.getPropertyValue('--accent'), paper: style.getPropertyValue('--paper'),
-          body: contrast('--ink','--paper'), outgoing: contrast('--on-accent','--outgoing'), danger: style.getPropertyValue('--danger') };
+          body: contrast('--ink','--paper'), incoming: contrast('--ink','--incoming'),
+          outgoing: contrast('--on-accent','--outgoing'), action: contrast('--action-ink','--action-surface'),
+          accentText: contrast('--accent','--paper'), muted: contrast('--ink-muted','--surface-raised'),
+          outgoingTime: contrast('--message-time-outgoing','--outgoing'),
+          gradient: ['--outgoing-start','--outgoing-middle','--outgoing-end'].map(token => contrast('--on-accent', token)),
+          fingerprint: ['--paper','--accent','--wall-a','--wall-b','--outgoing','--outgoing-start','--outgoing-end'].map(token => style.getPropertyValue(token)).join('|'),
+          danger: style.getPropertyValue('--danger') };
       });
       assert.equal(colors.theme, theme);
-      assert.ok(colors.body >= 4.5 && colors.outgoing >= 4.5, `${theme}/${scheme} must retain readable text: ${JSON.stringify(colors)}`);
-      palettes.add(`${scheme}:${colors.accent}:${colors.paper}`);
+      for (const role of ['body', 'incoming', 'outgoing', 'action', 'accentText', 'muted', 'outgoingTime']) {
+        assert.ok(colors[role] >= 4.5, `${theme}/${scheme} ${role} must retain readable text: ${JSON.stringify(colors)}`);
+      }
+      if (scheme === 'dark') assert.ok(colors.gradient.every(ratio => ratio >= 4.5), `${theme} full outgoing gradient must retain readable text: ${JSON.stringify(colors)}`);
+      palettes.add(`${scheme}:${colors.fingerprint}`);
+      if (!dangerByScheme.has(scheme)) dangerByScheme.set(scheme, colors.danger);
+      assert.equal(colors.danger, dangerByScheme.get(scheme), 'Palette selection preserves the semantic danger color');
+      await page.clock.runFor(400);
+      await screenshot(`palette-${scheme}-${theme}`);
       assert.ok(colors.danger.includes('28'), 'Error colors must retain their semantic role');
     }
     for (const size of [{width:390,height:844},{width:800,height:600},{width:1440,height:900}]) {
@@ -74,7 +91,13 @@ try {
       await screenshot(`appearance-${scheme}-${size.width}`);
     }
   }
-  assert.equal(palettes.size, 8);
+  assert.equal(palettes.size, 18, 'Nine distinct palettes each have light and dark roles');
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.evaluate(() => document.documentElement.style.fontSize = '32px');
+  assert.ok(await page.locator('.appearance-page').evaluate(page => page.scrollWidth <= page.clientWidth + 1), 'Nine choices stay reachable at 200% text on narrow screens');
+  await page.locator('[name="appearance"][value="graphite"]').check();
+  await page.evaluate(() => document.documentElement.style.fontSize = '');
+  await page.locator('[name="appearance"][value="apricot"]').check();
   assert.equal(await page.locator('[name="color-scheme"][value="system"]').isChecked(), true, 'Old installs default to system');
   await page.locator('[name="color-scheme"][value="light"]').check();
   assert.equal(await page.evaluate(() => document.documentElement.dataset.colorScheme), 'light');
@@ -105,9 +128,9 @@ try {
   await page.evaluate(() => { Storage.prototype.setItem = window.themeSetItem; });
   const sibling = await page.context().newPage(); await sibling.goto(page.url());
   assert.equal(await sibling.evaluate(async () => { const {mountAppearance}=await import('/src/lib/appearance.ts'); mountAppearance(); return document.documentElement.dataset.theme; }), 'apricot');
-  await sibling.evaluate(() => localStorage.setItem('quiet-room:appearance','green'));
-  await page.waitForFunction(() => document.documentElement.dataset.theme === 'green');
-  assert.equal(await page.locator('[name="appearance"][value="green"]').isChecked(), true, 'Open preferences sync across tabs');
+  await sibling.evaluate(() => localStorage.setItem('quiet-room:appearance','graphite'));
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'graphite');
+  assert.equal(await page.locator('[name="appearance"][value="graphite"]').isChecked(), true, 'Open preferences sync across tabs');
   await sibling.evaluate(() => localStorage.setItem('quiet-room:color-scheme','light'));
   await page.waitForFunction(() => document.documentElement.dataset.colorScheme === 'light');
   assert.equal(await page.locator('[name="color-scheme"][value="light"]').isChecked(), true);
@@ -135,6 +158,22 @@ try {
     await page.clock.runFor(500);
     const normal = await page.locator('.chat-header').boundingBox();
     assert.ok(normal.height <= 49, `${scheme}: normal header must be compact`);
+    for (const theme of themeIds) {
+      await page.evaluate(async theme => {
+        const { saveTheme, applyAppearance } = await import('/src/lib/appearance.ts');
+        saveTheme(localStorage, theme); applyAppearance();
+      }, theme);
+      await page.clock.runFor(400);
+      assert.ok(await page.locator('.outgoing .text-bubble').first().evaluate(bubble => {
+        const probe = document.createElement('span'); probe.style.color = 'var(--on-accent)'; bubble.append(probe);
+        const matches = getComputedStyle(bubble).color === getComputedStyle(probe).color; probe.remove(); return matches;
+      }), `${scheme}/${theme} actual message uses the palette ink`);
+      await screenshot(`chat-${scheme}-${theme}`);
+    }
+    await page.evaluate(async () => {
+      const { saveTheme, applyAppearance } = await import('/src/lib/appearance.ts');
+      saveTheme(localStorage, 'blue'); applyAppearance();
+    });
     await screenshot(`p1-chat-${scheme}`);
     await page.evaluate(() => {
       const app = window.fixture.app;
@@ -205,5 +244,5 @@ try {
   await page.getByText('你已在 Chamber 应用中。',{exact:true}).waitFor();
   assert.equal(await page.locator('#install-app,a[href="web+quietroom:open"]').count(), 0);
   assert.deepEqual(errors, []);
-  console.log('Settings/appearance E2E passed: idle off by default, independent background switch, nine durations + sensitive cap, four readable light/dark palettes, responsive geometry, failed-write rollback, persisted/cross-tab theme, install/cancel/installed/standalone states. OS install/launch remain device checks.');
+  console.log('Settings/appearance E2E passed: idle off by default, independent background switch, nine durations + sensitive cap, nine distinct readable light/dark palettes, responsive geometry, failed-write rollback, persisted/cross-tab theme, install/cancel/installed/standalone states. OS install/launch remain device checks.');
 } finally { await fixture.close(); }

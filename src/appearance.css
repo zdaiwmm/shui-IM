@@ -1,25 +1,67 @@
-/* Additional local palettes share P1 geometry and opaque materials. The stored
-   blue identifier remains the confirmed classic palette for compatibility. */
+/* Local palettes keep P1 geometry and materials. The stored blue identifier
+   remains the classic light-green / dark-purple palette for compatibility. */
 :root[data-theme="green"] {
-  --palette-hue: 160; --palette-accent: 43% .09;
-  --outgoing: #d6f4e4; --message-time-outgoing: #326a50;
-  --header-surface: var(--composer-surface); --composer-surface: #c8e4db; --composer-surface-focused: #d5ece3;
-  --wall-a: #cad9ac; --wall-b: #65a695; --wall-c: #84b89c; --wall-d: #bed3bd;
-  --outgoing-start: #24644a; --outgoing-middle: #326f68; --outgoing-end: #235b79;
+  --palette-hue: 175; --palette-chroma: .085; --palette-accent: 43% .085;
+  --outgoing: oklch(91% .055 175); --message-time-outgoing: oklch(41% .045 175);
+  --composer-surface: oklch(86% .04 175);
+  --wall-a: oklch(86% .045 175); --wall-b: oklch(72% .075 180);
+  --wall-c: oklch(79% .055 170); --wall-d: oklch(88% .025 175);
+  --outgoing-start: oklch(42% .075 170); --outgoing-middle: oklch(47% .075 175); --outgoing-end: oklch(51% .065 185);
 }
 :root[data-theme="purple"] {
-  --palette-hue: 300; --palette-accent: 43% .12;
-  --outgoing: #eee1fb; --message-time-outgoing: #67517d;
-  --header-surface: var(--composer-surface); --composer-surface: #e4dbee; --composer-surface-focused: #eee6f5;
-  --wall-a: #d6c5cc; --wall-b: #a296b5; --wall-c: #b0b6c3; --wall-d: #cfc7da;
-  --outgoing-start: #734786; --outgoing-middle: #6a40a1; --outgoing-end: #4356a7;
+  --palette-hue: 305; --palette-chroma: .085; --palette-accent: 46% .085;
+  --outgoing: oklch(92% .04 305); --message-time-outgoing: oklch(42% .04 305);
+  --composer-surface: oklch(88% .03 305);
+  --wall-a: oklch(89% .035 305); --wall-b: oklch(78% .045 305);
+  --wall-c: oklch(84% .035 290); --wall-d: oklch(91% .02 305);
+  --outgoing-start: oklch(45% .07 305); --outgoing-middle: oklch(49% .075 305); --outgoing-end: oklch(53% .065 310);
 }
 :root[data-theme="apricot"] {
-  --palette-hue: 58; --palette-accent: 43% .09;
+  --palette-hue: 58; --palette-chroma: .09; --palette-accent: 43% .09;
   --outgoing: #f6e6cf; --message-time-outgoing: #796044;
-  --header-surface: var(--composer-surface); --composer-surface: #ecddcb; --composer-surface-focused: #f4e7d8;
+  --composer-surface: #ecddcb;
   --wall-a: #d6cc9d; --wall-b: #baaa87; --wall-c: #c4ba9c; --wall-d: #d9c9b0;
   --outgoing-start: #784936; --outgoing-middle: #7d493d; --outgoing-end: #6f3f51;
+}
+:root[data-theme="sea"] {
+  --palette-hue: 245; --palette-chroma: .13; --palette-accent: 46% .13;
+  --outgoing: oklch(92% .045 240); --message-time-outgoing: oklch(40% .065 245);
+  --composer-surface: oklch(89% .035 240);
+  --wall-a: oklch(94% .025 235); --wall-b: oklch(78% .09 240);
+  --wall-c: oklch(87% .055 250); --wall-d: oklch(93% .02 245);
+  --outgoing-start: oklch(43% .11 235); --outgoing-middle: oklch(48% .12 245); --outgoing-end: oklch(53% .12 255);
+}
+:root[data-theme="rose"] {
+  --palette-hue: 355; --palette-chroma: .13; --palette-accent: 45% .13;
+  --outgoing: oklch(92% .045 355); --message-time-outgoing: oklch(40% .07 355);
+  --composer-surface: oklch(89% .035 355);
+  --wall-a: oklch(94% .025 355); --wall-b: oklch(79% .075 355);
+  --wall-c: oklch(87% .055 5); --wall-d: oklch(92% .03 350);
+  --outgoing-start: oklch(42% .12 350); --outgoing-middle: oklch(47% .13 355); --outgoing-end: oklch(52% .12 5);
+}
+:root[data-theme="terracotta"] {
+  --palette-hue: 35; --palette-chroma: .13; --palette-accent: 46% .13;
+  --outgoing: oklch(87% .07 35); --message-time-outgoing: oklch(38% .065 35);
+  --composer-surface: oklch(83% .055 35);
+  --wall-a: oklch(88% .055 45); --wall-b: oklch(69% .10 35);
+  --wall-c: oklch(77% .08 30); --wall-d: oklch(85% .05 40);
+  --outgoing-start: oklch(43% .10 30); --outgoing-middle: oklch(48% .115 35); --outgoing-end: oklch(53% .105 45);
+}
+:root[data-theme="lemon"] {
+  --palette-hue: 100; --palette-chroma: .10; --palette-accent: 42% .075;
+  --outgoing: oklch(91% .15 100); --message-time-outgoing: oklch(37% .035 100);
+  --composer-surface: oklch(94% .035 100);
+  --wall-a: oklch(97% .025 100); --wall-b: oklch(87% .09 100);
+  --wall-c: oklch(94% .07 105); --wall-d: oklch(96% .025 95);
+  --outgoing-start: oklch(79% .13 100); --outgoing-middle: oklch(83% .145 100); --outgoing-end: oklch(87% .13 105);
+}
+:root[data-theme="graphite"] {
+  --palette-hue: 255; --palette-chroma: .006; --palette-accent: 42% .006;
+  --outgoing: oklch(88% .006 255); --message-time-outgoing: oklch(38% .006 255);
+  --composer-surface: oklch(88% .005 255);
+  --wall-a: oklch(93% .004 255); --wall-b: oklch(76% .006 255);
+  --wall-c: oklch(85% .006 255); --wall-d: oklch(91% .004 255);
+  --outgoing-start: oklch(37% .006 255); --outgoing-middle: oklch(43% .006 255); --outgoing-end: oklch(50% .006 255);
 }
 :root[data-theme]:not([data-theme="blue"]) {
   --paper: oklch(97% .009 var(--palette-hue));
@@ -34,33 +76,65 @@
   --accent: oklch(var(--palette-accent) var(--palette-hue));
   --accent-hover: color-mix(in oklch, var(--accent) 86%, var(--ink));
   --accent-soft: oklch(93% .035 var(--palette-hue));
+  --action-surface: var(--accent);
   --incoming: var(--paper-pure);
   --on-accent: var(--ink);
   --message-time: oklch(48% .015 var(--palette-hue));
+  --header-surface: var(--composer-surface);
+  --wall-pattern-color: oklch(32% .025 var(--palette-hue));
 }
 :root[data-color-scheme="dark"][data-theme]:not([data-theme="blue"]) {
-    --paper: oklch(19% .012 var(--palette-hue));
-    --paper-pure: oklch(24% .018 var(--palette-hue));
-    --surface: oklch(27% .022 var(--palette-hue));
-    --surface-raised: oklch(27% .018 var(--palette-hue));
-    --ink: oklch(95% .008 var(--palette-hue));
-    --ink-muted: oklch(77% .016 var(--palette-hue));
-    --ink-faint: oklch(70% .014 var(--palette-hue));
-    --line: oklch(36% .02 var(--palette-hue));
-    --line-strong: oklch(65% .024 var(--palette-hue));
-    --accent: oklch(78% .10 var(--palette-hue));
-    --accent-hover: oklch(46% .08 var(--palette-hue));
-    --accent-soft: oklch(33% .04 var(--palette-hue));
-    --action-surface: oklch(44% .10 var(--palette-hue));
-    --incoming: oklch(27% .025 var(--palette-hue));
-    --outgoing: var(--outgoing-middle);
-    --on-accent: #fff;
-    --message-time: oklch(80% .014 var(--palette-hue));
-    --message-time-outgoing: #fefeff;
-    --header-surface: var(--composer-surface);
-    --composer-surface: var(--paper-pure);
-    --composer-surface-focused: var(--surface);
-  }
+  --paper: oklch(19% .012 var(--palette-hue));
+  --paper-pure: oklch(24% .018 var(--palette-hue));
+  --surface: oklch(27% .022 var(--palette-hue));
+  --surface-raised: oklch(27% .018 var(--palette-hue));
+  --ink: oklch(95% .008 var(--palette-hue));
+  --ink-muted: oklch(77% .016 var(--palette-hue));
+  --ink-faint: oklch(70% .014 var(--palette-hue));
+  --line: oklch(36% .02 var(--palette-hue));
+  --line-strong: oklch(65% .024 var(--palette-hue));
+  --accent: oklch(78% var(--palette-chroma) var(--palette-hue));
+  --accent-hover: oklch(46% .08 var(--palette-hue));
+  --accent-soft: oklch(33% .04 var(--palette-hue));
+  --action-surface: oklch(52% var(--palette-chroma) var(--palette-hue));
+  --incoming: oklch(27% .025 var(--palette-hue));
+  --outgoing: var(--outgoing-middle);
+  --on-accent: oklch(99% .002 var(--palette-hue));
+  --message-time: oklch(80% .014 var(--palette-hue));
+  --message-time-outgoing: var(--on-accent);
+  --composer-surface: var(--paper-pure);
+  --wall-a: oklch(15% .018 var(--palette-hue));
+  --wall-b: oklch(22% .03 var(--palette-hue));
+  --wall-c: oklch(18% .025 var(--palette-hue));
+  --wall-d: oklch(14% .012 var(--palette-hue));
+  --wall-pattern-color: oklch(65% .035 var(--palette-hue));
+  --wall-pattern-opacity: .16;
+}
+/* Lemon has a bright message fill with dark ink; its actions remain graphite.
+   Graphite stays neutral across surfaces instead of inheriting colored tints. */
+:root[data-theme="lemon"]:not([data-theme="blue"]) { --action-surface: oklch(31% .014 100); }
+:root[data-color-scheme="dark"][data-theme="lemon"]:not([data-theme="blue"]) {
+  --action-surface: oklch(55% .014 100);
+  --on-accent: oklch(22% .02 100);
+  --message-time-outgoing: var(--on-accent);
+}
+:root[data-theme="graphite"]:not([data-theme="blue"]) {
+  --paper: oklch(97% .003 255); --paper-pure: oklch(99.5% .002 255);
+  --surface: oklch(93% .004 255); --surface-raised: oklch(99.5% .002 255);
+  --ink: oklch(23% .006 255); --ink-muted: oklch(43% .006 255); --ink-faint: oklch(49% .006 255);
+  --line: oklch(87% .004 255); --line-strong: oklch(61% .006 255); --accent-soft: oklch(93% .004 255);
+  --wall-pattern-color: oklch(32% .006 255);
+}
+:root[data-color-scheme="dark"][data-theme="graphite"]:not([data-theme="blue"]) {
+  --paper: oklch(19% .003 255); --paper-pure: oklch(24% .004 255);
+  --surface: oklch(27% .005 255); --surface-raised: oklch(27% .004 255);
+  --ink: oklch(95% .003 255); --ink-muted: oklch(77% .004 255); --ink-faint: oklch(70% .004 255);
+  --line: oklch(36% .004 255); --line-strong: oklch(65% .006 255); --accent-soft: oklch(33% .006 255);
+  --incoming: oklch(27% .005 255);
+  --wall-a: oklch(15% .003 255); --wall-b: oklch(22% .005 255);
+  --wall-c: oklch(18% .004 255); --wall-d: oklch(14% .003 255);
+  --wall-pattern-color: oklch(65% .006 255);
+}
 .preference-content { width: min(100%, 560px); margin-inline: auto; padding: 24px 24px 40px; }
 #app[data-desktop-workspace='true'] .device-content.preference-content { width: min(100%, 560px); }
 .preference-intro { margin: 0 0 20px; color: var(--ink-muted); font-size: .875rem; line-height: 1.6; }
