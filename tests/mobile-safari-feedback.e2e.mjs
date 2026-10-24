@@ -234,9 +234,12 @@ try {
     });
     assert.deepEqual(rearmed,{focuses:1,blurs:1,focused:true,draft:'保留输入草稿'},'An accessory dismissal that retained DOM focus must rearm focus inside touch release');
     await page.evaluate(()=>{document.querySelector('#message-input').blur();setViewport(844);});
-    // The preceding synthetic keyboard resize has its own 360ms composer
-    // clock. Let that endpoint settle before sampling the tool's 240ms path.
-    await page.waitForFunction(()=>document.querySelector('#composer').getAnimations().every(animation=>animation.playState==='finished'));
+    // Keyboard effects can start on the next viewport sample, and the handoff
+    // owns a separate RAF translation. An empty getAnimations() proves neither
+    // has settled. Isolate the tool's 240ms path; combined handoffs stay below.
+    await page.waitForFunction(()=>!fixture.app.listKeyboardLayout.moving && !fixture.app.chatViewportMotion?.moving
+      && !fixture.app.composerHandoff
+      && document.querySelector('#composer').getAnimations().every(animation=>animation.playState==='finished'));
     const tools = await page.evaluate(async () => {
       const app=fixture.app,panel=document.querySelector('#chat-tools'),row=document.querySelector('.composer-row');
       const paint=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
@@ -267,6 +270,7 @@ try {
     assert.ok(tools.jumps.every(jump=>jump<.5)&&tools.xJump<.5,JSON.stringify(tools));
     assert.equal(tools.closingInert,true);assert.deepEqual(tools.duration,[240,240]);assert.equal(tools.transformsOnly,true);
     assert.equal(tools.radius,'0px');assert.equal(tools.noHandle,true);assert.equal(tools.interactive,true);assert.equal(tools.draft,'保留输入草稿');
+    console.log('TOOLS_REVERSAL_OK',engine.name(),JSON.stringify({jumps:tools.jumps,xJump:tools.xJump,duration:tools.duration}));
     await page.locator('#message-input').click();
     assert.equal(await page.locator('.composer-input-stack').evaluate(el=>getComputedStyle(el).outlineWidth),'0px');
     await page.locator('#open-chat-tools').focus();await page.keyboard.press('Tab');
