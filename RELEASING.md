@@ -1,5 +1,17 @@
 # Quiet Room 固定发布流程
 
+<a id="release-ui-consistency-backup-20261024"></a>
+## 界面一致性与自动备份控制已发布（2026-10-24 21:43）
+
+- 用户确认[界面V1及自动备份S1](docs/requirements/2026-10-24-ui-consistency-backup/README.md)，本次免交互原型和流程图，直接实施、合并；收到完整应用SHA、版本与CI／预检结果后回复「确认，发布这个提交」，无独立消息permalink。[PR #399](https://github.com/zdaiwmm/shui-IM/pull/399)已合并，实际应用固定`d6c4a84b0811c4b5419e23b87616d4c8bcaaab2c`／2026.10.24.2，与最终源`dfa721e50fe86e2c01ca0e7ea04ceb1869770686`完整文件树同为`8250e28feb38e8bf70e71d37641db7dd254a15ac`；前一生产975c766／2026.10.24.1。
+- 统一媒体加载居中、回执位置、在线胶囊连接、设置来源静止及抽屉遮罩／下沿；视频默认应用内最大化并共享图片退出手势；书籍目录／阅读设置及创建密室反馈沿用P1 V1.30。凭证页新增独立自动备份卡，仅控制本浏览器当前密室；关闭保留已备份密文与待传ID，重开续传。五类统计只计成功提交且校验的记录，旧归档通过认证批次链补建，失败显示暂不可用；偏好与计数保存在本机加密保险库，安全边界由NEW_ROOM_ARCHIVES与SECURITY拥有。
+- 最终源构建、文档与差异格式检查通过；完整本机浏览器最终原样重跑80/80通过，0失败／0未运行，1327.38秒。首轮通话摄像头升级超时原因未定，未改通话代码、断言或时限；原失败保留。完整单元本机138文件／1064项通过、2文件／11项受既有BACKUP_CAPACITY_LOW门槛阻塞，一次定向复核仍为容量失败，未降低策略。最初完整命令因测试产生未跟踪Python字节码被记为clean=false，已仅删除该自有缓存；最终浏览器记录clean=true。语音和归档的Chromium／桌面WebKit专项，以及视频、设置、阅读器和开关／统计专项通过。
+- [精确PR完整CI40095468569](https://github.com/zdaiwmm/shui-IM/actions/runs/40095468569)与[精确main完整CI40097559581](https://github.com/zdaiwmm/shui-IM/actions/runs/40097559581)均attempt1全部成功，含140文件／1075项单元、全部浏览器分组、通话、审计、凭据扫描、双架构镜像及Full application verification。main等待器一次读取注释的网络错误仅接续原run，未重新派发或重跑CI。
+- 固定[只读云预检40098486877](https://github.com/zdaiwmm/shui-IM/actions/runs/40098486877)取得PREFLIGHT_OK，122909ms。用户精确确认后，唯一[正式云发布40098694845](https://github.com/zdaiwmm/shui-IM/actions/runs/40098694845)正常通过既有production审核，固定入口核对精确DEPLOY_VERIFIED；请求`1cdff6ed-4b8a-41b1-b130-ba8950bb8091`只派发一次，批次`20261024T133529Z`，工作流来源与应用均为获批SHA。没有修改环境保护、helper、云权限或健康门槛。
+- 云回执开始`2026-10-24T13:34:50.149Z`、完成`13:38:11.765Z`，外层cloud-publish274296ms含正常审核等待，工作流执行3分35秒。linux/amd64实际镜像`sha256:9f944f9911aaab0f43ee7a1232ea59ae76b3454f472720262072208f45ed68a4`，归档摘要`3586adaabf161001c205f63e289b11c936ecfbbb92e19cb24ce9725e7a7b25fa`、210069571字节，绑定精确main CI40097559581／attempt1。
+- 首次独立回读`13:38:37.369Z`至`13:38:38.533Z`仅备份starting未通过，1157ms；应用healthy、精确SHA／镜像一致、维护门absent。只读核实备份启动`13:37:57.679619225Z`及原5分钟探针／启动期后，仅等待并续跑同SHA readback-only，未重启或再次切换。最终回读`2026-10-24T13:43:26.728Z`至`13:43:30.065Z`取得READBACK_OK，3336ms：应用／备份running且healthy，TURN运行且探针none；精确SHA／实际镜像、HTTPS／数据库／存储、公开及容器资源摘要与新WebSocket一致，维护门absent，管理员及通话启用。额外公开Service Worker核对版本2026.10.24.2。
+- 脱敏授权、预检／发布及首次／最终回读、验证摘要保存于公共Git元数据`quiet-room-deliveries/evidence/ui-consistency-backup-20261024/`。第二个无部署配置工作树只做文档对账，文档SHA不替代线上应用；本批资源在对账后按固定清理入口逐项核验，活动目录、忽略缓存及专属回执按规则保留，机械结果另存公共Git元数据，不处理其他任务。真实iPhone／iOS27／Safari及独立安全审阅未验证，上线回读不替代高安全公开声明门槛。下方均为此前批次历史证据。
+
 <a id="release-voice-bubble-integrated-20261024"></a>
 ## 紧凑语音气泡已发布（2026-10-24 10:01）
 
