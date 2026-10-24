@@ -365,7 +365,8 @@ try {
         for (const article of document.querySelectorAll('#message-list > article.message')) {
           const id = article.dataset.clientMsgId;
           const bubble = article.querySelector(':scope > .message-bubble');
-          const meta = bubble.querySelector(':scope > .message-meta');
+          const meta = bubble.querySelector(bubble.classList.contains('voice-bubble')
+            ? ':scope > .voice-player > .message-meta' : ':scope > .message-meta');
           if (!meta || article.querySelector(':scope > .message-meta')) { issues.push(`${id}: metadata outside bubble`); continue; }
           const b = bubble.getBoundingClientRect(); const m = meta.getBoundingClientRect();
           const content = bubble.querySelector('.message-text');
@@ -416,6 +417,12 @@ try {
             }
             const quote = bubble.querySelector('.message-reply-quote');
             if (quote && quote.getBoundingClientRect().bottom > content.getBoundingClientRect().top + 1) issues.push(`${id}: reply preview overlaps the text body`);
+          } else if (bubble.classList.contains('voice-bubble')) {
+            const sound = bubble.querySelector('.voice-sound').getBoundingClientRect();
+            const duration = bubble.querySelector('.voice-time').getBoundingClientRect();
+            if (m.left < Math.max(sound.right, duration.right) + 11.5
+              || m.top >= sound.bottom || m.bottom <= sound.top) issues.push(`${id}: voice metadata is not separated on the same row`);
+            if (font === 16 && b.width > 220) issues.push(`${id}: complete voice bubble exceeds 220px`);
           } else {
             for (const content of [...bubble.children].filter(child => child !== meta)) {
               if (content.getBoundingClientRect().bottom > m.top + 1) issues.push(`${id}: metadata overlaps ${content.className}`);

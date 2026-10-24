@@ -91,10 +91,10 @@ try{
    }
    const first=page.locator('[data-client-msg-id=voice-geometry-1] .voice-play');
    const second=page.locator('[data-client-msg-id=voice-geometry-2] .voice-play');
-   await page.evaluate(()=>{const app=window.__voiceUiApp,original=app.messages.get(2);app.messages.set(11,{...original,seq:11,clientMsgId:'voice-with-reply',payload:{...original.payload,replyTo:{clientMsgId:'text-reference-0',serverSeq:8,senderId:'other',kind:'text',preview:'气泡样式参照'}}});app.renderMessages();});
+   await page.evaluate(()=>{const app=window.__voiceUiApp,original=app.messages.get(2);app.messages.get(8).payload.text='长引用内容'.repeat(60);app.messages.set(11,{...original,seq:11,clientMsgId:'voice-with-reply',payload:{...original.payload,replyTo:{clientMsgId:'text-reference-0',serverSeq:8,senderId:'other',kind:'text',preview:'长引用内容'}}});app.renderMessages();});
    assert(await page.locator('[data-client-msg-id=voice-with-reply]').evaluate(row=>{
-    const q=row.querySelector('.message-reply-quote').getBoundingClientRect(),i=row.querySelector('.voice-sound').getBoundingClientRect(),m=row.querySelector('.message-meta').getBoundingClientRect();
-    return m.top>=q.bottom&&m.top<i.bottom&&m.bottom>i.top&&m.left>=i.right+12;
+    const b=row.querySelector('.voice-bubble').getBoundingClientRect(),q=row.querySelector('.message-reply-quote').getBoundingClientRect(),i=row.querySelector('.voice-sound').getBoundingClientRect(),m=row.querySelector('.message-meta').getBoundingClientRect();
+    return b.width<=220&&q.left>=b.left&&q.right<=b.right&&m.top>=q.bottom&&m.top<i.bottom&&m.bottom>i.top&&m.left>=i.right+12;
    }),name+': a quote displaced voice metadata from its row');
    await first.click();await page.locator('[data-client-msg-id=voice-geometry-1] .voice-player[data-playing=true]').waitFor();
    await page.waitForTimeout(400);const saved=await page.evaluate(()=>{window.__firstVoice=window.__voiceUiApp.voicePlayback.current;return window.__firstVoice.audio.currentTime;});assert(saved>.1);

@@ -179,10 +179,10 @@
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .voice-recording-bar, .voice-cancel-bar, .voice-discard, .voice-toggle { background: var(--surface-raised); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: var(--line-strong); }
 }
-.message-bubble.voice-bubble { min-width: 0; width: max-content; max-width: 100%; padding: 0; }
+.message-bubble.voice-bubble, .voice-player { --voice-max-width: max(220px, calc(6.1875rem + 59px)); }
+.message-bubble.voice-bubble { min-width: 0; width: max-content; max-width: min(100%, var(--voice-max-width)); padding: 0; }
 .voice-player {
   --voice-meta-space: calc(5ch + 1.45em + 27px);
-  --voice-max-width: max(220px, calc(9em + 59px));
   display: grid; width: max-content; max-width: 100%; min-width: 0;
   grid-template-columns: minmax(0, min(var(--voice-max-width), calc(var(--voice-message-width, 84px) + var(--voice-meta-space))));
   grid-template-areas: 'control' 'meta' 'status';
