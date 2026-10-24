@@ -33,7 +33,7 @@ try{
     const b=button.getBoundingClientRect(),p=bubble.getBoundingClientRect(),t=time.getBoundingClientRect(),i=icon.getBoundingClientRect(),m=meta.getBoundingClientRect();
     const outgoing=Boolean(bubble.closest('.outgoing')),style=getComputedStyle(bubble),reference=getComputedStyle(document.querySelector(outgoing?'.outgoing .text-bubble':'.incoming .text-bubble'));
     return {
-     width:b.width,height:b.height,paintedHeight:p.height,seconds:time.textContent,
+     width:b.width,height:b.height,paintedHeight:p.height,seconds:time.textContent,metaBottom:p.bottom-m.bottom,metaRight:p.right-m.right,
      inside:t.left>=p.left&&t.right<=p.right&&m.left>=p.left&&m.right<=p.right&&m.top>=p.top&&m.bottom<=p.bottom,
      sameRow:m.top<i.bottom&&m.bottom>i.top,offset:(m.top+m.bottom-i.top-i.bottom)/2,
      gap:outgoing?i.left-t.right:t.left-i.right,metaGap:m.left-Math.max(t.right,i.right),
@@ -53,7 +53,7 @@ try{
      if(!label.includes('200%'))assert(row.width<=220,label+': total voice width exceeds the 220px cap');
      assert(row.inside&&row.sameRow&&row.mirrored&&row.inheritedSurface&&row.round&&row.noTail&&row.normalStatus,label+': '+JSON.stringify(row));
      assert.equal(row.gap,8,label);assert(row.metaGap>=11.5,label+': '+JSON.stringify(row));
-     assert(Math.abs(row.offset-3)<.6,label+': '+JSON.stringify(row));assert.equal(row.textColor,row.iconColor,label);
+     assert(Math.abs(row.metaBottom-6)<.6&&Math.abs(row.metaRight-8)<.6,label+': '+JSON.stringify(row));assert.equal(row.textColor,row.iconColor,label);
      assert.equal(row.metaCount,1);if(hitTargets)assert(row.fullTarget,label+': timestamp did not hit full voice control');
     }
     assert(rows[0].width>=140&&rows[0].width<rows[1].width,label);

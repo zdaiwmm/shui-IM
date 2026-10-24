@@ -61,17 +61,27 @@ try{
   if(!reused)throw new Error('Resume must retry the exact persisted archive object');
   Object.assign(first,reopened);
   if(first.vault.roomArchiveV2.cardVerified)throw new Error('Automatic backup must precede card verification');
+  // Bootstrap legacy counts from authenticated batch heads, without fetching
+  // the full-sized media again, then use the encrypted local checkpoint.
+  let countReads=0;window.fetch=async(input,init)=>{if((init?.method??'GET')==='GET'&&String(input).includes('/api/private-archives/'))countReads++;return fetch(input,init);};
+  let backupCounts;try{backupCounts=await a.readRoomArchiveCounts(first,signal);if(JSON.stringify(backupCounts)!==JSON.stringify({messages:2,images:1,videos:0,audio:0,files:0}))throw new Error('Counts include uncommitted media or omit a committed record');if(countReads!==2)throw new Error('Count discovery fetched original media instead of only two batches');await a.readRoomArchiveCounts(first,signal);if(countReads!==2)throw new Error('Cached counts fetched the archive again');}finally{window.fetch=fetch;}
+  const before=JSON.stringify(backupCounts);await a.syncRoomArchive(first,signal);if(JSON.stringify(await a.readRoomArchiveCounts(first,signal))!==before)throw new Error('Retry duplicated backup counts');
+  await v.withVaultMutation(first,async lease=>{delete first.vault.archiveState.counts;delete first.vault.archiveState.countsRevision;await v.saveVault(first,lease);});
+  window.fetch=async(input,init)=>{const response=await fetch(input,init);if((init?.method??'GET')==='GET'&&String(input).includes('/api/private-archives/')){const object=await response.json();object.id=crypto.randomUUID();return new Response(JSON.stringify(object),{status:200,headers:{'Content-Type':'application/json'}});}return response;};
+  let rejectedCounts=false;try{await a.readRoomArchiveCounts(first,signal);}catch{rejectedCounts=true;}finally{window.fetch=fetch;}
+  if(!rejectedCounts||first.vault.archiveState.counts)throw new Error('Corrupt count source was accepted or persisted');await a.readRoomArchiveCounts(first,signal);
   const sourceBackup=first.vault.archiveState.revision;
   const second=await create();const interrupted=new AbortController();let interruption=false;
   try{await a.restoreRoomArchive(second,recoveredKey,interrupted.signal,done=>{if(done===1)interrupted.abort();});}catch{interruption=true;}
   if(!interruption||(await v.loadPrivateArchiveItems(second)).length!==0)throw new Error('Interrupted restore exposed a partial history');
-  await a.syncRoomArchive(second,signal);if(second.vault.archiveState.revision!==0)throw new Error('Unfinished restore entered backup');
+  await a.syncRoomArchive(second,signal);if(second.vault.archiveState.revision!==0)throw new Error('Unfinished restore entered backup');await a.readRoomArchiveCounts(second,signal);
   const states=[];await a.restoreRoomArchive(second,recoveredKey,signal,()=>{},state=>states.push(state));
   if(states[0].stage!=='reading'||states.at(-1).stage!=='complete'||states.at(-1).messages!==2||states.at(-1).images!==1||!states.some(s=>s.stage==='committing'))throw new Error('Restore progress does not describe verified records and original media');
   await a.restoreRoomArchive(second,recoveredKey,signal,()=>{});
   const privateItems=await v.loadPrivateArchiveItems(second);
   const shared=await v.loadHistoryPage(second,{limit:100});const outbox=await v.loadOutbox(second),receipts=await v.loadPendingReceipts(second);
   await a.syncRoomArchive(second,signal);
+  const rebackupCounts=await a.readRoomArchiveCounts(second,signal);if(rebackupCounts.messages!==2||rebackupCounts.images!==1)throw new Error('Committed incremental counts were not checkpointed with the backup head');
   const currentKey=second.vault.roomArchiveV2.key;
   await api.deleteRoom(first.vault.roomId,first.vault.accessToken);
   const third=await create();await a.restoreRoomArchive(third,currentKey,signal,()=>{});

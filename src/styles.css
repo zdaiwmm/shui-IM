@@ -1664,7 +1664,7 @@ button:disabled {
 }
 :is(.message, .message-action-preview):not(.is-failed) .text-bubble > .message-meta {
   position: absolute;
-  right: 12px;
+  right: 8px;
   bottom: 6px;
   margin: 0;
   flex-wrap: nowrap;

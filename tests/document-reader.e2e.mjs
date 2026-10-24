@@ -61,11 +61,13 @@ try {
     assert.equal(await page.locator('.document-reader').getAttribute('data-state'), 'ready', await page.evaluate(() => window.readerDiagnostic ?? document.querySelector('.reader-status')?.textContent));
   };
   const optionAction = async name => {
-    await page.getByRole('button', { name: '阅读设置', exact: true }).click();
-    await page.getByRole('dialog', { name: '阅读设置' }).waitFor();
-    await page.getByRole('dialog', { name: '阅读设置' }).getByRole('button', { name, exact: true }).click();
+    const paging=['下一页','上一页'].includes(name),title=paging?'跳转页码':'阅读设置';
+    await page.getByRole('button', { name: title, exact: true }).click();
+    await page.getByRole('dialog', { name: title }).waitFor();
+    if(!paging&&page.viewportSize().height>=700){await page.locator('.reader-options-sheet.is-visible').waitFor();await page.locator('.reader-options-panel').evaluate(async n=>{await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));await Promise.allSettled(n.getAnimations().filter(a=>Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a=>a.finished));});assert.ok(await page.getByRole('dialog',{name:title}).getByRole('button',{name:'完成',exact:true}).evaluate(n=>n.getBoundingClientRect().bottom<=innerHeight),'Reader Done should be visible without scrolling on a normal phone');}
+    await page.getByRole('dialog', { name: title }).getByRole('button', { name, exact: true }).click();
     await ready();
-    await page.getByRole('dialog', { name: '阅读设置' }).getByRole('button', { name: '完成', exact: true }).click();
+    await page.getByRole('dialog', { name: title }).getByRole('button', { name: '完成', exact: true }).click();
     await page.locator('.reader-options-sheet').waitFor({ state: 'detached' });
   };
   await ready();
@@ -91,11 +93,11 @@ try {
     if (multi) pointer('pointerup', 180, 200, 2);
   }, { dx, dy, multi });
   await swipe(-130); await ready();
-  assert.equal(await page.locator('.reader-options-content:not([aria-hidden]) .reader-paging input').inputValue(), '2');
+  assert.equal(await page.locator('.reader-option-group:not([aria-hidden]) .reader-paging input').inputValue(), '2');
   await swipe(130); await ready();
-  assert.equal(await page.locator('.reader-options-content:not([aria-hidden]) .reader-paging input').inputValue(), '1');
+  assert.equal(await page.locator('.reader-option-group:not([aria-hidden]) .reader-paging input').inputValue(), '1');
   await swipe(-10); await swipe(-50, 160); await swipe(-130, 0, true);
-  assert.equal(await page.locator('.reader-options-content:not([aria-hidden]) .reader-paging input').inputValue(), '1', 'short, vertical or multitouch gestures must not page');
+  assert.equal(await page.locator('.reader-option-group:not([aria-hidden]) .reader-paging input').inputValue(), '1', 'short, vertical or multitouch gestures must not page');
   if (process.env.QUIET_ROOM_TEST_BROWSER !== 'webkit') {
     const cdp = await page.context().newCDPSession(page);
     for (const direction of [-1, 1]) {
@@ -107,7 +109,7 @@ try {
       }
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
       await ready();
-      assert.equal(await page.locator('.reader-options-content:not([aria-hidden]) .reader-paging input').inputValue(), direction < 0 ? '2' : '1', 'native touch swipe');
+      assert.equal(await page.locator('.reader-option-group:not([aria-hidden]) .reader-paging input').inputValue(), direction < 0 ? '2' : '1', 'native touch swipe');
     }
     await cdp.detach();
   }
@@ -121,7 +123,7 @@ try {
   await optionAction('放大'); await ready();
   assert(await page.locator('.reader-pdf-page canvas').evaluate(node => node.getBoundingClientRect().width) > before);
   await swipe(130);
-  assert.equal(await page.locator('.reader-options-content:not([aria-hidden]) .reader-paging input').inputValue(), '2', 'zoomed PDF keeps horizontal panning');
+  assert.equal(await page.locator('.reader-option-group:not([aria-hidden]) .reader-paging input').inputValue(), '2', 'zoomed PDF keeps horizontal panning');
   await optionAction('适合宽度'); await ready();
   await page.getByRole('button', { name: '关闭搜索', exact: true }).click();
   await optionAction('上下滚动'); await ready();
@@ -158,7 +160,7 @@ try {
   assert.equal(await page.locator('.reader-text').textContent(), literal);
   assert.equal(await page.evaluate(() => window.readerExecuted), undefined);
   assert(await page.locator('.reader-paging span').evaluate(node => Number(node.textContent.slice(2)) > 1));
-  await swipe(-130); assert.equal(await page.locator('.reader-options-content:not([aria-hidden]) .reader-paging input').inputValue(), '2');
+  await swipe(-130); assert.equal(await page.locator('.reader-option-group:not([aria-hidden]) .reader-paging input').inputValue(), '2');
   assert(await page.locator('.reader-stage').evaluate(stage => stage.scrollTop === 0));
   await optionAction('上下滚动'); await ready();
   assert(await page.locator('.reader-stage').evaluate(stage => stage.scrollHeight > stage.clientHeight));
@@ -174,9 +176,10 @@ try {
     assert.match(await page.locator('.reader-epub').textContent(), /窗外的光/);
     await page.getByRole('button', { name: '章节目录', exact: true }).click();
     assert.equal(await page.getByRole('menu', { name: '章节目录' }).getByRole('menuitem').count(), 2);
-    const directoryAbove = await page.locator('.reader-directory').evaluate(node => node.getBoundingClientRect().bottom <= document.querySelector('.reader-toolbar').getBoundingClientRect().top);
-    assert(directoryAbove, JSON.stringify(await page.locator('.document-reader').evaluate(el => ({ menu: el.querySelector('.reader-directory').getBoundingClientRect().toJSON(), toolbar: el.querySelector('.reader-toolbar').getBoundingClientRect().toJSON() }))));
-    await page.keyboard.press('Escape');
+    await page.locator('.reader-directory-sheet.is-visible').waitFor();
+    await page.locator('.reader-directory-sheet').evaluate(async n=>{await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));await Promise.allSettled(n.getAnimations({subtree:true}).filter(a=>Number.isFinite(a.effect?.getComputedTiming().endTime)).map(a=>a.finished));});
+    const sheet=await page.locator('.reader-directory-panel').evaluate(n=>{const r=n.getBoundingClientRect();return r.width>0&&r.top>=0&&r.bottom<=innerHeight+1;});assert(sheet);
+    await page.keyboard.press('Escape');await page.locator('.reader-directory-sheet').waitFor({state:'detached'});
     assert.equal(await page.locator('.reader-epub script, .reader-epub iframe, .reader-epub style, .reader-epub [onclick], .reader-epub [id]').count(), 0);
     assert.equal(await page.evaluate(() => window.readerExecuted), undefined);
     await page.locator('.reader-epub img').evaluate(image => image.decode());
@@ -194,13 +197,11 @@ try {
       await page.setViewportSize({ width: 390, height: 844 });
     }
     await page.getByRole('link', { name: '阅读下一章' }).click(); await ready();
-    assert.equal(await page.locator('.reader-directory').getAttribute('data-chapter'), '2');
+    assert.equal(await page.locator('#reader-directory').getAttribute('data-chapter'), '2');
     await page.getByRole('button', { name: '章节目录', exact: true }).click();
     await page.getByRole('menuitem').first().click(); await ready();
-    await page.getByRole('button', { name: '搜索', exact: true }).click();
-    await page.getByRole('searchbox').fill('Needle'); await page.getByRole('searchbox').press('Enter');
-    await page.waitForFunction(() => document.querySelector('.reader-directory').dataset.chapter === '2'); await ready();
-    assert.equal(await page.locator('.reader-epub mark').textContent(), 'Needle');
+    await page.locator('.reader-directory-sheet').waitFor({state:'detached'});
+    assert.equal(await page.getByRole('button',{name:'搜索',exact:true}).count(),0,'EPUB has no search entry');
     await page.getByRole('button', { name: '关闭阅读器' }).click();
     assert.equal(await page.evaluate(() => window.readerTest.workers()), 0);
   }
@@ -217,25 +218,27 @@ try {
   const pagesInChapter = await page.locator('.reader-paging span').evaluate(node => Number(node.textContent.slice(2)));
   assert(pagesInChapter > 5, 'Long chapter must split into screen-sized pages');
   assert.equal(await page.locator('.reader-paging span').textContent(), totalAtStart, 'Total page count must cover the whole book');
-  const firstInSecondChapter = Number(await page.locator('.reader-options-content:not([aria-hidden]) .reader-paging input').inputValue());
+  const firstInSecondChapter = Number(await page.locator('.reader-option-group:not([aria-hidden]) .reader-paging input').inputValue());
   assert(firstInSecondChapter > 1, 'Second chapter must continue whole-book numbering');
   await swipe(-130);
-  assert.equal(Number(await page.locator('.reader-options-content:not([aria-hidden]) .reader-paging input').inputValue()), firstInSecondChapter + 1);
-  assert.equal(await page.locator('.reader-directory').getAttribute('data-chapter'), '2', 'A swipe skipped the rest of the chapter');
+  assert.equal(Number(await page.locator('.reader-option-group:not([aria-hidden]) .reader-paging input').inputValue()), firstInSecondChapter + 1);
+  assert.equal(await page.locator('#reader-directory').getAttribute('data-chapter'), '2', 'A swipe skipped the rest of the chapter');
   await page.getByRole('button', { name: '跳转页码', exact: true }).click();
   await page.getByRole('spinbutton').fill(String(firstInSecondChapter)); await page.getByRole('spinbutton').press('Enter');
-  await page.getByRole('dialog', { name: '阅读设置' }).getByRole('button', { name: '完成', exact: true }).click();
+  await page.getByRole('dialog', { name: '跳转页码' }).getByRole('button', { name: '完成', exact: true }).click();
   await page.locator('.reader-options-sheet').waitFor({ state: 'detached' });
   await swipe(130); await ready();
-  assert.equal(Number(await page.locator('.reader-options-content:not([aria-hidden]) .reader-paging input').inputValue()), firstInSecondChapter - 1, 'Backward swipe must cross the chapter boundary');
+  assert.equal(Number(await page.locator('.reader-option-group:not([aria-hidden]) .reader-paging input').inputValue()), firstInSecondChapter - 1, 'Backward swipe must cross the chapter boundary');
   await swipe(-130); await ready();
-  assert.equal(Number(await page.locator('.reader-options-content:not([aria-hidden]) .reader-paging input').inputValue()), firstInSecondChapter, 'Forward swipe must cross the chapter boundary');
+  assert.equal(Number(await page.locator('.reader-option-group:not([aria-hidden]) .reader-paging input').inputValue()), firstInSecondChapter, 'Forward swipe must cross the chapter boundary');
   assert(await page.locator('.reader-paging').evaluate(node => getComputedStyle(node.querySelector('input')).fontSize === getComputedStyle(node.querySelector('span')).fontSize));
   assert(await page.locator('.reader-epub').evaluate(node => node.offsetHeight <= node.closest('.reader-stage').clientHeight));
   await optionAction('上下滚动'); await ready();
   assert(await page.locator('.reader-stage').evaluate(stage => stage.scrollHeight > stage.clientHeight * 5));
   await optionAction('左右翻页'); await ready();
   assert.equal(await page.locator('.reader-paging span').evaluate(node => Number(node.textContent.slice(2))), pagesInChapter);
+  const visibleParagraph=()=>page.locator('.reader-epub').evaluate(article=>{const b=article.closest('.reader-stage').getBoundingClientRect();return [...article.querySelectorAll('p')].filter(p=>{const range=document.createRange();range.selectNodeContents(p);return [...range.getClientRects()].some(r=>r.left<b.right&&r.right>b.left&&r.top<b.bottom&&r.bottom>b.top);}).map(p=>p.textContent);});
+  await swipe(-130);const beforeSize=await visibleParagraph();await optionAction('增大字号');const afterSize=await visibleParagraph();assert.ok(beforeSize.some(p=>afterSize.includes(p)),'Changing book type size lost the current reading position');await optionAction('默认字号');
   for (const epub2 of [false, true]) {
     assert(await page.evaluate(async bytes => {
       const { EpubReader } = await import('/src/lib/epub-reader.ts');
@@ -269,5 +272,5 @@ try {
   assert.equal(await page.evaluate(() => window.readerTest.workers()), 0);
   assert.deepEqual(errors, []);
   assert.deepEqual(external, []);
-  console.log('Document reader: PDF pixels/swipe/zoom, EPUB 2/3 chapters/navigation/search/images, unsafe archive rejection, text safety, focus, responsive geometry and worker cleanup passed.');
+  console.log('Document reader: PDF pixels/swipe/zoom, EPUB 2/3 chapters/navigation/images, PDF/text search, unsafe archive rejection, text safety, focus, responsive geometry and worker cleanup passed.');
 } finally { await browser?.close(); await server.close(); }

@@ -134,6 +134,8 @@ CI 镜像与双独立环境：`scripts/ci-image.mjs`、`scripts/deploy-config.mj
 
 本地聊天备份：`LOCAL_HISTORY_BACKUPS.md`、`src/lib/local-archive.ts`、`src/lib/local-history-backup.ts`、`src/lib/local-backup-file.ts`；回归为 `tests/local-archive.test.ts` 和 `tests/local-history-backup.e2e.mjs`。双人恢复协议为 `src/lib/joint-recovery.ts` 与 `tests/joint-recovery.test.ts` / `tests/joint-recovery.e2e.mjs`。旧自动备份隐藏入口为 `#legacy-backup` 与 `#legacy-recovery`。
 
+本人归档自动备份开关与分类数见 `src/lib/archive-settings.ts`、`room-archive.ts` 和 `src/app.ts` 的备份运行期；断点、统计与损坏回归为 `tests/room-archive-lifecycle.e2e.mjs`，开关、来源画布和视觉为 `tests/settings-v14.e2e.mjs`。
+
 聊天遮蔽位图实现见 `src/lib/concealed-image.ts`；高斯像素验证为
 `tests/concealed-image.test.ts`，编码中锁定、URL 释放和聊天显隐回归沿用
 `tests/chat-image-privacy.e2e.mjs`。它只生成解锁运行期的内存预览，不替代原始附件。
