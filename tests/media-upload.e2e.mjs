@@ -172,10 +172,16 @@ try {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'no-preference' });
     }
-    await page.evaluate(() => { const g = window.mediaFixture.gate; g.hold = false; g.fail = false; });
+    await page.evaluate(expression => { const g = window.mediaFixture.gate; g.hold = false; g.fail = false; g.holdDownload = expression; }, variant.includes('expression'));
     await draft.getByRole('button', { name: '重试', exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll('.media-upload').length === 0);
     const message = page.locator(`.message[data-client-msg-id="${id}"]`);
+    if (variant.includes('expression')) {
+      await message.locator('.media-upload-handoff').waitFor();
+      assert.equal(await message.locator('.media-upload-handoff .media-upload-status').count(), 0, 'Expression handoff has only the live message status, including while thumbnail loading is stalled');
+      assert.equal(await message.locator('.message-meta').count(), 1);
+      await page.evaluate(() => { const g = window.mediaFixture.gate; g.holdDownload = false; g.downloadRelease?.(); });
+    }
     await message.locator('.image-preview[data-image-state="loaded"]').first().waitFor();
     assert.equal(await message.count(), 1);
     const delivered = variant.includes('expression') ? message.locator('.image-preview') : message.locator('.message-bubble');

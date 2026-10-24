@@ -1715,13 +1715,31 @@ export class QuietRoomApp {
       return;
     }
     if (stored.v === 3 && stored.unlockMethod === 'password' && stored.browserRoomKey) {
+      this.gatewayUnlockAbort?.abort();
+      const abort = new AbortController();
+      this.gatewayUnlockAbort = abort;
       try {
-        const key = await this.requireBrowserRoomKey();
-        if (!current()) return;
+        const key = await this.requireBrowserRoomKey(abort.signal);
+        if (!current() || abort.signal.aborted) return;
         const session = await unlockVault(key, undefined, stored);
-        if (!current()) return;
+        if (!current() || abort.signal.aborted) return;
         this.session = session; await this.openSession();
-      } catch (cause) { if(current()) this.showNotice(cause instanceof Error ? cause.message : '无法打开密室，请重试', 'error'); }
+      } catch (cause) {
+        if (current() && !abort.signal.aborted) {
+          abort.abort();
+          clearBrowserRoomKey();
+          this.cleanupRuntime();
+          this.gatewayTemplate('密室暂未打开', '暂时无法读取这间密室的本机数据。原有数据仍保留，请重试。', '<p class="field-hint" role="alert" data-room-open-error></p><button class="primary-button" data-retry-room-open type="button">重新打开</button>');
+          this.root.querySelector('[data-room-open-error]')!.textContent = cause instanceof Error ? cause.message : '请稍后重试';
+          this.root.querySelector('[data-retry-room-open]')!.addEventListener('click', () => {
+            this.lockNow();
+            void this.renderGateway({ trustedCoverActivation: true, autoUnlock: false });
+          });
+        }
+      } finally {
+        abort.abort();
+        if (this.gatewayUnlockAbort === abort) this.gatewayUnlockAbort = null;
+      }
       return;
     }
     if (stored.unlockMethod === 'recovery') {
@@ -3239,9 +3257,11 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       .finally(() => { window.clearTimeout(timer); if (button?.isConnected) { button.disabled = false; button.textContent = '创建聊天密室'; } if (this.spaceCreationAbort === lifetime) this.spaceCreationAbort = null; });
   }
 
-  private async requireBrowserRoomKey(): Promise<string> {
+  private async requireBrowserRoomKey(signal = this.runtimeAbort?.signal): Promise<string> {
+    signal?.throwIfAborted();
     const existing = await browserRoomKey(true); if (existing) return existing;
     const record = await readRoomProtection();
+    signal?.throwIfAborted();
     const clearFailure=()=>{if(this.noticeTimer!==null)window.clearTimeout(this.noticeTimer);if(this.noticeRemovalTimer!==null)window.clearTimeout(this.noticeRemovalTimer);this.noticeTimer=null;this.noticeRemovalTimer=null;this.queuedNotice=null;document.getElementById('app-toast')?.remove();};
     if(record?.method==='platform'){
       this.gatewayTemplate('解锁密室','验证应用锁后继续。','<div class="welcome-actions"><button class="primary-button" data-room-unlock>解锁</button><button class="text-button" data-room-unlock-help>无法解锁？</button></div>',false,'plain','lock');
@@ -3249,7 +3269,6 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       this.root.querySelector('[data-room-unlock-help]')!.addEventListener('click',()=>this.showRoomUnlockHelp());
       const page=this.root.querySelector('.gateway')!,button=page.querySelector<HTMLButtonElement>('[data-room-unlock]')!,epoch=this.runtimeEpoch;
       return new Promise<string>((resolve,reject)=>{
-        const signal=this.runtimeAbort?.signal;
         const automatic=new AbortController();
         const abort=()=>{automatic.abort();reject(new DOMException('验证已结束','AbortError'));};
         signal?.addEventListener('abort',abort,{once:true});
@@ -3271,7 +3290,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     const epoch = this.runtimeEpoch;
     return requestPassword(this.root, { presentation: 'page', mandatory: true, retainUntilReplaced: true,
       passwordFormat: record.wrapper.passwordFormat, title: '输入应用锁', context: '解锁此浏览器中的密室。',
-      signal: this.runtimeAbort?.signal, isActive: () => !this.privacyCovered && this.runtimeEpoch === epoch,
+      signal, isActive: () => !this.privacyCovered && this.runtimeEpoch === epoch,
       help: () => this.showRoomUnlockHelp(),
       verify: password => unlockBrowserRoomKey(password) }).then(key=>{clearFailure();return key;});
   }
@@ -3611,7 +3630,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
   }
 
   private renderJoiningChat(message='正在连接密室…'):HTMLElement {
-    this.root.innerHTML=`<section class="chat-shell chamber-waiting"><header class="chat-header chamber-chat-header"><div class="peer-summary chamber-presence-capsule"><div class="presence-heading"><span>TA</span><span>我</span></div><strong class="peer-status">正在连接</strong></div></header><section class="message-list" aria-label="聊天消息"><aside class="pinned-notice" data-joining-card role="status"><div class="pinned-recovery-content"><strong>正在建立加密聊天</strong><span></span></div></aside></section><form class="composer"><div class="composer-row"><div class="composer-input-stack"><div class="composer-field"><textarea disabled placeholder="连接完成后即可聊天"></textarea></div></div></div></form></section>`;
+    this.root.innerHTML=`<section class="chat-shell chamber-waiting"><header class="chat-header chamber-chat-header room-connection-header"><strong>Chamber</strong></header><section class="message-list" aria-label="聊天消息"><aside class="room-connection-card" data-joining-card role="status"><div class="room-connection-content pinned-recovery-content"><strong>正在建立加密聊天</strong><span></span></div></aside></section><form class="composer"><div class="composer-row"><div class="composer-input-stack"><div class="composer-field"><textarea disabled placeholder="连接完成后即可聊天"></textarea></div></div></div></form></section>`;
     this.root.querySelector('[data-joining-card] span')!.textContent=message;
     if(this.session?.vault.roomArchiveV2&&this.runtimeAbort){
       this.spaceDrawerOpen=false;const button=document.createElement('button');button.className='icon-button chat-settings-entry';button.id='chat-settings';button.type='button';button.setAttribute('aria-label','设置');button.innerHTML=spaceIcons.settings;
@@ -4241,7 +4260,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     this.setActiveSurface('away');
     if(session.vault.roomArchiveV2){
       this.renderJoiningChat(pending?.admissionSecret?'正在连接你的已有设备，连接完成后自动进入。':'请在自己的已有设备核对相同安全码并批准添加。');
-      const content=this.root.querySelector('.pinned-recovery-content')!;if(!pending?.admissionSecret){const codeElement=document.createElement('code');codeElement.className='device-inline-code';codeElement.textContent=code;content.append(codeElement);}
+      const content=this.root.querySelector('.pinned-recovery-content')!;content.querySelector(':scope > span')?.remove();if(!pending?.admissionSecret){const codeElement=document.createElement('code');codeElement.className='device-inline-code';codeElement.textContent=code;content.append(codeElement);}
       content.insertAdjacentHTML('beforeend','<p id="device-link-progress" role="status">等待已有设备批准…</p><span class="form-error" hidden></span><button class="secondary-button" id="retry-device-link" type="button">立即检查</button><button class="text-button" id="pending-device-lock" type="button">锁定</button>');
     }else this.gatewayTemplate('等待已有设备批准', '新设备使用独立密钥，只能读取获准加入后的消息。请在已有设备核对相同安全码再批准。', `
       <div class="device-safety-code" aria-label="设备安全码">${code}</div>
@@ -4682,7 +4701,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     if (invitation.kind !== 'invalid') {
       if (session.vault.roomId !== invitation.invite.roomId) {
         const target = spaces.find(space => space.roomId === invitation.invite.roomId && space.localId);
-        if (target) { await this.switchPrivateSpace(target); return; }
+        if (target) { await this.switchPrivateSpaceNow(target); return; }
         await this.beginNewSpace(invitation);
         return;
       }
@@ -6565,7 +6584,23 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     return this.runtimeEpoch === nextEpoch && !this.privacyCovered && !this.expireIdleSession();
   }
 
-  private async switchPrivateSpace(space: PrivateSpace): Promise<void> {
+  private spaceSwitchChain: Promise<void> = Promise.resolve();
+  private spaceSwitchRevision = 0;
+
+  private switchPrivateSpace(space: PrivateSpace): Promise<void> {
+    const revision = ++this.spaceSwitchRevision, entry = this.coverEntryEpoch;
+    const current = () => revision === this.spaceSwitchRevision && entry === this.coverEntryEpoch && !this.privacyCovered;
+    // Selection and the old runtime's final writes share one navigation owner.
+    // A superseded click cannot read whichever mutable slot a later click chose.
+    const next = this.spaceSwitchChain.catch(() => undefined).then(async () => {
+      if (current()) await this.switchPrivateSpaceNow(space, current);
+    });
+    this.spaceSwitchChain = next.catch(() => undefined);
+    return next;
+  }
+
+  private async switchPrivateSpaceNow(space: PrivateSpace, current = () => !this.privacyCovered): Promise<void> {
+    if (!current()) return;
     this.cancelSpaceNavigation?.();
     const source = this.root.querySelector<HTMLElement>('.is-space-list-page.space-drawer-overlay:not(.is-closing)');
     const cover = source?.cloneNode(true) as HTMLElement | undefined;
@@ -6582,7 +6617,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     }
     try {
       if (this.session?.vault.roomId === space.roomId) {if(this.session.vault.roomArchiveV2&&(this.session.vault.pendingChamberCreate||this.session.vault.pairingState!=='ready'))await this.openSession();else this.renderChat();}
-      else await this.performPrivateSpaceSwitch(space);
+      else await this.performPrivateSpaceSwitch(space, current);
     }
     finally {
       observer?.disconnect();
@@ -6593,18 +6628,22 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     }
   }
 
-  private async performPrivateSpaceSwitch(space: PrivateSpace): Promise<void> {
+  private async performPrivateSpaceSwitch(space: PrivateSpace, current = () => !this.privacyCovered): Promise<void> {
     if (!space.localId && this.browserProfile?.profile.spaces.some(s=>s.roomId===space.roomId)) {const profile=this.browserProfile,prf=(this.browserBindingProof??this.session?.browserAccessPrf)?.slice();if(!await this.leaveSpace()){prf?.fill(0);return;}this.browserProfile=profile;this.browserBindingProof=prf??null;this.browserAccessAbort=new AbortController();profile.profile.currentRoom=space.roomId;this.scheduleIdleLock();this.renderBrowserShell();this.pollBrowserSpaceAccess(this.browserAccessAbort.signal);return;}
     if (!space.localId) throw new Error('此密室需要先恢复');
     if (!await this.leaveSpace()) return;
+    if (!current()) return;
+    this.unlockResume = null;
     await selectLocalSpace(space.localId);
-    if (this.privacyCovered) return;
-    const stored = await readStoredVault();
+    if (!current()) return;
+    const stored = await readStoredRoom(space.localId);
+    if (!current()) return;
     if (!stored) { this.gatewayTemplate('密室暂不可用', '本地数据不可用，请使用恢复码恢复。', '<button class="primary-button" id="space-recover">恢复密室</button>'); this.root.querySelector('#space-recover')?.addEventListener('click', () => this.renderJointRecovery(null)); return; }
     const held = this.deviceCredential;
     if (held && stored.unlockMethod === 'platform' && stored.v === 3 && stored.platform.credentialId === held.record.credentialId) {
       const unlocked = await unlockVault('', Promise.resolve(held.prfOutput.slice()), stored);
-      if (this.privacyCovered) { releaseDeviceCredential(unlocked); return; }
+      if (!current()) { releaseDeviceCredential(unlocked); return; }
+      if (space.roomId && unlocked.vault.roomId !== space.roomId) throw new SecurityViolation('本机密室目录与保险库不一致，已停止切换');
       unlocked.browserAccessPrf = held.browserAccessPrf?.slice();
       this.rememberDeviceCredential(unlocked);
       this.session = unlocked;

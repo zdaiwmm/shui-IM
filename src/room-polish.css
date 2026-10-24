@@ -426,7 +426,7 @@ html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confi
 #app .chamber-chat-header[data-presence-style=capsule] .presence-heart { scale:1.1; }
 #app .room-creation-page .gateway-heading h1 { font-size:1rem; font-weight:550; line-height:1.6; min-height:0 !important; }
 #app .room-creation-page .welcome-copy[hidden] { display:none; }
-.room-creation-check { display:grid; place-items:center; width:40px; height:40px; border-radius:50%; background:var(--accent); color:var(--on-accent); scale:.85; transition:opacity 220ms var(--motion-out),scale 280ms var(--motion-out); }
+.room-creation-check { display:grid; place-items:center; width:40px; height:40px; border-radius:50%; background:var(--action-surface); color:var(--action-ink); scale:.85; transition:opacity 220ms var(--motion-out),scale 280ms var(--motion-out); }
 .room-creation-check svg { width:24px; height:24px; stroke-width:3; }
 .room-creation-page.is-ready .room-creation-check { scale:1; }
 .room-creation-page .room-creation-spinner { transition:opacity 180ms ease-out; }
@@ -451,7 +451,7 @@ html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confi
 #app .is-settings-sheet .settings-dismiss-handle { position:absolute; inset:auto 0 0; height:44px; background:linear-gradient(transparent,var(--paper)); }
 #app .is-settings-sheet .space-drawer-scroll { padding-bottom:48px; scroll-padding-bottom:48px; }
 #app .space-radio { width:24px; height:24px; border:2px solid var(--ink-muted); flex:none; font-style:normal; }
-#app [aria-checked=true] .space-radio { border-color:var(--accent); background:var(--accent); color:var(--on-accent); }
+#app [aria-checked=true] .space-radio { border-color:var(--action-surface); background:var(--action-surface); color:var(--action-ink); }
 #app .space-radio svg { width:16px; height:16px; stroke-width:3; }
 #app .room-creation-page .chamber-brand svg { width:192px; height:192px; }
 #app .room-creation-page .gateway-heading h1 { color:var(--accent); }
@@ -473,3 +473,20 @@ html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confi
 @media(prefers-reduced-motion:reduce) {
   #app .room-creation-page .chamber-dialogue,.chat-history-loading::before { animation:none !important; }
 }
+
+/* Settings subpages use the same heading ink as the settings sheet. Device
+   rows have an explicit column owner so the trailing mark cannot move copy. */
+#app .is-settings-subpage .space-drawer-header h2 { color:var(--ink); }
+#app .device-management-page .device-card { box-sizing:border-box; border:0; color:var(--ink); }
+#app .device-management-page .device-card > .device-kind-icon { grid-column:1; grid-row:1; }
+#app .device-management-page .device-card > div { grid-column:2; grid-row:1; }
+#app .device-management-page .device-card > :is(.device-chevron,.device-radio) { grid-column:3; grid-row:1; }
+
+#app .room-connection-card { box-sizing:border-box; align-self:center; flex:none; width:min(100%,420px); margin:24px auto; padding:20px; border:0; border-radius:16px; background:var(--surface-raised); color:var(--ink); }
+#app .room-connection-card > .room-connection-content { position:static; display:grid; gap:12px; padding:0; }
+#app .room-connection-content::before { content:none; }
+#app .room-connection-content > strong { font-size:1.0625rem; font-weight:600; line-height:1.4; }
+#app .room-connection-content > :is(span,p) { margin:0; color:var(--ink-muted); font-size:.875rem; line-height:1.6; white-space:normal; overflow:visible; text-overflow:clip; }
+#app .room-connection-content > button { box-sizing:border-box; width:100%; min-height:44px; margin:0; font-size:.875rem; }
+#app .room-connection-header { display:flex; justify-content:space-between; color:var(--ink); }
+#app .room-connection-header > strong { font-size:1.0625rem; font-weight:600; }
