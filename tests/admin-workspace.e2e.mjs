@@ -39,13 +39,16 @@ try {
     await page.emulateMedia({colorScheme:scheme});
     await page.evaluate(theme=>{localStorage.setItem('quiet-room:appearance',theme);window.dispatchEvent(new StorageEvent('storage',{key:'quiet-room:appearance'}));},theme);
     await page.waitForFunction(({theme,scheme})=>document.documentElement.dataset.theme===theme&&document.documentElement.dataset.colorScheme===scheme,{theme,scheme});
-    const contrast=await page.locator('#admin-nav .nav-item[aria-current=page]').evaluate(button=>{
+    const rendered=await page.locator('#admin-nav .nav-item[aria-current=page]').evaluate(button=>{
       const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const ctx=canvas.getContext('2d',{willReadFrequently:true});
       const rgb=color=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=color;ctx.fillRect(0,0,1,1);return [...ctx.getImageData(0,0,1,1).data].slice(0,3).map(v=>v/255);};
       const luminance=rgb=>rgb.map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
-      const css=getComputedStyle(button),a=luminance(rgb(css.color)),b=luminance(rgb(css.backgroundColor));return(Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+      const css=getComputedStyle(button),a=luminance(rgb(css.color)),b=luminance(rgb(css.backgroundColor));
+      const matches=(actual,token)=>rgb(actual).every((value,i)=>Math.abs(value-rgb(token)[i])<=1/255);
+      return {contrast:(Math.max(a,b)+.05)/(Math.min(a,b)+.05),paletteMatches:matches(css.color,css.getPropertyValue('--ink'))&&matches(css.backgroundColor,css.getPropertyValue('--selected'))};
     });
-    assert(contrast>=4.5,`${theme}/${scheme}: selected navigation contrast ${contrast}`);await capture(`theme-${theme}-${scheme}`);
+    assert(rendered.paletteMatches,`${theme}/${scheme}: navigation must render the current palette immediately`);
+    assert(rendered.contrast>=4.5,`${theme}/${scheme}: selected navigation contrast ${rendered.contrast}`);await capture(`theme-${theme}-${scheme}`);
   }
   await page.emulateMedia({colorScheme:'light'});await page.evaluate(()=>{localStorage.setItem('quiet-room:appearance','blue');window.dispatchEvent(new StorageEvent('storage',{key:'quiet-room:appearance'}));});
 

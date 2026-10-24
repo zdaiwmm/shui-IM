@@ -336,7 +336,7 @@ summary { cursor: pointer; min-height: 44px; padding-block: 10px; }
 .sidebar-nav { gap: 4px; }
 .admin-nav-label { margin: 20px 12px 8px; font-size: .6875rem; font-weight: 600; color: var(--muted); letter-spacing: .08em; }
 .admin-nav-label:first-child { margin-top: 0; }
-.sidebar-nav .nav-item { border-radius: 10px; padding: 10px 12px; gap: 12px; font-size: .875rem; font-weight: 500; text-align: left; }
+.sidebar-nav .nav-item { border-radius: 10px; padding: 10px 12px; gap: 12px; font-size: .875rem; font-weight: 500; text-align: left; transition: border-color var(--duration); }
 .sidebar-nav .nav-item svg { width: 18px; height: 18px; stroke-width: 1.7; flex: 0 0 auto; }
 .sidebar-nav .nav-item:hover:not(:disabled) { background: color-mix(in srgb,var(--selected) 55%,var(--surface)); }
 .tabler-shell .nav-item[aria-current=page] { color: var(--ink); font-weight: 650; background: var(--selected); }
