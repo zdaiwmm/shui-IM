@@ -1,5 +1,13 @@
 # Quiet Room 当前状态
 
+## 界面一致性与自动备份控制已发布（2026-10-24 21:43）
+
+- 用户确认[界面V1及自动备份S1](../requirements/2026-10-24-ui-consistency-backup/README.md)，明确免原型和流程图，收到最终完整SHA与验证结果后回复「确认，发布这个提交」。[PR #399](https://github.com/zdaiwmm/shui-IM/pull/399)合并为实际应用`d6c4a84b0811c4b5419e23b87616d4c8bcaaab2c`／2026.10.24.2，与最终源dfa721e完整文件树同为`8250e28feb38e8bf70e71d37641db7dd254a15ac`；前一生产975c766／2026.10.24.1。
+- P1 V1.30统一媒体加载／回执、在线胶囊、设置抽屉、书籍阅读及创建反馈；视频默认应用内最大化并共享图片退出手势。凭证页新增本浏览器当前密室的自动备份开关与五类已校验统计，关闭保留已有密文和待传ID、重开续传；长期边界由PRODUCT、NEW_ROOM_ARCHIVES、SECURITY及DESIGN拥有。
+- 最终本机构建与80/80浏览器完整重跑通过，0失败／0未运行，1327.38秒；初始通话摄像头升级超时原因未定，未修改通话断言。完整单元本机1064项通过、11项受原有容量门槛阻塞，一次定向复核确认环境限制，未降低策略。[精确PR完整CI40095468569](https://github.com/zdaiwmm/shui-IM/actions/runs/40095468569)及[精确main完整CI40097559581](https://github.com/zdaiwmm/shui-IM/actions/runs/40097559581)均attempt1全部成功，含1075项单元、全部浏览器及Full application verification。Chromium／桌面WebKit专项和实际明暗渲染通过，真机未验证。
+- 固定[只读预检40098486877](https://github.com/zdaiwmm/shui-IM/actions/runs/40098486877)取得PREFLIGHT_OK，唯一[正式云发布40098694845](https://github.com/zdaiwmm/shui-IM/actions/runs/40098694845)取得精确DEPLOY_VERIFIED。首次独立回读仅备份starting，核实原5分钟探针后只续跑同SHA回读，于`2026-10-24T13:43:30.065Z`取得READBACK_OK，3336ms：应用／备份healthy，TURN运行且探针none，精确SHA／镜像、HTTPS／数据库／存储、公开及容器资源、新WebSocket一致，维护门absent；公开版本2026.10.24.2。
+- 完整事实见[本批发布记录](../../RELEASING.md#release-ui-consistency-backup-20261024)，脱敏证据在公共Git元数据`quiet-room-deliveries/evidence/ui-consistency-backup-20261024/`。独立对账树不含部署配置，文档提交不替代线上应用；本批活动目录／忽略缓存／专属回执按清理门禁保留，最终机械结果独立保存，其他任务不处理。iPhone／iOS27／Safari及独立安全审阅未验证。下方均为此前批次历史事实。
+
 ## 紧凑语音气泡已发布（2026-10-24 10:01）
 
 - 用户确认[语音V2.3](../requirements/2026-10-24-voice-bubble-integrated/README.md)及实施中收窄要求，收到完整SHA后回复「确认，发布生产」。[PR #397](https://github.com/zdaiwmm/shui-IM/pull/397)已合并为实际应用`975c766a2048d1cdd52240a310a4de28f5f2cecb`／2026.10.24.1，与最终源70aa3cf完整文件树同为`ab4cf2d766fdfce98804e92486ab0139078b7494`；前一生产c87c3ba／2026.10.23.7。
