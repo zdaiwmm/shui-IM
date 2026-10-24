@@ -194,6 +194,8 @@ Chamber聊天卡片随键盘滚动、透明浮动顶栏、加入前样式门禁�
 
 `tests/audit-interactions.e2e.mjs` 使用本地合成服务、独立浏览器密钥和虚拟认证器，覆盖同标签邀请取消重开、恢复读取重试／关闭／限流／隐藏、添加设备批准自动安装、锁定续接、返回草稿与设备撤销发送守卫；已纳入 `npm run test:browser` 第二组。可附目录参数保存脱敏截图；不代表 iPhone 真机或跨平台通行密钥同步验证。
 
+应用锁入口／遮蔽存储等待／连续切换由`src/app.ts`、`src/lib/browser-room-key.ts`及`tests/entry-switch-repair.e2e.mjs`覆盖：真实存储租约阻塞与取消、解密迟到拒绝、明确槽位及过期选择。该专项已纳入完整浏览器第二组，同时核对18套明暗的完成勾、标题、设备行及有界连接卡片；表情交接状态另由`tests/media-upload.e2e.mjs`的明确冷／热缓存覆盖。[进入修复V1／V1.1／V1.2](../requirements/2026-10-25-expression-entry-repair/README.md)及P1 V1.33拥有范围与证据，不改变旧格式验证及历史边界。
+
 即时设置／九套整体配色／桌面应用入口：`src/lib/appearance.ts`、`src/appearance.css`、`src/lib/app-access.ts`、`public/manifest.webmanifest`；入口由 `src/app.ts` 与扁平 `space-drawer.ts` 承载。回归 `tests/settings-appearance.e2e.mjs`、`appearance.test.ts`、`desktop-access.test.ts`、`desktop-session-flow.e2e.mjs` 和 `draft-refresh.e2e.mjs`；真实系统安装、原生通行密钥及iPhone证据单列。[确认范围](../requirements/2026-10-10-settings-appearance-desktop/README.md)取代旧默认60秒和桌面每次锁后验证的描述。九主题、经典与松绿／雾紫差异及18套明暗验证由[九主题V1](../requirements/2026-10-25-appearance-nine/README.md)及P1 V1.32补充；语音主题继承另见`voice-message-ui.e2e.mjs`。
 
 移动表单统一输入：`src/lib/form-input.ts`／`src/form-input.css`；背景几何消费者通过 `layoutViewport()` 保持稳定，前景编辑器读取原始VisualViewport。`src/lib/gateway-intro.ts`维护入口图形三态。产品与安全边界见本次[需求记录](../requirements/2026-10-14-mobile-debug-feedback/README.md)。
