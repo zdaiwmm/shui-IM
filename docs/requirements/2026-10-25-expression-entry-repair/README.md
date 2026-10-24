@@ -1,6 +1,6 @@
 # 表情状态、解锁与设备切换修复
 
-- 阶段：V1／V1.1／V1.2已随后续受批后台V1组合上线，见文末「后续受批发布」；本任务另独立回读确认同一生产提交。V1.3仅修测试同步前提，最终CI与合并另取证；原独立批次失败及授权范围保留为历史。真实iPhone未验证。
+- 阶段：V1／V1.1／V1.2已随后续受批后台V1组合上线，本任务另独立回读确认。V1.3测试同步修正已由PR #410合并，精确PR／main完整CI通过；仅测试和记录变化，不再次切换生产。原失败及授权范围保留为历史，真实iPhone未验证。
 - 规则来源：本机 main `4356531cea264dd01bd9110da90b9ff62cfd7a59`；任务基线为实时 main / origin/main `171ca9a6173e696372277a0530a9daa95781c6d6`。
 - 任务分支：`codex/expression-entry-repair-20261025`；独占工作树为当前仓库 `.worktrees/expression-entry-repair-20261025`，跨电脑接续须重新核验。
 
@@ -23,7 +23,9 @@
 - 本轮修改仅两个浏览器测试及需求记录；产品与原验收阈值不变，不制造空发布版本，沿用主线2026.10.24.6。取证临时副本只在本机使用并移除，必要测量值在本页保存；正式修复后验证及精确CI另记，不将取证或旧提交挪作通过证明。
 - 正式本机完整移动反馈在Chromium／桌面WebKit均通过，反向位移均0；完整视频专项通过，真实位置0.7→0.6。两个专项严格顺序执行，测试文件在提交前后未变；不写成证据工具记录的干净本机全套门禁。[PR #410](https://github.com/zdaiwmm/shui-IM/pull/410)源ccb525b的[完整CI40128726920](https://github.com/zdaiwmm/shui-IM/actions/runs/40128726920) attempt1全部通过，含141文件／1081单元及全部82个浏览器入口；合并后主线仍须取得自己的完整证据。
 - 等待期间main合入发布记录PR #411，已核实精确`6973445e6ffd50c4fc661a602d02ebf62c3420c9`；只有五份文档变化，与本需求首行阶段有文字冲突。本任务树合入该精确主线并保留双方事实，测试与产品不变，新候选仍运行自己的完整CI。常规fetch遇已有异常引用`refs/heads/codex/expression-entry-repair-20261025 2`失败，未修改未知引用；GitHub API及本机已有精确主线对象核验一致，不把fetch记为成功。
-- 该发布记录及本任务固定`--readback-only --environment production --sha cd8bf37ebc64618834ff4046beb75529a506374e`独立回读确认，生产2026.10.24.6已包含V1／V1.1／V1.2。此次回读于2026-10-24T20:21:09Z取得READBACK_OK，3268ms，应用／备份健康、精确SHA／公开及容器资源／WebSocket一致。V1.3只改测试与记录，不为它再次切换生产；未来如需新切换仍须精确SHA确认。
+- 该发布记录及本任务固定`--readback-only --environment production --sha cd8bf37ebc64618834ff4046beb75529a506374e`独立回读确认，生产2026.10.24.6已包含V1／V1.1／V1.2。此次回读于2026-10-24T20:21:13.074Z完成并取得READBACK_OK，3268ms，应用／备份健康、精确SHA／公开及容器资源／WebSocket一致。V1.3只改测试与记录，不为它再次切换生产；未来如需新切换仍须精确SHA确认。
+- 最终组合源`de8d41e9e97621b8bf698c50f57f85a9e7586058`的[完整PR CI40129591542](https://github.com/zdaiwmm/shui-IM/actions/runs/40129591542) attempt1通过；PR #410合并为`3f34a9f5a8979e4164907aaba5f86c5bb1cf644a`，主线树与源同为`16a7c1efec6674fa1bffb269f0e376a16ee33ff5`。[精确main CI40130424473](https://github.com/zdaiwmm/shui-IM/actions/runs/40130424473) attempt1全部成功：141文件／1081项单元、82个浏览器入口、通话、双架构镜像及Full application verification；原动效两引擎各四次跳变均0，视频真实位置0.7→0.6。
+- 最终固定只读生产回读于2026-10-24T20:45:28.648Z完成，再次取得同一cd8bf37的READBACK_OK，3242ms；没有本任务新的生产切换。脱敏回读与清理检查保存在公共Git元数据`quiet-room-deliveries/evidence/entry-gate-v13-20261025/`，本机临时原始取证不入库。固定清理检查因旧源树的dist／node_modules返回retained，未删除工作树或分支；当前树仍在使用。常规fetch的未知异常引用仍保留，远端合并父提交和文件树由API独立核验，不声称本机main或origin/main已同步最新主线。
 
 ## 已知证据与方案
 
