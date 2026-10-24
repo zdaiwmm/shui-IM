@@ -269,10 +269,10 @@ try {
   assert.equal(await page.locator('.viewer-stage video').evaluate(video => video.src === video.poster), false,
     'Re-entry passed the JPEG poster to the video decoder instead of the authenticated playback cache');
   await awaitPlayingVideo();
-  await page.waitForFunction(() => document.fullscreenElement === document.querySelector('.viewer-stage video'));
-  assert.equal(await page.locator('[data-viewer-close]').isVisible(), false, 'A custom viewer header appeared before the native full-screen player');
+  assert.equal(await page.evaluate(()=>document.fullscreenElement),null,'Direct opens stay in the app viewer');
+  assert.equal(await page.locator('[data-viewer-close]').isVisible(),true);
   const player = await rememberPlayer();
-  assert.deepEqual(player, { controls: true, autoplay: true, playsInline: true, width: 320, height: 180 }, 'Video did not open as an accessible, automatically playing viewer');
+  assert.deepEqual(player, { controls: false, autoplay: true, playsInline: true, width: 320, height: 180 }, 'Video did not open as an accessible, automatically playing viewer');
   const viewerBounds = await page.locator('.image-viewer').evaluate(viewer => {
     const rect = viewer.getBoundingClientRect();
     return { fixed: getComputedStyle(viewer).position === 'fixed', fillsViewport: rect.left <= 1 && rect.top <= 1 && rect.right >= innerWidth - 1 && rect.bottom >= innerHeight - 1 };
@@ -296,7 +296,9 @@ try {
   await chatPreview.click();
   await awaitPlayingVideo();
   await page.locator('.image-viewer:not([data-native-video]) [data-viewer-close]').waitFor();
-  assert.equal(await page.evaluate(() => window.videoFlow.nativeAttempts), 1, 'Opening the fallback did not first request the native player');
+  assert.equal(await page.evaluate(() => window.videoFlow.nativeAttempts),0,'Direct open requested native full screen');
+  await page.locator('[data-video-fullscreen]').click();
+  assert.equal(await page.evaluate(() => window.videoFlow.nativeAttempts),1,'Explicit native entry must remain available');
   await rememberPlayer();
   await closePlayer();
   await assertPlayerReleased('Rejected full-screen fallback close');
@@ -320,15 +322,17 @@ try {
   await chatPreview.click();
   await awaitPlayingVideo();
   await rememberPlayer();
-  assert.equal(await page.evaluate(() => window.videoFlow.webkitAttempts), 1, 'Safari video did not directly request its system player');
-  assert.equal(await page.locator('.viewer-stage video').getAttribute('playsinline'), null, 'Safari was forced to show an inline player first');
+  assert.equal(await page.evaluate(()=>window.videoFlow.webkitAttempts),0,'Safari default open requested its system player');
+  await page.locator('[data-video-fullscreen]').click();
+  assert.equal(await page.evaluate(() => window.videoFlow.webkitAttempts),1,'Explicit system-player entry failed');
+  assert.equal(await page.locator('.viewer-stage video').evaluate(video=>video.playsInline),true);
   assert.deepEqual(await page.locator('.image-viewer').evaluate(viewer => ({
     nativeState: viewer.dataset.nativeVideo,
     headerVisibility: getComputedStyle(viewer.querySelector('.viewer-header')).visibility,
   })), { nativeState: 'active', headerVisibility: 'hidden' },
   'A synchronous Safari native-player entry lost its active gate or flashed the custom header');
   await page.evaluate(() => document.querySelector('.viewer-stage video').webkitExitFullscreen());
-  await page.locator('.image-viewer').waitFor({ state: 'detached' });
+  await closePlayer();
   await assertPlayerReleased('Safari system player Done');
   await page.evaluate(() => {
     delete HTMLVideoElement.prototype.webkitEnterFullscreen;
@@ -351,6 +355,7 @@ try {
   await chatPreview.click();
   await awaitPlayingVideo();
   await rememberPlayer();
+  await page.locator('[data-video-fullscreen]').click();
   await page.keyboard.press('Escape');
   await page.evaluate(() => window.videoFlow.resolveLateNative());
   await page.waitForFunction(() => window.videoFlow.lateExitCount === 1 && document.fullscreenElement === null);

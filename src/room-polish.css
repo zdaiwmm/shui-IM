@@ -186,7 +186,7 @@ html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confi
 #app .form-input-panel .form-input-password-toggle { position:absolute; right:68px; top:2px; bottom:2px; min-width:44px; width:44px; min-height:44px; padding:0; display:grid; place-items:center; }
 #app .form-input-password-toggle svg { width:20px; height:20px; }
 /* The top sheet ends above the page bottom; its handle owns dismissal, content owns scrolling. */
-#app .is-settings-sheet.space-drawer-overlay { background:rgb(10 8 14 / .28); }
+#app .is-settings-sheet.space-drawer-overlay { background:#14101959; }
 #app .is-settings-sheet.space-drawer-overlay > .space-drawer { inset:0 0 auto; width:100%; height:calc(100% - max(64px,8%)); max-height:calc(100% - 64px); padding:0; border:0; border-radius:0 0 20px 20px; transform:translateY(-100%); background:var(--paper); }
 #app .is-settings-sheet.space-drawer-overlay.is-visible > .space-drawer { transform:translateY(0); }
 #app .is-settings-sheet.space-drawer-overlay.is-closing > .space-drawer { transform:translateY(-100%); }
@@ -341,8 +341,8 @@ html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confi
 
 /* V1.28: shared component geometry and uncluttered feedback. */
 #app :is(input,textarea)::placeholder { font-weight:400; }
-#app .is-settings-sheet > .space-drawer { box-shadow:none; }
-#app .is-settings-sheet .settings-dismiss-handle { background:transparent; border:0; box-shadow:none; }
+#app .is-settings-sheet > .space-drawer { box-shadow:0 8px 24px color-mix(in srgb,var(--ink) 14%,transparent); border-bottom:1px solid var(--line); overflow:hidden; }
+#app .is-settings-sheet .settings-dismiss-handle { background:transparent; border:0; box-shadow:none; filter:none; }
 #app .is-settings-sheet .space-drawer-scroll { padding-bottom:12px; scroll-padding-bottom:12px; }
 #app .is-space-list-page.space-drawer-overlay { transition-duration:280ms; }
 #app .is-space-list-page.space-drawer-overlay > .space-drawer { transition:transform 280ms cubic-bezier(.333333,0,.666667,1); }
@@ -375,8 +375,8 @@ html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confi
 #app .room-creation-page .welcome-copy { margin:0; }
 #app .room-creation-page .welcome-copy p { font-size:1rem; font-weight:550; line-height:1.6; margin:0; color:var(--ink); }
 #app .room-creation-page .room-creation-indicator { width:52px; margin-top:4px; }
-#app .chamber-chat-header[data-presence-style=capsule] .presence-row { font-size:.625rem; }
-#app .chamber-chat-header[data-presence-style=capsule] .peer-summary > .peer-status { font-size:.625rem; }
+#app .chamber-chat-header[data-presence-style=capsule] .presence-row { font-size:.5rem; }
+#app .chamber-chat-header[data-presence-style=capsule] .peer-summary > .peer-status { font-size:.5rem; }
 #app .text-bubble { padding-inline:10px; }
 #app .media-upload-placeholder { top:50%; left:50%; transform:translate(-50%,-50%); }
 #app .media-ready-hint { display:none; }
@@ -415,3 +415,32 @@ html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confi
 #app .chamber-chat-header .presence-heading .presence-circuit { position:relative; z-index:1; }
 #app #refresh-devices[aria-busy=true] svg { animation:room-create-spin 900ms linear infinite; }
 @media(prefers-reduced-motion:reduce) { #app #refresh-devices[aria-busy=true] svg { animation:none; } }
+
+/* V1.30: stationary media and one geometry for message timestamps. */
+#app .message-bubble.image-bubble > .message-meta:not(.media-send-meta) { right:4px; }
+#app .message .image-preview:not(:disabled):active,
+#app .message .media-upload-tile:not(:disabled):active { transform:none; scale:1; filter:none; opacity:1; }
+#app .chamber-chat-header[data-presence-style=capsule] .peer-summary > .presence-heading { gap:0; }
+#app .chamber-chat-header[data-presence-style=capsule] .presence-circuit { margin-inline:-3px; }
+#app .chamber-chat-header[data-presence-style=capsule] .presence-row { gap:4px; }
+#app .chamber-chat-header[data-presence-style=capsule] .presence-heart { scale:1.1; }
+#app .room-creation-page .gateway-heading h1 { font-size:1rem; font-weight:550; line-height:1.6; min-height:0 !important; }
+#app .room-creation-page .welcome-copy[hidden] { display:none; }
+.room-creation-check { display:grid; place-items:center; width:40px; height:40px; border-radius:50%; background:var(--accent); color:var(--on-accent); scale:.85; transition:opacity 220ms var(--motion-out),scale 280ms var(--motion-out); }
+.room-creation-check svg { width:24px; height:24px; stroke-width:3; }
+.room-creation-page.is-ready .room-creation-check { scale:1; }
+.room-creation-page .room-creation-spinner { transition:opacity 180ms ease-out; }
+.room-creation-page.is-ready .room-creation-spinner { display:block; opacity:0; }
+@media(prefers-reduced-motion:reduce) { .room-creation-check,.room-creation-page .room-creation-spinner { transition:none; } }
+
+#app .archive-backup-card { flex:none; margin-top:20px; padding:16px; border-radius:16px; background:var(--surface); }
+#app .archive-backup-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+#app .archive-backup-card h2 { margin:0; font-size:1rem; font-weight:550; line-height:1.4; }
+#app .archive-backup-card > p { margin:8px 0 0; color:var(--ink-muted); font-size:.8125rem; line-height:1.6; }
+#app .archive-backup-card h3 { margin:20px 0 8px; color:var(--ink-muted); font-size:.75rem; font-weight:500; }
+#app .archive-backup-counts { margin:0; }
+#app .archive-backup-counts > div { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:32px; font-size:.8125rem; }
+#app .archive-backup-counts dt { color:var(--ink-muted); }
+#app .archive-backup-counts dd { margin:0; font-variant-numeric:tabular-nums; color:var(--ink); }
+
+#app .message .media-upload-tile .media-upload-status:not([data-state=failed]) { top:50%; left:50%; right:auto; bottom:auto; translate:-50% -50%; }

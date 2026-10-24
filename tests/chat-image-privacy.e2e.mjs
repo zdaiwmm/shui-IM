@@ -395,10 +395,11 @@ try {
     const bubble = button.closest('.image-bubble').getBoundingClientRect();
     const caption = button.querySelector('.media-load-capsule').getBoundingClientRect();
     return { receiptInset: bubble.bottom - receipt.bottom, captionInset: button.getBoundingClientRect().bottom - caption.bottom,
-      separation: receipt.top - caption.bottom };
+      separation: receipt.top - caption.bottom, centerX:(caption.left+caption.right-bubble.left-bubble.right)/2,centerY:(caption.top+caption.bottom-bubble.top-bubble.bottom)/2 };
   });
   assert.ok(Math.abs(pendingPositions.receiptInset - 7) < 1, 'Loading must not move the independent receipt');
   assert.ok(pendingPositions.separation >= 3, 'Processing and receipt facts must not overlap');
+  assert.ok(Math.abs(pendingPositions.centerX)<1&&Math.abs(pendingPositions.centerY)<1,JSON.stringify(pendingPositions));
   if (visualQaDirectory) {
     await mkdir(visualQaDirectory, { recursive: true });
     await delayed.screenshot({ path: path.join(visualQaDirectory, `chat-image-loading-${browserName}-390.png`), animations: 'disabled' });

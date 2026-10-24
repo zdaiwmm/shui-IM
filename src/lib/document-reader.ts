@@ -1,6 +1,6 @@
 import { motion, retargetMotion } from './motion';
 import { mountDialog } from './dialog';
-import { createElement, X, Search, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize, ArrowDownUp, ArrowLeftRight, Send, List, Settings2 } from 'lucide';
+import { createElement, X, Search, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Plus, Minus, RotateCcw, Maximize, ArrowDownUp, ArrowLeftRight, Send, List, Settings2 } from 'lucide';
 import type { PdfReader } from './pdf-reader';
 import type { EpubReader } from './epub-reader';
 import { attachDocumentPaging } from './document-paging';
@@ -71,7 +71,9 @@ export class DocumentReader {
   private turn = 0;
   private pageAnimation?: Animation;
   private searchAnimation?: Animation;
-  private directoryAnimation?: Animation;
+  private directoryDialog?: ReturnType<typeof mountDialog>;
+  private pageControls: HTMLElement;
+  private readingAnchor?: { offset: number; top: number };
   private searchPresentation = 0;
   private scrollTimer?: number;
   private pdfSlots: HTMLElement[] = [];
@@ -116,6 +118,7 @@ export class DocumentReader {
         { opacity: 1, translate: '0 0' }, motion.feedback) ?? undefined;
       this.query.focus({ preventScroll: true });
     });
+    search.hidden = mimeType === 'application/epub+zip';
     search.setAttribute('aria-expanded', 'false');
     el.querySelector('header')!.prepend(close);
     el.querySelector('header')!.append(search);
@@ -145,34 +148,39 @@ export class DocumentReader {
     this.next = button('下一页', ChevronRight, () => this.step(1));
     el.querySelector('.reader-paging')!.prepend(this.previous);
     el.querySelector('.reader-paging')!.append(this.next);
-    this.zoomOut = button('缩小', ZoomOut, () => this.scale(-0.25));
-    this.zoomIn = button('放大', ZoomIn, () => this.scale(0.25));
+    const pdfControls=mimeType==='application/pdf';
+    this.zoomOut = button(pdfControls?'缩小':'减小字号', pdfControls?ZoomOut:Minus, () => this.scale(-0.25));
+    this.zoomIn = button(pdfControls?'放大':'增大字号', pdfControls?ZoomIn:Plus, () => this.scale(0.25));
     this.zoomLabel = el.querySelector('.reader-zoom output')!;
     el.querySelector('.reader-zoom')!.prepend(this.zoomOut);
-    el.querySelector('.reader-zoom')!.append(this.zoomIn, button('适合宽度', Maximize, () => { this.zoom = 1; void this.render(); }));
+    el.querySelector('.reader-zoom')!.append(this.zoomIn, button(pdfControls?'适合宽度':'默认字号', pdfControls?Maximize:RotateCcw, () => { this.zoom = 1; void this.render(); }));
     this.searchForm.append(button('下一个搜索结果', Send, () => void this.find()));
-    const mode = button('上下滚动', ArrowDownUp, () => {
-      this.mode = this.mode === 'pages' ? 'scroll' : 'pages';
-      el.dataset.mode = this.mode;
-      const label = this.mode === 'pages' ? '上下滚动' : '左右翻页';
-      mode.title = label; mode.setAttribute('aria-label', label);
-      mode.replaceChildren(createElement(this.mode === 'pages' ? ArrowDownUp : ArrowLeftRight),document.createTextNode(label));
-      this.screen = 0; this.stage.scrollTo(0, 0); void this.render();
-    });
+    const mode = document.createElement('div'); mode.className = 'reader-mode';
+    mode.setAttribute('role','group'); mode.setAttribute('aria-label','阅读方式');
+    for (const [value,label,glyph] of [['pages','左右翻页',ArrowLeftRight],['scroll','上下滚动',ArrowDownUp]] as const) {
+      const choice = button(label,glyph,()=>{
+        if (this.mode === value) return;
+        this.mode=value; el.dataset.mode=value;
+        for (const item of mode.querySelectorAll('button')) item.setAttribute('aria-pressed',String(item.dataset.mode===value));
+        void this.render();
+      });
+      choice.dataset.mode=value; choice.setAttribute('aria-pressed',String(this.mode===value));
+      choice.append(document.createTextNode(label)); mode.append(choice);
+    }
     this.directoryButton = button('章节目录', List, () => this.toggleDirectory());
     this.directoryButton.hidden = true;
     this.directoryButton.setAttribute('aria-expanded', 'false');
     this.directoryButton.setAttribute('aria-controls', this.directory.id);
     this.directoryButton.setAttribute('aria-haspopup', 'menu');
-    mode.classList.add('reader-mode');
-    mode.append(document.createTextNode('上下滚动'));
     this.readerOptions = document.createElement('div'); this.readerOptions.className = 'reader-options-content'; this.readerOptions.hidden = true;
     const optionGroup = (label: string, control: Element) => {
       const group = document.createElement('div'); group.className = 'reader-option-group';
       const heading = document.createElement('h3'); heading.textContent = label;
       group.append(heading,control); return group;
     };
-    this.readerOptions.append(optionGroup('页码',el.querySelector('.reader-paging')!),optionGroup('缩放',el.querySelector('.reader-zoom')!),optionGroup('阅读方式',mode));
+    this.pageControls=optionGroup('页码',el.querySelector('.reader-paging')!) as HTMLElement;
+    this.pageControls.hidden=true;
+    this.readerOptions.append(optionGroup(mimeType==='application/pdf'?'缩放':'字号',el.querySelector('.reader-zoom')!),optionGroup('阅读方式',mode));
     this.pageIndicator = document.createElement('button'); this.pageIndicator.type = 'button';
     this.pageIndicator.className = 'reader-page-entry'; this.pageIndicator.textContent = '第 1 页';
     this.pageIndicator.setAttribute('aria-label','跳转页码'); this.pageIndicator.setAttribute('aria-haspopup','dialog');
@@ -181,7 +189,7 @@ export class DocumentReader {
     this.directoryButton.classList.add('reader-footer-link'); this.directoryButton.append(document.createTextNode('目录'));
     this.pageIndicator.addEventListener('click',()=>this.openOptions(this.pageIndicator,true),{signal:this.signal});
     this.toolbar.replaceChildren(this.directoryButton,this.pageIndicator,settings);
-    el.append(this.readerOptions);
+    el.append(this.readerOptions,this.pageControls);
     el.append(this.directory);
     el.addEventListener('pointerdown', event => {
       if (!this.directory.hidden && !this.directory.contains(event.target as Node) && !this.directoryButton.contains(event.target as Node)) this.toggleDirectory(false, false);
@@ -304,15 +312,22 @@ export class DocumentReader {
   }
 
   private toggleDirectory(open = this.directory.hidden, focus = true): void {
-    this.directoryAnimation?.cancel();
-    this.directory.hidden = !open;
-    if (open) this.directoryAnimation = retargetMotion(this.directory, null,
-      { opacity: .7, translate: '0 6px' }, { opacity: 1, translate: '0 0' }, motion.feedback) ?? undefined;
-    this.directoryButton.setAttribute('aria-expanded', String(open));
-    if (!focus) return;
-    if (open) this.directory.querySelector<HTMLButtonElement>(`[data-chapter="${this.page}"]`)?.focus({ preventScroll: true });
-    else this.directoryButton.focus({ preventScroll: true });
-    if (open) this.directory.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'nearest' });
+    if (!open) { this.directoryDialog?.close({restoreFocus:focus}); return; }
+    if (this.signal.aborted || this.directoryDialog) return;
+    const sheet=document.createElement('section');sheet.className='confirm-overlay reader-directory-sheet';
+    sheet.setAttribute('role','dialog');sheet.setAttribute('aria-modal','true');sheet.setAttribute('aria-label','章节目录');
+    const panel=document.createElement('div');panel.className='confirm-dialog reader-directory-panel';
+    const title=document.createElement('h2');title.textContent='目录';
+    this.directory.hidden=false;panel.append(title,this.directory);sheet.append(panel);this.element.append(sheet);
+    this.directoryButton.setAttribute('aria-expanded','true');
+    this.directoryDialog=mountDialog(sheet,{presentation:'sheet',signal:this.signal,isActive:()=>!this.signal.aborted,returnFocus:this.directoryButton,
+      initialFocus:focus?this.directory.querySelector<HTMLButtonElement>(`[data-chapter="${this.page}"]`):null,
+      onClose:()=>{
+        this.directoryDialog=undefined;this.directoryButton.setAttribute('aria-expanded','false');
+        if(!this.signal.aborted){const clone=this.directory.cloneNode(true) as HTMLElement;clone.removeAttribute('id');clone.inert=true;clone.setAttribute('aria-hidden','true');this.directory.replaceWith(clone);this.directory.hidden=true;this.element.append(this.directory);}
+      }});
+    this.directory.querySelector('[aria-current="true"]')?.scrollIntoView({block:'nearest'});
+    sheet.addEventListener('click',event=>{if(event.target===sheet)this.toggleDirectory(false);},{signal:this.signal});
   }
 
   private goBookPage(value: number): void {
@@ -330,6 +345,7 @@ export class DocumentReader {
 
   fail(message = '文件读取失败，请关闭后重试'): void {
     if (this.signal.aborted) return;
+    this.toggleDirectory(false,false);
     this.ready = false;
     this.loadVersion++;
     this.searchVersion++;
@@ -407,7 +423,7 @@ export class DocumentReader {
       this.screen = Math.min(this.screen, this.screens - 1);
       if (this.screen > 0) this.stage.scrollTop = (this.stage.scrollHeight - this.stage.clientHeight) * this.screen / Math.max(1, this.screens - 1);
     }
-    this.position(); this.fragment = undefined;
+    this.position(); this.restoreReadingPosition(); this.fragment = undefined;
   }
 
   private measurePages(article: HTMLElement): number {
@@ -477,8 +493,39 @@ export class DocumentReader {
   }
 
   private scale(delta: number): void {
-    this.zoom = Math.max(0.75, Math.min(this.pdf ? 3 : 1.5, this.zoom + delta));
+    this.zoom = Math.max(0.75, Math.min(this.pdf ? 3 : 1.5, this.zoom + (this.pdf?delta:delta/2)));
     void this.render();
+  }
+
+  private rememberReadingPosition(): void {
+    this.readingAnchor=undefined;
+    if(this.pdf)return;
+    const bounds=this.stage.getBoundingClientRect(),walker=document.createTreeWalker(this.content,NodeFilter.SHOW_TEXT);
+    let node:Node|null,offset=0;
+    while((node=walker.nextNode())){
+      const range=document.createRange();range.selectNodeContents(node);
+      const rect=[...range.getClientRects()].find(r=>r.width>0&&r.left<bounds.right-16&&r.right>bounds.left+16&&r.top>=bounds.top&&r.top<bounds.bottom);
+      if(rect){
+        const caret=document.caretRangeFromPoint?.(Math.max(bounds.left+18,rect.left+2),rect.top+rect.height/2);
+        this.readingAnchor={offset:offset+(caret?.startContainer===node?caret.startOffset:0),top:rect.top-bounds.top};return;
+      }
+      offset+=node.textContent?.length??0;
+    }
+  }
+
+  private restoreReadingPosition(): void {
+    if(!this.readingAnchor)return;
+    const walker=document.createTreeWalker(this.content,NodeFilter.SHOW_TEXT);let node:Node|null,offset=this.readingAnchor.offset;
+    while((node=walker.nextNode())){
+      const length=node.textContent?.length??0;if(offset>=length){offset-=length;continue;}
+      const range=document.createRange();range.setStart(node,offset);range.setEnd(node,Math.min(length,offset+1));
+      const rect=range.getBoundingClientRect();
+      if(this.mode==='pages'){
+        const left=this.content.getBoundingClientRect().left;
+        this.screen=Math.max(0,Math.min(this.screens-1,Math.floor((rect.left-left)/this.stride)));this.position();
+      }else this.stage.scrollTop+=rect.top-this.stage.getBoundingClientRect().top-this.readingAnchor.top;
+      return;
+    }
   }
 
   private async render(): Promise<void> {
@@ -493,7 +540,7 @@ export class DocumentReader {
     this.pageInput.disabled = true;
     this.zoomOut.disabled = this.zoom <= 0.75;
     this.zoomIn.disabled = this.zoom >= (this.pdf ? 3 : 1.5);
-    this.zoomLabel.textContent = `${Math.round(this.zoom * 100)}%`;
+    this.zoomLabel.textContent = this.pdf?`${Math.round(this.zoom * 100)}%`:`${Math.round(this.zoom*16)}px`;
     this.status.hidden = false;
     this.status.textContent = '正在排版';
     this.element.dataset.state = 'loading';
@@ -576,21 +623,23 @@ export class DocumentReader {
   private openOptions(origin: HTMLElement, page = false): void {
     if (this.signal.aborted || this.element.querySelector('.reader-options-sheet:not(.is-closing)')) return;
     this.toggleDirectory(false,false);
+    if(!page)this.rememberReadingPosition();else this.readingAnchor=undefined;
     const sheet = document.createElement('section'); sheet.className = 'confirm-overlay reader-options-sheet';
-    sheet.setAttribute('role','dialog'); sheet.setAttribute('aria-modal','true'); sheet.setAttribute('aria-label','阅读设置');
+    sheet.setAttribute('role','dialog'); sheet.setAttribute('aria-modal','true'); sheet.setAttribute('aria-label',page?'跳转页码':'阅读设置');
     const panel = document.createElement('div'); panel.className = 'confirm-dialog reader-options-panel';
     const title = document.createElement('h2'); title.textContent = page ? '跳转页码' : '阅读设置';
     const done = document.createElement('button'); done.type = 'button'; done.className = 'primary-button'; done.textContent = '完成';
-    this.readerOptions.hidden = false;
-    panel.append(title,this.readerOptions,done); sheet.append(panel); this.element.append(sheet);
+    const content=page?this.pageControls:this.readerOptions;
+    content.hidden = false;
+    panel.append(title,content,done); sheet.append(panel); this.element.append(sheet);
     origin.setAttribute('aria-expanded','true');
     const dialog = mountDialog(sheet,{presentation:'sheet',signal:this.signal,isActive:()=>!this.signal.aborted,returnFocus:origin,
       initialFocus:page?this.pageInput:undefined,onClose:()=>{
         origin.setAttribute('aria-expanded','false');
         // Retire a noninteractive visual copy while the live controls return
         // to their hidden owner. Values and renderer references stay mounted.
-        if (!this.signal.aborted) { const clone=this.readerOptions.cloneNode(true) as HTMLElement; clone.inert=true; clone.setAttribute('aria-hidden','true'); this.readerOptions.replaceWith(clone); }
-        this.readerOptions.hidden=true; this.element.append(this.readerOptions);
+        if (!this.signal.aborted) { const clone=content.cloneNode(true) as HTMLElement; clone.inert=true; clone.setAttribute('aria-hidden','true'); content.replaceWith(clone); }
+        content.hidden=true; this.element.append(content);this.readingAnchor=undefined;
       }});
     done.addEventListener('click',()=>dialog.close(),{signal:this.signal});
     sheet.addEventListener('click',event=>{if(event.target===sheet)dialog.close();},{signal:this.signal});
@@ -603,12 +652,13 @@ export class DocumentReader {
     this.renderVersion++;
     clearTimeout(this.deadline);
     clearTimeout(this.resizeTimer);
-    clearTimeout(this.scrollTimer); this.pageAnimation?.cancel(); this.searchAnimation?.cancel(); this.directoryAnimation?.cancel(); this.pdfSlots = [];
+    clearTimeout(this.scrollTimer); this.pageAnimation?.cancel(); this.searchAnimation?.cancel(); this.pdfSlots = [];
     this.observer.disconnect();
     this.pdf?.destroy(); this.pdf = undefined;
     this.epub?.destroy(); this.epub = undefined;
     this.text = ''; this.query.value = ''; this.lastQuery = '';
     this.chapterPages = []; this.paginationKey = '';
+    this.readingAnchor=undefined;this.directory.replaceChildren();
     this.content.replaceChildren();
     this.element.replaceChildren();
     this.element.remove();

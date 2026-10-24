@@ -210,8 +210,8 @@
 .image-viewer .viewer-stage[data-zoomed="true"] .viewer-media-layer.is-image > img { cursor: grab; }
 .image-viewer .viewer-stage[data-zoomed="true"] .viewer-media-layer.is-image > img:active { cursor: grabbing; }
 
-.image-viewer[data-native-video] { background: transparent; }
-.image-viewer[data-native-video]::before { opacity: 0; }
+.image-viewer[data-native-video] { background: #141214; }
+.image-viewer[data-native-video]::before { opacity: 1; }
 .image-viewer[data-native-video] .viewer-header,
 .image-viewer[data-native-video] .viewer-nav { visibility: hidden; }
 .image-viewer[data-native-video="pending"] video { opacity: 0; }
@@ -475,12 +475,12 @@
   }
 }
 
-/* Safe follows the supplied system-player layout; chat retains its native path. */
+/* Safe retains its media actions; all app viewers share the photo header rails. */
 #app > .image-viewer[data-safe-viewer].video-viewer,
 .image-viewer[data-safe-viewer].video-viewer::before { background: black; color: white; }
 .image-viewer[data-safe-viewer].video-viewer .viewer-header {
-  min-height: 0; align-items: start;
-  padding: max(16px, calc(env(safe-area-inset-top) + 12px)) max(20px, env(safe-area-inset-right)) 0 max(20px, env(safe-area-inset-left));
+  min-height: var(--subpage-header-height); align-items: start;
+  padding: max(10px, env(safe-area-inset-top)) 12px 10px;
   background: none;
 }
 .image-viewer[data-safe-viewer].video-viewer .viewer-header > :not([data-viewer-close]),
@@ -514,8 +514,8 @@
 .viewer-video-controls.has-delete input { pointer-events: auto; }
 .viewer-video-top {
   position: absolute;
-  top: max(16px, calc(env(safe-area-inset-top) + 12px));
-  right: max(20px, env(safe-area-inset-right));
+  top: max(10px, env(safe-area-inset-top));
+  right: 12px;
 }
 .viewer-video-controls.has-delete .viewer-video-center { gap: clamp(18px, 6vw, 34px); }
 .viewer-video-controls.has-delete .viewer-video-center-play { width: 92px; height: 92px; }

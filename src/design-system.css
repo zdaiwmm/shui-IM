@@ -473,7 +473,7 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .message-action-group .message-action-preview { overflow: hidden; transform: none; }
 #app :is(.media-upload-status,.attachment-meta,.image-bubble > .media-status-departing,.media-load-capsule,.media-ready-hint,.file-load-capsule) { box-sizing: border-box; height: var(--media-status-height); min-height: var(--media-status-height); border: 0; border-radius: 12px; margin: 0; right: 7px; bottom: 7px; }
 #app :is(.attachment-meta:not(.media-send-meta),.media-ready-hint,.file-load-capsule[data-state='idle']) { height: var(--media-complete-height); min-height: var(--media-complete-height); border-radius: 10px; }
-#app .image-bubble > .message-meta:not(.media-send-meta) { padding: 0 8px; align-items: center; background: #242124b3; color: #fff; font-size: .6875rem; line-height: 1.4; }
+#app .image-bubble > .message-meta:not(.media-send-meta) { padding: 0 4px; align-items: center; background: #242124b3; color: #fff; font-size: .6875rem; line-height: 1.4; }
 #app .image-bubble > .message-meta:not(.media-send-meta) time { color: #fff; }
 #app .image-bubble > .message-meta { flex-wrap: nowrap; max-width: none; white-space: nowrap; }
 #app .image-bubble:not(.expression-bubble) > .media-send-meta > .media-capsule-content > time { display: none; }
@@ -499,9 +499,9 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .image-preview:not(.album-cell) { overflow: visible; }
 #app .image-preview::before, #app .image-preview > img { border-radius: inherit; }
 #app .image-preview:not(.album-cell) .media-load-capsule { max-width: calc(100vw - 56px); }
-#app .image-preview .media-load-capsule { right: auto; left: 7px; transform-origin: left center; }
+#app .image-preview .media-load-capsule { top: 50%; left: 50%; right: auto; bottom: auto; translate: -50% -50%; max-width: calc(100% - 16px); transform-origin: center; }
 #app .image-preview .media-ready-hint { display: flex; align-items: center; position: absolute; left: 7px; right: auto; bottom: 31px; padding: 0 8px; width: max-content; max-width: calc(100vw - 56px); background: var(--surface-raised); color: var(--ink); font-size: .6875rem; line-height: 1.4; pointer-events: none; z-index: 2; }
-#app .image-bubble:not(.expression-bubble) .media-load-capsule { bottom: 31px; }
+#app .image-bubble:not(.expression-bubble) .media-load-capsule { bottom: auto; }
 #app .expression-bubble .media-ready-hint { bottom: 7px; }
 #app .message .file-bubble { min-height: 108px; width: min(288px, calc(100vw - 68px)); max-width: 100%; }
 #app .message.outgoing .file-upload-tile { position: relative; padding: 8px 12px 36px; background: var(--outgoing); color: var(--on-accent); border-radius: var(--radius-bubble); }
@@ -725,9 +725,9 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
    control in the same grid cell, so tapping the timestamp also plays/pauses. */
 #app .message-bubble.voice-bubble { padding: 0; overflow: visible; }
 #app .voice-player > .message-meta {
-  grid-area: control; align-self: center; justify-self: end;
-  position: relative; z-index: 1; margin: 0 12px 0 0;
-  transform: translateY(3px); flex-wrap: nowrap; white-space: nowrap;
+  grid-area: control; align-self: end; justify-self: end;
+  position: relative; z-index: 1; margin: 0 8px 6px 0;
+  transform: none; flex-wrap: nowrap; white-space: nowrap;
   pointer-events: none;
 }
 #app .is-failed .voice-player > .message-meta {

@@ -9,8 +9,8 @@ export function mountSystemChrome(): () => void {
   document.body.append(probe);
   const sync = () => {
     const theme = document.querySelector<HTMLMetaElement>('#system-chrome-color');
-    // Media viewers retain their existing native toolbar treatment.
-    const color = document.querySelector('.image-viewer,.video-viewer') ? 'transparent' : getComputedStyle(probe).color;
+    // Keep the video surface opaque through maximization and native handoff.
+    const color = document.querySelector('.image-viewer:not(.video-viewer)') ? 'transparent' : getComputedStyle(probe).color;
     if (theme && theme.content !== color) theme.content = color;
   };
   let frame = 0;

@@ -1,7 +1,7 @@
 import { createElement, Upload, KeyRound, Download, Eye, EyeOff, Check, Image, FileText, Video, AudioLines, MessageSquare } from 'lucide';
 import { createArchiveCardImage, readArchiveCardImage, archiveCardLabel } from './archive-card-image';
 import { protectArchiveCard, unlockArchiveCard, archiveAccessToken, archiveAccessHash, archiveAccessProof } from './room-archive-crypto';
-import { restoreRoomArchive, type ArchiveRestoreProgress } from './room-archive';
+import { restoreRoomArchive, readRoomArchiveCounts, type ArchiveRestoreProgress } from './room-archive';
 import { saveVault, withVaultMutation, loadPrivateArchiveItems, type VaultSession } from './vault';
 import { showExplanation } from './explanation-dialog';
 import { mountDialog } from './dialog';
@@ -9,7 +9,7 @@ import { authorizedFetch } from './api';
 import { toBase64Url } from './base64';
 import { animatePageReplacement } from './motion';
 
-type Options = { startWithCredential?: boolean; startWithRestore?: boolean; name:()=>string; verify:()=>Promise<void>; root:HTMLElement; session:VaultSession; signal:AbortSignal; active:()=>boolean; notice:(text:string,error?:boolean)=>void; back:()=>void; sync:()=>Promise<void>; restored:()=>void; beginPick:()=>boolean; finishPick:()=>Promise<boolean>; saveImage:(blob:Blob)=>Promise<void> };
+type Options = { startWithCredential?: boolean; startWithRestore?: boolean; name:()=>string; verify:()=>Promise<void>; root:HTMLElement; session:VaultSession; signal:AbortSignal; active:()=>boolean; notice:(text:string,error?:boolean)=>void; back:()=>void; sync:()=>Promise<void>; backupChanged?:(enabled:boolean)=>void; restored:()=>void; beginPick:()=>boolean; finishPick:()=>Promise<boolean>; saveImage:(blob:Blob)=>Promise<void> };
 const escape = (text:string) => text.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]!));
 const icon = (value:Parameters<typeof createElement>[0]) => createElement(value).outerHTML;
 export function mountArchiveSettings(o:Options):void {
@@ -77,6 +77,39 @@ export function mountArchiveSettings(o:Options):void {
       try{await saveVault(o.session,lease);}catch(cause){o.session.vault.roomArchiveV2=previous;throw cause;}
     });
   }
+  const countLabels=[['messages','消息（含附件）'],['images','图片'],['videos','视频'],['audio','语音'],['files','文件']] as const;
+  function automaticBackupCard():string {
+    return `<section class="archive-backup-card" aria-labelledby="archive-auto-heading"><div class="archive-backup-heading"><h2 id="archive-auto-heading">自动备份</h2><button class="backup-toggle" type="button" role="switch" aria-labelledby="archive-auto-heading" aria-checked="${o.session.vault.roomArchiveV2!.automaticBackup!==false}" data-archive-auto><span></span></button></div><p>仅备份加密后的数据，解密在本机完成。服务器及未持有恢复凭证原图和密码的人无法解密。</p><p class="archive-backup-state" data-archive-auto-state role="status"></p><h3>已备份</h3><dl class="archive-backup-counts">${countLabels.map(([kind,label])=>`<div><dt>${label}</dt><dd data-archive-count="${kind}">正在读取</dd></div>`).join('')}</dl></section>`;
+  }
+  function bindAutomaticBackup(signal:AbortSignal):void {
+    const card=o.root.querySelector<HTMLElement>('.archive-backup-card')!,button=card.querySelector<HTMLButtonElement>('[data-archive-auto]')!;
+    const paint=()=>{
+      const enabled=o.session.vault.roomArchiveV2!.automaticBackup!==false;
+      button.setAttribute('aria-checked',String(enabled));
+      card.querySelector('[data-archive-auto-state]')!.textContent=enabled?'本浏览器在联网、解锁时自动备份。':'自动备份已关闭，已有备份仍然保留。';
+    };
+    let reading=false,refreshAgain=false;
+    const refresh=()=>{
+      if(signal.aborted||!active()||!card.isConnected)return;
+      if(reading){refreshAgain=true;return;}
+      reading=true;card.setAttribute('aria-busy','true');
+      void readRoomArchiveCounts(o.session,signal).then(counts=>{
+        if(signal.aborted||!active()||!card.isConnected)return;
+        for(const [kind] of countLabels)card.querySelector(`[data-archive-count="${kind}"]`)!.textContent=counts[kind].toLocaleString();
+      }).catch(cause=>{
+        if(signal.aborted||!active()||!card.isConnected)return;
+        if(cause instanceof DOMException&&cause.name==='AbortError'){refreshAgain=true;return;}
+        for(const node of card.querySelectorAll('[data-archive-count]'))node.textContent='暂不可用';
+      }).finally(()=>{reading=false;card.removeAttribute('aria-busy');if(refreshAgain){refreshAgain=false;queueMicrotask(refresh);}});
+    };
+    button.addEventListener('click',()=>protectTask(button,async()=>{
+      const enabled=o.session.vault.roomArchiveV2!.automaticBackup===false;
+      await changeArchive(signal,archive=>{archive.automaticBackup=enabled;});
+      if(signal.aborted||!active())return;
+      paint();o.backupChanged?.(enabled);refresh();
+    }),{signal});
+    o.root.addEventListener('archivebackupchange',refresh,{signal});paint();refresh();
+  }
   async function resumeRotation(signal:AbortSignal){
     const pending=o.session.vault.roomArchiveV2!.rotation;if(!pending)return;
     // The encrypted pending record predates the network operation. Lost replies
@@ -130,8 +163,9 @@ export function mountArchiveSettings(o:Options):void {
 
     if(!archive.cardVerified){if(archive.exported)verifySaved(credential);else exportPage();return;}
     requiresOperationProof=true;
-    show(shell('恢复凭证',`<div class="archive-managed-status">${icon(Check)}<h2>凭证已设置</h2><p>已保存并验证，可用于找回聊天记录。</p></div><div class="backup-settings-group"><button class="archive-entry" data-change-password>${icon(KeyRound)}<span>修改凭证密码<small>需要当前凭证密码</small></span><b>›</b></button><button class="archive-entry" data-download>${icon(Download)}<span>导出凭证<small>保存当前恢复凭证原图</small></span><b>›</b></button></div><p class="archive-inline-error" data-archive-error role="alert"></p>`));
+    show(shell('恢复凭证',`<div class="archive-managed-status">${icon(Check)}<h2>凭证已设置</h2><p>已保存并验证，可用于找回聊天记录。</p></div><div class="backup-settings-group"><button class="archive-entry" data-change-password>${icon(KeyRound)}<span>修改凭证密码<small>需要当前凭证密码</small></span><b>›</b></button><button class="archive-entry" data-download>${icon(Download)}<span>导出凭证<small>保存当前恢复凭证原图</small></span><b>›</b></button></div>${automaticBackupCard()}<p class="archive-inline-error" data-archive-error role="alert"></p>`));
     bindBack(o.startWithCredential?leave:settings);
+    bindAutomaticBackup(signal);
     o.root.querySelector('[data-change-password]')!.addEventListener('click',()=>card(true));
     o.root.querySelector<HTMLButtonElement>('[data-download]')!.addEventListener('click',event=>protectTask(event.currentTarget as HTMLButtonElement,async()=>{
       await o.verify();if(signal.aborted||!active())return;

@@ -716,6 +716,7 @@ export class QuietRoomApp {
   private recoveryPollTimer: number | null = null;
   private backupTimer: number | null = null;
   private backupRun: Promise<void> | null = null;
+  private automaticBackupAbort: AbortController | null = null;
   private backupError = '';
   private roleLastSeen: { creator: number | null; joiner: number | null } = { creator: null, joiner: null };
   private viewerMediaCleanup: (() => void) | null = null;
@@ -12526,10 +12527,14 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
   }
 
   private runAutomaticBackup(force = false): Promise<void> {
+    if (!force && this.session?.vault.roomArchiveV2?.automaticBackup === false) return Promise.resolve();
     if (this.backupRun) return force ? this.backupRun.then(() => this.runAutomaticBackup(true)) : this.backupRun;
     const session = this.session;
-    const signal = this.runtimeAbort?.signal;
-    if (!session || !signal || this.privacyCovered || document.hidden) return Promise.resolve();
+    const runtimeSignal = this.runtimeAbort?.signal;
+    if (!session || !runtimeSignal || this.privacyCovered || document.hidden) return Promise.resolve();
+    const automaticAbort = session.vault.roomArchiveV2 && !force ? new AbortController() : null;
+    this.automaticBackupAbort=automaticAbort;
+    const signal=automaticAbort?AbortSignal.any([runtimeSignal,automaticAbort.signal]):runtimeSignal;
     const epoch = this.runtimeEpoch;
     const operation = session.vault.roomArchiveV2 ? syncRoomArchive(session, signal) : syncCloudBackup(session, signal, { force }).then(() => syncSpaceDirectory(session, signal));
     const run = operation.then(() => {
@@ -12538,9 +12543,10 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
         if (!session.vault.roomArchiveV2) void fetch(`/api/rooms/${session.vault.roomId}/preparation`, { method: 'POST', signal, headers: { Authorization: `Bearer ${session.vault.accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ saved: Boolean(session.vault.backup && session.vault.recoveryExperience?.codeSaved === session.vault.backup.id) }) }).catch(() => undefined);
       }
     }).catch(cause => {
-      if (this.isRuntimeActive(epoch, session)) this.backupError = cause instanceof Error ? cause.message : '自动备份暂未完成';
+      if (this.isRuntimeActive(epoch, session) && !signal.aborted) this.backupError = cause instanceof Error ? cause.message : '自动备份暂未完成';
     }).finally(() => {
       if (this.backupRun === run) this.backupRun = null;
+      if (this.automaticBackupAbort === automaticAbort) this.automaticBackupAbort=null;
       if (this.isRuntimeActive(epoch, session)) this.updateBackupStatus();
     });
     this.backupRun = run;
@@ -12549,6 +12555,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
   }
 
   private updateBackupStatus(): void {
+    this.root.dispatchEvent(new Event('archivebackupchange'));
     if (this.session && !this.session.vault.roomArchiveV2) paintCloudBackup(this.root, this.session, this.backupError, Boolean(this.backupRun));
     const chamberNotice=this.root.querySelector<HTMLElement>('#chamber-backup-notice'),paused=this.session?.vault.chamberBackup?.paused;
     if(chamberNotice){chamberNotice.hidden=!paused||this.session?.vault.cloudBackupPreference?.enabled===false;chamberNotice.querySelector('span')!.textContent=paused??'';}
@@ -13000,6 +13007,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       this.captureChatAnchor(false);this.closeVoiceRecorder();this.voicePlayback.stop();this.setActiveSurface('away');
       const epoch=this.runtimeEpoch;let restored=false;
       mountArchiveSettings({root:this.root,session,startWithCredential,startWithRestore,name:()=>this.currentSpaceName,verify:()=>this.authorizeArchiveExport(),signal:this.runtimeAbort.signal,active:()=>this.isRuntimeActive(epoch,session),
+        backupChanged:enabled=>{if(!enabled){this.automaticBackupAbort?.abort();this.backupError='';}else{void (this.backupRun??Promise.resolve()).then(()=>this.runAutomaticBackup());}this.updateBackupStatus();},
         notice:(text,error)=>this.showNotice(text,error?'error':'info'),back:()=>{this.transitionPage('backward',()=>{if(restored){void this.openSession().catch(cause=>this.operationalError(cause,'返回失败'));}else this.renderChat();});},
         beginPick:()=>this.beginNativeHandoff('picker',60_000),finishPick:()=>this.finishNativeHandoff('picker'),
         saveImage:blob=>this.withSystemSurface(()=>downloadBlob(blob,'聊天归档恢复卡.png')),
@@ -15000,13 +15008,12 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
           layer.style.opacity = '0.88';
         }
         if (video) {
-          // The native-player request must run while the video is connected so
-          // cached direct opens retain the original trusted activation stack.
+          // Connect the verified video before requesting in-app playback.
           if (outgoingLayer) stage.append(layer);
           else stage.replaceChildren(layer);
           const rendered = this.renderViewerVideo(layer, loaded, manifest, {
             autoplay: !outgoingLayer,
-            requestNative: !outgoingLayer && !safeDeleteAllowed,
+            requestNative: false,
             onDelete: safeDeleteAllowed ? performSafeDelete : undefined,
           });
           incomingCleanup = rendered.cleanup;

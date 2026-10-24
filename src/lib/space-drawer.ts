@@ -77,10 +77,10 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
     const previousCanvas=previousPage?sheet.cloneNode(true) as HTMLElement:null;
     if(previousCanvas&&previousPage){
       previousCanvas.querySelectorAll('.local-page-outgoing').forEach(node=>node.remove());
-      previousCanvas.style.cssText='position:absolute;inset:0;width:100%;height:100%;pointer-events:none;transition:none;';
-      const panel=previousCanvas.querySelector<HTMLElement>(':scope > .space-drawer')!,rect=previousPage.getBoundingClientRect(),owner=sheet.getBoundingClientRect();
+      previousCanvas.style.cssText='position:fixed;inset:0;width:100%;height:100%;pointer-events:none;transition:none;';
+      const panel=previousCanvas.querySelector<HTMLElement>(':scope > .space-drawer')!,rect=previousPage.getBoundingClientRect();
       panel.classList.add('local-page-outgoing');
-      Object.assign(panel.style,{position:'absolute',left:`${rect.left-owner.left}px`,top:`${rect.top-owner.top}px`,right:'auto',bottom:'auto',width:`${rect.width}px`,height:`${rect.height}px`,maxHeight:'none',transform:'none',transition:'none'});
+      Object.assign(panel.style,{position:'absolute',left:`${rect.left}px`,top:`${rect.top}px`,right:'auto',bottom:'auto',width:`${rect.width}px`,height:`${rect.height}px`,maxHeight:'none',transform:'none',transition:'none'});
       panel.querySelector('.space-drawer-scroll')!.scrollTop=previousPage.querySelector('.space-drawer-scroll')!.scrollTop;
     }
     sheet.setAttribute('aria-label', title);
@@ -107,7 +107,9 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
 
     bindSpaceAvatarPlayback(sheet, AbortSignal.any([signal, pageLifetime.signal]));
     if (previousCanvas && priorTitle !== title && (!settingsSheet || priorTitle === '在线状态样式' || priorTitle === '切换密室')) {
-      animatePageReplacement(sheet, previousCanvas, panel, title === '设置', signal, true);
+      // Keep the old overlay outside the new page family. Nesting it under
+      // the successor reapplies that family's layout rules to the old list.
+      animatePageReplacement(root, previousCanvas, sheet, title === '设置', signal, true);
       previousCanvas.querySelector('.space-drawer-scroll')!.scrollTop=previousScrollTop;
     }
     sheet.querySelector('.space-close')?.addEventListener('click', close);

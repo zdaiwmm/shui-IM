@@ -12,13 +12,49 @@ type Ref = { id: string; hash: string };
 type Media = { manifest: ImageManifest; parts: Ref[] };
 type Batch = { kind: 'batch'; v: 2; revision: number; previous: Ref | null; item: Omit<PrivateArchiveItem, 'sourceScope'>; media: Media[] };
 type MediaPayload = { kind: 'media'; v: 2; blobId: string; index: number; bytes: string };
-export type RoomArchiveState = { cursor: number; revision: number; head?: Ref; syncedAt?: string; completeAt?: string; preparing?: { itemId: string; media: Media[]; next?: ArchiveObject }; pending?: { object: ArchiveObject; cursor?: number; privateId?: string; head: Ref }; privateDone?: string[] };
+export type RoomArchiveState = { cursor: number; revision: number; head?: Ref; syncedAt?: string; completeAt?: string; counts?: ArchiveCounts; countsRevision?: number; preparing?: { itemId: string; media: Media[]; next?: ArchiveObject }; pending?: { object: ArchiveObject; cursor?: number; privateId?: string; head: Ref }; privateDone?: string[] };
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const timestamp=(value:unknown)=>typeof value==='string'&&Number.isFinite(Date.parse(value))&&new Date(value).toISOString()===value;
 const manifests = (message: DecryptedMessage): ImageManifest[] => {
   const p=message.payload;return 'images' in p?p.images:'image' in p?[p.image]:'file' in p?[p.file]:'audio' in p?[p.audio]:[];
 };
 const itemId = (item: Pick<PrivateArchiveItem,'originRoomId'|'message'>) => `${item.originRoomId}:${item.message.clientMsgId}`;
+const countKinds = ['messages','images','videos','audio','files'] as const;
+const emptyCounts = (): ArchiveCounts => ({messages:0,images:0,videos:0,audio:0,files:0});
+function countBatch(batch: Batch): ArchiveCounts {
+  const counts=emptyCounts();counts.messages=1;
+  for(const {manifest} of batch.media){
+    const kind=manifest.mimeType?.startsWith('image/')?'images':manifest.mimeType?.startsWith('video/')?'videos':manifest.mimeType?.startsWith('audio/')?'audio':'files';counts[kind]++;
+  }
+  return counts;
+}
+/** Count only the committed chain authenticated by this browser's saved head.
+ * Older archives read batch envelopes, never re-download the original media. */
+export async function readRoomArchiveCounts(session:VaultSession,signal:AbortSignal):Promise<ArchiveCounts> {
+  const archive=session.vault.roomArchiveV2;if(!archive)throw new Error('此密室不支持本人归档');
+  const snapshot=structuredClone(session.vault.archiveState??{cursor:0,revision:0});
+  if(snapshot.countsRevision===snapshot.revision&&snapshot.counts&&countKinds.every(kind=>Number.isSafeInteger(snapshot.counts![kind])&&snapshot.counts![kind]>=0))return snapshot.counts;
+  const counts=emptyCounts();let ref=snapshot.head,revision=snapshot.revision;
+  if(!Number.isSafeInteger(revision)||revision<0||Boolean(ref)!==(revision>0))throw new Error('备份状态暂不可用');
+  while(ref){
+    signal.throwIfAborted();
+    if(!uuid.test(ref.id)||typeof ref.hash!=='string')throw new Error('备份状态暂不可用');
+    const object=await get<ArchiveObject>(archive.key,`/${ref.id}`,signal);
+    if(archiveObjectHash(object)!==ref.hash)throw new Error('备份统计校验失败');
+    const batch=await openArchiveObject(archive.key,object) as Batch;
+    if(batch?.v!==2||batch.kind!=='batch'||batch.revision!==revision||!batch.item||typeof batch.item.self!=='boolean'||!uuid.test(batch.item.originRoomId)||!isMessagePayload(batch.item.message?.payload)||!Array.isArray(batch.media)||batch.media.length>100||canonicalStringify(manifests(batch.item.message))!==canonicalStringify(batch.media.map(media=>media.manifest)))throw new Error('备份统计校验失败');
+    const next=countBatch(batch);for(const kind of Object.keys(counts) as Array<keyof ArchiveCounts>)counts[kind]+=next[kind];
+    revision--;
+    if(revision===0){if(batch.previous!==null)throw new Error('备份链不完整');ref=undefined;}
+    else {if(!batch.previous||!uuid.test(batch.previous.id)||typeof batch.previous.hash!=='string')throw new Error('备份链不完整');ref=batch.previous;}
+  }
+  if(revision!==0)throw new Error('备份链不完整');
+  await update(session,signal,state=>{
+    if(state.revision!==snapshot.revision||state.head?.id!==snapshot.head?.id)throw new DOMException('备份状态已更新','AbortError');
+    state.counts=counts;state.countsRevision=state.revision;
+  });
+  return counts;
+}
 function sourceSession(session: VaultSession, scope: string): VaultSession { return {...session,get stored(){return session.stored;},vault:{...session.vault,localDataScope:scope}}; }
 export const privateItemSession = (session:VaultSession,item:PrivateArchiveItem) => sourceSession(session,item.sourceScope);
 async function update(session:VaultSession,signal:AbortSignal,change:(state:RoomArchiveState)=>void) {
@@ -98,8 +134,10 @@ export async function syncRoomArchive(session:VaultSession,signal:AbortSignal):P
     }
     const pending=session.vault.archiveState!.pending!;
     signal.throwIfAborted();await put(session,key,pending.object,signal);
+    const delta=countBatch(await openArchiveObject(key,pending.object) as Batch);
     await update(session,signal,s=>{
       if(s.pending?.head.id!==pending.head.id)throw new Error('备份任务已改变');
+      if(s.counts&&s.countsRevision===s.revision){for(const kind of Object.keys(delta) as Array<keyof ArchiveCounts>)s.counts[kind]+=delta[kind];s.countsRevision=s.revision+1;}
       s.head=pending.head;s.revision++;if(pending.cursor!==undefined)s.cursor=pending.cursor;
       if(pending.privateId)s.privateDone=[...new Set([...(s.privateDone??[]),pending.privateId])];
       s.syncedAt=new Date().toISOString();delete s.pending;
