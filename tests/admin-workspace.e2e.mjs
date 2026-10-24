@@ -34,6 +34,20 @@ try {
   await page.goto(`http://localhost:${port}`);await page.getByRole('heading',{name:'登录管理工作区'}).waitFor();await capture('login');
   await page.locator('[name=password]').fill(password);await page.locator('[name=code]').fill(totp(config.totpSecret));await page.getByRole('button',{name:'验证并登录'}).click();await page.getByRole('heading',{name:'总览',exact:true}).waitFor();await page.getByText('灾备状态尚未接入',{exact:true}).waitFor();
   assert.equal(await page.locator('#admin-nav .nav-item').count(),6);await capture('overview-desktop');await auditP1Surface(page,'admin-v1-overview','#admin');
+  for(const scheme of ['light','dark'])for(const theme of ['blue','green','purple','apricot','sea','rose','terracotta','lemon','graphite']){
+    await page.emulateMedia({colorScheme:scheme});
+    await page.evaluate(theme=>{localStorage.setItem('quiet-room:appearance',theme);window.dispatchEvent(new StorageEvent('storage',{key:'quiet-room:appearance'}));},theme);
+    await page.waitForFunction(({theme,scheme})=>document.documentElement.dataset.theme===theme&&document.documentElement.dataset.colorScheme===scheme,{theme,scheme});
+    const contrast=await page.locator('#admin-nav .nav-item[aria-current=page]').evaluate(button=>{
+      const canvas=document.createElement('canvas');canvas.width=canvas.height=1;const ctx=canvas.getContext('2d',{willReadFrequently:true});
+      const rgb=color=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=color;ctx.fillRect(0,0,1,1);return [...ctx.getImageData(0,0,1,1).data].slice(0,3).map(v=>v/255);};
+      const luminance=rgb=>rgb.map(v=>v<=.04045?v/12.92:((v+.055)/1.055)**2.4).reduce((sum,v,i)=>sum+v*[.2126,.7152,.0722][i],0);
+      const css=getComputedStyle(button),a=luminance(rgb(css.color)),b=luminance(rgb(css.backgroundColor));return(Math.max(a,b)+.05)/(Math.min(a,b)+.05);
+    });
+    assert(contrast>=4.5,`${theme}/${scheme}: selected navigation contrast ${contrast}`);await capture(`theme-${theme}-${scheme}`);
+  }
+  await page.emulateMedia({colorScheme:'light'});await page.evaluate(()=>{localStorage.setItem('quiet-room:appearance','blue');window.dispatchEvent(new StorageEvent('storage',{key:'quiet-room:appearance'}));});
+
   await nav('密室管理');await page.getByRole('button',{name:room.roomId,exact:true}).waitFor();await capture('rooms-desktop');
   await page.getByRole('combobox',{name:'密室格式'}).selectOption('legacy');await page.getByText('没有匹配的密室。可调整编号、格式或状态筛选。',{exact:true}).waitFor();
   await page.getByRole('combobox',{name:'密室格式'}).selectOption('archive-v2');await page.getByRole('button',{name:room.roomId,exact:true}).click();
