@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+<a id="release-experience-reliability-20261025"></a>
+## 媒体、桌面与本人设备目录 V1 已发布（2026-10-25 12:59）
+
+- 用户确认[前9项V1](docs/requirements/2026-10-25-experience-reliability/README.md)，免本批原型直接实施、合并；第10、11项网络症状由用户撤回。收到完整提交及验证结果后回复「确认，发布生产」。[PR #413](https://github.com/zdaiwmm/shui-IM/pull/413)合并为实际应用`24c89baa25865fd4bb256851597351e421ce7190`／2026.10.25.1，与最终源`a7593549cfabae781534b66c84d7944fcf9465c9`文件树同为`ac1230b5d00a9d556d6f86da8d6045c84865134e`；前一生产`cd8bf37ebc64618834ff4046beb75529a506374e`／2026.10.24.6。
+- 视频下拖、表情状态、认证加密预览复用、桌面抽屉和工具面板、设置上下背景、设备卡片及详情字段落实于P1 V1.34。本人已授权设备的目录只同步允许的元数据；发现不授予成员身份或旧历史，列表移除保留原有记录。产品、安全和视觉契约由PRODUCT、NEW_ROOM_ARCHIVES、SECURITY、DESIGN及D-079拥有。
+- 本机初次完整构建通过，1075单元通过、11项被既有BACKUP_CAPACITY_LOW门槛阻断，未降低容量策略。原浏览器门禁73通过、图片隐私夹具失败、8未运行；修正真实像素就绪和明确缓存未命中前提后，时间线及图片隐私两引擎专项、最后8入口顺序补跑通过。原失败继续保留，不把组合覆盖表述为一次本机全套成功。最终[PR完整CI40161655093](https://github.com/zdaiwmm/shui-IM/actions/runs/40161655093)及[精确main完整CI40162315313](https://github.com/zdaiwmm/shui-IM/actions/runs/40162315313)均attempt1全部成功，含143文件／1086单元、82浏览器入口、通话、双架构及Full application verification；此前未确认的WebKit原生unread诊断不据复验通过宣称已定位修复。
+- 固定[只读预检40162916329](https://github.com/zdaiwmm/shui-IM/actions/runs/40162916329)取得PREFLIGHT_OK；唯一[生产发布40163290907](https://github.com/zdaiwmm/shui-IM/actions/runs/40163290907)通过既有环境审核，固定入口核对精确DEPLOY_VERIFIED，请求`c9337ff4-53ca-4631-a0e9-5cc48cd50bb7`只派发一次。回执`2026-10-25T04:50:43.501Z`至`04:53:59.499Z`，外层cloud-publish294063ms；应用镜像`sha256:521681a2a8da9e0a8fe71515aa7a33ac5280716e14251802df8d484330faff4b`，归档SHA-256`1b3a119ab1a578e202dcc8bb07b4aba30448f53738f80ffeea1f1c7a853428dd`、210133442字节，绑定main CI40162315313／attempt1。未修改环境保护、云权限、helper或健康门槛。
+- 首次独立回读仅备份starting；只读核对实际启动`04:53:45.426417945Z`及原5分钟健康检查／启动期后，仅续跑同SHA只读回读，未重启或再次切换。最终`2026-10-25T04:59:22.036Z`至`04:59:25.307Z`取得READBACK_OK，3270ms：应用／备份running且healthy，TURN运行且探针none，精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物摘要和新WebSocket一致，维护门absent。
+- 白名单汇总位于公共Git元数据`quiet-room-deliveries/evidence/experience-reliability-20261025/reviewed-summary.json`。独立对账树不含部署配置，文档SHA不替代线上应用；本批资源按固定入口核验，保留原因另存机械结果，不处理其他任务。真实iPhone／iOS27／Safari锁屏卡片及原生工具栏未验证，当前无可用USB iPhone；独立安全审阅与公开高安全声明门槛保持。
+
 <a id="release-admin-v1-20261025"></a>
 ## 后台管理工作区 V1 已发布（2026-10-25 04:10）
 
