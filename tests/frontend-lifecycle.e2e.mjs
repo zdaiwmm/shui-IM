@@ -2620,6 +2620,42 @@ try {
     assert.equal(await desktopPage.evaluate(() => window.regression.app.replyTarget?.clientMsgId), 'message-120');
     results.desktopPaneScroll = { desktopIdentity: true, samples, contextMenuReply: true };
   } finally { await desktopPage.close(); }
+  if (process.env.QUIET_ROOM_TIMELINE_PERF === '1') {
+    // Opt-in diagnostics: real DOM/input/lock cleanup, synthetic metadata only.
+    // Timing is reported, never promoted to a hardware-independent CI threshold.
+    results.largeTimelineDiagnostics = [];
+    for (const size of [1_000, 10_000]) {
+      const sample = await page.evaluate(async size => {
+        const { app, fresh, message } = window.regression;
+        fresh();
+        const file = { v: 1, blobId: '00000000-0000-4000-8000-000000000001', key: 'A'.repeat(43), ivPrefix: 'A'.repeat(11), chunkSize: 2 * 1024 ** 2,
+          chunkCount: 1, originalSize: 16, originalName: 'synthetic.bin', mimeType: 'application/octet-stream', lastModified: 1_700_000_000_000, sha256: 'a'.repeat(64) };
+        app.messages = new Map(Array.from({ length: size }, (_, i) => {
+          const item = message(i + 1, i % 10 === 0 ? { v: 1, kind: 'file', file, sentAt: '2026-10-25T00:00:00.000Z' } : undefined);
+          return [item.seq, item];
+        }));
+        const start = performance.now();
+        app.renderMessages({ scroll: 'bottom' });
+        const renderMs = performance.now() - start;
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const rows = document.querySelectorAll('#message-list > .message').length;
+        if (rows !== size) throw Error(`Long-history fixture lost records: ${rows}/${size}`);
+        const input = document.querySelector('#message-input');
+        const inputStart = performance.now();
+        input.value = 'synthetic input';
+        input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 't' }));
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        const inputFrameMs = performance.now() - inputStart;
+        if (input.value !== 'synthetic input') throw Error('Long history replaced composer input');
+        const domNodes = document.querySelectorAll('*').length;
+        const heapBytes = performance.memory?.usedJSHeapSize ?? null;
+        app.lockNow();
+        if (document.querySelectorAll('.message').length || app.messages.size || app.privateArchiveRows.size) throw Error('Lock retained a long-history view');
+        return { size, attachmentRows: Math.ceil(size / 10), renderMs, inputFrameMs, domNodes, heapBytes, lockCleared: true };
+      }, size);
+      results.largeTimelineDiagnostics.push(sample);
+    }
+  }
   assert.deepEqual(errors, []);
   console.log(JSON.stringify(results, null, 2));
 } finally {

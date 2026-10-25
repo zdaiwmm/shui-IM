@@ -77,6 +77,7 @@ import { createSpaceProfile } from './lib/space-profile-ui';
 import { spaceAvatarMarkup, bindSpaceAvatarPlayback, defaultSpaceAvatar, type SpaceAvatar, type SpaceProfile } from './lib/space-avatar';
 import './space-profile.css';
 import { removeNewRoomFromDirectory, forgetLocalSpace, localSpaces, rememberLocalSpace, syncSpaceDirectory, recoverableSpaces, spaceCodeId, refreshSpaceUnread, spaceMessagePreview, pendingSpaceExpiry, formatPendingCountdown, type PrivateSpace } from './lib/spaces';
+import { orderedChatMessages, privateTimelineItems } from './lib/message-timeline';
 import { parseCloudRecoveryCode } from './lib/backup-crypto';
 import { capabilityGateMembers } from './lib/member-capabilities';
 import { currentSpaceId, selectLocalSpace, vaultSpaceId, unlockOwnedPendingSpace, unlockSpaceForRemoval, unlockLocalSpaceForManagement } from './lib/vault';
@@ -10893,17 +10894,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
   }
 
   private orderedMessages(deletedForEveryone = this.messageDeletions()): DecryptedMessage[] {
-    const hiddenOnThisDevice = new Set(this.uiPreferences.hiddenChatMessageIds ?? []);
-    const visible = (message: DecryptedMessage) => message.payload.kind !== 'gallery-image' && message.payload.kind !== 'gallery-file'
-      && message.payload.kind !== 'reaction' && message.payload.kind !== 'message-delete' && message.payload.kind !== 'media-read' && message.payload.kind !== 'message-read'
-      && !deletedForEveryone.has(message.clientMsgId) && !hiddenOnThisDevice.has(message.clientMsgId.toLowerCase());
-    const confirmed = [...this.messages.values()]
-      .filter(visible)
-      .sort((left, right) => left.seq - right.seq);
-    const pending = [...this.pending.values()]
-      .filter(visible)
-      .sort((left, right) => left.acceptedAt.localeCompare(right.acceptedAt));
-    return [...confirmed, ...pending];
+    return orderedChatMessages(this.messages.values(), this.pending.values(), this.uiPreferences.hiddenChatMessageIds ?? [], deletedForEveryone);
   }
 
   private activeDevicesSupport(capability: string): boolean {
@@ -11883,7 +11874,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     this.readMessageIds = readMessageIds([...this.messageEventHistory.values(), ...this.messages.values()], new Map(this.session.vault.members.map(member => [member.deviceId, member.role])));
     const deletedForEveryone = this.messageDeletions();
     const messages = this.orderedMessages(deletedForEveryone);
-    const privateItems=this.privateArchiveItems.filter(item=>item.originRoomId!==this.session!.vault.roomId||!messages.some(message=>message.clientMsgId===item.message.clientMsgId));
+    const privateItems = privateTimelineItems(this.privateArchiveItems, messages, this.session.vault.roomId);
     const privateRows:HTMLElement[]=[];
     if(privateItems.length>this.privateArchiveLimit){const more=document.createElement('button');more.type='button';more.className='text-button';more.textContent='查看更早恢复的记录';more.addEventListener('click',()=>{this.privateArchiveLimit+=100;this.renderMessages({scroll:'position'});});privateRows.push(more);}
     for(const item of privateItems.slice(-this.privateArchiveLimit)){
