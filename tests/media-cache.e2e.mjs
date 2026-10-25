@@ -26,10 +26,14 @@ try {
         const originalFetch = fetch;
         window.fetch = (input, options) => String(input).includes('/chunks/') ? (requests++, Promise.resolve(new Response(new Uint8Array(chunks[0])))) : originalFetch(input, options);
         const opened = await app.loadImage(manifest, true);
+        const image = new Image(); image.src = opened.url; await image.decode();
+        await app.ensureChatConcealedImage(manifest,opened,image);
+        const concealed = await v.loadMediaPreview(session,manifest,undefined,'concealed');
+        const concealedDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await concealed.arrayBuffer()))).join(',');
         const preview = await v.loadMediaPreview(session, manifest);
         const raw = await v.loadCachedMediaChunk(session, manifest.blobId, 0, chunks[0].length);
         const animated = await createMediaPreview(new Blob([new Uint8Array(fixtures.animated)], { type: 'image/png' }));
-        return { manifest, chunks, requests, hasPreview: !!preview, hasRaw: !!raw, originalBytes: Array.from(new Uint8Array(await opened.blob.arrayBuffer())), animatedPreserved: animated === null };
+        return { manifest, chunks, requests, concealedDigest, hasPreview: !!preview, hasRaw: !!raw, originalBytes: Array.from(new Uint8Array(await opened.blob.arrayBuffer())), animatedPreserved: animated === null };
       }, { png: Array.from(staticPng), animated: Array.from(animatedPng) });
       assert.equal(fixture.requests, 1); assert.equal(fixture.hasPreview, true); assert.equal(fixture.hasRaw, false);
       assert.deepEqual(fixture.originalBytes, Array.from(staticPng)); assert.equal(fixture.animatedPreserved, true);
@@ -42,6 +46,13 @@ try {
         let requests = 0; const originalFetch = fetch;
         window.fetch = (input, options) => String(input).includes('/chunks/') ? (requests++, Promise.resolve(new Response(new Uint8Array(fixture.chunks[0])))) : originalFetch(input, options);
         const cached = await app.loadImage(fixture.manifest, true); const displayRequests = requests;
+        const image = new Image(); image.src = cached.url; await image.decode();
+        const encode = HTMLCanvasElement.prototype.toBlob;
+        HTMLCanvasElement.prototype.toBlob = () => { throw Error('A warm concealment must not be regenerated'); };
+        try { await app.ensureChatConcealedImage(fixture.manifest,cached,image); }
+        finally { HTMLCanvasElement.prototype.toBlob = encode; }
+        const concealed = await v.loadMediaPreview(session,fixture.manifest,undefined,'concealed');
+        const concealedDigest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await concealed.arrayBuffer()))).join(',');
         const previewOnly = cached.previewOnly;
         const original = await app.loadImage(fixture.manifest, false, true);
         const originalBytes = Array.from(new Uint8Array(await original.blob.arrayBuffer()));
@@ -58,9 +69,9 @@ try {
         await v.saveCachedMediaChunk(session, fixture.manifest.blobId, 0, new Uint8Array(fixture.chunks[0]).buffer);
         const quotaCached = await v.loadCachedMediaChunk(session, fixture.manifest.blobId, 0, fixture.chunks[0].length);
         await v.withVaultMutation(session, mutation => v.saveVault(session, mutation));
-        return { displayRequests, originalRequests: requests, previewOnly, originalBytes, wrong: wrong === null, aborted, afterAbort: afterAbort === null, quotaCached: quotaCached === null };
+        return { concealmentReused:concealedDigest===fixture.concealedDigest, displayRequests, originalRequests: requests, previewOnly, originalBytes, wrong: wrong === null, aborted, afterAbort: afterAbort === null, quotaCached: quotaCached === null };
       }, fixture);
-      assert.deepEqual(result, { displayRequests: 0, originalRequests: 1, previewOnly: true, originalBytes: Array.from(staticPng), wrong: true, aborted: true, afterAbort: true, quotaCached: true });
+      assert.deepEqual(result, { concealmentReused:true, displayRequests: 0, originalRequests: 1, previewOnly: true, originalBytes: Array.from(staticPng), wrong: true, aborted: true, afterAbort: true, quotaCached: true });
       if (engine === chromium) {
         // Set the limit before any database write: Chromium may retain quota
         // reservations when the limit is lowered on an already active database.

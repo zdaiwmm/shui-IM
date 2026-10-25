@@ -55,6 +55,6 @@ body:has(#app) { background: transparent; }
 }
 
 /* Settings pages own the top canvas, including a sheet over the chat wallpaper. */
-html:not(.privacy-obscured):has(#app :is(.is-settings-sheet,.is-settings-subpage,.is-space-list-page,.cover-settings-page,.device-management-page,.archive-page)):not(:has(#app > .confirm-overlay:not(.password-page))) { --chrome-top-surface:var(--paper); }
+html:not(.privacy-obscured):has(#app :is(.is-settings-sheet,.is-settings-subpage,.is-space-list-page,.cover-settings-page,.device-management-page,.archive-page)):not(:has(#app > .confirm-overlay:not(.password-page))) { --chrome-top-surface:var(--paper); --chrome-bottom-surface:var(--paper); }
 html:not(.privacy-obscured):has(#app .numeric-password-page) { --chrome-top-surface:light-dark(#edf0f4,#1c2028); --chrome-bottom-surface:light-dark(#edf0f4,#1c2028); }
 html:not(.privacy-obscured):has(#app .room-creation-page) { --chrome-top-surface:var(--paper); --chrome-bottom-surface:var(--paper); }

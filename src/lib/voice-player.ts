@@ -1,4 +1,5 @@
 import { motion, retargetMotion } from './motion';
+import { releaseSystemMediaSession } from './system-media-session';
 import { VoiceNetworkError, VOICE_FAILURE_TEXT } from './voice-network';
 import type { AudioPayload } from './types';
 import { voiceIcons, voiceTime, voiceMessageSeconds, voiceMessageWidth } from './voice-audio';
@@ -116,6 +117,7 @@ export class VoicePlayer {
     this.stateMotion?.cancel(); this.stateMotion = null;
     this.request?.abort(); this.request = null; this.loading = false;
     this.audio.pause(); this.audio.removeAttribute('src'); this.audio.load();
+    releaseSystemMediaSession();
     if (this.url) URL.revokeObjectURL(this.url);
     this.url = null; this.positionMs = position; this.pendingSeekMs = null; this.actualPlayback = false;
     this.error = ''; delete this.element.dataset.errorCode; this.update();

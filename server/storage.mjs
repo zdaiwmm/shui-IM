@@ -3,6 +3,7 @@ import { createAdminData } from './admin-data.mjs';
 import { ROOM_LINK_TTL_MS } from '../src/lib/room-link-lifetime.mjs';
 import { createRoomArchives } from './room-archives.mjs';
 import { createSpaceDirectories } from './space-directories.mjs';
+import { createOwnSpaceDirectory } from './own-space-directory.mjs';
 import { createBrowserAccess } from './browser-access.mjs';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
@@ -362,6 +363,7 @@ export async function createStore({
   const adminData = createAdminData(db, { maxRoomStorageBytes, maxTotalStorageBytes, maxMessagesPerRoom, maxRoomMessageBytes, maxTotalMessageBytes });
   const spaceDirectories = createSpaceDirectories(db, { authenticatedDevice });
   const browserCatalogs = createSpaceDirectories(db, { authenticatedDevice }, true);
+  const ownSpaceDirectory = createOwnSpaceDirectory(db, { authenticatedDevice, getMember });
   const browserAccess = createBrowserAccess({ db, getMember, assertDeviceActive: (roomId,deviceId) => {
     assertDeviceActive(roomId,deviceId);
     if(chamberInvitations.exists(roomId))throw new Error('PERSONAL_IDENTITY_REQUIRED');
@@ -1652,6 +1654,7 @@ export async function createStore({
 
   return {
     adminData,
+    ownSpaceDirectory,
     chamberInvitations,
     chamberHistory,
     roomArchives,

@@ -134,7 +134,9 @@ try{
  const nextDownload=mobile?null:bob.waitForEvent('download');await bob.locator('[data-download]').click();await submitPassword(bob,'927451');
  if(mobile){await bob.waitForFunction(()=>!!window.savedTestCard);await writeFile(cardPath,Buffer.from(await bob.evaluate(async()=>Array.from(new Uint8Array(await window.savedTestCard.arrayBuffer())))));}else await(await nextDownload).saveAs(cardPath);
  await choose('[data-verify] input[type=file]');await fillFormInput(bob,bob.locator('[data-verify] input[name=password]'),'a newly protected phrase');await bob.locator('[data-verify] button[type=submit]').click();await bob.locator('.archive-managed-status').waitFor();
- await bob.locator('.archive-page:not(.local-page-outgoing) [data-back]').click();await bob.locator('#chamber-switch-space').click();await bob.locator(`${list} #space-create`).click();await bob.locator('#copy-invite').waitFor();
+ await bob.locator('.archive-page:not(.local-page-outgoing) [data-back]').click();await bob.locator('#chamber-switch-space').click();await bob.locator(`${list} #space-create`).click();
+ await bob.waitForFunction(previous=>app.session?.vault.roomId&&app.session.vault.roomId!==previous&&!app.spaceCreationAbort,next.roomId);
+ await bob.locator('#copy-invite').waitFor();
  const fresh=await snapshot(bob);assert.notEqual(fresh.roomId,next.roomId);assert.notEqual(fresh.archiveId,next.archiveId);
  await bob.locator('#chat-settings').click();await bob.locator('#archive-restore').click();await choose('[data-restore-form] input[type=file]');await bob.waitForFunction(()=>!document.querySelector('[data-restore-submit]').disabled);await fillFormInput(bob,bob.locator('[data-restore-form] input[name=password]'),'a newly protected phrase');await bob.locator('[data-restore-submit]').click();
  await bob.locator('[data-progress-title]').filter({hasText:'恢复完成'}).waitFor();assert.ok(Number((await bob.locator('[data-count=messages]').textContent()).split('/')[0].trim())>=2);assert.equal(await bob.locator('.archive-page progress').getAttribute('value'),'100');

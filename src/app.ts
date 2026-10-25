@@ -23,6 +23,8 @@ import { bindPersonalDevice, verifyPersonalDeviceBinding, type PersonalDeviceBin
 import { preparePersonalIdentity, usePersonalIdentity, type StoredPersonalIdentity } from './lib/personal-identity-vault';
 import { personalMnemonicFromEntropy, personalEntropyFromMnemonic, withPersonalKeys } from './lib/personal-identity';
 import { readOwnPersonalDirectory, observedPersonalDirectoryVersion } from './lib/personal-directory-sync';
+import { ownDirectorySpaces, changeOwnSpace, syncOwnSpaceDirectory } from './lib/own-space-directory';
+import { unlockDirectorySyncRoom } from './lib/vault';
 import { listChamberHistoryRequests, readChamberHistoryRequest, startChamberHistoryRecovery, approveChamberHistoryRecovery, completeChamberHistoryRecovery, type ChamberHistorySummary } from './lib/chamber-history-recovery';
 import { inspectChamber, readChamberLifecycle, closeChamber, verifyChamberClosure, prepareChamberReopen, advanceChamberReopen, approveChamberReopen, cancelChamberReopen, completeChamberReopen, type ChamberLifecycle, type ChamberReopenSnapshot } from './lib/chamber-lifecycle';
 import type { PersonalDirectoryEntry } from './lib/personal-directory';
@@ -145,6 +147,7 @@ import { decryptAudioFile, encryptAudioFile, decryptImageFile, encryptImageFile,
 import { VoiceRecorder } from './lib/voice-recorder';
 import { bindVoiceRecordGesture } from './lib/voice-gesture';
 import { bindImageViewerGestures } from './lib/image-viewer-gestures';
+import { releaseSystemMediaSession } from './lib/system-media-session';
 import { prepareImageMotion, type ImageMotion } from './lib/image-animation';
 import { createConcealedImage } from './lib/concealed-image';
 import { mountPhotoDetails } from './lib/photo-details';
@@ -773,10 +776,9 @@ export class QuietRoomApp {
       mount: async (host, signal) => {
         const session = this.session;
         if (!session) { this.openBrowserSpaceList(host, signal); return; }
-        const spaces = await localSpaces(session);
+        const spaces = await ownDirectorySpaces(session, this.browserProfile ? accessPrivateSpaces(this.browserProfile.profile) : []);
         if (signal.aborted || this.session !== session || this.privacyCovered || !host.isConnected) return;
         this.applyCatalogToSpaces(spaces);
-        if (this.browserProfile) for (const item of accessPrivateSpaces(this.browserProfile.profile)) if (!spaces.some(s => s.roomId === item.roomId)) spaces.push(item);
         this.mountPrivateSpaceDrawer(session, spaces, signal, this.activeSurface, undefined, 'sidebar', host, this.inviteListScrollTop);
       },
       beforeLayout: () => {
@@ -1405,6 +1407,7 @@ export class QuietRoomApp {
     this.showPrivacyCurtain();
     this.concealChatImages();
     this.closeImageViewer(true);
+    releaseSystemMediaSession();
   }
 
   private revealPrivacySurface(): void {
@@ -4908,7 +4911,40 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     void this.connectSocket().catch(cause => { if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '安全通话身份准备失败，请重新解锁'); });
     if (activeRoles.size === 2) { void this.resumeDeferredImage(); this.showPairingWelcome(); }
     this.startAutomaticBackup();
+    this.startOwnDirectoryServices(session, this.runtimeAbort.signal);
     void this.startBrowserAccessServices(session,this.runtimeAbort.signal);
+  }
+
+  private startOwnDirectoryServices(session: VaultSession, signal: AbortSignal): void {
+    if (!session.vault.roomArchiveV2) return;
+    let timer: ReturnType<typeof setTimeout>, cursor = 0;
+    const tick = async () => {
+      if (signal.aborted || this.session !== session) return;
+      try {
+        if (!document.hidden && !this.privacyCovered) {
+          await syncOwnSpaceDirectory(session, signal);
+          // Shared-room edges connect this browser's local collection to its
+          // other devices even while the visible room has just been created.
+          const key = await browserRoomKey();
+          const spaces = (await localSpaces(session)).filter(space => space.roomArchiveV2 && space.localId && space.roomId !== session.vault.roomId);
+          if (key) for (let count = 0; count < Math.min(spaces.length, 4); count++) {
+            signal.throwIfAborted();
+            const space = spaces[cursor++ % spaces.length]!, stored = await readStoredRoom(space.localId!);
+            if (!stored) continue;
+            const other = await unlockDirectorySyncRoom(key, stored);
+            try { await syncOwnSpaceDirectory(other, signal); } finally { releaseDeviceCredential(other); }
+          }
+          const current = (await ownDirectorySpaces(session)).find(space => space.roomId === session.vault.roomId);
+          if (current && !signal.aborted && this.session === session && !this.privacyCovered) {
+            this.currentSpaceName = current.name; this.currentSpaceAvatar = current.avatar ?? this.currentSpaceAvatar;
+            if (!document.hidden) document.title = current.name;
+          }
+        }
+      } catch { /* Offline/old endpoints retain the last authenticated local directory. */ }
+      finally { if (!signal.aborted && this.session === session) timer = setTimeout(() => void tick(), 3000); }
+    };
+    signal.addEventListener('abort', () => clearTimeout(timer), {once:true});
+    void tick();
   }
 
   private personalDeviceDialogs = new Set<string>();
@@ -6639,6 +6675,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
   }
 
   private async performPrivateSpaceSwitch(space: PrivateSpace, current = () => !this.privacyCovered): Promise<void> {
+    if (space.catalogOnly) throw new Error('此密室尚未在本浏览器接入。请在自己的已授权设备中为这间密室生成设备加入链接。');
     if (!space.localId && this.browserProfile?.profile.spaces.some(s=>s.roomId===space.roomId)) {const profile=this.browserProfile,prf=(this.browserBindingProof??this.session?.browserAccessPrf)?.slice();if(!await this.leaveSpace()){prf?.fill(0);return;}this.browserProfile=profile;this.browserBindingProof=prf??null;this.browserAccessAbort=new AbortController();profile.profile.currentRoom=space.roomId;this.scheduleIdleLock();this.renderBrowserShell();this.pollBrowserSpaceAccess(this.browserAccessAbort.signal);return;}
     if (!space.localId) throw new Error('此密室需要先恢复');
     if (!await this.leaveSpace()) return;
@@ -6840,8 +6877,20 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     this.showNotice('已删除本机密室');return true;
   }
 
+  private async removeOwnDirectoryRoom(session:VaultSession,space:PrivateSpace):Promise<boolean> {
+    if (!this.confirmSystemAction('从你的所有已关联设备的密室列表移除？各设备已有记录、对方和加密备份保留。')) return false;
+    await changeOwnSpace(session,space,true);
+    void syncOwnSpaceDirectory(session,this.runtimeAbort?.signal ?? AbortSignal.abort()).catch(() => undefined);
+    if (space.roomId === session.vault.roomId && this.session === session && !this.privacyCovered) {
+      const next = (await ownDirectorySpaces(session)).find(item => item.localId);
+      if (next) await this.switchPrivateSpace(next);
+    }
+    this.showNotice('已从密室列表移除，联网后同步到你的设备');
+    return true;
+  }
+
   private catalogRemovalLabel(space: PrivateSpace): string {
-    if(space.roomArchiveV2)return '删除本机密室';
+    if(space.roomArchiveV2)return '从我的设备列表移除';
     return !space.localId && !this.browserProfile?.profile.spaces.find(item => item.roomId === space.roomId)?.pendingManagement
       ? '从我的密室列表移除' : '删除密室';
   }
@@ -6918,9 +6967,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     try {
       if (this.browserProfile) await refreshBrowserCatalog(this.browserProfile.profile, signal).catch(() => undefined);
       if (signal.aborted || this.session !== session || this.privacyCovered || !shouldOpen()) { this.spaceDrawerOpen = false; return; }
-      const spaces = await localSpaces(session);
+      const spaces = await ownDirectorySpaces(session, this.browserProfile ? accessPrivateSpaces(this.browserProfile.profile) : []);
       this.applyCatalogToSpaces(spaces);
-      if (this.browserProfile) for (const item of accessPrivateSpaces(this.browserProfile.profile)) if (!spaces.some(s => s.roomId === item.roomId)) spaces.push(item);
       if (signal.aborted || this.privacyCovered || this.session !== session || !shouldOpen()) { this.spaceDrawerOpen = false; return; }
       this.mountPrivateSpaceDrawer(session, spaces, signal, previousSurface, initialSettings ? 0 : undefined, undefined, undefined, listScrollTop);
       void this.rememberSpacePreview(session, signal)
@@ -6939,8 +6987,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       return;
     }
     const removed = new Set(profile.removed ?? []);
-    for (let index = spaces.length - 1; index >= 0; index--) if (removed.has(spaces[index]!.roomId)) spaces.splice(index, 1);
+    for (let index = spaces.length - 1; index >= 0; index--) if (!spaces[index]!.roomArchiveV2 && removed.has(spaces[index]!.roomId)) spaces.splice(index, 1);
     for (const space of spaces) {
+      if (space.roomArchiveV2) continue;
       const remote = profile.spaces.find(item => item.roomId === space.roomId);
       if (!remote) continue;
       space.name = remote.name;
@@ -7027,7 +7076,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
           },
           saveAvatar: async avatar => {
             if (!active()) throw new DOMException('编辑已结束', 'AbortError');
-            await rememberLocalSpace(session, undefined, { roomId: space.roomId, name: space.name, avatar });
+            if (!space.catalogOnly) await rememberLocalSpace(session, undefined, { roomId: space.roomId, name: space.name, avatar });
+            if (space.roomArchiveV2) await changeOwnSpace(session,{...space,avatar});
             await publishPreparedCatalog(session, signal).catch(() => undefined);
             if (active() && space.roomId === session.vault.roomId) { this.currentSpaceAvatar = avatar; this.applyPresenceStyle(); }
           },
@@ -7035,7 +7085,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
         return active() ? result?.avatar ?? null : null;
       },
       rename: async (space, name) => {
-        await rememberLocalSpace(session, undefined, { roomId: space.roomId, name });
+        if (!space.catalogOnly) await rememberLocalSpace(session, undefined, { roomId: space.roomId, name });
+        if (space.roomArchiveV2) await changeOwnSpace(session,{...space,name});
         await publishPreparedCatalog(session, signal).catch(() => undefined);
         if (this.session === session && !signal.aborted && space.roomId === session.vault.roomId) {
           this.currentSpaceName = name;
@@ -7044,7 +7095,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
           if (entry) entry.setAttribute('aria-label', `密室列表，当前：${name}`);
         }
       },
-      remove: space => space.roomArchiveV2 ? this.removeLocalRoom(session,space) : this.destroyWaitingSpace(session, space),
+      remove: space => space.roomArchiveV2 ? this.removeOwnDirectoryRoom(session,space) : this.destroyWaitingSpace(session, space),
       expired: space => { if (space.roomId === session.vault.roomId) void this.destroyUnjoinedSpace(session).catch(() => undefined); },
       authorization: space => {
         const deadline=this.peerAccessHints.get(space.roomId)??0;
@@ -7054,11 +7105,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       refreshUnread: refreshSignal => refreshSpaceUnread(spaces, refreshSignal),
       refreshSpaces: async refreshSignal => {
         await this.refreshSpaceCatalog(refreshSignal);
-        const fresh = await localSpaces(session);
+        await syncOwnSpaceDirectory(session,refreshSignal).catch(() => undefined);
+        const fresh = await ownDirectorySpaces(session, this.browserProfile ? accessPrivateSpaces(this.browserProfile.profile) : []);
         this.applyCatalogToSpaces(fresh);
-        if (this.browserProfile) for (const item of accessPrivateSpaces(this.browserProfile.profile)) {
-          if (!fresh.some(space => space.roomId === item.roomId)) fresh.push(item);
-        }
         return fresh;
       },
       canStylePresence: () => session.vault.role !== 'joiner' || !isChamberVault(session.vault) ||
@@ -8451,7 +8500,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
   private renderDeviceDetail(member:RoomMember):void {
     const session=this.session;if(!session||this.privacyCovered)return;this.setActiveSurface('away');
     const current=member.deviceId===session.vault.identity.publicBundle.deviceId,epoch=this.runtimeEpoch;
-    this.root.innerHTML=`<section class="device-shell device-management-page device-detail-page"><header class="subpage-header"><button class="icon-button" id="device-back" aria-label="返回设备管理">${icons.back}</button><h1>${current?'当前设备':'设备详情'}</h1></header><main class="device-content"><div class="device-detail-summary"><span class="device-kind-icon">${createElement(/iPhone|Android|iPad|手机/.test(member.deviceName??'')?Smartphone:Laptop).outerHTML}</span><h2>${accessEscape(member.deviceName??'未命名设备')}</h2><p>${current?'此浏览器正在使用':'已授权设备'}</p></div><dl class="device-detail-lines"><div><dt>设备状态</dt><dd>${current?'当前设备':'已连接'}</dd></div><div><dt>加入时间</dt><dd>${accessEscape(new Date(member.createdAt??session.vault.createdAt).toLocaleDateString('zh-CN'))}</dd></div><div><dt>所属密室</dt><dd>${accessEscape(this.currentSpaceName)}</dd></div></dl><p class="device-boundary-note">移除后，此设备将无法继续收发消息。已读内容无法远程抹除。</p>${current?'':'<button class="danger-button" data-remove-device>移除此设备</button>'}</main></section>`;
+    this.root.innerHTML=`<section class="device-shell device-management-page device-detail-page"><header class="subpage-header"><button class="icon-button" id="device-back" aria-label="返回设备管理">${icons.back}</button><h1>${current?'当前设备':'设备详情'}</h1></header><main class="device-content"><div class="device-detail-summary"><span class="device-kind-icon">${createElement(/iPhone|Android|iPad|手机/.test(member.deviceName??'')?Smartphone:Laptop).outerHTML}</span><h2>${accessEscape(member.deviceName??'未命名设备')}</h2><p>${current?'此浏览器正在使用':'已授权设备'}</p></div><dl class="device-detail-lines"><div><dt>设备状态</dt><dd>${current?'当前设备':'已连接'}</dd></div><div><dt>加入时间</dt><dd>${accessEscape(new Date(member.createdAt??session.vault.createdAt).toLocaleDateString('zh-CN'))}</dd></div></dl><p class="device-boundary-note">移除后，此设备将无法继续收发消息。已读内容无法远程抹除。</p>${current?'':'<button class="danger-button" data-remove-device>移除此设备</button>'}</main></section>`;
     this.root.querySelector('#device-back')!.addEventListener('click',()=>this.transitionPage('backward',()=>this.renderDeviceManager()));
     const remove=this.root.querySelector<HTMLButtonElement>('[data-remove-device]');remove?.addEventListener('click',()=>showExplanation(this.root,'移除此设备？',[`${member.deviceName??'此设备'}将无法继续进入这间密室或收发消息。`,'设备上已有的内容无法远程抹除。'],{signal:this.runtimeAbort?.signal,active:()=>this.isRuntimeActive(epoch,session)&&remove.isConnected,closeLabel:'取消',action:{label:'移除设备',danger:true,closeBeforeRun:true,run:()=>this.changeMlsMembership('remove',member,remove)}}));
   }
@@ -12376,9 +12425,11 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     } else if (own && message.status === 'pending') {
       const waiting = document.createElement('span');
       waiting.className = sendingMedia ? 'message-pending media-send-pending' : 'message-pending';
-      waiting.innerHTML = '<svg aria-hidden="true" viewBox="0 0 22 16"><circle cx="11" cy="8" r="6"/><path d="M11 4.5V8l2.5 1.5"/></svg>';
+      waiting.innerHTML = isExpressionPayload(message.payload)
+        ? '<svg aria-hidden="true" viewBox="0 0 22 16"><circle cx="11" cy="8" r="6" stroke-dasharray="24 14"/></svg>'
+        : '<svg aria-hidden="true" viewBox="0 0 22 16"><circle cx="11" cy="8" r="6"/><path d="M11 4.5V8l2.5 1.5"/></svg>';
       const label = document.createElement('span');
-      label.className = sendingMedia ? 'media-send-label' : 'sr-only';
+      label.className = sendingMedia && !isExpressionPayload(message.payload) ? 'media-send-label' : 'sr-only';
       label.textContent = this.accessFailure ? '发送暂停' : sendingMedia ? this.connectionState === 'connected' ? '发送中' : '等待连接' : '等待发送';
       waiting.append(label);
       meta.append(waiting);
@@ -14029,6 +14080,15 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     if (!session || this.privacyCovered) return;
     cached.posterPromise = (async () => {
       try {
+        const saved = await loadMediaPreview(session, manifest, signal).catch(() => null);
+        if (!this.isRuntimeActive(epoch, session) || this.imageCache.get(manifest.blobId) !== cached) return;
+        if (saved) {
+          cached.posterUrl = URL.createObjectURL(saved);
+          cached.bytes += saved.size;
+          this.imageCacheBytes += saved.size;
+          return;
+        }
+        this.updateChatImageLoadFeedback(manifest, 'decode');
         const poster = await this.withImageLoadSlot(() => createVideoPoster(cached.url, signal));
         if (!this.isRuntimeActive(epoch, session) || this.imageCache.get(manifest.blobId) !== cached) return;
         await saveMediaPreview(session, manifest, poster.blob, signal).catch(() => undefined);
@@ -14358,6 +14418,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       video.removeAttribute('src');
       video.removeAttribute('poster');
       video.load();
+      releaseSystemMediaSession();
     };
     updateControls();
     updateSpeed();
@@ -14404,11 +14465,15 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     if (!session || this.privacyCovered) return;
     cached.concealedPromise = (async () => {
       try {
-        const blob = await createConcealedImage(image, signal);
+        const saved = await loadMediaPreview(session, manifest, signal, 'concealed').catch(() => null);
+        if (!this.isRuntimeActive(epoch, session) || this.imageCache.get(manifest.blobId) !== cached) return;
+        if (!saved) this.updateChatImageLoadFeedback(manifest, 'decode');
+        const blob = saved ?? await createConcealedImage(image, signal);
         if (!this.isRuntimeActive(epoch, session) || this.imageCache.get(manifest.blobId) !== cached) return;
         cached.concealedUrl = URL.createObjectURL(blob);
         cached.bytes += blob.size;
         this.imageCacheBytes += blob.size;
+        if (!saved) await saveMediaPreview(session, manifest, blob, signal, 'concealed').catch(() => undefined);
       } finally { cached.concealedPromise = undefined; }
     })();
     return cached.concealedPromise;
@@ -14527,7 +14592,6 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       return this.activeSurface === 'chat' && list?.isConnected && list.contains(button) ? list : null;
     };
     const video = isVideoFile(manifest);
-    this.updateChatImageLoadFeedback(manifest, 'decode');
     if (video) {
       await this.ensureVideoPoster(manifest, cached);
       if (!button.isConnected || this.privacyCovered) return;

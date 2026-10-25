@@ -1,5 +1,6 @@
 import {openRecoveryCard} from './fixtures/open-recovery.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
+import { verifyOwnSpaceDirectory } from './fixtures/own-space-directory.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -264,5 +265,6 @@ try {
     assert.ok(await page.locator('.space-drawer-scroll').evaluate(el=>el.scrollTop>1000));
     if(output)await page.screenshot({path:path.join(output,`list-${width}-${scheme}.png`)});
   }
+  await verifyOwnSpaceDirectory(browser,service,url);
   console.log('PASS spaces: legacy migration, immutable write slots, shared encrypted recovery, drawer/name/style/back, cached invite routing');
 } finally { await browser?.close(); await vite?.close(); await service?.close(); await rm(dataDir,{recursive:true,force:true}); }

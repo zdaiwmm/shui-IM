@@ -280,8 +280,13 @@ try {
   assert.deepEqual(viewerBounds, { fixed: true, fillsViewport: true }, 'Playing the video did not maximize the viewing surface');
   await capture('video-viewer-390');
   const readsBeforeClose = await page.evaluate(() => window.videoFlow.requests.reads);
-  await closePlayer();
-  await assertPlayerReleased('Native full-screen exit');
+  const stage = page.locator('.viewer-stage');
+  const bounds = await stage.boundingBox();
+  await page.mouse.move(bounds.x + 30,bounds.y + bounds.height * .35);
+  await page.mouse.down(); await page.mouse.move(bounds.x + 32,bounds.y + bounds.height * .35 + 110,{steps:6}); await page.mouse.up();
+  await page.locator('.image-viewer').waitFor({state:'detached'});
+  await assertPlayerReleased('Downward video dismissal');
+  assert.equal(await chatPreview.getAttribute('data-revealed'),'false','Downward dismissal retains the original chat concealment contract');
 
   // A denied native request keeps a playable inline fallback, without
   // exporting or re-fetching the already integrity-checked original.
@@ -293,6 +298,7 @@ try {
       return Promise.reject(new DOMException('Synthetic full-screen denial', 'NotAllowedError'));
     };
   });
+  await chatPreview.click(); // Reveal again after the downward privacy gesture.
   await chatPreview.click();
   await awaitPlayingVideo();
   await page.locator('.image-viewer:not([data-native-video]) [data-viewer-close]').waitFor();
