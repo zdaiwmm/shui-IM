@@ -1,11 +1,12 @@
 # Quiet Room 当前状态
 
-## 媒体、桌面与本人设备目录 V1 实施中（2026-10-25）
+## 媒体、桌面与本人设备目录 V1 已发布（2026-10-25 12:59）
 
-- 用户授权[前9项体验修复](../requirements/2026-10-25-experience-reliability/README.md)，本批免原型直接实施、验证及PR合并；第10、11项网络症状已由用户撤回，不改连接或冷启动。生产仍待最终完整SHA确认。
-- 独占任务树experience-reliability-20261025，分支codex/experience-reliability-20261025；基线为只读核实的GitHub实时main及origin/main `ea5e83f560596779a8169e8e248406d68d7cb60f`，本机main仍4356531。取证时恢复了本机缺失的两个签名合并对象，严格核对原始字节及SHA，其他工作树与未知引用保留。
+- 用户授权[前9项体验修复](../requirements/2026-10-25-experience-reliability/README.md)，免本批原型直接实施及PR合并；收到完整SHA、CI和预检结果后回复「确认，发布生产」。[PR #413](https://github.com/zdaiwmm/shui-IM/pull/413)已合并，实际应用`24c89baa25865fd4bb256851597351e421ce7190`／2026.10.25.1，与最终源a759354树一致；前一生产cd8bf37／2026.10.24.6。第10、11项由用户撤回，不改连接或冷启动。
+- 本机构建及1075单元通过，11项受既有容量门槛阻断；初次浏览器门禁73通过、图片隐私夹具失败、8未运行。保留原断言并补真实像素就绪／缓存未命中前提后，两引擎专项与剩余8项顺序通过，不冒称一次本机全套成功。[精确PR完整CI40161655093](https://github.com/zdaiwmm/shui-IM/actions/runs/40161655093)及[精确main完整CI40162315313](https://github.com/zdaiwmm/shui-IM/actions/runs/40162315313)均attempt1全部成功，143文件／1086单元、82浏览器入口、通话、双架构及Full application verification通过。未确认的WebKit原生unread诊断保留，不据复验通过宣称已定位修复。
 - 页内视频下拖、表情状态、认证加密预览复用、设置上下底色、桌面抽屉及工具面板、设备独立卡片和详情字段已落实。新增仅本人已授权设备间的加密目录同步，发现不授予成员身份或历史，移除同步列表入口并保留既有本机记录；PRODUCT、NEW_ROOM_ARCHIVES、SECURITY、DESIGN及D-079拥有契约。
-- 定向测试和两引擎实际组件检查已通过，最终完整候选、CI、合并与生产证据尚未完成；原失败及修复边界保留于需求记录。原生iPhone工具栏与锁屏卡片未真机验证；清理系统媒体会话不等于浏览器原生UI验收。
+- 固定[只读预检40162916329](https://github.com/zdaiwmm/shui-IM/actions/runs/40162916329)取得PREFLIGHT_OK；唯一[生产发布40163290907](https://github.com/zdaiwmm/shui-IM/actions/runs/40163290907)取得精确DEPLOY_VERIFIED。首次回读仅备份starting，核对原5分钟检查及实际启动时间后只续回读，于`2026-10-25T04:59:25.307Z`取得READBACK_OK，3270ms：应用和备份healthy、TURN运行，SHA／镜像／HTTPS／数据库／存储／公开产物／新WebSocket一致，维护门absent。未再次切换或重启。
+- 完整事实见[本批发布记录](../../RELEASING.md#release-experience-reliability-20261025)，白名单证据位于公共Git元数据`quiet-room-deliveries/evidence/experience-reliability-20261025/reviewed-summary.json`。独立无部署配置树对账；文档SHA不替代线上应用。对账时GitHub及origin/main为24c89ba，本机main仍4356531；既有异常引用未修改，已通过认证API和合并对象／文件树核对。资源按机械门禁逐项处理，保留项另存结果。原生iPhone工具栏与锁屏卡片未真机验证，当前无可用USB iPhone；清理系统媒体会话不等于浏览器原生UI验收。
 
 ## 进入验收 V1.3 已合并，生产功能已回读（2026-10-25）
 
