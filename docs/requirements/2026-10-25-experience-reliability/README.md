@@ -30,4 +30,6 @@
 - 首轮冻结dc2acd9：构建通过，143文件中141通过、1075单元通过；11项备份测试均被本机BACKUP_CAPACITY_LOW阻断，未降低容量策略。单元生成的scripts/__pycache__使evidence清洁标记为false，已只清理本轮生成的pyc；源文件未改变。另从干净dc2acd9顺序运行82浏览器入口。
 - [首轮PR CI40160198371](https://github.com/zdaiwmm/shui-IM/actions/runs/40160198371)单元通过；分组2分片4在message-timeline的desktop-light附件几何失败，44px重试按钮超出尚未完成的缩略图，原输出保留。同项本机通过不抵销CI失败。独占复验树experience-reliability-ci-20261025从dc2acd9建立，只补夹具等待真实预览loaded和像素decode前提，全部尺寸、重试可点、比例、对比度和时间线断言保持；复验与最终CI另记。
 - 该夹具修正后，本机Chromium及桌面WebKit的完整message-timeline均通过，browserErrors为0。首轮冻结的82入口继续在原任务树运行，互不共用Vite缓存；应用代码及版本文件没有变化，最终CI须覆盖修正后的精确head。
+- dc2本机顺序浏览器门禁最终为73通过、chat-image-privacy失败、8未运行，1238.532秒且clean=true。失败在原585行等待编码钩子：有效持久遮蔽缓存使重入不再编码，属于本次预期行为与旧夹具前提冲突。用例现在先断言缓存确已命中，再只驱逐自身合成测试附件，制造真实未命中后保留原锁屏／迟到编码／零新明文URL断言；Chromium与桌面WebKit完整专项均通过，剩余8入口另行顺序补跑。
+- [6b99008完整PR CI40160834781](https://github.com/zdaiwmm/shui-IM/actions/runs/40160834781)的原时间线分片4通过；分片1同样在图片隐私原585行超时。分片3的邀请／隐私全部功能断言通过，但一次WebKit unread GET原生访问控制诊断未取得严格退出证据，仍按失败保留，不扩大白名单、不修改未读或网络产品代码；同产品及同测试的首轮CI分片3和本机全套均通过。下一精确候选完整CI作为该环境性诊断类的一次有界复验，跨提交不重置预算；若同类再失败则停止合并并继续取证。
 - 原生iPhone及生产：未验证、未发布；发布请求不代替最终精确SHA确认。
