@@ -1,0 +1,55 @@
+{
+  "baseline": "bc329979e232d16a238190bc069eae32a85af4c9",
+  "source": "authenticated GitHub open pull requests, 2026-10-25",
+  "pullRequests": [
+    {
+      "number": 405,
+      "title": "适配新版 P1 桌面界面与设置导航",
+      "head": "4d72486a43bbd62640c48f8e286816ce3ab47d82",
+      "headIsAncestor": false,
+      "disposition": "retain-until-exact-integration-and-owner-release-verified"
+    },
+    {
+      "number": 369,
+      "title": "test: capture gallery departure baseline (blocked by CI)",
+      "head": "049435a855988233a4a3cc901aa1a4f0937db550",
+      "headIsAncestor": null,
+      "disposition": "retain-until-exact-integration-and-owner-release-verified"
+    },
+    {
+      "number": 302,
+      "title": "perf(release): V2 完整验证提速与候选预载激活",
+      "head": "608db6ba8c9003494db4571da956560283964e23",
+      "headIsAncestor": null,
+      "disposition": "retain-until-exact-integration-and-owner-release-verified"
+    },
+    {
+      "number": 284,
+      "title": "记录 CI 镜像正式发布与完整生产回读",
+      "head": "12d5975e87374d0f39027ac86cc08eb9b01c30dc",
+      "headIsAncestor": null,
+      "disposition": "retain-until-exact-integration-and-owner-release-verified"
+    },
+    {
+      "number": 117,
+      "title": "修复聊天表情媒体交互",
+      "head": "3b758dc18628d5713cce923fcc04238fe3e45c8a",
+      "headIsAncestor": false,
+      "disposition": "retain-until-exact-integration-and-owner-release-verified"
+    },
+    {
+      "number": 105,
+      "title": "docs: record privacy release candidate",
+      "head": "60b375516b2b607e0bd98baf8177d302526ffac6",
+      "headIsAncestor": false,
+      "disposition": "retain-until-exact-integration-and-owner-release-verified"
+    },
+    {
+      "number": 69,
+      "title": "ci: allow intentional secret test fixtures",
+      "head": "42fe8f7bc80bccb9e0b81d32d4939c9b4139d985",
+      "headIsAncestor": false,
+      "disposition": "retain-until-exact-integration-and-owner-release-verified"
+    }
+  ]
+}
