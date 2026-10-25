@@ -1,4 +1,5 @@
-import { it, expect } from 'vitest';
+import { afterEach, beforeEach, it, expect, vi } from 'vitest';
+import { useAvailableBackupSpace } from './fixtures/backup-capacity';
 import { mkdtemp, mkdir, rm, stat, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -8,6 +9,8 @@ import { createStore } from '../server/storage.mjs';
 import { canonicalStringify } from '../server/protocol.mjs';
 import { sendBackup, receiveBackup } from '../server/backup-transfer.mjs';
 import { restoreBackup } from '../server/backup.mjs';
+beforeEach(() => { useAvailableBackupSpace(); });
+afterEach(() => { vi.restoreAllMocks(); });
 it('streams and restores an allowed signed archive after SQLite exceeds the old tmpfs limit',async()=>{
  const root=await realpath(await mkdtemp(path.join(tmpdir(),'backup-large-db-')));const dataDir=path.join(root,'data'),destination=path.join(root,'mac');
  await mkdir(destination,{mode:0o700});const store=await createStore({dataDir});const data=new PassThrough(),ack=new PassThrough();

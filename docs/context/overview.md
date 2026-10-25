@@ -1,3 +1,5 @@
+消息时间线呈现投影：`src/lib/message-timeline.ts`分离聊天排序／隐藏及本人私有归档去重，其他来源房间相同消息ID仍私有可见；由`app.ts`委托调用，不改变协议、回执或存储。验证为`tests/message-timeline-model.test.ts`及既有frontend-lifecycle／恢复／删除专项；`npm run perf:timeline`输出合成投影基线，`QUIET_ROOM_TIMELINE_PERF=1 node tests/frontend-lifecycle.e2e.mjs`另测真实DOM／输入／锁定清理。隔离灾备入口为`npm run test:restore-drill`；范围与证据见[治理V1](../requirements/2026-10-25-project-governance/README.md)。
+
 22项界面一致性（2026-10-24）：`motion`、`space-drawer`和`room-creation-view`统一页面过渡；`archive-settings`与`room-polish.css`修正凭证／设备布局；`ui-notice`集中提交异常，`form-input`锁背景滚动，`meme-picker`恢复分类，`media-capsule`合并过期状态；弱网写入分离在`app.ts`。回归集中`settings-v14.e2e`与`offline-outbox.e2e`，并跑完整浏览器。确认及证据见[22项V1](../requirements/2026-10-24-ui-22-refinements/README.md)，视觉V1.28。 退出动画中的迟到回执不消费返回位置意图由`app.ts`的当前列表所有权检查保证，确定性回归为`frontend-lifecycle.e2e`。
 
 设置与恢复V1.4（2026-10-23）：设置分类和导航在`space-drawer.ts`，原位创建在`room-creation-view.ts`，凭证与恢复完整页在`archive-settings.ts`，本人链接授权在`app.ts`／`invite-link.ts`及device-link存储路径。回归新增`settings-v14.e2e`并保留new-room-flows/mobile、numeric-password、设备与归档测试；确认及实施证据见[本需求](../requirements/2026-10-23-settings-17-prototype/README.md)，契约为NEW_ROOM_ARCHIVES、SECURITY、D-077与视觉V1.26。

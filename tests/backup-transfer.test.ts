@@ -2,7 +2,8 @@ import { mkdtemp, rm, mkdir, readFile, realpath, writeFile, readdir } from 'node
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { availableBackupSpace, useAvailableBackupSpace } from './fixtures/backup-capacity';
 import * as capacity from '../scripts/backup-capacity.mjs';
 import { MAX_BACKUP_DATABASE_BYTES } from '../server/backup-limits.mjs';
 import { sendBackup, receiveBackup, writeHeader } from '../server/backup-transfer.mjs';
@@ -10,6 +11,7 @@ import { createStore } from '../server/storage.mjs';
 import { spawnSync } from 'node:child_process';
 import { restoreBackup, exportConsistentBackup } from '../server/backup.mjs';
 const roots: string[] = [];
+beforeEach(() => { useAvailableBackupSpace(); });
 afterEach(async () => { vi.restoreAllMocks(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 async function fixture() {
  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'mac-backup-test-'))); roots.push(root);
@@ -23,6 +25,21 @@ async function fixture() {
  return { root, dataDir, temporaryRoot, destination, store, roomId, blobId, bytes };
 }
 describe('Mac pull backup', () => {
+ it('refuses an actually failing admission policy before accepting bytes and preserves old recovery points', async () => {
+  const f = await fixture(); const data = new PassThrough(); const ack = new PassThrough();
+  const previous = path.join(f.destination, 'existing-recovery-point');
+  try {
+   await writeFile(previous, 'preserve', { mode: 0o600 });
+   vi.spyOn(capacity, 'checkBackupCapacity').mockImplementation(async (_root, options) => {
+    capacity.assertBackupCapacity({ ...availableBackupSpace, bavail: 7 * 1024 ** 3 }, options);
+   });
+   await expect(receiveBackup({ root: f.destination, input: data, output: ack })).rejects.toThrow('BACKUP_CAPACITY_LOW');
+   expect(ack.readableLength).toBe(0);
+   expect(data.readableLength).toBe(0);
+   expect(await readFile(previous, 'utf8')).toBe('preserve');
+   expect(await readdir(f.destination)).toEqual(['existing-recovery-point']);
+  } finally { f.store.close(); data.destroy(); ack.destroy(); }
+ });
  it('streams a consistent live snapshot, independently verifies and restores complete ciphertext before acknowledging', async () => {
   const f = await fixture(); const data = new PassThrough(); const ack = new PassThrough();
   try {
