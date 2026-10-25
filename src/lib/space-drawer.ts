@@ -227,8 +227,8 @@ const removable = Boolean(options.remove && (space.waiting || space.roomArchiveV
     const i = options.spaces.indexOf(s), selected = s.roomId === options.currentRoom;
 const expiry = pendingSpaceExpiry(s);
     const waitingCopy = `等待对方加入${expiry ? ` · 剩余 ${formatPendingCountdown(expiry - Date.now())}` : ''}`;
-    const status = s.accessState === 'unprepared' ? '请先在原设备打开此密室' : s.accessState === 'restricted' ? '待对方授权' : s.waiting ? waitingCopy : s.preview || '打开密室查看消息';
-    const statusLine = s.waiting && !s.accessState
+    const status = s.catalogOnly ? '尚未在此浏览器接入' : s.accessState === 'unprepared' ? '请先在原设备打开此密室' : s.accessState === 'restricted' ? '待对方授权' : s.waiting ? waitingCopy : s.preview || '打开密室查看消息';
+    const statusLine = s.waiting && !s.accessState && !s.catalogOnly
       ? `<small class="space-message-preview is-waiting" ${expiry ? `data-expires="${expiry}" data-countdown="${i}"` : ''}>${escape(waitingCopy)}</small>`
       : `<small class="space-message-preview">${escape(status)}</small>`;
     return `<div class="space-access-row"><button class="space-row ${selected ? 'is-selected' : ''}" data-space="${i}" aria-current="${selected ? 'true' : 'false'}">${spaceAvatarMarkup(s.avatar, s.name)}<span class="space-row-copy"><strong>${escape(s.name)}</strong>${statusLine}</span><span class="space-row-trailing"><span class="space-unread" data-unread="${i}" hidden></span>${selected ? '' : `<span class="space-row-arrow" aria-hidden="true">${arrow}</span>`}</span></button><button class="space-access-action" data-access="${i}" aria-label="授权 ${escape(s.name)} 的设备请求" hidden><span>授权</span></button></div>`;

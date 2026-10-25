@@ -350,7 +350,7 @@ describe('image viewer horizontal paging', () => {
     expect(singleItem.media.style.transform).toBe('translate3d(0px, 0px, 0) scale(1)');
   });
 
-  it('lets a paused inline video page but never treats it as a zoom target', () => {
+  it('lets an inline video page and dismiss downward without treating it as a zoom target', () => {
     const harness = new GestureHarness({ media: 'video' });
     harness.drag(300, 200, 200);
     expect(harness.pages[0]).toMatchObject({ direction: 1 });
@@ -366,7 +366,7 @@ describe('image viewer horizontal paging', () => {
     harness.time = 1_050;
     harness.pointer('pointermove', { pointerId: 2, clientX: 180, clientY: 320 });
     harness.pointer('pointerup', { pointerId: 2, clientX: 180, clientY: 320 });
-    expect(harness.dismissals).toEqual([]);
+    expect(harness.dismissals).toEqual([true]);
   });
 
   it('locks all input after a committed page until its consumer resets the handoff', () => {

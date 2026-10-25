@@ -531,6 +531,22 @@ export async function startServer(options = {}) {
         return;
       }
 
+      const ownDirectory = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/own-directory$`));
+      if (ownDirectory && ['GET','PUT'].includes(request.method)) {
+        if (!allowRequest(request,'own-directory',900)) { response.setHeader('Retry-After','60'); json(request,response,429,{error:'请稍后同步密室目录'}); return; }
+        try {
+          const device = requireActiveDevice(request,ownDirectory[1]);
+          if (!allowRequest(request,`own-directory:${ownDirectory[1]}:${device.deviceId}`,120)) { response.setHeader('Retry-After','60'); json(request,response,429,{error:'请稍后同步密室目录'}); return; }
+          const token = bearerToken(request);
+          const result = request.method === 'GET' ? store.ownSpaceDirectory.read(ownDirectory[1],token)
+            : store.ownSpaceDirectory.save(ownDirectory[1],token,JSON.parse((await readBody(request,2200000)).toString('utf8')));
+          json(request,response,200,result);
+        } catch (error) {
+          const code = error instanceof Error ? error.message : '';
+          json(request,response,code === 'UNAUTHORIZED' ? 401 : code === 'DIRECTORY_CONFLICT' ? 409 : 400,{error:'本人密室目录暂不可用',code});
+        }
+        return;
+      }
       const directory = pathname.match(/^\/api\/(?:space-directories|browser-access-catalogs)\/([A-Za-z0-9_-]{22})$/);
       if (directory && ['GET', 'PUT', 'PATCH'].includes(request.method)) {
         // Six endpoints behind one home IP can poll their two own catalogs.

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {mkdir} from 'node:fs/promises';
 import {privacyFixture} from './helpers/privacy-fixture.mjs';
+import {verifyReliabilitySurfaces} from './fixtures/reliability-surfaces.mjs';
 const f=await privacyFixture({hasTouch:true});
 const {page}=f;
 try {
@@ -46,6 +47,7 @@ try {
  assert.equal(await page.locator('.entry-art-gallery').count(),1);
  const dir=process.env.ENTRY_FEEDBACK_EVIDENCE;
  if(dir){await mkdir(dir,{recursive:true});await page.screenshot({path:`${dir}/gallery-empty.png`});}
+ await verifyReliabilitySurfaces(page);
  assert.deepEqual(f.errors,[]);
  console.log('PASS acceptance refinement: settings hit target, stable header, chrome color, compact password, semantic close + animated exit, gallery empty state.');
 }finally{await f.close()}

@@ -48,11 +48,7 @@ html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confi
 #app .device-management-page .device-toolbar span { font-size:.75rem; color:var(--ink-muted); }
 #app .device-management-page .device-section { margin:0 0 24px; padding:0; }
 #app .device-management-page .device-section > h2 { margin:0 0 12px; color:var(--ink-muted); }
-#app .device-management-page .device-card { display:grid; grid-template-columns:44px minmax(0,1fr); align-items:center; gap:12px; margin:0; padding:16px; border-radius:0; }
-#app .device-management-page .device-card:first-of-type { border-radius:12px 12px 0 0; }
-#app .device-management-page .device-card:last-child { border-radius:0 0 12px 12px; }
-#app .device-management-page .device-card:only-of-type { border-radius:12px; }
-#app .device-management-page .device-card + .device-card { border-top:1px solid var(--line); }
+#app .device-management-page .device-card { display:grid; grid-template-columns:44px minmax(0,1fr); align-items:center; gap:12px; margin:0; padding:16px; border-radius:12px; }
 #app .device-management-page .device-card > div { min-width:0; }
 #app .device-management-page .device-card strong { display:flex; flex-wrap:wrap; align-items:center; gap:6px; font-size:.875rem; line-height:1.5; overflow-wrap:anywhere; }
 #app .device-management-page .device-card small { display:block; font-size:.75rem; color:var(--ink-muted); line-height:1.5; margin-top:3px; }
@@ -481,6 +477,35 @@ html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confi
 #app .device-management-page .device-card > .device-kind-icon { grid-column:1; grid-row:1; }
 #app .device-management-page .device-card > div { grid-column:2; grid-row:1; }
 #app .device-management-page .device-card > :is(.device-chevron,.device-radio) { grid-column:3; grid-row:1; }
+
+/* Expression preparation has one status owner below its transparent content. */
+#app .expression-bubble .image-preview:not([data-image-state='error']) > .media-load-capsule { display:none; }
+#app .expression-bubble .media-send-pending svg { animation:expression-wait 1.1s linear infinite; }
+@keyframes expression-wait { to { rotate:360deg; } }
+@media (prefers-reduced-motion:reduce) { #app .expression-bubble .media-send-pending svg { animation:none; } }
+
+@media (min-width:1024px) {
+  /* Desktop drawers use a quiet navigation rail with an even row hierarchy. */
+  #app .space-drawer-overlay:not(.is-settings-sheet):not(.is-space-list-page) > .space-drawer { inset:12px auto 12px 12px; width:344px; border-radius:16px; padding:0 16px 16px; background:var(--paper); border:1px solid var(--line-subtle); box-shadow:0 12px 36px color-mix(in srgb,var(--ink) 12%,transparent); }
+  #app .desktop-sidebar .space-drawer { padding:0 12px 16px; background:var(--surface); }
+  #app .desktop-sidebar .space-drawer-header { min-height:72px; padding-inline:4px; gap:8px; border-bottom:1px solid var(--line-subtle); margin-bottom:12px; }
+  #app .desktop-sidebar .space-drawer-header h2 { color:var(--ink); font-size:17px; letter-spacing:normal; }
+  #app .desktop-sidebar .space-drawer-scroll { padding:0; }
+  #app .desktop-sidebar .space-list { gap:4px; }
+  #app .desktop-sidebar .space-row, #app .desktop-sidebar .space-row.is-selected { min-height:72px; padding:12px; border-radius:12px; gap:12px; align-items:center; }
+  #app .desktop-sidebar .space-row-copy { gap:4px; }
+  #app .desktop-sidebar .space-row-copy strong, #app .desktop-sidebar .space-row.is-selected strong { font-size:14px; line-height:1.5; letter-spacing:normal; white-space:nowrap; }
+  #app .desktop-sidebar .space-row.is-selected { background:var(--accent-soft); }
+  #app .desktop-sidebar .space-row:hover:not(.is-selected) { background:var(--surface-raised); }
+  #app .desktop-sidebar .space-row:focus-visible { outline:2px solid var(--focus); outline-offset:-2px; }
+  #app .desktop-sidebar .space-drawer-footer { border-top:1px solid var(--line-subtle); padding-top:12px; margin-top:12px; }
+  /* Both anchored panels share geometry; opening either never changes row width. */
+  #app[data-desktop-workspace='true'] .chat-shell .composer { box-sizing:border-box; inset-inline:0; width:auto; padding-inline:28px; }
+  #app[data-desktop-workspace='true'] .chat-shell .composer-row { box-sizing:border-box; flex:1 0 100%; width:100%; min-width:0; max-width:none; }
+  #app[data-desktop-workspace='true'] .composer > :is(.meme-panel,.chat-tools) { box-sizing:border-box; position:absolute; inset:auto 28px calc(100% + 8px) auto; width:min(480px,calc(100% - 56px)); margin:0; padding-inline:12px; border:1px solid var(--line-subtle); border-radius:16px; background:var(--composer-panel-surface); box-shadow:0 8px 28px color-mix(in srgb,var(--ink) 12%,transparent); }
+  #app[data-desktop-workspace='true'] .composer > .chat-tools { left:28px; right:auto; padding-block:16px; }
+  #app[data-desktop-workspace='true'] .chat-shell .composer.has-meme-panel { padding-bottom:8px; }
+}
 
 #app .room-connection-card { box-sizing:border-box; align-self:center; flex:none; width:min(100%,420px); margin:24px auto; padding:20px; border:0; border-radius:16px; background:var(--surface-raised); color:var(--ink); }
 #app .room-connection-card > .room-connection-content { position:static; display:grid; gap:12px; padding:0; }

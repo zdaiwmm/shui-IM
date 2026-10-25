@@ -572,6 +572,12 @@ try {
   assert.deepEqual(directCleanup, { cleanupReleased: true, detached: true, staleGestureIgnored: true, concealedUrlsRevoked: true }, 'Direct runtime teardown retained a viewer gesture closure or concealed bitmap');
   await page.evaluate(async () => {
     const f = window.chatPrivacy;
+    // Warm re-entry must reuse the authenticated concealed bitmap. This case
+    // specifically needs a cache miss to interrupt a real encoding operation.
+    const manifest = f.records[0].payload.image;
+    if (!await f.vault.loadMediaPreview(f.session, manifest, undefined, 'concealed')) throw Error('Expected a warm authenticated concealment cache');
+    await f.vault.deleteCachedMediaBlob(f.session, manifest.blobId);
+    if (await f.vault.loadMediaPreview(f.session, manifest, undefined, 'concealed')) throw Error('Encoding interruption fixture did not evict its cache');
     const encode = HTMLCanvasElement.prototype.toBlob;
     HTMLCanvasElement.prototype.toBlob = function (callback, ...args) {
       return encode.call(this, blob => {

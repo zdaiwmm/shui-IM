@@ -652,20 +652,21 @@ async function mediaPreviewKey(session: VaultSession): Promise<CryptoKey> {
 }
 
 /** Derived bytes are authenticated to the complete original manifest and local room. */
-export async function saveMediaPreview(session: VaultSession, manifest: import('./types').ImageManifest, blob: Blob, signal?: AbortSignal): Promise<void> {
+export async function saveMediaPreview(session: VaultSession, manifest: import('./types').ImageManifest, blob: Blob, signal?: AbortSignal, variant: 'preview' | 'concealed' = 'preview'): Promise<void> {
   if (blob.size > 16 * 1024 ** 2 || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(blob.type)) return;
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-preview-v1', roomId: localDataScope(session.vault), manifest, mimeType: blob.type }));
+  const additionalData = encoder.encode(canonicalStringify({ purpose: `quiet-room-media-${variant}-v1`, roomId: localDataScope(session.vault), manifest, mimeType: blob.type }));
   const bytes = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData }, await mediaPreviewKey(session), await blob.arrayBuffer());
   signal?.throwIfAborted();
-  await writeMediaCacheRecord(session, { id: mediaChunkId(localDataScope(session.vault), manifest.blobId, -1), roomId: localDataScope(session.vault), blobKey: mediaBlobKey(localDataScope(session.vault), manifest.blobId), blobId: manifest.blobId, index: -1, bytes, iv, mimeType: blob.type, cachedAt: Date.now() }, signal);
+  const index = variant === 'preview' ? -1 : -3;
+  await writeMediaCacheRecord(session, { id: mediaChunkId(localDataScope(session.vault), manifest.blobId, index), roomId: localDataScope(session.vault), blobKey: mediaBlobKey(localDataScope(session.vault), manifest.blobId), blobId: manifest.blobId, index, bytes, iv, mimeType: blob.type, cachedAt: Date.now() }, signal);
 }
 
-export async function loadMediaPreview(session: VaultSession, manifest: import('./types').ImageManifest, signal?: AbortSignal): Promise<Blob | null> {
-  const record = await transaction<StoredMediaChunk | undefined>('mediaChunks', 'readonly', store => store.get(mediaChunkId(localDataScope(session.vault), manifest.blobId, -1)), () => session.stored);
+export async function loadMediaPreview(session: VaultSession, manifest: import('./types').ImageManifest, signal?: AbortSignal, variant: 'preview' | 'concealed' = 'preview'): Promise<Blob | null> {
+  const record = await transaction<StoredMediaChunk | undefined>('mediaChunks', 'readonly', store => store.get(mediaChunkId(localDataScope(session.vault), manifest.blobId, variant === 'preview' ? -1 : -3)), () => session.stored);
   if (!record?.iv || !record.mimeType || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(record.mimeType)) return null;
   try {
-    const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-preview-v1', roomId: localDataScope(session.vault), manifest, mimeType: record.mimeType }));
+    const additionalData = encoder.encode(canonicalStringify({ purpose: `quiet-room-media-${variant}-v1`, roomId: localDataScope(session.vault), manifest, mimeType: record.mimeType }));
     const bytes = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: record.iv, additionalData }, await mediaPreviewKey(session), record.bytes);
     signal?.throwIfAborted();
     await touchMediaCache(session, record.blobKey).catch(() => undefined);
@@ -1429,6 +1430,18 @@ export async function unlockVault(secret = '', preparedPlatformProof?: Promise<U
     if (expectedStored) { selectedSpace = vaultSpaceId(session.stored); rememberSpace(selectedSpace); }
     return session;
   }).finally(() => { if (platformProof) { platformProof.fill(0); takeBrowserAccessPrf(platformProof)?.fill(0); } });
+}
+
+/** Background directory sync must never change the user's selected room.
+ * Only an already unlocked browser collection can open these modern vaults. */
+export async function unlockDirectorySyncRoom(secret: string, expected: StoredVault): Promise<VaultSession> {
+  if (expected.v !== 3 || expected.unlockMethod !== 'password' || !expected.browserRoomKey) throw new Error('此密室不能用于后台目录同步');
+  return withVaultLifecycle(async () => {
+    if (!sameStoredVault(await readStoredVaultUnlocked(vaultSpaceId(expected)), expected)) throw staleVaultError();
+    const session = await unlockVaultLocked(secret, undefined, expected);
+    if (!session.vault.roomArchiveV2) throw new Error('此密室不能用于后台目录同步');
+    return session;
+  });
 }
 
 /** Prepare management of already-owned pending slots without changing selection. */

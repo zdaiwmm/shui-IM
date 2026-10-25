@@ -14,6 +14,8 @@ export type PrivateSpace = {
   roomId: string; name: string; avatar?: SpaceAvatar; localId?: string; code?: string; waiting?: boolean;
   chamber?: boolean;
   roomArchiveV2?: boolean;
+  /** Own-device metadata without a room identity in this browser. */
+  catalogOnly?: boolean;
   closed?: boolean;
   /** Explicitly authorized history sources, inside the encrypted recovery directory only. */
   historyCodes?: string[];

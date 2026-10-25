@@ -56,6 +56,16 @@ async function initializeTimeline() {
     acceptedAt: local(year, 10, 20), status: 'delivered',
   });
   const settle = async () => {
+    // Warm originals still prepare an authenticated concealed preview through
+    // IndexedDB/canvas. Six animation frames do not establish pixel readiness.
+    // Measure the final thumbnail without changing any geometry assertions.
+    const deadline = performance.now() + 5000;
+    const previews = [...document.querySelectorAll('#message-list .image-preview')];
+    while (previews.some(preview => preview.isConnected && preview.dataset.imageState !== 'loaded')) {
+      if (previews.some(preview => preview.dataset.imageState === 'error')) throw Error('Synthetic timeline preview failed to load');
+      if (performance.now() > deadline) throw Error('Synthetic timeline preview did not become ready');
+      await new Promise(requestAnimationFrame);
+    }
     await Promise.all([...document.querySelectorAll('#message-list img')].map(image => image.decode()));
     // Let image decoding, ResizeObserver delivery, and the viewport sampler
     // each complete; do not repair the app's scroll position in the fixture.

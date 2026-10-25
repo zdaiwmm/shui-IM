@@ -574,3 +574,16 @@ npm run check:full
 - `tests/desktop-session-flow.e2e.mjs`：真实PRF保险库与双端MLS、可见失焦连续性、隐藏后重新验证、加密草稿／历史恢复、唯一发送及对端解密；完整浏览器门禁保留附件待发箱、恢复、未读与媒体通话专项。
 
 iPhone／iOS27／Safari 原生键盘栏、地址栏、真实切后台／选择器／权限、系统锁屏和全屏、放大文字与辅助技术仍需真机验证。桌面模拟不能证明系统工具内部行为、缩略图清理或冻结时 JS 执行。
+
+
+## 2026-10-25 媒体及本人目录一致性 V1
+
+确认范围及逐条证据见[本轮需求](docs/requirements/2026-10-25-experience-reliability/README.md)，用户本次免原型；网络/冷启动第10、11项已排除。
+
+- `tests/image-viewer-gestures.test.ts` 与 `tests/video-flow.e2e.mjs`：视频下拖关闭、重新遮蔽、原播放器释放、控件/系统全屏/缩放边界。
+- `tests/media-cache.e2e.mjs`：真实刷新及解锁后复用加密遮蔽图，禁止重新编码，保持原字节、动画、清单AAD、配额和取消边界。
+- `tests/desktop-layout.e2e.mjs`：加载完整产品样式，实际打开工具面板前后输入行等宽，侧栏、焦点、阅读锚点及响应式。
+- `tests/entry-feedback.e2e.mjs` 的 reliability-surfaces：真实设备管理/详情，1–3台独立圆角无分隔线，18套设置上下采样色一致。
+- `tests/own-space-directory.test.ts`：真实设备加密/签名、异角色/未知/撤销/篡改拒绝、逻辑冲突与移除保留。`tests/spaces.e2e.mjs` 的 own-space-directory：真实HTTP、独立浏览器及IndexedDB的新建发现、双向改名、离线移除、冷重入和不授予历史/成员资格。
+- `tests/system-media-session.test.ts`、语音及隐私/媒体回归：停止并清除来源后释放媒体会话，部分API不支持不阻断其余清理。
+- 最终候选须完整应用门禁及精确CI；原生iPhone/iOS27/Safari的工具栏颜色、触摸退出和锁屏播放卡片另作真机验收，当前未验证。

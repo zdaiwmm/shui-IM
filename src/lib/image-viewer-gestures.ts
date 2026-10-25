@@ -680,7 +680,7 @@ export function bindImageViewerGestures(options: ImageViewerGestureOptions): Ima
       return;
     }
     const axis = ended.axis ?? (Math.hypot(x, y) > AXIS_LOCK_DISTANCE ? (Math.abs(y) > Math.abs(x) ? 'y' : 'x') : null);
-    if (axis === 'y' && imageForMedia(ended.media) && y > 0 &&
+    if (axis === 'y' && y > 0 &&
         (y >= DISMISS_DISTANCE || (y > DISMISS_FLICK_MIN_DISTANCE && y / elapsed > DISMISS_FLICK_VELOCITY))) {
       lastTap = null;
       options.dismiss(y > 0);

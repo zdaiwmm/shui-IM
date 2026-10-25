@@ -19,7 +19,7 @@ try {
     const errors = []; page.on('pageerror', error => errors.push(error.message));
     await page.goto(`http://localhost:${server.httpServer.address().port}/__desktop`);
     await page.evaluate(async () => {
-      for (const name of ['styles','chat-layout','gallery','auth-recovery','chat-interactions','cover','voice-messages','call','motion','desktop']) await import(`/src/${name}.css`);
+      await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
       const { QuietRoomApp } = await import('/src/app.ts');
       const vault = await import('/src/lib/vault.ts');
       const spaces = await import('/src/lib/spaces.ts');
@@ -72,9 +72,12 @@ try {
     geometry = await dimensions(); assert.equal(geometry.shell.x, 0);
     const after = await page.evaluate(() => window.fixture.app.captureChatAnchor());
     assert.equal(after.clientMsgId, anchor.clientMsgId); assert.ok(Math.abs(after.offset - anchor.offset) <= 2, JSON.stringify({ anchor, after }));
+    const beforeTools = await dimensions();
     await page.locator('#open-chat-tools').press('Enter');
     await page.locator('#chat-tools').evaluate(async panel=>{await Promise.allSettled(panel.getAnimations().map(animation=>animation.finished));});
     await assertComposerSurface();
+    const afterTools = await dimensions();
+    assert.ok(Math.abs(afterTools.row.width-beforeTools.row.width)<1,JSON.stringify({before:beforeTools.row,after:afterTools.row}));
     assert.equal(await page.locator('#chat-tools button:not(:disabled)').first().evaluate(el => el === document.activeElement), true);
     const toolGeometry = await page.evaluate(() => {
       const tools = document.querySelector('#chat-tools').getBoundingClientRect(), composer = document.querySelector('#composer').getBoundingClientRect(), plus = document.querySelector('#open-chat-tools').getBoundingClientRect();

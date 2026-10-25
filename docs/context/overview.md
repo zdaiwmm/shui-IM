@@ -25,6 +25,8 @@ Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请�
 
 # Quiet Room 项目地图
 
+本人设备目录：`src/lib/own-space-directory.ts`、`server/own-space-directory.mjs`，同角色设备逐端加密/签名同步有界目录元数据；发现目录不授权成员或历史，列表移除保留已有数据。契约由`PRODUCT.md`、`NEW_ROOM_ARCHIVES.md`、`SECURITY.md`拥有，单元为`tests/own-space-directory.test.ts`，真实双浏览器回归由`tests/spaces.e2e.mjs`中的`tests/fixtures/own-space-directory.mjs`执行。系统媒体会话清理由`src/lib/system-media-session.ts`统一处理，实际iOS锁屏卡片需另验。
+
 十三项体验修复：[需求V1](../requirements/2026-10-24-ui-13-fixes/README.md)；`tab-unread.ts`绘制只读未读favicon，`vault.ts`／`app.ts`原子取消待发并核验发送前持久记录；`meme-picker.ts`独立读取添加目录，公共Fluent缓存由`public/sw.js`按版本管理。对应回归沿用settings-v14、message-deletion、frontend-lifecycle及meme-picker／media-upload。
 
 融合消息体系的语音V2.3：`voice-player.ts`、`voice-messages.css`与`design-system.css`管理40主体／44目标、总宽默认最多220、同排右侧下移3px的时间／回执，以及共享消息主题；`app.ts`把独立回执放入播放器网格，刷新不打断播放。真实几何、四配色／200%文字、加载／重试及原生播放回归为`voice-message-ui.e2e.mjs`，并与voice-flow/lifecycle联合；确认由[本次V2.3](../requirements/2026-10-24-voice-bubble-integrated/README.md)拥有。iOS27.2杂音续查仍由[旧语音需求](../requirements/2026-10-23-voice-quality-bubble/README.md)拥有；合成对照不代表真机音质修复。
