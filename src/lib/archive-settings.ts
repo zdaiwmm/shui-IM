@@ -1,15 +1,16 @@
+import type { ArchiveBackupSnapshot } from './archive-backup-state';
 import { createElement, Upload, KeyRound, Download, Eye, EyeOff, Check, Image, FileText, Video, AudioLines, MessageSquare } from 'lucide';
 import { createArchiveCardImage, readArchiveCardImage, archiveCardLabel } from './archive-card-image';
 import { protectArchiveCard, unlockArchiveCard, archiveAccessToken, archiveAccessHash, archiveAccessProof } from './room-archive-crypto';
-import { restoreRoomArchive, readRoomArchiveCounts, type ArchiveRestoreProgress } from './room-archive';
-import { saveVault, withVaultMutation, loadPrivateArchiveItems, type VaultSession } from './vault';
+import { restoreRoomArchive, type ArchiveRestoreProgress } from './room-archive';
+import { saveVault, withVaultMutation, type VaultSession } from './vault';
 import { showExplanation } from './explanation-dialog';
 import { mountDialog } from './dialog';
 import { authorizedFetch } from './api';
 import { toBase64Url } from './base64';
 import { animatePageReplacement } from './motion';
 
-type Options = { startWithCredential?: boolean; startWithRestore?: boolean; name:()=>string; verify:()=>Promise<void>; root:HTMLElement; session:VaultSession; signal:AbortSignal; active:()=>boolean; notice:(text:string,error?:boolean)=>void; back:()=>void; sync:()=>Promise<void>; backupChanged?:(enabled:boolean)=>void; restored:()=>void; beginPick:()=>boolean; finishPick:()=>Promise<boolean>; saveImage:(blob:Blob)=>Promise<void> };
+type Options = { backupSnapshot:()=>Promise<ArchiveBackupSnapshot>; startWithCredential?: boolean; startWithRestore?: boolean; name:()=>string; verify:()=>Promise<void>; root:HTMLElement; session:VaultSession; signal:AbortSignal; active:()=>boolean; notice:(text:string,error?:boolean)=>void; back:()=>void; sync:()=>Promise<void>; backupChanged?:(enabled:boolean)=>void; restored:()=>void; beginPick:()=>boolean; finishPick:()=>Promise<boolean>; saveImage:(blob:Blob)=>Promise<void> };
 const escape = (text:string) => text.replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]!));
 const icon = (value:Parameters<typeof createElement>[0]) => createElement(value).outerHTML;
 export function mountArchiveSettings(o:Options):void {
@@ -21,7 +22,7 @@ export function mountArchiveSettings(o:Options):void {
   const show=(html:string,backward=false)=>{const previous=initial?null:o.root.querySelector<HTMLElement>(':scope > .archive-page');initial=false;o.root.innerHTML=html;animatePageReplacement(o.root,previous,o.root.firstElementChild as HTMLElement,backward,o.signal);};
   const leave=()=>{pageAbort?.abort();o.back();};
   const protectTask=(button:HTMLButtonElement,task:()=>Promise<void>)=>{
-    if(button.disabled)return;button.disabled=true;button.setAttribute('aria-busy','true');
+    if(button.disabled||!active()||!button.isConnected||button.closest('.local-page-outgoing'))return;button.disabled=true;button.setAttribute('aria-busy','true');
     void task().catch(report).finally(()=>{if(button.isConnected){button.disabled=false;button.removeAttribute('aria-busy');}});
   };
   function bindBack(callback=leave){o.root.querySelector('[data-back]')!.addEventListener('click',callback);}
@@ -48,16 +49,25 @@ export function mountArchiveSettings(o:Options):void {
   }
   function settings() {
     const signal=begin();
-    show(shell('备份与恢复',`<p class="backup-intro">聊天记录和原文件会在联网、解锁时自动加密备份。</p><div class="backup-settings-group"><section class="backup-setting"><div class="backup-setting-copy"><span class="backup-setting-icon">${icon(Upload)}</span><div><h2>自动备份</h2><p data-archive-status>正在读取备份状态…</p></div></div><button class="secondary-button" data-sync>立即备份</button></section><button class="archive-entry" data-card>${icon(KeyRound)}<span>恢复凭证<small>设置密码，保存恢复卡片</small></span><b>›</b></button><button class="archive-entry" data-restore>${icon(Download)}<span>聊天记录恢复<small>用已保存的凭证找回记录</small></span><b>›</b></button></div>`));
+    show(shell('备份与恢复',`<p class="backup-intro">聊天记录和原文件会在联网、解锁时自动加密备份。</p><div class="backup-settings-group"><section class="backup-setting"><div class="backup-setting-copy"><span class="backup-setting-icon">${icon(Upload)}</span><div><h2>自动备份</h2><p data-archive-status role="status">正在读取备份状态…</p></div></div><button class="secondary-button" data-sync>立即备份</button></section><button class="archive-entry" data-card>${icon(KeyRound)}<span>恢复凭证<small>设置密码，保存恢复卡片</small></span><b>›</b></button><button class="archive-entry" data-restore>${icon(Download)}<span>聊天记录恢复<small>用已保存的凭证找回记录</small></span><b>›</b></button></div>`));
     bindBack();
     const status=o.root.querySelector<HTMLElement>('[data-archive-status]')!;
-    void loadPrivateArchiveItems(o.session).then(items=>{if(!status.isConnected)return;const state=o.session.vault.archiveState;
-      const complete=!!state?.completeAt&&!state.pending&&!state.preparing&&state.cursor>=o.session.vault.lastSeq&&(state.privateDone?.length??0)>=items.length;
-      status.textContent=complete?'当前记录及原文件已备份':'部分内容尚未备份，请保持联网并解锁';
-    }).catch(report);
+    bindBackupSnapshot(signal,status);
     o.root.querySelector<HTMLButtonElement>('[data-sync]')!.addEventListener('click',event=>protectTask(event.currentTarget as HTMLButtonElement,async()=>{await o.sync();if(!signal.aborted&&active())settings();}));
     o.root.querySelector('[data-card]')!.addEventListener('click',()=>card());
     o.root.querySelector('[data-restore]')!.addEventListener('click',restore);
+  }
+  function bindBackupSnapshot(signal:AbortSignal,status:HTMLElement,paint?:(snapshot:ArchiveBackupSnapshot)=>void){
+    let reading=false,again=false;
+    const refresh=()=>{
+      if(signal.aborted||!active()||!status.isConnected)return;
+      if(reading){again=true;return;}reading=true;
+      void o.backupSnapshot().then(snapshot=>{if(signal.aborted||!active()||!status.isConnected)return;status.textContent=snapshot.status;status.dataset.coverage=snapshot.coverage;paint?.(snapshot);}).catch(cause=>{
+        if(signal.aborted||!active()||!status.isConnected)return;
+        status.textContent='备份状态暂不可用，已有备份未被删除';status.dataset.coverage='unknown';
+      }).finally(()=>{reading=false;if(again){again=false;queueMicrotask(refresh);}});
+    };
+    o.root.addEventListener('archivebackupchange',refresh,{signal});window.addEventListener('online',refresh,{signal});window.addEventListener('offline',refresh,{signal});refresh();
   }
   const steps=(current:number)=>`<ol class="archive-steps" aria-label="凭证设置步骤">${['设置密码','导出凭证','回验原图'].map((label,index)=>`<li ${index+1===current?'aria-current="step"':''} data-state="${index+1<current?'done':index+1===current?'active':'waiting'}"><b>${index+1<current?icon(Check):index+1}</b><span>${label}</span></li>`).join('')}</ol>`;
   const field=(name:string,label:string,placeholder:string,autocomplete='new-password')=>`<label class="passkey-name-field"><span>${label}</span><span class="archive-password-control"><input aria-label="${label}" name="${name}" type="password" autocomplete="${autocomplete}" placeholder="${placeholder}" maxlength="256" required><button type="button" data-password-toggle aria-label="显示${label}" aria-pressed="false">${icon(Eye)}</button></span></label>`;
@@ -77,9 +87,9 @@ export function mountArchiveSettings(o:Options):void {
       try{await saveVault(o.session,lease);}catch(cause){o.session.vault.roomArchiveV2=previous;throw cause;}
     });
   }
-  const countLabels=[['messages','消息（含附件）'],['images','图片'],['videos','视频'],['audio','语音'],['files','文件']] as const;
+  const countLabels=[['messages','记录（含附件与状态事件）'],['images','图片'],['videos','视频'],['audio','语音'],['files','文件']] as const;
   function automaticBackupCard():string {
-    return `<section class="archive-backup-card" aria-labelledby="archive-auto-heading"><div class="archive-backup-heading"><h2 id="archive-auto-heading">自动备份</h2><button class="backup-toggle" type="button" role="switch" aria-labelledby="archive-auto-heading" aria-checked="${o.session.vault.roomArchiveV2!.automaticBackup!==false}" data-archive-auto><span></span></button></div><p>仅备份加密后的数据，解密在本机完成。服务器及未持有恢复凭证原图和密码的人无法解密。</p><p class="archive-backup-state" data-archive-auto-state role="status"></p><h3>已备份</h3><dl class="archive-backup-counts">${countLabels.map(([kind,label])=>`<div><dt>${label}</dt><dd data-archive-count="${kind}">正在读取</dd></div>`).join('')}</dl></section>`;
+    return `<section class="archive-backup-card" aria-labelledby="archive-auto-heading"><div class="archive-backup-heading"><h2 id="archive-auto-heading">自动备份</h2><button class="backup-toggle" type="button" role="switch" aria-labelledby="archive-auto-heading" aria-checked="${o.session.vault.roomArchiveV2!.automaticBackup!==false}" data-archive-auto><span></span></button></div><p>仅备份加密后的数据，解密在本机完成。服务器及未持有恢复凭证原图和密码的人无法解密。</p><p class="archive-backup-state" data-archive-auto-state role="status"></p><h3>已确认备份</h3><dl class="archive-backup-counts">${countLabels.map(([kind,label])=>`<div><dt>${label}</dt><dd data-archive-count="${kind}">正在读取</dd></div>`).join('')}</dl></section>`;
   }
   function bindAutomaticBackup(signal:AbortSignal):void {
     const card=o.root.querySelector<HTMLElement>('.archive-backup-card')!,button=card.querySelector<HTMLButtonElement>('[data-archive-auto]')!;
@@ -88,27 +98,18 @@ export function mountArchiveSettings(o:Options):void {
       button.setAttribute('aria-checked',String(enabled));
       card.querySelector('[data-archive-auto-state]')!.textContent=enabled?'本浏览器在联网、解锁时自动备份。':'自动备份已关闭，已有备份仍然保留。';
     };
-    let reading=false,refreshAgain=false;
-    const refresh=()=>{
-      if(signal.aborted||!active()||!card.isConnected)return;
-      if(reading){refreshAgain=true;return;}
-      reading=true;card.setAttribute('aria-busy','true');
-      void readRoomArchiveCounts(o.session,signal).then(counts=>{
-        if(signal.aborted||!active()||!card.isConnected)return;
-        for(const [kind] of countLabels)card.querySelector(`[data-archive-count="${kind}"]`)!.textContent=counts[kind].toLocaleString();
-      }).catch(cause=>{
-        if(signal.aborted||!active()||!card.isConnected)return;
-        if(cause instanceof DOMException&&cause.name==='AbortError'){refreshAgain=true;return;}
-        for(const node of card.querySelectorAll('[data-archive-count]'))node.textContent='暂不可用';
-      }).finally(()=>{reading=false;card.removeAttribute('aria-busy');if(refreshAgain){refreshAgain=false;queueMicrotask(refresh);}});
-    };
+    const refresh=()=>o.root.dispatchEvent(new Event('archivebackupchange'));
+    bindBackupSnapshot(signal,card.querySelector<HTMLElement>('[data-archive-auto-state]')!,snapshot=>{
+      button.setAttribute('aria-checked',String(snapshot.enabled));
+      for(const [kind] of countLabels)card.querySelector(`[data-archive-count="${kind}"]`)!.textContent=snapshot.counts?snapshot.counts[kind].toLocaleString():'暂不可用';
+    });
     button.addEventListener('click',()=>protectTask(button,async()=>{
       const enabled=o.session.vault.roomArchiveV2!.automaticBackup===false;
       await changeArchive(signal,archive=>{archive.automaticBackup=enabled;});
       if(signal.aborted||!active())return;
       paint();o.backupChanged?.(enabled);refresh();
     }),{signal});
-    o.root.addEventListener('archivebackupchange',refresh,{signal});paint();refresh();
+    paint();
   }
   async function resumeRotation(signal:AbortSignal){
     const pending=o.session.vault.roomArchiveV2!.rotation;if(!pending)return;

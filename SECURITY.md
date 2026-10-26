@@ -1,5 +1,13 @@
 # Security model
 
+## 2026-10-27 Private-history runtime and derived catalog
+
+Each room opening owns a distinct runtime token and cancellation signal, including reopening the same VaultSession. Results are checked after asynchronous boundaries and before projection. Locking invalidates ownership synchronously; a completed WebCrypto call may still return internally but cannot repopulate the next runtime. This is reference/resource release, not physical memory erasure.
+
+Private raw records and imported originals retain their authenticated encrypted namespaces. IndexedDB v16 adds only an encrypted, rebuildable private catalog: bounded ciphertext cursors, metadata-only encrypted external-sort runs, complete per-source deletion projection, and atomic adoption bound to the published import revision. No plaintext time/type/body index is added. Missing/corrupt catalogs fail closed for the private segment; raw data remain. Shared history's existing strict integrity scan is unchanged. Old-schema tabs must reload; rollback uses the v16-compatible strict reader, never database downgrade or deleting originals.
+
+Backup completion binds archive identity, local scope, shared sequence, private import revision and verified committed head. Preference/credential success and object uploads alone do not prove latest coverage. Previous authenticated batches survive partial failure. Cross-tab task leases do not replace withVaultMutation, immutable vault slots, CAS or MLS/message atomic commits. No cryptographic construction, membership/history permission or server architecture changes; browser tests and synthetic measurements are not physical-device evidence or independent audit.
+
 ## 2026-10-26 Own-device room admission
 
 The `own-admission` mailbox is separate from metadata in both SQL table and authenticated purpose. It reuses the existing pairwise P-256 ECDH / HKDF / AES-GCM and ECDSA, binding carrier room, sender, recipient, revision and purpose. Server access requires active, same-role members of the carrier room and grants no membership in the target room. The metadata payload remains compatible.

@@ -119,7 +119,7 @@ try {
             get.onsuccess = () => { resolve({ bytes: get.result.bytes, usedAt: get.result.usedAt, version: db.version }); db.close(); }; };
         });
       });
-      assert.deepEqual(migration, { bytes: 128, usedAt: 2, version: 15 }); await migrationContext.close();
+      assert.deepEqual(migration, { bytes: 128, usedAt: 2, version: 16 }); await migrationContext.close();
       console.log(`PASS ${engine.name()}: encrypted preview survives reload, original export is exact, animation stays intact, AAD/abort/quota fail safely`);
     } finally { await browser.close(); }
   }
