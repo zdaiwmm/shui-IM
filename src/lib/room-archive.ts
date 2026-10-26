@@ -185,7 +185,7 @@ async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal
   // Cursor IDs are global across archives; only this snapshot's actual count
   // is a valid denominator. Older servers retain indeterminate progress.
   state.totalObjects=Number.isSafeInteger(snapshot.count)&&snapshot.count!>=0&&snapshot.count!<=snapshot.end?snapshot.count!:0;detail?.({...state});
-  const totals:ArchiveCounts={messages:0,images:0,videos:0,files:0,audio:0};let count=0;
+  const totals:ArchiveCounts={messages:0,images:0,videos:0,files:0,audio:0},destinationScopes=new Map<string,string>();let count=0;
   for(const discovering of [true,false]) {
   if(!discovering){state.stage='restoring';state.objects=0;state.totals={...totals};detail?.({...state});}
   let after=0,revision=0;let previous:Ref|null=null;
@@ -205,8 +205,12 @@ async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal
     if(payload.revision!==++revision||canonicalStringify(payload.previous)!==canonicalStringify(previous)||
       !payload.item||typeof payload.item.self!=='boolean'||!uuid.test(payload.item.originRoomId)||!isMessagePayload(payload.item.message?.payload)||
       !uuid.test(payload.item.message.clientMsgId)||!uuid.test(payload.item.message.senderId)||!Number.isSafeInteger(payload.item.message.seq)||payload.item.message.seq<1||!timestamp(payload.item.message.acceptedAt)||!['sent','stored','delivered'].includes(payload.item.message.status)||!Array.isArray(payload.media)||payload.media.length>100)throw new Error('历史来源或完整性校验失败');
-    const scope=`${session.vault.localDataScope??session.vault.roomId}:private:${payload.item.originRoomId}`;
-    const prior=await loadPrivateArchiveItem(session,itemId(payload.item),signal),item={...payload.item,sourceScope:scope};
+    const prior=await loadPrivateArchiveItem(session,itemId(payload.item),signal);
+    // Only published copies may be reused. Fresh per-run/source namespaces keep
+    // another restore (including old clients) from borrowing unfinished chunks.
+    let scope=prior?.sourceScope??destinationScopes.get(payload.item.originRoomId);
+    if(!scope){scope=`${session.vault.localDataScope??session.vault.roomId}:private:${crypto.randomUUID()}`;destinationScopes.set(payload.item.originRoomId,scope);}
+    const item={...payload.item,sourceScope:scope};
     if(prior&&canonicalStringify(prior)!==canonicalStringify(item))throw new Error('导入记录与已保存的历史冲突');
     const expected=manifests(payload.item.message);
     if(canonicalStringify(expected)!==canonicalStringify(payload.media.map(x=>x.manifest)))throw new Error('原图片清单不完整');
@@ -227,7 +231,7 @@ async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal
         if(media.kind!=='media'||media.v!==2||media.blobId!==manifest.blobId||media.index!==index||typeof media.bytes!=='string')throw new Error('原图片分块归属不正确');
         const raw=fromBase64Url(media.bytes);
         if(pass===0){await verifier.chunk(index,raw.buffer);if(index===parts.length-1)verifier.finish();}
-        else {await stagePrivateArchiveMedia(session,runId,scope,manifest.blobId,index,raw.buffer,signal);const saved=await loadStagedPrivateArchiveMedia(session,runId,scope,manifest.blobId,index,raw.length);if(!saved||toBase64Url(saved)!==media.bytes)throw new Error('本机密室不足，请腾出密室后重试');}
+        else {await stagePrivateArchiveMedia(session,runId,scope,manifest.blobId,index,raw.buffer,signal,Boolean(prior));const saved=await loadStagedPrivateArchiveMedia(session,runId,scope,manifest.blobId,index,raw.length);if(!saved||toBase64Url(saved)!==media.bytes)throw new Error('本机密室不足，请腾出密室后重试');}
       }
     }
     for(const {manifest} of payload.media){const kind=manifest.mimeType?.startsWith('image/')?'images':manifest.mimeType?.startsWith('video/')?'videos':manifest.mimeType?.startsWith('audio/')?'audio':'files';state[kind]++;}

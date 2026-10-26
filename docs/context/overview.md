@@ -211,4 +211,4 @@ Chamber聊天卡片随键盘滚动、透明浮动顶栏、加入前样式门禁�
 
 移动表单统一输入：`src/lib/form-input.ts`／`src/form-input.css`；背景几何消费者通过 `layoutViewport()` 保持稳定，前景编辑器读取原始VisualViewport。`src/lib/gateway-intro.ts`维护入口图形三态。产品与安全边界见本次[需求记录](../requirements/2026-10-14-mobile-debug-feedback/README.md)。
 
-恢复失败原件清理：`room-archive.ts`与`vault.ts`共用run暂存、原件／消息／目录原子发布及保守旧残留回收；`tests/restore-original-cleanup.e2e.mjs`由既有room-archive-lifecycle入口顺序纳入。范围和证据见[恢复清理R2](../requirements/2026-10-27-restore-failure-validation/README.md)。
+恢复失败原件清理：`room-archive.ts`与`vault.ts`共用独立未发布原件范围、小型run归属见证、消息／原件引用／目录原子发布及保守旧残留回收；`tests/restore-original-cleanup.e2e.mjs`由既有room-archive-lifecycle入口顺序纳入。范围和证据见[恢复清理R2](../requirements/2026-10-27-restore-failure-validation/README.md)。
