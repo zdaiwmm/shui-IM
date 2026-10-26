@@ -1,0 +1,36 @@
+/* Desktop pages own their content rail, footer and opaque composer plane. */
+@media (min-width:1024px) {
+  #app .page-back-page { position:relative; min-width:0; box-sizing:border-box; }
+  #app .page-back-footer { position:absolute; left:50%; right:auto; bottom:0; width:min(100%,520px); translate:-50% 0; }
+  #app .chamber-settings-page > .chamber-page-footer { position:static; translate:none; margin-inline:auto; flex:none; }
+  #app .desktop-settings-page .space-drawer { box-sizing:border-box; padding:0; }
+  #app .desktop-settings-page .space-drawer.page-back-page { padding-bottom:0 !important; }
+  #app .desktop-settings-page .space-drawer-header { padding-inline:28px; }
+  #app .desktop-settings-page .space-drawer-scroll { box-sizing:border-box; padding-inline:20px; }
+  #app .desktop-settings-page .page-back-footer { position:static; translate:none; flex:none; margin-inline:auto; }
+  #app .desktop-sidebar .space-drawer { padding:0; }
+  #app .desktop-sidebar .space-drawer-header { margin-inline:0; padding-inline:12px; }
+  #app .desktop-sidebar .space-drawer-scroll { padding-inline:12px; }
+  #app .is-space-list-page.space-drawer-overlay > .space-drawer { box-sizing:border-box; padding-inline:0; }
+  #app .is-space-list-page .space-drawer-scroll { padding-inline:20px; }
+  #app[data-desktop-workspace=true] .chat-shell .composer,
+  #app[data-desktop-workspace=true] .composer:has(#chat-tools:not([hidden])) { isolation:isolate; background:var(--composer-surface-current); }
+  #app[data-desktop-workspace=true] .composer::before { display:block; content:''; position:absolute; inset:0; z-index:-1; background:var(--composer-surface-current); pointer-events:none; }
+  #app[data-desktop-workspace=true] .composer:has(#chat-tools:not([hidden]))::after { background:var(--composer-surface-current); }
+  #app[data-desktop-workspace=true] > .cover-practice-page,
+  #app .cover-practice-page { box-sizing:border-box; padding:0; overflow:hidden; width:100%; max-width:none; height:100%; min-height:0; }
+  #app .cover-practice-page > .cover { box-sizing:border-box; width:100%; min-width:0; height:100%; margin:0; padding:0; overflow:hidden; }
+  #app .cover-practice-page .practice-hotspot { right:40px; bottom:40px; }
+  #app .cover-practice-page .hold-guide { right:40px; bottom:146px; }
+  #app .desktop-message-more { display:grid; place-items:center; padding:0; line-height:1; }
+  #app .desktop-message-more svg { display:block; width:20px; height:20px; margin:0; }
+  #app .message.incoming .desktop-message-more { left:calc(100% + 8px); }
+  #app .message.outgoing .desktop-message-more { right:calc(100% + 8px); }
+}
+
+.own-room-access-content { display:grid; place-items:center; min-height:0; flex:1; padding:80px 20px; overflow:auto; }
+.own-room-access-content .room-connection-card { margin:auto; }
+.own-device-authorization h2,.own-room-access-content h2 { margin:0 0 12px; font-size:1.0625rem; }
+.own-device-authorization p,.own-room-access-content p { color:var(--ink-muted); font-size:.875rem; line-height:1.6; }
+.own-device-actions { display:flex; gap:8px; }
+.own-device-actions > button { flex:1; min-width:0; }

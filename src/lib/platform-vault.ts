@@ -130,7 +130,7 @@ export function platformVaultUsesExternalAuthenticator(): boolean {
 export function embeddedPasswordSetup(userAgent = navigator.userAgent): boolean {
   const standalone = Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
     || typeof matchMedia === 'function' && matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
-  return /MicroMessenger|Telegram|FBAN|FBAV|Instagram|Line\/|; wv\)/i.test(userAgent)
+  return /ChamberDesktop\/|MicroMessenger|Telegram|FBAN|FBAV|Instagram|Line\/|; wv\)/i.test(userAgent)
     || !standalone && /(?:iPhone|iPad|iPod).*AppleWebKit.*Mobile/i.test(userAgent)
       && !/Safari\/|CriOS\/|FxiOS\/|EdgiOS\/|OPiOS\//i.test(userAgent);
 }

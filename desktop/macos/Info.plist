@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleName</key><string>Chamber</string>
+<key>CFBundleDisplayName</key><string>Chamber</string>
+<key>CFBundleIdentifier</key><string>click.shui.chamber.desktop</string>
+<key>CFBundleExecutable</key><string>Chamber</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleIconFile</key><string>Chamber</string>
+<key>CFBundleShortVersionString</key><string>1.0.0</string>
+<key>CFBundleVersion</key><string>1</string>
+<key>LSMinimumSystemVersion</key><string>13.0</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>NSCameraUsageDescription</key><string>Chamber 使用相机拍摄图片和进行视频通话，仅在你主动使用时请求。</string>
+<key>NSMicrophoneUsageDescription</key><string>Chamber 使用麦克风发送语音和进行通话，仅在你主动使用时请求。</string>
+</dict></plist>

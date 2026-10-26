@@ -364,6 +364,7 @@ export async function createStore({
   const spaceDirectories = createSpaceDirectories(db, { authenticatedDevice });
   const browserCatalogs = createSpaceDirectories(db, { authenticatedDevice }, true);
   const ownSpaceDirectory = createOwnSpaceDirectory(db, { authenticatedDevice, getMember });
+  const ownDeviceAdmission = createOwnSpaceDirectory(db, { authenticatedDevice, getMember, admission:true });
   const browserAccess = createBrowserAccess({ db, getMember, assertDeviceActive: (roomId,deviceId) => {
     assertDeviceActive(roomId,deviceId);
     if(chamberInvitations.exists(roomId))throw new Error('PERSONAL_IDENTITY_REQUIRED');
@@ -1655,6 +1656,7 @@ export async function createStore({
   return {
     adminData,
     ownSpaceDirectory,
+    ownDeviceAdmission,
     chamberInvitations,
     chamberHistory,
     roomArchives,
