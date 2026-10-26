@@ -78,7 +78,11 @@ try{
   },{withSmall:true});await sourceContext.close();
   const cases=selection==='quota-followup'?['real-quota-blocks-smaller','real-quota-small-control']:selection==='cancel-two-archives'?['cancel-two-archives']:selection==='real-quota'?['real-quota']:['success','cancel-before-write','cancel-after-media','network-after-media','quota-first-media','quota-second-media','abort-final-commit','cancel-two-archives','cancel-existing',...(engine===chromium?['real-quota-small-control','real-quota','real-quota-blocks-smaller','real-quota-fit','real-quota-legacy']:[])];
   for(const scenario of cases){
-   const context=await browser.newContext(),page=await context.newPage();await page.goto(url);let cdp;
+   // Native quota accounting uses an on-disk profile, as normal retained
+   // browser data do. Chromium's incognito in-memory backing store has different
+   // compaction/close behavior; ordinary fault cases still cover that context.
+   const nativeQuota=scenario.startsWith('real-quota');
+   const context=nativeQuota?await engine.launchPersistentContext(path.join(dataDir,`quota-${scenario}`),process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{headless:true}:{channel:'chrome',headless:true}):await browser.newContext(),page=nativeQuota?context.pages()[0]:await context.newPage();await page.goto(url);let cdp;
    if(scenario.startsWith('real-quota')){cdp=await context.newCDPSession(page);await cdp.send('Storage.overrideQuotaForOrigin',{origin:new URL(url).origin,quotaSize:(scenario==='real-quota-fit'?8:5)*1024*1024});}
    const row=await page.evaluate(async({fixtures,scenario})=>{
     const v=await import('/src/lib/vault.ts'),a=await import('/src/lib/room-archive.ts'),c=await import('/src/lib/room-archive-crypto.ts'),k=await import('/src/lib/browser-room-key.ts'),api=await import('/src/lib/api.ts'),cryptoLib=await import('/src/lib/crypto.ts'),files=await import('/src/lib/file-crypto.ts'),catalog=await import('/src/lib/private-archive-catalog.ts'),{randomBase64Url}=await import('/src/lib/base64.ts');
@@ -118,9 +122,16 @@ try{
    },{fixtures,scenario});
    // Finish the first browser operation before the next restore, as two
    // separate user actions do. Keep the same page, database and native quota;
-   // no reload, sleep, garbage-collection request or relaxed assertion.
+   // no reload, garbage-collection request or relaxed logical-data assertion.
    if(scenario==='real-quota-blocks-smaller'){
-    const usage=await cdp.send('Storage.getUsageAndQuota',{origin:new URL(url).origin});row.quotaAfterLargeFailure={usage:usage.usage,breakdown:usage.usageBreakdown};
+    const started=Date.now(),samples=[];let usage;
+    // Deletion and physical reclamation are distinct in Chromium. Do not open
+    // IDB while observing its real quota accounting: connections reset the
+    // backend's close/compaction grace period. Assert bounded real reclamation
+    // before a single subsequent restore; never retry or increase the quota.
+    do{usage=await cdp.send('Storage.getUsageAndQuota',{origin:new URL(url).origin});samples.push({ms:Date.now()-started,usage:usage.usage});if(usage.usage<1024*1024)break;await new Promise(resolve=>setTimeout(resolve,250));}while(Date.now()-started<15000);
+    row.quotaAfterLargeFailure={usage:usage.usage,breakdown:usage.usageBreakdown,elapsedMs:Date.now()-started,samples};
+    assert.ok(usage.usage<1024*1024,`Browser did not reclaim deleted synthetic import within 15s: ${JSON.stringify(row.quotaAfterLargeFailure)}`);
     row.smallerAttempt=await page.evaluate(async()=>{
      const f=window.restoreValidation,a=await import('/src/lib/room-archive.ts');let error=null;
      try{await a.restoreRoomArchive(f.target,f.fixtures[2].key,new AbortController().signal,()=>{});}catch(cause){error={name:cause.name,message:cause.message};}
