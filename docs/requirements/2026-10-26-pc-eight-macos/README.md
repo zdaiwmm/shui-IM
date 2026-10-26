@@ -4,7 +4,7 @@
 
 2026-10-26 用户确认「免原型直接实施这 8 项 PC 问题。macOS 做独立安装包，能固定到 Dock 直接打开」。随后追加 PC 更多按钮与气泡的间距及圆点居中。确认来源为本任务用户消息，未提供独立消息定位；原型和流程图本轮明确免除。允许本任务 I/D 实施、验证及既有持续远端交付；没有本次生产发布授权。
 
-规则来源本机 main `c9f38d91afe7e64434824fd2b6b2542de55260b6`，与实施基线的 AGENTS/workflow 相同。GitHub 基线 `530ddf51a03c592959b5db6a765eccc4f2006a51`；实施独占 `codex/pc-eight-macos-20261026`，本机目录 `/Users/zhouding/ss-worktrees/pc-eight-macos-20261026`。最终源 `91b7fae2fcad0f032b5380d6ba271bad42399af3` 经 [PR #418](https://github.com/zdaiwmm/shui-IM/pull/418) 合并为应用 `460c57d06081d05419226c5d39f3afb659e1abca`／版本 `2026.10.26.1`，完整文件树一致。状态：代码及精确主线完整 CI 通过，未发布；独立记录交付中。记录树 `codex/pc-eight-macos-record-20261026` 基于该合并提交，不包含部署配置。
+规则来源本机 main `c9f38d91afe7e64434824fd2b6b2542de55260b6`，与实施基线的 AGENTS/workflow 相同。GitHub 基线 `530ddf51a03c592959b5db6a765eccc4f2006a51`；实施独占 `codex/pc-eight-macos-20261026`，本机目录 `/Users/zhouding/ss-worktrees/pc-eight-macos-20261026`。最终源 `91b7fae2fcad0f032b5380d6ba271bad42399af3` 经 [PR #418](https://github.com/zdaiwmm/shui-IM/pull/418) 合并为应用 `460c57d06081d05419226c5d39f3afb659e1abca`／版本 `2026.10.26.1`，完整文件树一致。状态：代码及精确主线完整 CI 通过，未发布。记录树 `codex/pc-eight-macos-record-20261026` 基于该合并提交，不包含部署配置。
 
 ## 范围与验收矩阵
 
