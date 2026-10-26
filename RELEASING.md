@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+<a id="release-room-runtime-archive-20261027"></a>
+## 房间运行与归档 V1 已发布（2026-10-27 02:33）
+
+- 展示完整目标、CI与预检后，用户明确回复「确认，发布生产，并输出下一阶段优化方案」；仅授权应用`9cf771de91598370bc77c1e73128ef5889b8a092`/`2026.10.26.2`。范围及全部失败历史由[需求V1](docs/requirements/2026-10-27-room-runtime-archive-v1/README.md)拥有；下一阶段仅输出方案，未纳入本批实施。
+- 应用经[PR #422](https://github.com/zdaiwmm/shui-IM/pull/422)合并，完整文件树与最终源`1768145`一致；本地148文件/1114项、85/85浏览器入口和通话专项通过。[精确PR CI 40368042830](https://github.com/zdaiwmm/shui-IM/actions/runs/40368042830) attempt 1及[精确main完整CI 40372398641](https://github.com/zdaiwmm/shui-IM/actions/runs/40372398641/attempts/3) attempt 3成功，Full application verification和同轮镜像已核对。main首轮未定位WebKit诊断、局部attempt取消及完整原样复验保留，不宣称根因已修复。
+- [只读预检40375941485](https://github.com/zdaiwmm/shui-IM/actions/runs/40375941485)取得PREFLIGHT_OK。唯一[正式发布40376981116](https://github.com/zdaiwmm/shui-IM/actions/runs/40376981116)经既有production正常审核取得精确DEPLOY_VERIFIED，请求`18bafe71-2cbe-4c39-b384-9bf4851e1bbf`仅派发一次。实际前版`460c57d06081d05419226c5d39f3afb659e1abca`，云工作流来源`188c0869dec4358eccfd5fdf00da03761012ad87`；云回执为2026-10-26 18:22:43.327Z至18:27:38.623Z，外层cloud-publish 401622ms。
+- 批次`20261026T182333Z`；linux/amd64镜像`sha256:1bd725ba36c1d560c6f4ff652dce5b42312f13ad3fcc6f66b4ce671394d13414`，归档摘要`18e1a0cce6f62b1a9a26193ac8344583451a8bf05d3ed42fbde7d96fea7d8abf`、210166618字节，绑定main CI 40372398641/attempt 3。
+- 首次独立回读18:27:52.993Z至18:27:53.918Z仅备份starting而未通过；应用healthy、SHA/镜像一致、维护门absent。核对既有5分钟interval/start_period并等待后，仅续跑同SHA readback-only；最终2026-10-26 18:33:12.985Z至18:33:16.148Z取得READBACK_OK，3162ms。应用与备份running且healthy，TURN运行且探针none，SHA/镜像、HTTPS、数据库、存储、公开及容器产物摘要、新WebSocket均通过，维护门absent；管理员与通话启用。没有重启或再次切换。
+- 脱敏组合证据位于公共Git目录`quiet-room-deliveries/evidence/room-runtime-archive-v1-20261027/production-summary.json`，原始生成回执按本批归档保留。第二独立文档树对账不改变线上应用SHA，也不再次发布；资源清理仅覆盖本批已集成且无使用者的资源。真机与外审仍未验证，公开高安全门槛保持开放。
+
 <a id="release-pc-eight-macos-20261026"></a>
 ## PC 八项修复与 macOS V1 已发布（2026-10-26 13:11）
 

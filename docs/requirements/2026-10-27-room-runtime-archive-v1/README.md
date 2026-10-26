@@ -2,11 +2,12 @@
 
 ## 身份与授权
 
-- 阶段：已实施并合并，精确应用main完整CI和只读生产预检通过；发布完整SHA待用户确认。
+- 阶段：已实施、合并、发布并完成独立回读；固定入口DEPLOY_VERIFIED与独立READBACK_OK均通过，本文件为发布后对账记录。
 - 版本：2026.10.26.2（固定工具按UTC分配序号）；用户本次确认日期为上海时间2026-10-27。
 - 基线：14848e71cf0c28753045f7f77200853427797642；分支：codex/room-runtime-archive-v1-20261027。
 - 规则接手：本机main 4356531cea264dd01bd9110da90b9ff62cfd7a59；实时GitHub与origin/main均为上述基线。
 - 用户于2026-10-27在本会话明确「不制作原型，按照方案执行，完成后合并，发布生产」。方案为本会话上一条完整V1；消息永久定位未提供。免除本次原型与流程图，授权I/D；生产仍需最终精确SHA确认。
+- 向用户展示完整应用`9cf771de91598370bc77c1e73128ef5889b8a092`、版本、CI与预检后，用户于2026-10-27明确回复「确认，发布生产，并输出下一阶段优化方案」，本次P授权仅绑定该SHA。下一阶段为R方案输出，未授权新增实施或沿用本批原型例外。
 
 ## 已确认范围
 
@@ -67,7 +68,11 @@ DESIGN.md、docs/design/mobile-visual-standard.md、src/main.ts实际加载样�
 
 使用`src/main.ts`实际加载样式与`appearance`主题入口，核对390px浅色、深色200%字级和1440px桌面的新增备份状态段；截图夹具首次仅设置系统配色未应用产品主题，已修正核对条件并等主题过渡结束后重拍。视觉证据限该状态段，原型免除不等于真机验证。
 
-生产尚未切换，目标为上述完整应用SHA；[固定只读预检40375941485](https://github.com/zdaiwmm/shui-IM/actions/runs/40375941485)经既有正常环境审核取得精确`PREFLIGHT_OK`，88825ms，确认绑定main CI attempt 3与同轮镜像。完整SHA仍待用户确认。最近已验证生产仍为`460c57d06081d05419226c5d39f3afb659e1abca`。本次记录不触发发布，也不改变既有公开高安全门槛。
+[固定只读预检40375941485](https://github.com/zdaiwmm/shui-IM/actions/runs/40375941485)经既有正常环境审核取得精确PREFLIGHT_OK，88825ms，绑定main CI attempt 3与同轮镜像。用户确认后唯一[正式发布40376981116](https://github.com/zdaiwmm/shui-IM/actions/runs/40376981116)取得精确DEPLOY_VERIFIED，实际前版`460c57d06081d05419226c5d39f3afb659e1abca`；发布目标始终为上述完整应用SHA，云工作流来源为纯文档main `188c086`。
+
+首轮独立回读仅备份starting，应用healthy、精确SHA/镜像一致、维护门absent；核对既有5分钟健康检查窗口后仅续跑readback-only。2026-10-26T18:33:16.148Z取得独立READBACK_OK，3162ms：应用与备份均healthy，TURN运行（无健康探针），HTTPS/数据库/存储/公开及容器产物/新WebSocket全部通过。没有重启或再次切换。完整[发布记录](../../../RELEASING.md#release-room-runtime-archive-20261027)拥有回执、镜像与时间；脱敏组合证据保存在公共Git目录`quiet-room-deliveries/evidence/room-runtime-archive-v1-20261027/production-summary.json`，不随实施工作树清理而丢失。
+
+后续纯文档对账不替换线上应用SHA，也不触发再次发布。用户要求的下一阶段优化方案只在本会话输出，需后续确认才实施；真机与独立审计仍暂缓，公开高安全门槛不变。
 
 
 ### 补充故障注入证据
