@@ -4,7 +4,7 @@ import { canonicalStringify } from './canonical';
 import { isMessagePayload } from './message-payload';
 import { attachmentVerifier } from './local-history-backup';
 import { archiveObjectHash, archiveAccessToken, archiveWriterProof, openArchiveObject, sealArchiveObject, type ArchiveKey, type ArchiveObject } from './room-archive-crypto';
-import { loadCachedMediaChunk, loadChamberHistoryPageAfter, saveVault, withVaultMutation, stagePrivateArchiveItem, commitPrivateArchiveImport, discardPrivateArchiveStaging, scanPrivateArchiveItems, loadPrivateArchiveItem, readPrivateCatalogMeta, savePrivateMediaChunk, loadPrivateMediaChunk, type VaultSession } from './vault';
+import { loadCachedMediaChunk, loadChamberHistoryPageAfter, saveVault, withVaultMutation, stagePrivateArchiveItem, stagePrivateArchiveMedia, loadStagedPrivateArchiveMedia, commitPrivateArchiveImport, discardPrivateArchiveStaging, collectAbandonedPrivateArchiveImports, scanPrivateArchiveItems, loadPrivateArchiveItem, readPrivateCatalogMeta, loadPrivateMediaChunk, type VaultSession } from './vault';
 import type { DecryptedMessage, ImageManifest } from './types';
 
 export type PrivateArchiveItem = { originRoomId: string; message: DecryptedMessage; self: boolean; sourceScope: string };
@@ -172,9 +172,9 @@ async function get<T>(key:ArchiveKey,suffix:string,signal:AbortSignal):Promise<T
 export type ArchiveCounts = {messages:number;images:number;videos:number;files:number;audio:number};
 export type ArchiveRestoreProgress = ArchiveCounts & { stage: 'reading' | 'restoring' | 'committing' | 'complete'; objects: number; totalObjects: number; totals?: ArchiveCounts };
 export async function restoreRoomArchive(session:VaultSession,key:ArchiveKey,signal:AbortSignal,progress:(done:number)=>void,detail?:(state:ArchiveRestoreProgress)=>void):Promise<number> {
-  const runId=crypto.randomUUID();
+  const runId=crypto.randomUUID(),lockName=`quiet-room:archive-restore:${session.vault.roomId}`;
   const run=async()=>{try{return await restoreArchiveContents(session,key,signal,progress,runId,detail);}finally{await discardPrivateArchiveStaging(session,runId).catch(()=>undefined);}};
-  if(navigator.locks)return navigator.locks.request(`quiet-room:archive-restore:${session.vault.roomId}`,{signal},async()=>{await discardPrivateArchiveStaging(session);return run();});
+  if(navigator.locks)return navigator.locks.request(lockName,{signal},async()=>{await collectAbandonedPrivateArchiveImports(session,lockName);signal.throwIfAborted();return run();});
   return run();
 }
 async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal:AbortSignal,progress:(done:number)=>void,runId:string,detail?:(state:ArchiveRestoreProgress)=>void):Promise<number> {
@@ -208,7 +208,7 @@ async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal
     const scope=`${session.vault.localDataScope??session.vault.roomId}:private:${payload.item.originRoomId}`;
     const prior=await loadPrivateArchiveItem(session,itemId(payload.item),signal),item={...payload.item,sourceScope:scope};
     if(prior&&canonicalStringify(prior)!==canonicalStringify(item))throw new Error('导入记录与已保存的历史冲突');
-    const destination=sourceSession(session,scope),expected=manifests(payload.item.message);
+    const expected=manifests(payload.item.message);
     if(canonicalStringify(expected)!==canonicalStringify(payload.media.map(x=>x.manifest)))throw new Error('原图片清单不完整');
     if(discovering){
       totals.messages++;for(const {manifest} of payload.media){const kind=manifest.mimeType?.startsWith('image/')?'images':manifest.mimeType?.startsWith('video/')?'videos':manifest.mimeType?.startsWith('audio/')?'audio':'files';totals[kind]++;}
@@ -227,7 +227,7 @@ async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal
         if(media.kind!=='media'||media.v!==2||media.blobId!==manifest.blobId||media.index!==index||typeof media.bytes!=='string')throw new Error('原图片分块归属不正确');
         const raw=fromBase64Url(media.bytes);
         if(pass===0){await verifier.chunk(index,raw.buffer);if(index===parts.length-1)verifier.finish();}
-        else {await savePrivateMediaChunk(destination,manifest.blobId,index,raw.buffer,signal);const saved=await loadPrivateMediaChunk(destination,manifest.blobId,index,raw.length);if(!saved||toBase64Url(saved)!==media.bytes)throw new Error('本机密室不足，请腾出密室后重试');}
+        else {await stagePrivateArchiveMedia(session,runId,scope,manifest.blobId,index,raw.buffer,signal);const saved=await loadStagedPrivateArchiveMedia(session,runId,scope,manifest.blobId,index,raw.length);if(!saved||toBase64Url(saved)!==media.bytes)throw new Error('本机密室不足，请腾出密室后重试');}
       }
     }
     for(const {manifest} of payload.media){const kind=manifest.mimeType?.startsWith('image/')?'images':manifest.mimeType?.startsWith('video/')?'videos':manifest.mimeType?.startsWith('audio/')?'audio':'files';state[kind]++;}

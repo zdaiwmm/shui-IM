@@ -3051,6 +3051,40 @@ export async function writePasskeyName(session: VaultSession, record: PlatformCr
 }
 
 type StagedPrivateRecord = {id:string;roomId:string;record:StoredLocalRecord;previous?:StoredLocalRecord};
+type StagedPrivateMedia = {id:string;roomId:string;kind:'media';record:StoredLocalRecord};
+type StagedPrivateImport = StagedPrivateRecord | StagedPrivateMedia;
+const isStagedPrivateMedia = (value:StagedPrivateImport):value is StagedPrivateMedia => 'kind' in value && value.kind==='media';
+
+function privateImportMediaSession(session:VaultSession,scope:string):VaultSession {
+  const prefix=`${localDataScope(session.vault)}:private:`;
+  if(!scope.startsWith(prefix)||!/^[0-9a-f-]{36}$/i.test(scope.slice(prefix.length)))throw new Error('恢复原件范围不正确');
+  return {...session,get stored(){return session.stored;},vault:{...session.vault,localDataScope:scope}};
+}
+
+/** Store new originals under this import only; publication moves the same
+ * authenticated ciphertext, without a second encryption or database upgrade. */
+export async function stagePrivateArchiveMedia(session:VaultSession,runId:string,scope:string,blobId:string,index:number,raw:ArrayBuffer,signal:AbortSignal):Promise<void>{
+  await withVaultMutation(session,async()=>{
+    signal.throwIfAborted();const source=privateImportMediaSession(session,scope),id=`${blobId}:${index}`,encoded=toBase64Url(raw);
+    const current=await transaction<StoredLocalRecord|undefined>('privateMedia','readonly',store=>store.get(`${scope}:${id}`));
+    if(current){if(await decryptLocalRecord<string>(source,'privateMedia',current)!==encoded)throw new Error('导入原文件与本机历史冲突');return;}
+    const stagedId=`${localDataScope(session.vault)}:${runId}:media:${scope}:${id}`;
+    const previous=await transaction<StagedPrivateMedia|undefined>('privateArchiveStaging','readonly',store=>store.get(stagedId));
+    if(previous&&(!isStagedPrivateMedia(previous)||await decryptLocalRecord<string>(source,'privateMedia',previous.record)!==encoded))throw new Error('导入原文件与本次暂存冲突');
+    const record=previous?.record??await encryptLocalRecord(source,'privateMedia',id,encoded);signal.throwIfAborted();
+    await transaction('privateArchiveStaging','readwrite',store=>store.put({id:stagedId,roomId:localDataScope(session.vault),kind:'media',record} satisfies StagedPrivateMedia),session.stored);
+  });signal.throwIfAborted();
+}
+
+export async function loadStagedPrivateArchiveMedia(session:VaultSession,runId:string,scope:string,blobId:string,index:number,size:number):Promise<ArrayBuffer|null>{
+  const source=privateImportMediaSession(session,scope),id=`${localDataScope(session.vault)}:${runId}:media:${scope}:${blobId}:${index}`;
+  const staged=await transaction<StagedPrivateMedia|undefined>('privateArchiveStaging','readonly',store=>store.get(id));
+  if(!staged)return loadPrivateMediaChunk(source,blobId,index,size);
+  if(!isStagedPrivateMedia(staged)||staged.record.id!==`${scope}:${blobId}:${index}`)throw new Error('暂存原文件归属不正确');
+  const raw=fromBase64Url(await decryptLocalRecord<string>(source,'privateMedia',staged.record));
+  if(raw.length!==size)throw new Error('历史原文件分块不完整');return raw.buffer;
+}
+
 export async function stagePrivateArchiveItem(session:VaultSession,runId:string,item:import('./room-archive').PrivateArchiveItem,signal:AbortSignal):Promise<void> {
   await withVaultMutation(session,async()=>{
     signal.throwIfAborted();const scope=localDataScope(session.vault),id=`${item.originRoomId}:${item.message.clientMsgId}`;
@@ -3069,16 +3103,24 @@ export async function commitPrivateArchiveImport(session:VaultSession,runId:stri
     signal.throwIfAborted();const database=await openDatabase(),prefix=`${localDataScope(session.vault)}:${runId}:`;
     try {
     const meta=await readPrivateCatalogMeta(session,signal);
-    const added=await new Promise<number>((resolve,reject)=>{const tx=database.transaction('privateArchiveStaging','readonly');let n=0;const cursor=tx.objectStore('privateArchiveStaging').openCursor(IDBKeyRange.bound(prefix,`${prefix}\uffff`));cursor.onsuccess=()=>{const c=cursor.result;if(c){if(!(c.value as StagedPrivateRecord).previous)n++;c.continue();}};tx.oncomplete=()=>resolve(n);tx.onabort=()=>reject(tx.error);});
+    const added=await new Promise<number>((resolve,reject)=>{const tx=database.transaction('privateArchiveStaging','readonly');let n=0;const cursor=tx.objectStore('privateArchiveStaging').openCursor(IDBKeyRange.bound(prefix,`${prefix}\uffff`));cursor.onsuccess=()=>{const c=cursor.result;if(c){const row=c.value as StagedPrivateImport;if(!isStagedPrivateMedia(row)&&!row.previous)n++;c.continue();}};tx.oncomplete=()=>resolve(n);tx.onabort=()=>reject(tx.error);});
     const metaRecord=await encryptLocalRecord(session,'privateCatalog','meta',added?{revision:crypto.randomUUID(),rawCount:meta.rawCount+added,retired:[...(meta.retired??[]),...(meta.catalog?[meta.catalog.generation]:[])]}:meta);
     signal.throwIfAborted();
     await new Promise<void>((resolve,reject)=>{
-      const tx=database.transaction(['vault','privateArchive','privateArchiveStaging','privateCatalog'],'readwrite');
+      const tx=database.transaction(['vault','privateArchive','privateMedia','privateArchiveStaging','privateCatalog'],'readwrite');
       tx.objectStore('privateCatalog').put(metaRecord);
       const abort=()=>{try{tx.abort();}catch{/* Already committed. */}};signal.addEventListener('abort',abort,{once:true});
       const vault=tx.objectStore('vault').get(vaultSpaceId(session.stored));vault.onsuccess=()=>{if(!sameStoredVault(vault.result,session.stored))abort();};
       const cursor=tx.objectStore('privateArchiveStaging').openCursor(IDBKeyRange.bound(prefix,`${prefix}\uffff`));
-      cursor.onsuccess=()=>{const entry=cursor.result;if(!entry)return;const staged=entry.value as StagedPrivateRecord;
+      cursor.onsuccess=()=>{const entry=cursor.result;if(!entry)return;const staged=entry.value as StagedPrivateImport;
+        if(isStagedPrivateMedia(staged)){
+          const current=tx.objectStore('privateMedia').get(staged.record.id);current.onsuccess=()=>{
+            if(current.result&&canonicalStringify(current.result)!==canonicalStringify(staged.record)){abort();return;}
+            // Delete before put: this is a move inside one transaction, not a
+            // second permanent copy of a potentially large encrypted original.
+            entry.delete();if(!current.result)tx.objectStore('privateMedia').put(staged.record);entry.continue();
+          };return;
+        }
         const current=tx.objectStore('privateArchive').get(staged.record.id);current.onsuccess=()=>{
           if(canonicalStringify(current.result??null)!==canonicalStringify(staged.previous??null)){abort();return;}
           tx.objectStore('privateArchive').put(staged.record);entry.delete();entry.continue();
@@ -3096,6 +3138,36 @@ export async function discardPrivateArchiveStaging(session:VaultSession,runId?:s
     const cursor=tx.objectStore('privateArchiveStaging').openKeyCursor(IDBKeyRange.bound(prefix,`${prefix}\uffff`));
     cursor.onsuccess=()=>{const entry=cursor.result;if(entry){tx.objectStore('privateArchiveStaging').delete(entry.primaryKey);entry.continue();}};
     tx.oncomplete=()=>{database.close();resolve();};tx.onabort=()=>{database.close();reject(tx.error);};
+  });
+}
+
+/** Only the caller holding its restore task lock may reclaim abandoned imports.
+ * Query while holding the global vault lease: a legacy task starting after the
+ * query cannot write before collection ends. Any other active restore, unknown
+ * lock support, corrupt history or stale vault keeps original data untouched. */
+export async function collectAbandonedPrivateArchiveImports(session:VaultSession,lockName:string):Promise<void>{
+  if(typeof navigator==='undefined'||!navigator.locks?.query)return;
+  await withVaultMutation(session,async()=>{
+    let held:LockInfo[];try{held=(await navigator.locks.query()).held??[];}catch{return;}
+    if(!held.some(lock=>lock.name===lockName&&lock.mode==='exclusive')||held.some(lock=>lock.name?.startsWith('quiet-room:archive-restore:')&&lock.name!==lockName))return;
+    const scope=localDataScope(session.vault),references=new Map<string,number>();
+    for await(const item of scanPrivateArchiveItems(session)){
+      if(!item?.message||!isMessagePayload(item.message.payload)||typeof item.sourceScope!=='string')throw new Error('私有历史完整性检查失败，原文件已保留');
+      if(item.sourceScope!==scope&&item.sourceScope!==`${scope}:private:${item.originRoomId}`)return;
+      const p=item.message.payload,media='images'in p?p.images:'image'in p?[p.image]:'file'in p?[p.file]:'audio'in p?[p.audio]:[];
+      for(const manifest of media){const key=`${item.sourceScope}:${manifest.blobId}`;references.set(key,Math.max(references.get(key)??0,manifest.chunkCount));}
+    }
+    const mediaPrefix=`${scope}:private:`,stagingPrefix=`${scope}:`,db=await openDatabase();
+    await new Promise<void>((resolve,reject)=>{
+      const tx=db.transaction(['vault','privateArchiveStaging','privateMedia'],'readwrite');
+      const guard=tx.objectStore('vault').get(vaultSpaceId(session.stored));guard.onsuccess=()=>{if(!sameStoredVault(guard.result,session.stored))tx.abort();};
+      const staging=tx.objectStore('privateArchiveStaging').openKeyCursor(IDBKeyRange.bound(stagingPrefix,`${stagingPrefix}\uffff`));
+      staging.onsuccess=()=>{const c=staging.result;if(c){tx.objectStore('privateArchiveStaging').delete(c.primaryKey);c.continue();}};
+      const media=tx.objectStore('privateMedia').openKeyCursor(IDBKeyRange.bound(mediaPrefix,`${mediaPrefix}\uffff`));
+      media.onsuccess=()=>{const c=media.result;if(!c)return;const id=String(c.primaryKey),suffix=id.slice(mediaPrefix.length),match=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}):(0|[1-9]\d*)$/i.exec(suffix);
+        if(match){const index=Number(match[2]),blob=id.slice(0,id.lastIndexOf(':'));if(Number.isSafeInteger(index)&&index>=(references.get(blob)??0))tx.objectStore('privateMedia').delete(c.primaryKey);}c.continue();};
+      tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>{db.close();reject(tx.error??staleVaultError());};
+    });
   });
 }
 

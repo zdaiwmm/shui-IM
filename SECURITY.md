@@ -1,5 +1,11 @@
 # Security model
 
+## 2026-10-27 Atomic restore originals and conservative collection
+
+New imported original chunks retain their privateMedia authenticated namespace but are stored under a random import run in the existing v16 staging store until validation finishes. Originals, raw messages and the catalog revision publish in one guarded IndexedDB transaction; failure discards only that run. Existing byte-identical originals are reused; a conflicting permanent writer aborts publication. No plaintext content index or cryptographic format changes are introduced.
+
+Legacy orphan collection requires the caller's exclusive restore lock, the global vault mutation lease, a usable Web Locks inventory without any other held restore lock, authenticated complete raw-history references and the current vault CAS. It retains all published references including hidden/deleted raw events, non-private namespaces and unknown key layouts. Unknown scope mappings or unavailable lock inventory skip collection; corrupt history fails closed before deletion. Legacy lock names remain compatible. Synthetic browser quota tests do not establish physical-device or real-disk exhaustion evidence; see [R2](docs/requirements/2026-10-27-restore-failure-validation/README.md).
+
 ## 2026-10-27 Private-history runtime and derived catalog
 
 Each room opening owns a distinct runtime token and cancellation signal, including reopening the same VaultSession. Results are checked after asynchronous boundaries and before projection. Locking invalidates ownership synchronously; a completed WebCrypto call may still return internally but cannot repopulate the next runtime. This is reference/resource release, not physical memory erasure.

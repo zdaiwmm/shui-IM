@@ -1,0 +1,1342 @@
+{
+  "version": 1,
+  "base": "c9c58d758f4a64bde8eca350a5212a7bcf62286a",
+  "authorization": "Local validation only; fix and backup optimization await user decision",
+  "harnessSha256": "abee937104dbfea1143aaf684bc52a3488a99ec835dab58565981c6eb6ee4c0d",
+  "completedObservations": 19,
+  "summary": {
+    "existingSharedPrivateAndOriginalDataPreserved": true,
+    "unfinishedImportsNotPublished": true,
+    "stagingCleared": true,
+    "unreferencedEncryptedOriginalsPersist": true,
+    "nativeQuotaBlocksOtherwiseRestorableSmallerArchive": true,
+    "retryWithAvailableQuotaPreservesOriginals": true
+  },
+  "limits": [
+    "Synthetic local server and browser data only",
+    "Chromium native quota override, not physical disk exhaustion",
+    "WebKit transaction fault injection, not native quota exhaustion",
+    "No real iPhone, UI touch cancellation, production data or product modifications"
+  ],
+  "results": [
+    {
+      "engine": "chromium",
+      "scenario": "success",
+      "error": null,
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 4,
+        "staged": 0,
+        "media": 4,
+        "unreferencedMedia": 0,
+        "unreferencedCipherRecordBytes": 0
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": false,
+      "visible": 4,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "beforeRetryBackup": null,
+      "afterRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 1024,
+          "matching": true
+        },
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "chromium",
+      "scenario": "cancel-before-write",
+      "error": {
+        "name": "AbortError",
+        "message": "signal is aborted without reason"
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 1,
+        "unreferencedMedia": 0,
+        "unreferencedCipherRecordBytes": 0
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 1,
+        "media": 1,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        },
+        {
+          "bytes": 1024,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "chromium",
+      "scenario": "cancel-after-media",
+      "error": {
+        "name": "AbortError",
+        "message": "signal is aborted without reason"
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 2,
+        "unreferencedMedia": 1,
+        "unreferencedCipherRecordBytes": 3728585
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 1,
+        "media": 2,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 1024,
+          "matching": true
+        },
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "chromium",
+      "scenario": "network-after-media",
+      "error": {
+        "name": "TypeError",
+        "message": "Synthetic archive read interruption"
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 2,
+        "unreferencedMedia": 1,
+        "unreferencedCipherRecordBytes": 3728585
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 1,
+        "media": 2,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        },
+        {
+          "bytes": 1024,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "chromium",
+      "scenario": "quota-first-media",
+      "error": {
+        "name": "QuotaExceededError",
+        "message": "Synthetic storage quota exceeded"
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 1,
+        "unreferencedMedia": 0,
+        "unreferencedCipherRecordBytes": 0
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 1,
+        "media": 1,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        },
+        {
+          "bytes": 1024,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "chromium",
+      "scenario": "quota-second-media",
+      "error": {
+        "name": "QuotaExceededError",
+        "message": "Synthetic storage quota exceeded"
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 2,
+        "unreferencedMedia": 1,
+        "unreferencedCipherRecordBytes": 3728585
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 1,
+        "media": 3,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 1024,
+          "matching": true
+        },
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "chromium",
+      "scenario": "abort-final-commit",
+      "error": {
+        "name": "Error",
+        "message": "恢复提交中断，请重新恢复；原记录仍保留"
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 4,
+        "unreferencedMedia": 3,
+        "unreferencedCipherRecordBytes": 5710460
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 1,
+        "media": 4,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        },
+        {
+          "bytes": 1024,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "chromium",
+      "scenario": "cancel-two-archives",
+      "error": {
+        "name": "AbortError",
+        "message": "signal is aborted without reason"
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 2,
+        "unreferencedMedia": 1,
+        "unreferencedCipherRecordBytes": 3728585
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": {
+        "published": 1,
+        "media": 3,
+        "unreferencedMedia": 2,
+        "unreferencedCipherRecordBytes": 7457170
+      },
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 1,
+        "media": 3,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 7,
+        "media": 7,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 7,
+        "media": 7,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        },
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        },
+        {
+          "bytes": 1024,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "chromium",
+      "scenario": "real-quota",
+      "error": {
+        "name": "QuotaExceededError",
+        "message": ""
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 2,
+        "unreferencedMedia": 1,
+        "unreferencedCipherRecordBytes": 3728585
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": {
+        "limit": 5242880,
+        "usage": 3821568
+      },
+      "reopened": {
+        "published": 1,
+        "media": 2,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 1024,
+          "matching": true
+        },
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "webkit",
+      "scenario": "success",
+      "error": null,
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 4,
+        "staged": 0,
+        "media": 4,
+        "unreferencedMedia": 0,
+        "unreferencedCipherRecordBytes": 0
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": false,
+      "visible": 4,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "beforeRetryBackup": null,
+      "afterRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 1024,
+          "matching": true
+        },
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "webkit",
+      "scenario": "cancel-before-write",
+      "error": {
+        "name": "AbortError",
+        "message": "The operation was aborted."
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 1,
+        "unreferencedMedia": 0,
+        "unreferencedCipherRecordBytes": 0
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 1,
+        "media": 1,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 1024,
+          "matching": true
+        },
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "webkit",
+      "scenario": "cancel-after-media",
+      "error": {
+        "name": "AbortError",
+        "message": "The operation was aborted."
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 2,
+        "unreferencedMedia": 1,
+        "unreferencedCipherRecordBytes": 3728585
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 1,
+        "media": 2,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 1024,
+          "matching": true
+        },
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "webkit",
+      "scenario": "network-after-media",
+      "error": {
+        "name": "TypeError",
+        "message": "Synthetic archive read interruption"
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 2,
+        "unreferencedMedia": 1,
+        "unreferencedCipherRecordBytes": 3728585
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 1,
+        "media": 2,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 1024,
+          "matching": true
+        },
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "webkit",
+      "scenario": "quota-first-media",
+      "error": {
+        "name": "QuotaExceededError",
+        "message": "Synthetic storage quota exceeded"
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 1,
+        "unreferencedMedia": 0,
+        "unreferencedCipherRecordBytes": 0
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 1,
+        "media": 1,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 1024,
+          "matching": true
+        },
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "webkit",
+      "scenario": "quota-second-media",
+      "error": {
+        "name": "QuotaExceededError",
+        "message": "Synthetic storage quota exceeded"
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 2,
+        "unreferencedMedia": 1,
+        "unreferencedCipherRecordBytes": 3728585
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 1,
+        "media": 3,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 1024,
+          "matching": true
+        },
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "webkit",
+      "scenario": "abort-final-commit",
+      "error": {
+        "name": "Error",
+        "message": "恢复提交中断，请重新恢复；原记录仍保留"
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 4,
+        "unreferencedMedia": 3,
+        "unreferencedCipherRecordBytes": 5710460
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 1,
+        "media": 4,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 4,
+        "media": 4,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 1024,
+          "matching": true
+        },
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "webkit",
+      "scenario": "cancel-two-archives",
+      "error": {
+        "name": "AbortError",
+        "message": "The operation was aborted."
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 2,
+        "unreferencedMedia": 1,
+        "unreferencedCipherRecordBytes": 3728585
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": {
+        "published": 1,
+        "media": 3,
+        "unreferencedMedia": 2,
+        "unreferencedCipherRecordBytes": 7457170
+      },
+      "smallerAttempt": null,
+      "browserQuota": null,
+      "reopened": {
+        "published": 1,
+        "media": 3,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 7,
+        "media": 7,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 7,
+        "media": 7,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        },
+        {
+          "bytes": 1024,
+          "matching": true
+        },
+        {
+          "bytes": 65553,
+          "matching": true
+        },
+        {
+          "bytes": 3146049,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "chromium",
+      "scenario": "real-quota-blocks-smaller",
+      "error": {
+        "name": "QuotaExceededError",
+        "message": ""
+      },
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 1,
+        "staged": 0,
+        "media": 2,
+        "unreferencedMedia": 1,
+        "unreferencedCipherRecordBytes": 3728585
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": true,
+      "visible": 1,
+      "afterSecond": null,
+      "smallerAttempt": {
+        "error": {
+          "name": "QuotaExceededError",
+          "message": ""
+        },
+        "published": 1,
+        "media": 2,
+        "unreferencedMedia": 1
+      },
+      "browserQuota": {
+        "limit": 5242880,
+        "usage": 3821568
+      },
+      "reopened": {
+        "published": 1,
+        "media": 2,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 2,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 1
+        }
+      },
+      "afterRetry": {
+        "published": 3,
+        "media": 3,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 3,
+        "media": 3,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 1024,
+          "matching": true
+        },
+        {
+          "bytes": 1048593,
+          "matching": true
+        }
+      ]
+    },
+    {
+      "engine": "chromium",
+      "scenario": "real-quota-small-control",
+      "error": null,
+      "baseline": {
+        "published": 1,
+        "media": 1
+      },
+      "after": {
+        "published": 3,
+        "staged": 0,
+        "media": 2,
+        "unreferencedMedia": 0,
+        "unreferencedCipherRecordBytes": 0
+      },
+      "originalData": {
+        "sharedUnchanged": true,
+        "privateUnchanged": true,
+        "originalUnchanged": true
+      },
+      "vaultUnchanged": true,
+      "publishedRevisionUnchanged": false,
+      "visible": 3,
+      "afterSecond": null,
+      "smallerAttempt": null,
+      "browserQuota": {
+        "limit": 5242880,
+        "usage": 1961984
+      },
+      "reopened": {
+        "published": 3,
+        "media": 2,
+        "staged": 0
+      },
+      "beforeRetryBackup": {
+        "outcome": "complete",
+        "counts": {
+          "messages": 4,
+          "images": 0,
+          "videos": 0,
+          "audio": 0,
+          "files": 2
+        }
+      },
+      "afterRetry": {
+        "published": 3,
+        "media": 2,
+        "staged": 0
+      },
+      "afterDuplicateRetry": {
+        "published": 3,
+        "media": 2,
+        "staged": 0
+      },
+      "originals": [
+        {
+          "bytes": 1024,
+          "matching": true
+        },
+        {
+          "bytes": 1048593,
+          "matching": true
+        }
+      ]
+    }
+  ]
+}
