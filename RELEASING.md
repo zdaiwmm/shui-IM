@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+<a id="release-pc-eight-macos-20261026"></a>
+## PC 八项修复与 macOS V1 已发布（2026-10-26 13:11）
+
+- 用户确认[本批 V1](docs/requirements/2026-10-26-pc-eight-macos/README.md)免原型实施，追加更多按钮间距与居中；交付 [PR #418](https://github.com/zdaiwmm/shui-IM/pull/418)后回复「确认，发布生产」。本轮固定应用 `460c57d06081d05419226c5d39f3afb659e1abca`／`2026.10.26.1`，派发前已展示完整目标。实际前版为预检读到的 `530ddf51a03c592959b5db6a765eccc4f2006a51`；规则与云工作流来源 `6b2bc2bbf244b92ac54ebc32cf826f3e6d80f877`，文档提交不替换应用提交。
+- 修复 PC 输入背景、返回位置、设置转场、遮蔽页、列表顶部、冗余按钮及更多按钮 8px 间距和居中；本人目录发现的密室可直接申请，原设备在对应密室系统卡中验证并授权。三端限制和新设备历史边界由 PRODUCT／SECURITY／NEW_ROOM_ARCHIVES 拥有。macOS 独立包加载正式站点，网页修复已随本次发布可用。
+- 干净源 `91b7fae2fcad0f032b5380d6ba271bad42399af3` 与应用完整文件树同为 `5f1dba9815082148dd9ccbb17dac688aef9c223b`；本地完整验收 145 文件／1100 项、82/82 浏览器入口通过。[PR CI 40268466936](https://github.com/zdaiwmm/shui-IM/actions/runs/40268466936)及[应用 main CI 40270491736](https://github.com/zdaiwmm/shui-IM/actions/runs/40270491736)均 attempt 1 成功，含 Full application verification；本轮再次核对精确 main CI 与镜像身份，未重复产品套件。
+- 固定[预检 40272025281](https://github.com/zdaiwmm/shui-IM/actions/runs/40272025281)取得 PREFLIGHT_OK，67717ms；唯一[生产发布 40272152233](https://github.com/zdaiwmm/shui-IM/actions/runs/40272152233)经既有 production 审核取得精确 DEPLOY_VERIFIED。请求 `132bb10b-a5ea-4b2f-a3dc-652a88a52dd5` 只派发一次；云回执 `2026-10-26T05:03:12.992Z` 至 `05:06:33.893Z`，外层 cloud-publish 249640ms。环境保护、云权限、helper 和健康门槛未修改。
+- 批次 `20261026T050355Z`；linux/amd64 镜像 `sha256:f2d182e48c714a68afca052168f72e9a57c18494cd2d42e1de950316f539e261`，归档摘要 `bddf3549928e9ab3dc675191b96a8f6a961a1831cb44ad271f5a86075657c86c`、210145811 字节，绑定 main CI 40270491736／attempt 1。
+- 首次独立回读 `05:06:49.620Z` 至 `05:06:50.553Z` 仅备份 starting，应用 healthy、精确 SHA／镜像一致、维护门 absent。只读核实备份启动 `05:06:21.572155178Z` 及原 5 分钟 interval／startPeriod 后，仅等待并续跑同 SHA readback-only。最终 `2026-10-26T05:11:33.853Z` 至 `05:11:36.822Z` 取得 READBACK_OK，2967ms：应用与备份 running 且 healthy，TURN 运行且探针 none；HTTPS／数据库／存储、公开及容器产物摘要、新 WebSocket 全通过，维护门 absent，管理员与通话启用。没有重启或再次切换。
+- 脱敏组合证据在公共 Git 元数据 `quiet-room-deliveries/evidence/pc-eight-macos-20261026/production-summary.json`；第二记录树不含部署配置，对账不再次发布。macOS 包没有 Developer ID／公证，Intel 运行、摄像头／通话、旧 macOS 与真实 iPhone 验收仍未验证，独立安全审阅门槛保留。本批资源按固定清理入口核验，安装包、截图、证据及当前使用的记录树保留，不清理其他任务。
+
 <a id="release-experience-reliability-20261025"></a>
 ## 媒体、桌面与本人设备目录 V1 已发布（2026-10-25 12:59）
 
