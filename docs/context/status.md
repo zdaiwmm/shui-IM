@@ -1,12 +1,12 @@
 # Quiet Room 当前状态
 
-## 房间运行与归档 V1：已合并，待生产确认（2026-10-27）
+## 房间运行与归档 V1 已发布（2026-10-27 02:33）
 
 用户明确免原型实施并授权合并；[需求 V1](../requirements/2026-10-27-room-runtime-archive-v1/README.md)记录边界、DB16升级与回退要求、测量及失败分类。[PR #422](https://github.com/zdaiwmm/shui-IM/pull/422)已合并为应用`9cf771de91598370bc77c1e73128ef5889b8a092`/`2026.10.26.2`，包含独立打开上下文、统一备份状态、加密私有目录与有界正文页，以及接入阶段投影；完整文件树与最终源`1768145`一致。
 
-最终干净源本地148文件/1114项、85/85浏览器入口及通话专项通过；[精确PR完整CI 40368042830](https://github.com/zdaiwmm/shui-IM/actions/runs/40368042830) attempt 1成功。[精确应用main CI 40372398641](https://github.com/zdaiwmm/shui-IM/actions/runs/40372398641/attempts/3) attempt 3完整复验成功，Full application verification及同轮双架构镜像已核对；首轮WebKit未读Fetch诊断未定位，局部attempt 2因镜像轮次绑定不足取消，完整原样复验与全部失败历史见需求记录。[只读预检40375941485](https://github.com/zdaiwmm/shui-IM/actions/runs/40375941485)取得精确PREFLIGHT_OK，88825ms；首轮预检因CI未通过停止。本批尚未生产切换，完整SHA待用户确认；下方最近已验证生产保持不变。
+最终干净源本地148文件/1114项、85/85浏览器入口及通话专项通过；[精确PR完整CI 40368042830](https://github.com/zdaiwmm/shui-IM/actions/runs/40368042830) attempt 1成功。[精确应用main CI 40372398641](https://github.com/zdaiwmm/shui-IM/actions/runs/40372398641/attempts/3) attempt 3完整复验成功，Full application verification及同轮双架构镜像已核对；首轮WebKit未读Fetch诊断未定位，局部attempt 2因镜像轮次绑定不足取消，完整原样复验与全部失败历史见需求记录。[只读预检40375941485](https://github.com/zdaiwmm/shui-IM/actions/runs/40375941485)取得精确PREFLIGHT_OK，88825ms；首轮预检因CI未通过停止。用户随后确认精确应用SHA，固定入口DEPLOY_VERIFIED与独立READBACK_OK均通过；具体生产证据见下方。
 
-## PC 八项与 macOS V1 已发布（2026-10-26 13:11）
+## 前批 PC 八项与 macOS V1：已包含当前生产
 
 用户确认免原型实施，追加更多按钮间距／居中；[需求 V1](../requirements/2026-10-26-pc-eight-macos/README.md)拥有具体范围、失败分类与证据。最终源 `91b7fae` 经 [PR #418](https://github.com/zdaiwmm/shui-IM/pull/418) 合并为应用 `460c57d06081d05419226c5d39f3afb659e1abca`／`2026.10.26.1`，完整文件树一致。包含 PC 几何、输入底色、返回位置及背景转场、列表与多余按钮、本人设备加密申请／系统卡批准、更多按钮，以及独立 macOS 包。
 
@@ -17,16 +17,15 @@
 本页是带时间的接手摘要，不是实时监控。历史详情保存在 [发布记录](../../RELEASING.md)、
 对应需求和 Git；[治理前完整状态快照](https://github.com/zdaiwmm/shui-IM/blob/bc329979e232d16a238190bc069eae32a85af4c9/docs/context/status.md)保留原证据和失败历史。
 
-## 最近已验证生产：2026-10-26 13:11
+## 最近已验证生产：2026-10-27 02:33
 
-- 应用 `460c57d06081d05419226c5d39f3afb659e1abca`，版本 `2026.10.26.1`；[PR #418](https://github.com/zdaiwmm/shui-IM/pull/418)。实际前版为预检读到的 `530ddf51a03c592959b5db6a765eccc4f2006a51`。
-- [精确 main 完整 CI 40270491736](https://github.com/zdaiwmm/shui-IM/actions/runs/40270491736) attempt 1 成功，Full application verification 及双架构镜像通过；本轮核对同一 SHA 的既有完整结果。
-- 固定预检 `40272025281` 取得 PREFLIGHT_OK；唯一发布 `40272152233` 取得 DEPLOY_VERIFIED，工作流来源 `6b2bc2b`，应用目标保持 `460c57d`。
-- 独立 READBACK_OK 于 `2026-10-26T05:11:36.822Z` 完成，2967ms：应用与备份 healthy、TURN 运行，SHA／镜像／HTTPS／数据库／存储／公开及容器产物／新 WebSocket 一致，维护门不存在，管理员与通话启用。
-- 首次回读仅备份 starting；只读核对原 5 分钟检查与启动期后仅续回读，没有重启或再次切换。完整证据见[本批发布记录](../../RELEASING.md#release-pc-eight-macos-20261026)与[需求记录](../requirements/2026-10-26-pc-eight-macos/README.md)。
-- PC 八项、追加更多按钮修复及本人设备系统卡授权已发布；目录发现不授予成员资格或旧历史，三端限制保持。macOS 包仍按上方单列的实际验证边界交付。
+- 应用`9cf771de91598370bc77c1e73128ef5889b8a092`，版本`2026.10.26.2`；[PR #422](https://github.com/zdaiwmm/shui-IM/pull/422)。实际前版`460c57d06081d05419226c5d39f3afb659e1abca`；纯文档main不替换线上应用SHA。
+- [精确main完整CI 40372398641](https://github.com/zdaiwmm/shui-IM/actions/runs/40372398641/attempts/3) attempt 3成功，Full application verification与同轮双架构镜像通过；未定位WebKit诊断及复验历史由需求记录保留。
+- [预检40375941485](https://github.com/zdaiwmm/shui-IM/actions/runs/40375941485)取得PREFLIGHT_OK；唯一[发布40376981116](https://github.com/zdaiwmm/shui-IM/actions/runs/40376981116)取得精确DEPLOY_VERIFIED，请求18bafe71仅派发一次，云工作流来源188c086，应用始终固定用户获批SHA。
+- 独立READBACK_OK于`2026-10-26T18:33:16.148Z`完成，3162ms：应用与备份running且healthy，TURN运行（探针none），SHA/镜像/HTTPS/数据库/存储/公开及容器产物/新WebSocket全部一致，维护门absent；管理员与通话启用。
+- 首轮仅备份starting；核对原5分钟检查窗口后仅续同SHA readback-only，没有重启或再次切换。完整证据见[发布记录](../../RELEASING.md#release-room-runtime-archive-20261027)及[需求](../requirements/2026-10-27-room-runtime-archive-v1/README.md)。
 
-以上为本次部署时点事实；纯文档对账提交可以领先线上应用 SHA。公共 Git 证据位于 `quiet-room-deliveries/evidence/pc-eight-macos-20261026/production-summary.json`，本轮仅做本批上下文轻治理。
+本页为部署时点事实，不是实时监控。脱敏组合证据保存在公共Git目录`quiet-room-deliveries/evidence/room-runtime-archive-v1-20261027/production-summary.json`；本批仅轻治理接手状态，未清理或改写其他任务现场。下一阶段仅输出优化方案，尚未授权实施；真机与外审仍暂缓。
 
 ## 六批项目治理 V1：已包含于当前生产
 
