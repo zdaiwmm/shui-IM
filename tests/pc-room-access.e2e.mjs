@@ -41,7 +41,10 @@ try {
   await owner.locator('[data-own-authorization]').waitFor();await capture(owner,'pc-authorization');
   assert.equal(await candidate.evaluate(()=>app.session.vault.roomId),carrierRoom,'Pending approval does not install the target room');
   assert.equal(approvalLinks,0,'A request alone never creates enrollment authority');
-  const card=owner.locator('[data-own-authorization]');await card.locator('[data-reject]').click();
+  const card=owner.locator('[data-own-authorization]');
+  const placement=await card.evaluate(n=>{const list=n.parentElement,last=[...list.querySelectorAll('.message')].at(-1);return {isLast:list.lastElementChild===n,afterMessages:!last||n.getBoundingClientRect().top>=last.getBoundingClientRect().bottom};});
+  assert.ok(placement.isLast&&placement.afterMessages,JSON.stringify(placement));
+  await card.locator('[data-reject]').click();
   await candidate.getByText('原设备已拒绝本次申请。',{exact:true}).waitFor();assert.equal(await candidate.evaluate(()=>app.session.vault.roomId),carrierRoom);
   await candidate.locator('[data-own-room-retry]').click();await owner.locator('[data-own-authorization]').waitFor();
   await owner.locator('[data-own-authorization] [data-approve]').click();await submitPassword(owner,'123456');

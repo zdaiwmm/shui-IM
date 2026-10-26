@@ -3976,7 +3976,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       if(list.querySelector(`[data-own-authorization="${request.id}"]`))continue;
       const card=document.createElement('section');card.className='room-connection-card own-device-authorization';card.dataset.ownAuthorization=request.id;
       card.innerHTML=`<h2>你的新设备申请进入</h2><p>${accessEscape(request.deviceName)}</p><p>允许后，这台设备可收发本密室的新消息。加入前的记录不会同步。</p><p class="form-error" role="status"></p><div class="own-device-actions"><button class="secondary-button" data-reject>拒绝</button><button class="primary-button" data-approve>允许进入</button></div>`;
-      list.prepend(card);
+      const follow=this.chatPinnedToBottom&&this.chatScrollIntent!=='up';
+      list.append(card);
+      if(follow)this.scrollChatToBottom();else this.updateChatBottomControl();
       for(const [selector,approved] of [['[data-reject]',false],['[data-approve]',true]] as const)card.querySelector(selector)!.addEventListener('click',()=>{
         if(this.ownRoomAccessBusy)return;this.ownRoomAccessBusy=true;card.querySelectorAll('button').forEach(b=>b.disabled=true);
         void this.answerOwnRoomAccess(request,approved,session,signal).then(()=>{if(this.isRuntimeActive(epoch,session)){card.remove();this.showNotice(approved?'已授权，等待新设备完成连接':'已拒绝本次申请');}}).catch(cause=>{if(card.isConnected){card.querySelector('.form-error')!.textContent=cause instanceof Error?cause.message:'操作未完成，请重试';card.querySelectorAll('button').forEach(b=>b.disabled=false);}}).finally(()=>{this.ownRoomAccessBusy=false;});
