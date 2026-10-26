@@ -23,6 +23,7 @@ import { bindPersonalDevice, verifyPersonalDeviceBinding, type PersonalDeviceBin
 import { preparePersonalIdentity, usePersonalIdentity, type StoredPersonalIdentity } from './lib/personal-identity-vault';
 import { personalMnemonicFromEntropy, personalEntropyFromMnemonic, withPersonalKeys } from './lib/personal-identity';
 import { readOwnPersonalDirectory, observedPersonalDirectoryVersion } from './lib/personal-directory-sync';
+import { ownRoomAccessMessages, requestOwnRoomAccess, saveOwnRoomAccess, syncOwnRoomAccess, type OwnRoomAccess } from './lib/own-room-access';
 import { ownDirectorySpaces, changeOwnSpace, syncOwnSpaceDirectory } from './lib/own-space-directory';
 import { unlockDirectorySyncRoom } from './lib/vault';
 import { listChamberHistoryRequests, readChamberHistoryRequest, startChamberHistoryRecovery, approveChamberHistoryRecovery, completeChamberHistoryRecovery, type ChamberHistorySummary } from './lib/chamber-history-recovery';
@@ -772,7 +773,7 @@ export class QuietRoomApp {
       lock: () => this.manualLock(),
     });
     this.desktopWorkspace = new DesktopWorkspace(root, {
-      context: () => this.privacyCovered ? null : this.session && this.runtimeAbort ? { owner: this.session, signal: this.runtimeAbort.signal, sidebar: !isChamberVault(this.session.vault) }
+      context: () => this.privacyCovered ? null : this.session && this.runtimeAbort ? { owner: this.session, signal: this.runtimeAbort.signal, sidebar: !isChamberVault(this.session.vault) && !this.session.vault.roomArchiveV2 }
         : this.browserProfile && this.browserAccessAbort ? { owner: this.browserProfile, signal: this.browserAccessAbort.signal } : null,
       mount: async (host, signal) => {
         const session = this.session;
@@ -3923,6 +3924,93 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     });
   }
 
+  private waitingOwnRoom:string|null=null;
+  private ownRoomAccessBusy=false;
+  private async renderOwnRoomAccess(space:PrivateSpace):Promise<void> {
+    const session=this.session,signal=this.runtimeAbort?.signal,epoch=this.runtimeEpoch;
+    if(!session||!signal||this.privacyCovered)return;
+    this.waitingOwnRoom=space.roomId;this.setActiveSurface('away');
+    this.root.innerHTML=`<section class="chat-shell own-room-access-shell"><header class="chat-header"><strong>${accessEscape(space.name)}</strong></header><main class="own-room-access-content"><section class="room-connection-card"><h2>授权此设备进入密室</h2><p data-own-room-status role="status">正在向你的原设备发送申请…</p><p>在自己的原设备打开这间密室，点击系统卡片中的“允许进入”。加入前的聊天记录不会同步。</p><button class="primary-button" data-own-room-retry hidden>重新申请</button><button class="secondary-button" data-own-room-back>返回密室列表</button></section></main></section>`;
+    const page=this.root.querySelector('.own-room-access-shell')!,status=page.querySelector('[data-own-room-status]')!;
+    page.querySelector('[data-own-room-back]')!.addEventListener('click',()=>{this.waitingOwnRoom=null;this.renderChat();void this.openPrivateSpaces();});
+    page.querySelector('[data-own-room-retry]')!.addEventListener('click',()=>void this.renderOwnRoomAccess(space));
+    let opened:VaultSession|null=null;
+    try {
+      const key=await browserRoomKey();
+      const spaces=await localSpaces(session);
+      for(const local of spaces.filter(s=>s.roomArchiveV2&&s.localId)){
+        if(signal.aborted||!page.isConnected||!this.isRuntimeActive(epoch,session))return;
+        const stored=local.roomId===session.vault.roomId?null:await readStoredRoom(local.localId!);
+        const carrier=local.roomId===session.vault.roomId?session:key&&stored?opened=await unlockDirectorySyncRoom(key,stored):null;
+        if(!carrier)continue;
+        const request=await requestOwnRoomAccess(carrier,space.roomId,this.newDeviceName(),signal);
+        if(opened){releaseDeviceCredential(opened);opened=null;}
+        if(!request)continue;
+        if(page.isConnected)status.textContent='申请已发送，等待你的原设备授权。原设备需保持解锁并联网。';
+        await this.paintOwnRoomAccess();return;
+      }
+      throw new Error('暂时未找到可联系的原设备，请在原设备解锁一间双方均已接入的密室后重试。');
+    } catch(cause){if(page.isConnected){status.textContent=cause instanceof Error?cause.message:'申请未发送，请重试';(page.querySelector('[data-own-room-retry]') as HTMLButtonElement).hidden=false;}}
+    finally{if(opened)releaseDeviceCredential(opened);}
+  }
+  private async paintOwnRoomAccess():Promise<void> {
+    const session=this.session,signal=this.runtimeAbort?.signal,epoch=this.runtimeEpoch;
+    if(!session?.vault.roomArchiveV2||!signal||this.privacyCovered)return;
+    const messages=await ownRoomAccessMessages(session);
+    if(!this.isRuntimeActive(epoch,session))return;
+    const waiting=this.root.querySelector('.own-room-access-shell');
+    if(waiting&&this.waitingOwnRoom){
+      const request=[...messages].reverse().find(m=>m.roomId===this.waitingOwnRoom);
+      const status=waiting.querySelector('[data-own-room-status]');
+      if(request?.status==='approved'&&request.invite&&!this.ownRoomAccessBusy){
+        this.ownRoomAccessBusy=true;
+        try{const invite=request.invite;this.waitingOwnRoom=null;if(await this.leaveSpace())this.renderJoinDevice(invite);}
+        finally{this.ownRoomAccessBusy=false;}return;
+      }
+      if(status){status.textContent=request?.status==='rejected'?'原设备已拒绝本次申请。':!request?'申请已结束，请重新申请。':'申请已发送，等待你的原设备授权。';(waiting.querySelector('[data-own-room-retry]') as HTMLButtonElement).hidden=Boolean(request&&request.status!=='rejected');}
+      return;
+    }
+    const list=this.root.querySelector('#message-list');if(!list||this.activeSurface!=='chat')return;
+    for(const card of list.querySelectorAll<HTMLElement>('[data-own-authorization]'))if(!messages.some(m=>m.id===card.dataset.ownAuthorization&&m.status==='requested'&&m.roomId===session.vault.roomId))card.remove();
+    for(const request of messages.filter(m=>m.status==='requested'&&m.roomId===session.vault.roomId)){
+      if(list.querySelector(`[data-own-authorization="${request.id}"]`))continue;
+      const card=document.createElement('section');card.className='room-connection-card own-device-authorization';card.dataset.ownAuthorization=request.id;
+      card.innerHTML=`<h2>你的新设备申请进入</h2><p>${accessEscape(request.deviceName)}</p><p>允许后，这台设备可收发本密室的新消息。加入前的记录不会同步。</p><p class="form-error" role="status"></p><div class="own-device-actions"><button class="secondary-button" data-reject>拒绝</button><button class="primary-button" data-approve>允许进入</button></div>`;
+      list.prepend(card);
+      for(const [selector,approved] of [['[data-reject]',false],['[data-approve]',true]] as const)card.querySelector(selector)!.addEventListener('click',()=>{
+        if(this.ownRoomAccessBusy)return;this.ownRoomAccessBusy=true;card.querySelectorAll('button').forEach(b=>b.disabled=true);
+        void this.answerOwnRoomAccess(request,approved,session,signal).then(()=>{if(this.isRuntimeActive(epoch,session)){card.remove();this.showNotice(approved?'已授权，等待新设备完成连接':'已拒绝本次申请');}}).catch(cause=>{if(card.isConnected){card.querySelector('.form-error')!.textContent=cause instanceof Error?cause.message:'操作未完成，请重试';card.querySelectorAll('button').forEach(b=>b.disabled=false);}}).finally(()=>{this.ownRoomAccessBusy=false;});
+      });
+    }
+  }
+  private async answerOwnRoomAccess(request:OwnRoomAccess,approved:boolean,session:VaultSession,signal:AbortSignal):Promise<void> {
+    const epoch=this.runtimeEpoch;
+    if(request.roomId!==session.vault.roomId||Date.parse(request.expiresAt)<=Date.now())throw new Error('设备申请已结束');
+    if(approved)await this.authorizeArchiveExport('允许本人新设备进入');
+    if(!this.isRuntimeActive(epoch,session)||signal.aborted)return;
+    const spaces=await localSpaces(session),space=spaces.find(s=>s.roomId===request.carrierRoomId&&s.localId);
+    const key=await browserRoomKey(),stored=space?await readStoredRoom(space.localId!):null;
+    const carrier=request.carrierRoomId===session.vault.roomId?session:key&&stored?await unlockDirectorySyncRoom(key,stored):null;
+    if(!carrier)throw new Error('原设备的验证通道不可用，请重新解锁后重试');
+    try{
+      if(carrier.vault.identity.publicBundle.deviceId!==request.authorizerId||!carrier.vault.members.some(m=>m.deviceId===request.requesterId&&m.role===carrier.vault.role&&m.status==='active'))throw new SecurityViolation('申请设备不再属于本人');
+      let invite:DeviceInvite|undefined;
+      if(approved){
+        const own=session.vault.identity.publicBundle.deviceId,creator=session.vault.members.find(m=>m.role==='creator'&&!m.addedBy);
+        if(!creator)throw new SecurityViolation('密室身份不完整');
+        let pending=session.vault.pendingDeviceLinks?.find(p=>p.linkId===request.id);
+        if(!pending){pending={linkId:request.id,secret:randomBase64Url(32),admissionSecret:randomBase64Url(32),expiresAt:request.expiresAt,createdAt:new Date().toISOString()};const saved=pending;await withVaultMutation(session,async mutation=>{session.vault.pendingDeviceLinks=[...(session.vault.pendingDeviceLinks??[]).filter(p=>Date.parse(p.expiresAt)>Date.now()),saved];await saveVault(session,mutation);});}
+        try { await getDeviceLinkStatus(pending.linkId,pending.secret,session.vault.accessToken,signal); }
+        catch(cause) { if(cause instanceof ApiError && cause.code==='INVALID_DEVICE_LINK') await createDeviceLink(session.vault.roomId,session.vault.accessToken,own,pending.linkId,pending.secret,pending.expiresAt,signal); else throw cause; }
+        if(!this.isRuntimeActive(epoch,session))return;
+        invite={v:1,kind:'device-link',roomId:request.roomId,role:session.vault.role,authorizerId:own,authorizerFingerprint:await bundleFingerprint(session.vault.identity.publicBundle),creatorFingerprint:await bundleFingerprint(memberBundle(creator)),linkId:pending.linkId,secret:pending.secret,admissionSecret:pending.admissionSecret,expiresAt:pending.expiresAt};
+      }
+      signal.throwIfAborted();
+      await saveOwnRoomAccess(carrier,{...request,status:approved?'approved':'rejected',...(invite?{invite}:{})},signal);
+      await syncOwnRoomAccess(carrier,signal);
+      if(approved&&this.isRuntimeActive(epoch,session))this.startOwnDeviceAdmissionPolling();
+    }finally{if(carrier!==session)releaseDeviceCredential(carrier);}
+  }
   private ownDeviceInvite:DeviceInvite|null=null;
   private ownDeviceAdmissionBusy=false;
   private ownDeviceAdmissionPolling:AbortController|null=null;
@@ -4924,6 +5012,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       try {
         if (!document.hidden && !this.privacyCovered) {
           await syncOwnSpaceDirectory(session, signal);
+          await syncOwnRoomAccess(session,signal);
           // Shared-room edges connect this browser's local collection to its
           // other devices even while the visible room has just been created.
           const key = await browserRoomKey();
@@ -4933,8 +5022,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
             const space = spaces[cursor++ % spaces.length]!, stored = await readStoredRoom(space.localId!);
             if (!stored) continue;
             const other = await unlockDirectorySyncRoom(key, stored);
-            try { await syncOwnSpaceDirectory(other, signal); } finally { releaseDeviceCredential(other); }
+            try { await syncOwnSpaceDirectory(other, signal); await syncOwnRoomAccess(other,signal); } finally { releaseDeviceCredential(other); }
           }
+          await this.paintOwnRoomAccess();
           const current = (await ownDirectorySpaces(session)).find(space => space.roomId === session.vault.roomId);
           if (current && !signal.aborted && this.session === session && !this.privacyCovered) {
             this.currentSpaceName = current.name; this.currentSpaceAvatar = current.avatar ?? this.currentSpaceAvatar;
@@ -6676,7 +6766,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
   }
 
   private async performPrivateSpaceSwitch(space: PrivateSpace, current = () => !this.privacyCovered): Promise<void> {
-    if (space.catalogOnly) throw new Error('此密室尚未在本浏览器接入。请在自己的已授权设备中为这间密室生成设备加入链接。');
+    if (space.catalogOnly) { await this.renderOwnRoomAccess(space); return; }
     if (!space.localId && this.browserProfile?.profile.spaces.some(s=>s.roomId===space.roomId)) {const profile=this.browserProfile,prf=(this.browserBindingProof??this.session?.browserAccessPrf)?.slice();if(!await this.leaveSpace()){prf?.fill(0);return;}this.browserProfile=profile;this.browserBindingProof=prf??null;this.browserAccessAbort=new AbortController();profile.profile.currentRoom=space.roomId;this.scheduleIdleLock();this.renderBrowserShell();this.pollBrowserSpaceAccess(this.browserAccessAbort.signal);return;}
     if (!space.localId) throw new Error('此密室需要先恢复');
     if (!await this.leaveSpace()) return;
@@ -6971,7 +7061,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       const spaces = await ownDirectorySpaces(session, this.browserProfile ? accessPrivateSpaces(this.browserProfile.profile) : []);
       this.applyCatalogToSpaces(spaces);
       if (signal.aborted || this.privacyCovered || this.session !== session || !shouldOpen()) { this.spaceDrawerOpen = false; return; }
-      this.mountPrivateSpaceDrawer(session, spaces, signal, previousSurface, initialSettings ? 0 : undefined, undefined, undefined, listScrollTop);
+      if(initialSettings && matchMedia(desktopWidth).matches) this.renderDesktopSettings(spaces);
+      else this.mountPrivateSpaceDrawer(session, spaces, signal, previousSurface, initialSettings ? 0 : undefined, undefined, undefined, listScrollTop);
       void this.rememberSpacePreview(session, signal)
         .then(() => this.refreshOtherSpacePreviews(session, spaces, signal))
         .then(() => { if (!signal.aborted && this.spaceDrawerOpen) this.paintSpacePreviews(spaces); })
@@ -8800,6 +8891,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     let outgoing = !reducedMotion && this.root.firstElementChild instanceof HTMLElement
       ? source ?? this.root.querySelector<HTMLElement>(':scope > .space-drawer-overlay:not(.is-closing)') ?? this.root.firstElementChild : null;
     const sourceForeground = outgoing;
+    const outgoingRect = outgoing?.getBoundingClientRect();
     const outgoingScrollTop = outgoing?.querySelector('.space-drawer-scroll')?.scrollTop ?? 0;
     const leavingSettings=Boolean(outgoing?.matches('.is-settings-page,.desktop-settings-page'));
     if (outgoing && (source || outgoing.classList.contains('space-drawer-overlay'))) {
@@ -8840,6 +8932,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       outgoingFrame.className = 'page-transition-outgoing';
       if (incoming.classList.contains('gallery-shell') && outgoing.classList.contains('chat-shell')) {
         outgoingFrame.dataset.safeDeparture = '';
+      }
+      if (outgoingRect && matchMedia(desktopWidth).matches) {
+        Object.assign(outgoing.style, {position:'absolute',left:`${outgoingRect.left}px`,top:`${outgoingRect.top}px`,right:'auto',bottom:'auto',width:`${outgoingRect.width}px`,height:`${outgoingRect.height}px`,maxWidth:'none',margin:'0',boxSizing:'border-box'});
       }
       outgoingFrame.append(outgoing);
       outgoing.setAttribute('aria-hidden', 'true');
@@ -11807,6 +11902,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     // acknowledgements still update the model, but only the active chat may
     // consume the saved reading position or change document scrolling.
     if (!list || !this.session || this.activeSurface !== 'chat' || list.closest('.page-transition-outgoing')) return;
+    void this.paintOwnRoomAccess().catch(() => undefined);
     const guide = this.root.querySelector<HTMLElement>('.chamber-privacy-guide');
     const continuingMotion = this.chatMessageAnimations.size > 0;
     const previousMessageIds = new Set(this.renderedMessages.keys());

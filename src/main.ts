@@ -54,3 +54,5 @@ if ('serviceWorker' in navigator && window.isSecureContext && import.meta.env.PR
     });
   });
 }
+
+import './pc-layout.css';

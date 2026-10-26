@@ -11,7 +11,7 @@ export type OwnSpaceRecord = Pick<PrivateSpace, 'roomId' | 'name' | 'avatar' | '
   revision: number; writer: string; removed: boolean;
 };
 type Directory = { v: 1; writer: string; clock: number; entries: OwnSpaceRecord[] };
-type Envelope = { v: 1; purpose: 'quiet-room-own-directory-v1'; roomId: string; senderId: string; recipientId: string;
+export type OwnEnvelope = { v: 1; purpose: 'quiet-room-own-directory-v1' | 'quiet-room-own-admission-v1'; roomId: string; senderId: string; recipientId: string;
   revision: number; iv: string; ciphertext: string; signature: string };
 const purpose = 'quiet-room-own-directory-v1' as const;
 const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: true });
@@ -100,7 +100,7 @@ export async function ownDirectorySpaces(session: VaultSession, additional: Priv
   return result;
 }
 
-function header(envelope: Omit<Envelope, 'iv' | 'ciphertext' | 'signature'>) {
+function header(envelope: Omit<OwnEnvelope, 'iv' | 'ciphertext' | 'signature'>) {
   return { v: envelope.v, purpose: envelope.purpose, roomId: envelope.roomId, senderId: envelope.senderId, recipientId: envelope.recipientId, revision: envelope.revision };
 }
 async function pairKey(vault: Vault, peer: RoomMember, context: ReturnType<typeof header>): Promise<CryptoKey> {
@@ -112,19 +112,28 @@ async function pairKey(vault: Vault, peer: RoomMember, context: ReturnType<typeo
     return await crypto.subtle.deriveKey({name:'HKDF',hash:'SHA-256',salt:encoder.encode(vault.roomId),info:encoder.encode(canonicalStringify(context))},material,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
   } finally { shared.fill(0); }
 }
-export async function sealOwnDirectory(vault: Vault, target: RoomMember, entries: OwnSpaceRecord[], revision: number): Promise<Envelope> {
+export async function sealOwnDirectory(vault: Vault, target: RoomMember, entries: OwnSpaceRecord[], revision: number): Promise<OwnEnvelope> {
   if (!validOwnSpaceRecords(entries) || target.role !== vault.role || target.status !== 'active' || target.deviceId === vault.identity.publicBundle.deviceId) throw new Error('本人目录设备不正确');
-  const context = header({v:1,purpose,roomId:vault.roomId,senderId:vault.identity.publicBundle.deviceId,recipientId:target.deviceId,revision});
-  const iv = crypto.getRandomValues(new Uint8Array(12)), raw = encoder.encode(JSON.stringify({v:1,entries}));
+  return sealOwnEnvelope(vault,target,{v:1,entries},revision,purpose);
+}
+export async function sealOwnEnvelope(vault: Vault,target: RoomMember,data: unknown,revision: number,mailPurpose: OwnEnvelope['purpose']): Promise<OwnEnvelope> {
+  if (target.role !== vault.role || target.status !== 'active' || target.deviceId === vault.identity.publicBundle.deviceId) throw new Error('本人设备不正确');
+  const context = header({v:1,purpose:mailPurpose,roomId:vault.roomId,senderId:vault.identity.publicBundle.deviceId,recipientId:target.deviceId,revision});
+  const iv = crypto.getRandomValues(new Uint8Array(12)), raw = encoder.encode(JSON.stringify(data));
   try {
     const unsigned = {...context,iv:toBase64Url(iv),ciphertext:toBase64Url(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:encoder.encode(canonicalStringify(context))},await pairKey(vault,target,context),raw))};
     const key = await crypto.subtle.importKey('jwk',vault.identity.signingPrivateKey,{name:'ECDSA',namedCurve:'P-256'},false,['sign']);
     return {...unsigned,signature:toBase64Url(await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},key,encoder.encode(canonicalStringify(unsigned))))};
   } finally { raw.fill(0); }
 }
-export async function openOwnDirectory(vault: Vault, envelope: Envelope): Promise<OwnSpaceRecord[]> {
+export async function openOwnDirectory(vault: Vault, envelope: OwnEnvelope): Promise<OwnSpaceRecord[]> {
+  const data = await openOwnEnvelope(vault,envelope,purpose) as {v:number;entries:OwnSpaceRecord[]};
+  if (data?.v !== 1 || Object.keys(data).sort().join(',') !== 'entries,v' || !validOwnSpaceRecords(data.entries)) throw new Error('本人目录内容不正确');
+  return data.entries;
+}
+export async function openOwnEnvelope(vault: Vault,envelope: OwnEnvelope,mailPurpose: OwnEnvelope['purpose']): Promise<unknown> {
   const peer = vault.members.find(member => member.deviceId === envelope.senderId);
-  if (!peer || peer.role !== vault.role || peer.status !== 'active' || envelope.purpose !== purpose || envelope.v !== 1 ||
+  if (!peer || peer.role !== vault.role || peer.status !== 'active' || envelope.purpose !== mailPurpose || envelope.v !== 1 ||
     envelope.roomId !== vault.roomId || envelope.recipientId !== vault.identity.publicBundle.deviceId || envelope.senderId === envelope.recipientId ||
     !Number.isSafeInteger(envelope.revision) || envelope.revision < 1 || typeof envelope.ciphertext !== 'string' || envelope.ciphertext.length > 2 * 1024 ** 2 ||
     Object.keys(envelope).sort().join(',') !== 'ciphertext,iv,purpose,recipientId,revision,roomId,senderId,signature,v') throw new Error('本人目录来源未通过验证');
@@ -134,9 +143,7 @@ export async function openOwnDirectory(vault: Vault, envelope: Envelope): Promis
   const context = header(envelope);
   const raw = new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:fromBase64Url(envelope.iv),additionalData:encoder.encode(canonicalStringify(context))},await pairKey(vault,peer,context),fromBase64Url(envelope.ciphertext)));
   try {
-    const data = JSON.parse(decoder.decode(raw));
-    if (data?.v !== 1 || Object.keys(data).sort().join(',') !== 'entries,v' || !validOwnSpaceRecords(data.entries)) throw new Error('本人目录内容不正确');
-    return data.entries;
+    return JSON.parse(decoder.decode(raw));
   } finally { raw.fill(0); }
 }
 /** Only metadata crosses these pairwise envelopes. A discovered room still
@@ -147,7 +154,7 @@ export async function syncOwnSpaceDirectory(session: VaultSession, signal: Abort
   if (!peers.length) return;
   const url = `/api/rooms/${session.vault.roomId}/own-directory`;
   const options = {signal:AbortSignal.any([signal,AbortSignal.timeout(15_000)]),cache:'no-store' as const};
-  const data = await (await authorizedFetch(url,session.vault.accessToken,options)).json() as {incoming:Envelope[];outgoing:{recipientId:string;revision:number}[]};
+  const data = await (await authorizedFetch(url,session.vault.accessToken,options)).json() as {incoming:OwnEnvelope[];outgoing:{recipientId:string;revision:number}[]};
   if (!Array.isArray(data.incoming) || data.incoming.length > 2 || !Array.isArray(data.outgoing) || data.outgoing.length > 2) throw new Error('本人目录设备数不正确');
   let incoming:OwnSpaceRecord[] = [];
   for (const envelope of data.incoming) incoming = mergeOwnSpaceRecords(incoming,await openOwnDirectory(session.vault,envelope));

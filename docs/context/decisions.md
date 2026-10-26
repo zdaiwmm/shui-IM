@@ -354,6 +354,8 @@
 
 ## D-079：本人设备目录元数据同步与列表移除
 
+后续已发现密室的直接授权由 D-080 补充，目录发现本身仍不授予成员或历史权限。
+
 2026-10-25用户确认[全部九项V1](../requirements/2026-10-25-experience-reliability/README.md)，明确免原型实施及固定D交付。新版本人已授权关联设备同步目录新建、名称/头像和移除记录；目录元数据在当前可信同角色设备之间独立加密/签名，不授予其他密室成员身份或旧历史。列表移除保留已有本机内容、对方和独立归档，显式本浏览器数据清理仍独立。网络/冷启动第10、11项随后由用户排除；不继承本批精确生产SHA授权。完整边界由PRODUCT、NEW_ROOM_ARCHIVES与SECURITY拥有，自动测试不能替代iOS真机或独立审阅。
 
 ## 不在本页记录的内容
@@ -630,3 +632,8 @@ Linux WebKit 的真实失败栈定位到 ts-mls 默认实现的原生 Ed25519 ge
 ## D-078：未发送消息取消、独立设备入口与只读图标计数（2026-10-24）
 
 用户确认[十三项V1](../requirements/2026-10-24-ui-13-fixes/README.md)，明确免原型／流程图并授权实施和固定D交付，请求发布生产，精确SHA确认仍独立。待发删除原子移除待发记录并保存本机隐藏投影，发送前持同一生命周期租约核验；不回退MLS状态，不能收回已被服务器接收的内容。此条替代旧未发送消息「仅隐藏、仍补发」语义，已确认消息与Safe删除边界保持。本人设备链接可在新槽位继续，不被旧验证码任务占用，原槽保留且新链仍完整验证。默认chamberN及名称同步沿用既有契约；favicon仅显示当前密室现有只读未读数，不含名称／内容。
+
+
+## D-080: Original-device approval for discovered rooms and macOS host
+
+2026-10-26 user confirmed the PC V1 scope, waived this prototype and authorized implementation, then added more-button geometry. Discovered own rooms may request access through an existing trusted same-role device edge; the original device explicitly approves in the target-room system card after operation authentication. Separate authenticated purpose and mailbox preserve metadata compatibility. Existing device proof, MLS add, three-device and pre-join history boundaries remain. The independent macOS host fixes the official origin and uses existing password setup where embedded passkey support is unavailable. Ad-hoc signing is not public-distribution notarization. Scope, failures and verification are owned by [the V1 record](../requirements/2026-10-26-pc-eight-macos/README.md); production still needs a new exact-SHA approval.

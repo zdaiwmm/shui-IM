@@ -1,7 +1,8 @@
+import { validOwnRoomAccess } from '../src/lib/own-room-access';
 import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it } from 'vitest';
 import { generateIdentity } from '../src/lib/crypto';
-import { mergeOwnSpaceRecords, openOwnDirectory, sealOwnDirectory, validOwnSpaceRecords, type OwnSpaceRecord } from '../src/lib/own-space-directory';
+import { mergeOwnSpaceRecords, openOwnDirectory, sealOwnDirectory, openOwnEnvelope, sealOwnEnvelope, validOwnSpaceRecords, type OwnSpaceRecord } from '../src/lib/own-space-directory';
 import { createOwnSpaceDirectory } from '../server/own-space-directory.mjs';
 import type { Vault, RoomMember } from '../src/lib/types';
 
@@ -52,5 +53,41 @@ describe('own-device metadata directory', () => {
       expect(()=>directory.save(room,a.deviceId,envelope)).toThrow('UNAUTHORIZED');
       expect(directory.read(room,a.deviceId).outgoing).toEqual([]);
     } finally { db.close(); }
+  });
+});
+
+
+describe('own-device room admission isolation', () => {
+  it('authenticates a separate purpose and cannot carry a directory envelope as approval',async()=>{
+    const [a,b,c]=await Promise.all([generateIdentity(),generateIdentity(),generateIdentity()]);
+    const members=[a,b,c].map((identity,i)=>({...identity.publicBundle,role:i===2?'joiner':'creator',status:'active',joinProof:null})) as RoomMember[];
+    const vault={roomId:crypto.randomUUID(),role:'creator',identity:a,members} as Vault;
+    const receiver={...vault,identity:b};
+    const message={id:crypto.randomUUID(),roomId:crypto.randomUUID(),carrierRoomId:vault.roomId,requesterId:a.publicBundle.deviceId,authorizerId:b.publicBundle.deviceId,deviceName:'本人的电脑',expiresAt:new Date(Date.now()+600000).toISOString(),status:'requested'};
+    expect(validOwnRoomAccess(message)).toBe(true);
+    expect(validOwnRoomAccess({...message,status:'approved'})).toBe(false);
+    expect(validOwnRoomAccess({...message,requesterId:message.authorizerId})).toBe(false);
+    expect(validOwnRoomAccess({...message,accessToken:'not allowed'})).toBe(false);
+    const mail=await sealOwnEnvelope(vault,members[1]!,[message],1,'quiet-room-own-admission-v1');
+    expect(await openOwnEnvelope(receiver,mail,'quiet-room-own-admission-v1')).toEqual([message]);
+    await expect(openOwnDirectory(receiver,mail)).rejects.toThrow();
+    await expect(openOwnEnvelope({...receiver,identity:c},mail,'quiet-room-own-admission-v1')).rejects.toThrow();
+    await expect(openOwnEnvelope(receiver,{...mail,roomId:crypto.randomUUID()},'quiet-room-own-admission-v1')).rejects.toThrow();
+    await expect(openOwnEnvelope(receiver,{...mail,ciphertext:mail.ciphertext.slice(0,-4)+'AAAA'},'quiet-room-own-admission-v1')).rejects.toThrow();
+  });
+  it('keeps the admission mailbox separate from metadata and enforces recipient ownership',()=>{
+    const db=new DatabaseSync(':memory:');
+    try{
+      db.exec('CREATE TABLE rooms(room_id TEXT PRIMARY KEY); CREATE TABLE members(room_id TEXT,device_id TEXT,status TEXT)');
+      const room=crypto.randomUUID();db.prepare('INSERT INTO rooms VALUES(?)').run(room);
+      const a={deviceId:crypto.randomUUID(),role:'creator',status:'active'},b={deviceId:crypto.randomUUID(),role:'creator',status:'active'},peer={deviceId:crypto.randomUUID(),role:'joiner',status:'active'};
+      const members=[a,b,peer];for(const m of members)db.prepare('INSERT INTO members VALUES(?,?,?)').run(room,m.deviceId,m.status);
+      const options={authenticatedDevice:(_r:string,t:string)=>members.find(m=>m.deviceId===t),getMember:(_r:string,id:string)=>members.find(m=>m.deviceId===id)};
+      const admission=createOwnSpaceDirectory(db,{...options,admission:true}),directory=createOwnSpaceDirectory(db,options);
+      const mail={v:1,purpose:'quiet-room-own-admission-v1',roomId:room,senderId:a.deviceId,recipientId:b.deviceId,revision:1,iv:'i'.repeat(16),ciphertext:'C'.repeat(64),signature:'S'.repeat(86)};
+      admission.save(room,a.deviceId,mail);expect(admission.read(room,b.deviceId).incoming).toEqual([mail]);expect(directory.read(room,b.deviceId).incoming).toEqual([]);
+      expect(()=>directory.save(room,a.deviceId,mail)).toThrow();expect(()=>admission.save(room,a.deviceId,{...mail,recipientId:peer.deviceId})).toThrow();
+      expect(()=>admission.save(room,b.deviceId,mail)).toThrow();a.status='revoked';expect(()=>admission.read(room,a.deviceId)).toThrow();
+    }finally{db.close();}
   });
 });

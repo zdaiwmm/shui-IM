@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## PC 八项与 macOS V1：本地实施与定向验收（2026-10-26）
+
+用户确认免原型实施，追加更多按钮间距／居中；[需求 V1](../requirements/2026-10-26-pc-eight-macos/README.md)拥有具体范围、原始失败分类与证据。独占分支 `codex/pc-eight-macos-20261026` 基于实时 main `530ddf5`；PC 几何与新密室旧侧栏隔离、成对加密申请／原设备系统卡批准、同图标独立 macOS 包已实现。构建与 145 文件／1100 项本地通过；Chromium/WebKit 桌面专项及真实三浏览器 MLS 拒绝／重试／批准／无旧历史链路通过。完整浏览器回归、PR CI 与合并仍待完成，不据此宣称已发布。
+
+本机包为双架构 ad-hoc 签名，Apple Silicon 启动及正式首页只读检查通过；没有 Developer ID／公证，Intel 执行和实际摄像头／通话未验证。安装包仅加载正式站点，网页修复上线仍需另行确认精确 SHA。
+
 本页是带时间的接手摘要，不是实时监控。历史详情保存在 [发布记录](../../RELEASING.md)、
 对应需求和 Git；[治理前完整状态快照](https://github.com/zdaiwmm/shui-IM/blob/bc329979e232d16a238190bc069eae32a85af4c9/docs/context/status.md)保留原证据和失败历史。
 

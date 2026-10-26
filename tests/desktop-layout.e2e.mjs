@@ -87,7 +87,7 @@ try {
     await page.keyboard.press('Escape'); assert.equal(await page.locator('#open-chat-tools').getAttribute('aria-expanded'), 'false');
     await page.locator('#open-spaces').click();
     await page.screenshot({ path: `${screenshots}/${engine.name()}-chat.png` });
-    await page.locator('#space-settings').click();
+    await page.locator('#chat-settings').click();
     await page.locator('.desktop-settings-page #presence-style-setting').waitFor();
     assert.equal(await page.locator('.desktop-sidebar').isVisible(), true);
     await page.locator('.desktop-sidebar .space-close').click();
@@ -165,3 +165,6 @@ try {
     console.log(`PASS desktop layout ${engine.name()}: alignment, collapse, anchor, keyboard, settings, responsive, privacy`);
   }
 } finally { await browser?.close(); await server.close(); }
+
+// Same sequential desktop entry, with a real device-admission journey.
+await import('./pc-room-access.e2e.mjs');

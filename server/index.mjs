@@ -531,15 +531,16 @@ export async function startServer(options = {}) {
         return;
       }
 
-      const ownDirectory = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/own-directory$`));
+      const ownDirectory = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/(own-directory|own-admission)$`));
       if (ownDirectory && ['GET','PUT'].includes(request.method)) {
         if (!allowRequest(request,'own-directory',900)) { response.setHeader('Retry-After','60'); json(request,response,429,{error:'请稍后同步密室目录'}); return; }
         try {
           const device = requireActiveDevice(request,ownDirectory[1]);
           if (!allowRequest(request,`own-directory:${ownDirectory[1]}:${device.deviceId}`,120)) { response.setHeader('Retry-After','60'); json(request,response,429,{error:'请稍后同步密室目录'}); return; }
           const token = bearerToken(request);
-          const result = request.method === 'GET' ? store.ownSpaceDirectory.read(ownDirectory[1],token)
-            : store.ownSpaceDirectory.save(ownDirectory[1],token,JSON.parse((await readBody(request,2200000)).toString('utf8')));
+          const mailbox = ownDirectory[2] === 'own-admission' ? store.ownDeviceAdmission : store.ownSpaceDirectory;
+          const result = request.method === 'GET' ? mailbox.read(ownDirectory[1],token)
+            : mailbox.save(ownDirectory[1],token,JSON.parse((await readBody(request,2200000)).toString('utf8')));
           json(request,response,200,result);
         } catch (error) {
           const code = error instanceof Error ? error.message : '';

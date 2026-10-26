@@ -42,7 +42,8 @@
     "dev:mobile": "node scripts/dev-mobile.mjs",
     "test:mobile-debug": "node tests/mobile-debug.e2e.mjs",
     "test:restore-drill": "vitest run tests/disaster-recovery.test.ts tests/backup-transfer.test.ts tests/backup-large-database.test.ts tests/operations-check.test.ts",
-    "perf:timeline": "node --expose-gc scripts/benchmark-timeline.mjs"
+    "perf:timeline": "node --expose-gc scripts/benchmark-timeline.mjs",
+    "build:macos": "node scripts/build-macos-app.mjs"
   },
   "dependencies": {
     "@hpke/core": "1.9.0",
