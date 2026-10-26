@@ -1,8 +1,10 @@
 # Quiet Room 当前状态
 
-## 房间运行与归档 V1：正在交付（2026-10-27）
+## 房间运行与归档 V1：已合并，待生产确认（2026-10-27）
 
-用户明确免原型实施并授权合并；[需求 V1](../requirements/2026-10-27-room-runtime-archive-v1/README.md)记录边界、DB16升级与回退要求、测量及失败分类。[PR #422](https://github.com/zdaiwmm/shui-IM/pull/422)包含独立打开上下文、统一备份状态、加密私有目录与有界正文页，以及接入阶段投影。最终精确候选的本地门禁与CI以该PR为准，开发期通过不代替最终组合。本批尚未生产切换；下方最近已验证生产保持不变，发布仍需用户确认最终完整SHA。
+用户明确免原型实施并授权合并；[需求 V1](../requirements/2026-10-27-room-runtime-archive-v1/README.md)记录边界、DB16升级与回退要求、测量及失败分类。[PR #422](https://github.com/zdaiwmm/shui-IM/pull/422)已合并为应用`9cf771de91598370bc77c1e73128ef5889b8a092`/`2026.10.26.2`，包含独立打开上下文、统一备份状态、加密私有目录与有界正文页，以及接入阶段投影；完整文件树与最终源`1768145`一致。
+
+最终干净源本地148文件/1114项、85/85浏览器入口及通话专项通过；[精确PR完整CI 40368042830](https://github.com/zdaiwmm/shui-IM/actions/runs/40368042830) attempt 1成功。[精确应用main CI 40372398641](https://github.com/zdaiwmm/shui-IM/actions/runs/40372398641/attempts/3) attempt 3完整复验成功，Full application verification及同轮双架构镜像已核对；首轮WebKit未读Fetch诊断未定位，局部attempt 2因镜像轮次绑定不足取消，完整原样复验与全部失败历史见需求记录。[只读预检40375941485](https://github.com/zdaiwmm/shui-IM/actions/runs/40375941485)取得精确PREFLIGHT_OK，88825ms；首轮预检因CI未通过停止。本批尚未生产切换，完整SHA待用户确认；下方最近已验证生产保持不变。
 
 ## PC 八项与 macOS V1 已发布（2026-10-26 13:11）
 

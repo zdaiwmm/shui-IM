@@ -2,7 +2,7 @@
 
 ## 身份与授权
 
-- 阶段：已授权实施；下一步为分批实现、风险匹配验证、PR/CI及合并。
+- 阶段：已实施并合并，精确应用main完整CI和只读生产预检通过；发布完整SHA待用户确认。
 - 版本：2026.10.26.2（固定工具按UTC分配序号）；用户本次确认日期为上海时间2026-10-27。
 - 基线：14848e71cf0c28753045f7f77200853427797642；分支：codex/room-runtime-archive-v1-20261027。
 - 规则接手：本机main 4356531cea264dd01bd9110da90b9ff62cfd7a59；实时GitHub与origin/main均为上述基线。
@@ -59,7 +59,15 @@ DESIGN.md、docs/design/mobile-visual-standard.md、src/main.ts实际加载样�
 
 ## 交付
 
-已创建[PR #422](https://github.com/zdaiwmm/shui-IM/pull/422)。最终精确候选的本地验证与CI由该PR记录；尚未合并或发布，生产目标未形成，尚无精确SHA发布确认。
+[PR #422](https://github.com/zdaiwmm/shui-IM/pull/422)已合并为应用`9cf771de91598370bc77c1e73128ef5889b8a092`，最终源`1768145ac08b1b509836fd1d56e04bfc31e4cd9b`；两者完整文件树同为`08aabc2a954f332c4812d52d17968bfcfbffde4b`。本批版本`2026.10.26.2`，后续纯文档提交不改变冻结应用目标。
+
+干净最终源本地`check:full`通过：148文件/1114项，85/85浏览器入口，0失败/0未运行，1396492ms。另行`test:calls:e2e`通过，107737ms，包含原生Chrome媒体、通话视图及20个合成弱网场景；不等于实体iPhone或真实公网TURN损伤验证。证据由该源工作树的`delivery:evidence`与PR保留。
+
+[精确PR完整CI 40368042830](https://github.com/zdaiwmm/shui-IM/actions/runs/40368042830) attempt 1成功，Full application verification、全部浏览器分片、通话、依赖审计和双架构镜像通过。[精确应用main CI 40372398641](https://github.com/zdaiwmm/shui-IM/actions/runs/40372398641/attempts/3) attempt 3完整复验成功，精确head、Full application verification、全部分片、通话和当前attempt的双架构镜像均已核对。首轮失败和局部复验取消保留于下方记录，不声称已定位修复原生诊断。
+
+使用`src/main.ts`实际加载样式与`appearance`主题入口，核对390px浅色、深色200%字级和1440px桌面的新增备份状态段；截图夹具首次仅设置系统配色未应用产品主题，已修正核对条件并等主题过渡结束后重拍。视觉证据限该状态段，原型免除不等于真机验证。
+
+生产尚未切换，目标为上述完整应用SHA；[固定只读预检40375941485](https://github.com/zdaiwmm/shui-IM/actions/runs/40375941485)经既有正常环境审核取得精确`PREFLIGHT_OK`，88825ms，确认绑定main CI attempt 3与同轮镜像。完整SHA仍待用户确认。最近已验证生产仍为`460c57d06081d05419226c5d39f3afb659e1abca`。本次记录不触发发布，也不改变既有公开高安全门槛。
 
 
 ### 补充故障注入证据
@@ -75,3 +83,13 @@ DESIGN.md、docs/design/mobile-visual-standard.md、src/main.ts实际加载样�
 冻结源730f776626b44fc1661faaf3084a2889e1464e10的构建/148文件1114项通过；本机check:full在draft-refresh停止（5通过/1失败/79未运行），PR #422首轮CI同一用例失败。原陈旧保险库检查仍拒绝打开，但每次open推进全局runtimeEpoch使当前认证入口的错误反馈被误判为过期。修复采用独立RoomRuntime身份和取消信号区分重复打开，保留原全局认证epoch职责；不修改stale-vault拒绝、toast断言或15秒期限。新候选重新冻结并执行风险匹配完整门禁，不能沿用本轮失败作为最终通过。
 
 同轮CI另有media-cache迁移断言仍预期DB15；更新为DB16，保留从DB10迁移的原128字节与usedAt=2断言。draft-refresh定向Chromium/WebKit通过。隔离夹具在取消旧构建后仍暂停其加密操作，却先等待同房新构建取得目录锁，形成夹具自锁；调整为先启动新打开、释放旧加密，再验证旧控制器保持空页且新控制器正常读完，不取消目录任务锁或降低隔离断言。五种屏障场景两引擎均通过；这些定向结果仍不代替新候选完整门禁。
+
+### 精确main首轮CI失败
+
+应用`9cf771d`的main CI 40372398641 attempt 1，分片3/4作业121746431895在`new-room-invite-privacy.e2e.mjs:91`失败（13通过/1失败/7未运行）：WebKit原生`web-inspector://bootstrap.js`报告unread请求「Fetch API cannot load http… due to access control checks」，调用栈经`unread-counter.refresh`/`refreshCoverUnread`。与此前状态页保留的未定位诊断同类，但本轮没有根因修复证据；同树本地完整检查与PR CI均通过也不能抵消这次失败。保留现有零页面错误断言，不改代码、过滤器或期限；按有界重试规程仅请求一次该失败分片的原样复验，最终main门禁仍须实际成功。
+
+首轮固定只读预检40372693443请求已核对`mode=doctor`及完整应用SHA，经既有production正常审核后，因「Latest CI run for the exact main commit has not passed」停止，357831ms；未执行生产切换。2026-10-26 18:00 UTC通过单作业重跑接口请求上述失败分片一次，后续实际执行范围与结果按GitHub attempt记录核对；未改代码或放宽断言。main成功后只续跑只读预检。
+
+单作业接口建立attempt 2但复用其他作业的原时间戳，产物仍仅有attempt 1的双架构镜像；发布工具`artifactName`/`findCIImageArtifact`要求当前attempt的镜像，不能用局部绿色替代。因此停止该局部复验，改为同一SHA的完整CI复验与镜像重建；不复制或重命名旧镜像，不放宽绑定门禁。局部attempt不计为通过，也不作为产品根因已修复的证据。
+
+attempt 2实际取消后，完整重跑建立attempt 3（各作业从18:04 UTC重新执行）；2026-10-26 18:13 UTC完整成功，当前attempt双架构镜像均存在且未过期。失败类型没有通过修改产品或过滤错误来消除，本批结论仅为原样完整复验实际通过。
