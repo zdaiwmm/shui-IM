@@ -11,6 +11,16 @@
 - 首次独立回读 `05:06:49.620Z` 至 `05:06:50.553Z` 仅备份 starting，应用 healthy、精确 SHA／镜像一致、维护门 absent。只读核实备份启动 `05:06:21.572155178Z` 及原 5 分钟 interval／startPeriod 后，仅等待并续跑同 SHA readback-only。最终 `2026-10-26T05:11:33.853Z` 至 `05:11:36.822Z` 取得 READBACK_OK，2967ms：应用与备份 running 且 healthy，TURN 运行且探针 none；HTTPS／数据库／存储、公开及容器产物摘要、新 WebSocket 全通过，维护门 absent，管理员与通话启用。没有重启或再次切换。
 - 脱敏组合证据在公共 Git 元数据 `quiet-room-deliveries/evidence/pc-eight-macos-20261026/production-summary.json`；第二记录树不含部署配置，对账不再次发布。macOS 包没有 Developer ID／公证，Intel 运行、摄像头／通话、旧 macOS 与真实 iPhone 验收仍未验证，独立安全审阅门槛保留。本批资源按固定清理入口核验，安装包、截图、证据及当前使用的记录树保留，不清理其他任务。
 
+<a id="release-project-governance-20261026"></a>
+## 项目治理与历史记录优化：已切换，后由新版接续（2026-10-26 07:03）
+
+- 用户确认全部六批治理并授权实施；范围、测量及保留条件由[治理需求](docs/requirements/2026-10-25-project-governance/README.md)拥有。展示完整应用、版本、完整 CI 和只读预检后，用户回复「确认，发布生产」，授权应用 `530ddf51a03c592959b5db6a765eccc4f2006a51`／`2026.10.25.2`，无独立消息 permalink。实际前版为 `24c89baa25865fd4bb256851597351e421ce7190`。
+- 治理代码经 [PR #415](https://github.com/zdaiwmm/shui-IM/pull/415) 合并；[版本准备 PR #417](https://github.com/zdaiwmm/shui-IM/pull/417) 的源 `23c1897` 与应用完整树同为 `983c6da5ebddc9abbe2ba28722ccd13f37f77f04`。本地版本准备的 145 文件／1098 单元及更新提示专项通过；[PR 完整 CI 40208422866](https://github.com/zdaiwmm/shui-IM/actions/runs/40208422866) 与[精确应用 main CI 40209205163](https://github.com/zdaiwmm/shui-IM/actions/runs/40209205163) 均 attempt 1 成功，含 82/82 浏览器入口、通话、双架构及 Full application verification。此前治理源的完整门禁和未定位诊断保留于需求记录，不据后续绿色抹去原失败。
+- 固定[只读预检 40209988578](https://github.com/zdaiwmm/shui-IM/actions/runs/40209988578)取得 PREFLIGHT_OK；本地跟踪等待期间连接中断后，只恢复同一 Run 并核对回执，没有另派预检。唯一[生产发布 40235626485](https://github.com/zdaiwmm/shui-IM/actions/runs/40235626485)经既有 production 审核取得精确 DEPLOY_VERIFIED，请求 `4278caf1-463d-4691-b3a2-c53c339ce32c` 只派发一次。云回执 `2026-10-25T23:00:28.725Z` 至 `23:03:54.153Z`；linux/amd64 镜像 `sha256:cb72d4c09001aeb19acaa884634897a45a27868d21797179ce32926613ac738a`，归档 SHA-256 `8f8d0b860e107ef46ed4acc2aec208d25cba4a4749646ced1da22548019ee33b`、210124005 字节，绑定 main CI 40209205163／attempt 1。外层耗时包含人工审核等待，不作为实际切换耗时。
+- 本应用独立回读没有取得 READBACK_OK：首次 `2026-10-25T23:04:17.048Z` 至 `23:04:22.177Z` 在 server-state 阶段以 connectivity 失败；公开首页／健康接口及新 WebSocket 另行检查正常，不等同于完整回读。现有受信 Workbench 只读确认 sshd active，本项目健康探针来源不在当时 SSH 白名单。用户另行批准临时单地址 TCP 22 规则；精确范围新增后，固定 readback-only 于 `2026-10-26T12:52:44.788Z` 仍在同阶段连接失败。新增规则随后删除，界面核验恢复原有 9 条；未扩大来源范围、修改原规则或再次发布。
+- 续接时核实主线已由[后续 PC 批次](#release-pc-eight-macos-20261026)发布应用 `460c57d06081d05419226c5d39f3afb659e1abca`／`2026.10.26.1`，该应用包含本批提交；时间线模块与其单测和本批应用相同，调用仍在。后续版本的独立 READBACK_OK 由对应记录拥有，不移用为 `530ddf5` 的回读成功，不回退当前版本补发旧应用。
+- 本批授权、精确云回执、两次连接失败及临时规则新增／撤销证据保存在公共 Git 元数据 `quiet-room-deliveries/evidence/governance-release-20261025/`。本次在第二独立工作树补记历史事实，保持最近已验证生产为后续应用；本批资源因原应用完整回读条件未满足、忽略文件和活动对账继续保留。真机、外审、证书续期及灾备边界仍见治理需求和 OPERATIONS。
+
 <a id="release-experience-reliability-20261025"></a>
 ## 媒体、桌面与本人设备目录 V1 已发布（2026-10-25 12:59）
 
