@@ -76,7 +76,7 @@ try{
     await v.saveHistoryMessage(session,{seq:2,clientMsgId:crypto.randomUUID(),senderId:session.vault.identity.publicBundle.deviceId,payload:{v:1,kind:'text',text:'Synthetic restored text',sentAt:stamp},acceptedAt:stamp,status:'stored'});session.vault.lastSeq=small?2:3;await v.saveVault(session);const outcome=await a.syncRoomArchive(session,new AbortController().signal);if(outcome.kind!=='complete')throw Error('Source fixture backup incomplete');return {key:session.vault.roomArchiveV2.key,roomId:session.vault.roomId,expected};
    };return [await make('A'),await make('B'),...(withSmall?[await make('small',true)]:[])];
   },{withSmall:true});await sourceContext.close();
-  const cases=selection==='quota-followup'?['real-quota-blocks-smaller','real-quota-small-control']:selection==='cancel-two-archives'?['cancel-two-archives']:selection==='real-quota'?['real-quota']:['success','cancel-before-write','cancel-after-media','network-after-media','quota-first-media','quota-second-media','abort-final-commit','cancel-two-archives','cancel-existing',...(engine===chromium?['real-quota','real-quota-blocks-smaller','real-quota-small-control','real-quota-fit','real-quota-legacy']:[])];
+  const cases=selection==='quota-followup'?['real-quota-blocks-smaller','real-quota-small-control']:selection==='cancel-two-archives'?['cancel-two-archives']:selection==='real-quota'?['real-quota']:['success','cancel-before-write','cancel-after-media','network-after-media','quota-first-media','quota-second-media','abort-final-commit','cancel-two-archives','cancel-existing',...(engine===chromium?['real-quota-small-control','real-quota','real-quota-blocks-smaller','real-quota-fit','real-quota-legacy']:[])];
   for(const scenario of cases){
    const context=await browser.newContext(),page=await context.newPage();await page.goto(url);let cdp;
    if(scenario.startsWith('real-quota')){cdp=await context.newCDPSession(page);await cdp.send('Storage.overrideQuotaForOrigin',{origin:new URL(url).origin,quotaSize:(scenario==='real-quota-fit'?8:5)*1024*1024});}
@@ -108,7 +108,7 @@ try{
     };
     const restore=async fixture=>{const controller=new AbortController();stage='';mediaAttempts=0;mediaCommitted=0;install(controller,fixture);if(scenario==='cancel-before-write'){triggered++;controller.abort();}let error=null;try{await a.restoreRoomArchive(target,fixture.key,controller.signal,done=>{if(scenario==='cancel-existing'&&done===1){triggered++;controller.abort();}},s=>{stage=s.stage;});}catch(cause){error={name:cause.name,message:cause.message};}finally{IDBObjectStore.prototype.put=nativePut;window.fetch=nativeFetch;}return error;};
     const error=await restore(scenario==='real-quota-small-control'||scenario==='real-quota-legacy'?fixtures[2]:fixtures[0]),after=await snapshot(),preserved=await intact(),vaultUnchanged=JSON.stringify(await v.readStoredRoom(v.vaultSpaceId(target.stored)))===oldVault;
-    let smallerAttempt=null;if(scenario==='real-quota-blocks-smaller'){const smallerError=await restore(fixtures[2]);smallerAttempt={error:smallerError,after:await snapshot(),preserved:await intact()};}
+    const smallerAttempt=null;
     let secondFailure=null,afterSecond=null;
     if(scenario==='cancel-two-archives'){secondFailure=await restore(fixtures[1]);afterSecond=await snapshot();}
     let visibleAfterFailure=null;try{const m=await catalog.ensurePrivateCatalog(target,new AbortController().signal);visibleAfterFailure=(await catalog.readPrivateHistoryPage(target,m,new AbortController().signal)).items.length;}catch(cause){visibleAfterFailure={error:cause.name};}
@@ -116,6 +116,17 @@ try{
     window.restoreValidation={target,fixtures,scope,oldShared,oldPrivate,oldOrigin,oldManifest,oldDigest:await digest(oldBytes.buffer),baseline,readStore,snapshot,intact,scenario};
     return {scenario,error,baseline,beforeAttempt,after,preserved,vaultUnchanged,visibleAfterFailure,triggered,mediaAttempts,mediaCommitted,commitAborts,secondFailure,afterSecond,stillInsufficient,smallerAttempt};
    },{fixtures,scenario});
+   // Finish the first browser operation before the next restore, as two
+   // separate user actions do. Keep the same page, database and native quota;
+   // no reload, sleep, garbage-collection request or relaxed assertion.
+   if(scenario==='real-quota-blocks-smaller'){
+    const usage=await cdp.send('Storage.getUsageAndQuota',{origin:new URL(url).origin});row.quotaAfterLargeFailure={usage:usage.usage,breakdown:usage.usageBreakdown};
+    row.smallerAttempt=await page.evaluate(async()=>{
+     const f=window.restoreValidation,a=await import('/src/lib/room-archive.ts');let error=null;
+     try{await a.restoreRoomArchive(f.target,f.fixtures[2].key,new AbortController().signal,()=>{});}catch(cause){error={name:cause.name,message:cause.message};}
+     return {error,after:await f.snapshot(),preserved:await f.intact()};
+    });
+   }
    if(cdp){const usage=await cdp.send('Storage.getUsageAndQuota',{origin:new URL(url).origin});row.browserQuota={limit:(scenario==='real-quota-fit'?8:5)*1024*1024,usage:usage.usage};await cdp.send('Storage.overrideQuotaForOrigin',{origin:new URL(url).origin,quotaSize:64*1024*1024});}
    // Reopen through the actual vault path, then retry without the injected fault.
    const persisted=await page.evaluate(async()=>{const f=window.restoreValidation;return {beforeReload:await f.snapshot(),oldOrigin:f.oldOrigin,oldDigest:f.oldDigest,expected:f.fixtures.map(x=>x.expected)};});
@@ -131,6 +142,7 @@ try{
     return {reopened,publishedBeforeRetry:{messages:1+publishedBeforeRetry.length,files:publishedBeforeRetry.filter(x=>x.message.payload.kind==='file').length},beforeRetryBackup,afterRetry,afterDuplicateRetry,originals:checks,visible};
    },{fixtures:scenario==='real-quota-blocks-smaller'||scenario==='real-quota-small-control'||scenario==='real-quota-legacy'?[fixtures[2]]:fixtures,persisted,scenario});
    row.recovery=recovery;row.engine=engine.name();
+   if(cdp)console.log(JSON.stringify({nativeQuotaDiagnostic:{scenario,after:row.after,quotaAfterLargeFailure:row.quotaAfterLargeFailure,smallerAttempt:row.smallerAttempt,browserQuota:row.browserQuota}}));
    assert.ok(Object.values(row.preserved).every(Boolean),'Existing shared/private/original data changed');
    assert.equal(row.after.staged,0,'Import retained its staging rows');
    assert.equal(row.after.unreferencedMedia,0,'Unpublished originals survived import');
