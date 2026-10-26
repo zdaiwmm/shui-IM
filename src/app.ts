@@ -4759,7 +4759,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     this.roomRuntime?.dispose();
     this.privateHistory?.dispose();this.privateHistory=null;this.privateArchiveRows.clear();
     this.runtimeAbort?.abort();
-    const openingEpoch = ++this.runtimeEpoch;
+    const openingEpoch = this.runtimeEpoch;
     const runtime: RoomRuntime<VaultSession> = new RoomRuntime(session, () => this.roomRuntime === runtime && this.isRuntimeActive(openingEpoch, session), () => JSON.stringify([vaultSpaceId(session.stored),session.vault.roomId,session.vault.localDataScope,session.vault.identity.publicBundle.deviceId,session.vault.roomArchiveV2?.key.descriptor.id]));
     this.roomRuntime = runtime;
     this.runtimeAbort = runtime.controller;
@@ -4855,7 +4855,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       if (session.vault.chamberLifecycle?.closed) { await this.adoptChamberClosure(session.vault.chamberLifecycle); return; }
       try {
         const lifecycle = await readChamberLifecycle(session,runtime.signal);
-        if (!this.isRuntimeActive(epoch,session)) return;
+        if (!runtime.isCurrent()) return;
         if (lifecycle.closed) { await this.adoptChamberClosure(lifecycle); return; }
         if (lifecycle.version < (session.vault.chamberLifecycle?.version ?? 1)) throw new SecurityViolation('密室状态发生回滚');
       } catch(cause) { if(cause instanceof SecurityViolation)throw cause; }

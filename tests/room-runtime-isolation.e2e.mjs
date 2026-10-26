@@ -19,14 +19,18 @@ try{await vite.listen();for(const engine of [chromium,webkit]){
   for(const mode of ['lock','switch','reopen','repeat','late-failure']){
    fresh(A);const decrypt=crypto.subtle.decrypt.bind(crypto.subtle);let release,arrived,held=false;const entered=new Promise(r=>arrived=r);
    Object.defineProperty(crypto.subtle,'decrypt',{configurable:true,value:async(...args)=>{const value=await decrypt(...args);if(!held&&new TextDecoder().decode(args[0].additionalData).startsWith(`quiet-room-privateArchive-v1:${A.vault.localDataScope??A.vault.roomId}:`)){held=true;arrived();await new Promise(r=>release=r);if(mode==='late-failure')throw new Error('synthetic late rejection');}return value;}});
-   const opening=app.openSession().catch(cause=>{if(cause.name!=='AbortError')throw cause;});await entered;const oldRead=app.privateHistory?.settled;
+   const opening=app.openSession().catch(cause=>{if(cause.name!=='AbortError')throw cause;});await Promise.race([entered,new Promise((_,reject)=>setTimeout(()=>reject(new Error(`Runtime decrypt barrier not reached (${mode}): ${app.privateHistory?.error??'no private reader'}`)),15000))]);const oldHistory=app.privateHistory,oldRead=oldHistory?.settled;
    if(mode!=='repeat'){app.lockNow();await app.preferenceSaveChain;}
    if(mode==='switch'||mode==='late-failure'){fresh(B);await app.openSession();await app.privateHistory?.settled;}
-   if(mode==='reopen'){fresh(A);await app.openSession();await app.privateHistory?.settled;}
-   if(mode==='repeat'){await app.openSession();await app.privateHistory?.settled;}
-   const expected=app.privateArchiveItems,expectedText=JSON.stringify(expected),priorErrors=errors;
+   // A same-room build waits for the canceled build's catalog lock. Release
+   // its uninterruptible crypto operation before awaiting the new reader.
+   if(mode==='reopen'){fresh(A);await app.openSession();}
+   if(mode==='repeat'){await app.openSession();}
+   const currentHistory=app.privateHistory,expected=app.privateArchiveItems,expectedText=JSON.stringify(expected),priorErrors=errors;
    release();await opening;await oldRead;Object.defineProperty(crypto.subtle,'decrypt',{configurable:true,value:decrypt});
-   if(app.privateArchiveItems!==expected||JSON.stringify(app.privateArchiveItems)!==expectedText||errors!==priorErrors)throw new Error(`${mode}: old continuation changed later runtime`);
+   if(app.privateHistory!==currentHistory||errors!==priorErrors||oldHistory&&oldHistory!==currentHistory&&oldHistory.page.items.length)throw new Error(`${mode}: old continuation changed later runtime`);
+   if(mode!=='reopen'&&mode!=='repeat'&&(app.privateArchiveItems!==expected||JSON.stringify(app.privateArchiveItems)!==expectedText))throw new Error(`${mode}: old continuation changed later model`);
+   await currentHistory?.settled;
    if(mode==='lock'&&(app.privateArchiveItems.length||app.privateArchiveRows.size||document.body.textContent.includes('synthetic-A-only')))throw new Error('SID-01 locked runtime rehydrated');
    if((mode==='switch'||mode==='late-failure')&&(app.privateArchiveItems.length!==1||expectedText.includes('synthetic-A-only')||!(await v.loadPrivateArchiveItems(B)).every(x=>x.message.payload.text==='synthetic-B-only')))throw new Error('SID-02 cross-room model or persistent contamination');
    if((mode==='reopen'||mode==='repeat')&&app.privateArchiveItems.length!==1)throw new Error('SID-03/05 current opening failed');
