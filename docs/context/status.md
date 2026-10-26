@@ -1,8 +1,10 @@
 # Quiet Room 当前状态
 
-## PC 八项与 macOS V1：本地实施与定向验收（2026-10-26）
+## PC 八项与 macOS V1 已合并，未发布（2026-10-26）
 
-用户确认免原型实施，追加更多按钮间距／居中；[需求 V1](../requirements/2026-10-26-pc-eight-macos/README.md)拥有具体范围、原始失败分类与证据。独占分支 `codex/pc-eight-macos-20261026` 基于实时 main `530ddf5`；PC 几何与新密室旧侧栏隔离、成对加密申请／原设备系统卡批准、同图标独立 macOS 包已实现。构建与 145 文件／1100 项本地通过；Chromium/WebKit 桌面专项及真实三浏览器 MLS 拒绝／重试／批准／无旧历史链路通过。完整浏览器回归、PR CI 与合并仍待完成，不据此宣称已发布。
+用户确认免原型实施，追加更多按钮间距／居中；[需求 V1](../requirements/2026-10-26-pc-eight-macos/README.md)拥有具体范围、失败分类与证据。最终源 `91b7fae` 经 [PR #418](https://github.com/zdaiwmm/shui-IM/pull/418) 合并为应用 `460c57d06081d05419226c5d39f3afb659e1abca`／`2026.10.26.1`，完整文件树一致。包含 PC 几何、输入底色、返回位置及背景转场、列表与多余按钮、本人设备加密申请／系统卡批准、更多按钮，以及独立 macOS 包。
+
+干净源完整本地验收通过 145 文件／1100 项、82/82 浏览器入口，0 失败／0 未运行，1359332ms；[精确 PR CI 40268466936](https://github.com/zdaiwmm/shui-IM/actions/runs/40268466936) 和[精确应用 main CI 40270491736](https://github.com/zdaiwmm/shui-IM/actions/runs/40270491736) 均 attempt 1 全绿，Full application verification 成功，head 已独立核对。独立记录树只更新事实，不触发生产；本轮无生产授权，线上应用仍以下方既有回读为准。
 
 本机包为双架构 ad-hoc 签名，Apple Silicon 启动及正式首页只读检查通过；没有 Developer ID／公证，Intel 执行和实际摄像头／通话未验证。安装包仅加载正式站点，网页修复上线仍需另行确认精确 SHA。
 
