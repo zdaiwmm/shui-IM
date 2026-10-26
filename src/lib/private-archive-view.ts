@@ -35,7 +35,7 @@ export function privateArchiveRow(item:PrivateArchiveItem,session:VaultSession,s
       const decrypt=payload.kind==='audio'?decryptAudioFile:payload.kind==='file'?decryptFileAttachment:decryptImageFile;
       void decrypt(manifest,read,undefined,signal).then(blob=>{
         if(signal.aborted||!article.isConnected)return;
-        const url=URL.createObjectURL(blob),release=()=>URL.revokeObjectURL(url);signal.addEventListener('abort',release,{once:true});
+        const url=URL.createObjectURL(blob),release=()=>{for(const node of bubble.querySelectorAll('audio,video,img')){if(node instanceof HTMLMediaElement){node.pause();node.removeAttribute('src');node.load();}else node.removeAttribute('src');node.remove();}URL.revokeObjectURL(url);};signal.addEventListener('abort',release,{once:true});
         if(payload.kind==='audio'||manifest.mimeType.startsWith('video/')){const player=document.createElement(payload.kind==='audio'?'audio':'video');player.controls=true;player.preload='metadata';player.src=url;player.style.maxWidth='100%';bubble.insertBefore(player,button);button.hidden=true;}
         else if(manifest.mimeType.startsWith('image/')&&!manifest.mimeType.includes('svg')){const image=document.createElement('img');image.alt='恢复的历史图片，仅本机可见';image.src=url;image.style.maxWidth='100%';image.style.height='auto';bubble.insertBefore(image,button);button.hidden=true;}
         else {const link=document.createElement('a');link.href=url;link.download=manifest.originalName||'历史文件';link.className='secondary-button';link.textContent='保存原文件';button.replaceWith(link);}

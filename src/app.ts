@@ -1,3 +1,7 @@
+import { roomBusinessState } from './lib/room-business-state';
+import { PrivateHistoryController } from './lib/private-history-controller';
+import { ArchiveBackupController, readArchiveBackupSnapshot } from './lib/archive-backup-state';
+import { RoomRuntime } from './lib/room-runtime';
 import { mountSubmissionFeedback } from './lib/ui-notice';
 import { updateTabUnread } from './lib/tab-unread';
 import { cancelOutboxItem, hasOutboxItem } from './lib/vault';
@@ -6,8 +10,7 @@ import { compareOutboxItems } from './lib/outbox-order';
 import { mountRoomCreation } from './lib/room-creation-view';
 import {createShortRoomLink,expandShortRoomLink} from './lib/short-room-link';
 import { ROOM_LINK_TTL_MS, formatRoomLinkRemaining } from './lib/room-link-lifetime.mjs';
-import { visiblePrivateItems, privateArchiveRow } from './lib/private-archive-view';
-import { loadPrivateArchiveItems } from './lib/vault';
+import { privateArchiveRow } from './lib/private-archive-view';
 import { mountArchiveSettings } from './lib/archive-settings';
 import { browserRoomKey, automaticRoomCredential, unlockBrowserRoomKey, clearBrowserRoomKey, protectBrowserRoomKey, unlockBrowserRoomPlatform, removeBrowserRoomProtection } from './lib/browser-room-key';
 import { readRoomProtection, readStoredRoom, deleteNewRoomLocal } from './lib/vault';
@@ -645,6 +648,7 @@ export class QuietRoomApp {
   private locking = false;
   private runtimeAbort: AbortController | null = null;
   private runtimeEpoch = 0;
+  private roomRuntime: RoomRuntime<VaultSession> | null = null;
   private filePickerActive = false;
   private imagePickerActive = false;
   private imagePickerInput: HTMLInputElement | null = null;
@@ -726,6 +730,7 @@ export class QuietRoomApp {
   private backupRun: Promise<void> | null = null;
   private automaticBackupAbort: AbortController | null = null;
   private backupError = '';
+  private archiveBackup: ArchiveBackupController | null = null;
   private roleLastSeen: { creator: number | null; joiner: number | null } = { creator: null, joiner: null };
   private viewerMediaCleanup: (() => void) | null = null;
   private viewerDetailsCleanup: ((animate?: boolean) => void) | null = null;
@@ -755,9 +760,10 @@ export class QuietRoomApp {
   private callReturnFocus: HTMLElement | null = null;
 
   private roomLockEnabled = false;
-  private privateArchiveItems:PrivateArchiveItem[]=[];
+  private readonly emptyPrivateArchive:PrivateArchiveItem[]=[];
+  private get privateArchiveItems():PrivateArchiveItem[]{return this.privateHistory?.page.items??this.emptyPrivateArchive;}
   private privateArchiveRows=new Map<string,HTMLElement>();
-  private privateArchiveLimit=100;
+  private privateHistory: PrivateHistoryController | null = null;
 
   constructor(private readonly root: HTMLElement) {
     mountSubmissionFeedback(root);
@@ -1420,6 +1426,7 @@ export class QuietRoomApp {
   }
 
   private renderCover(preserveFilePicker = false): void {
+    delete this.root.dataset.roomStage;
     if (document.hidden) this.captureUnlockResume();
     else this.unlockResume = null;
     this.gatewayRenderEpoch += 1;
@@ -3962,12 +3969,13 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     if(waiting&&this.waitingOwnRoom){
       const request=[...messages].reverse().find(m=>m.roomId===this.waitingOwnRoom);
       const status=waiting.querySelector('[data-own-room-status]');
+      waiting.setAttribute('data-room-stage',roomBusinessState({catalogOnly:true,request}).stage);
       if(request?.status==='approved'&&request.invite&&!this.ownRoomAccessBusy){
         this.ownRoomAccessBusy=true;
         try{const invite=request.invite;this.waitingOwnRoom=null;if(await this.leaveSpace())this.renderJoinDevice(invite);}
         finally{this.ownRoomAccessBusy=false;}return;
       }
-      if(status){status.textContent=request?.status==='rejected'?'原设备已拒绝本次申请。':!request?'申请已结束，请重新申请。':'申请已发送，等待你的原设备授权。';(waiting.querySelector('[data-own-room-retry]') as HTMLButtonElement).hidden=Boolean(request&&request.status!=='rejected');}
+      if(status){const business=roomBusinessState({catalogOnly:true,request});waiting.setAttribute('data-room-stage',business.stage);status.textContent=request?business.label:'申请已结束，请重新申请。';(waiting.querySelector('[data-own-room-retry]') as HTMLButtonElement).hidden=Boolean(request&&request.status!=='rejected');}
       return;
     }
     const list=this.root.querySelector('#message-list');if(!list||this.activeSurface!=='chat')return;
@@ -4748,6 +4756,14 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     if (this.session) this.rememberDeviceCredential(this.session);
     const session = this.session;
     if (!session || this.privacyCovered || this.expireIdleSession()) return;
+    this.roomRuntime?.dispose();
+    this.privateHistory?.dispose();this.privateHistory=null;this.privateArchiveRows.clear();
+    this.runtimeAbort?.abort();
+    const openingEpoch = ++this.runtimeEpoch;
+    const runtime: RoomRuntime<VaultSession> = new RoomRuntime(session, () => this.roomRuntime === runtime && this.isRuntimeActive(openingEpoch, session), () => JSON.stringify([vaultSpaceId(session.stored),session.vault.roomId,session.vault.localDataScope,session.vault.identity.publicBundle.deviceId,session.vault.roomArchiveV2?.key.descriptor.id]));
+    this.roomRuntime = runtime;
+    this.runtimeAbort = runtime.controller;
+    try {
     if (!this.idleDeadline) this.resetIdleLock();
     let invitation = classifyInviteHash(location.hash);
     let jointEntry = parseJointRecoveryLink(location.href);
@@ -4756,13 +4772,13 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       invitation.invite.creatorFingerprint === session.vault.creatorFingerprint;
     if (localReentryIntent && session.vault.localAccessDeniedDeviceId === session.vault.identity.publicBundle.deviceId) {
       const recovered = await this.recoverArchiveAccess(session);
-      if (recovered === 'successor' || this.session !== session || this.privacyCovered) return;
+      if (recovered === 'successor' || !runtime.isCurrent()) return;
     }
     if(!hasIncomingIntent&&session.vault.roomArchiveV2&&!session.vault.localDataScope&&session.vault.pairingState==='ready'&&
         (session.vault.historyUnavailableBeforeSeq??0)>0&&await this.recoverArchiveHistoryOwner(session))return;
-    const openingEpoch = this.runtimeEpoch;
+    if(!runtime.isCurrent())return;
     const spaces = await rememberLocalSpace(session, this.newSpaceCollectionCode);
-    if (!this.isRuntimeActive(openingEpoch, session)) return;
+    if (!runtime.isCurrent()) return;
     this.newSpaceCollectionCode = undefined;
     this.currentSpaceName = spaces.find(space => space.roomId === session.vault.roomId)?.name ?? '密室';
     this.currentSpaceAvatar = spaces.find(space => space.roomId === session.vault.roomId)?.avatar;
@@ -4812,7 +4828,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       if (invitation.kind === 'participant') history.replaceState(history.state, '', '/');
       else history.replaceState(null, '', location.pathname + location.search);
     }
-    if(session.vault.roomArchiveV2)this.roomLockEnabled=(await readRoomProtection())?.method!=='automatic';
+    if(session.vault.roomArchiveV2){const protection=await readRoomProtection();if(!runtime.commit(()=>{this.roomLockEnabled=protection?.method!=='automatic';}))return;}
     this.returnSpaceId = null;
     // Re-opening after an archive restore first commits any already hydrated
     // UI state. A first unlock (or a lock racing this read) must never persist
@@ -4824,8 +4840,6 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     }
     this.uiPreferencesHydrated = false;
     const epoch = this.runtimeEpoch;
-    this.runtimeAbort?.abort();
-    this.runtimeAbort = new AbortController();
     if (session.vault.localAccessDeniedDeviceId === session.vault.identity.publicBundle.deviceId) {
       this.accessFailure = 'denied';
       this.renderAccessDenied();
@@ -4840,23 +4854,23 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     if (isChamberVault(session.vault)) {
       if (session.vault.chamberLifecycle?.closed) { await this.adoptChamberClosure(session.vault.chamberLifecycle); return; }
       try {
-        const lifecycle = await readChamberLifecycle(session,this.runtimeAbort.signal);
+        const lifecycle = await readChamberLifecycle(session,runtime.signal);
         if (!this.isRuntimeActive(epoch,session)) return;
         if (lifecycle.closed) { await this.adoptChamberClosure(lifecycle); return; }
         if (lifecycle.version < (session.vault.chamberLifecycle?.version ?? 1)) throw new SecurityViolation('密室状态发生回滚');
       } catch(cause) { if(cause instanceof SecurityViolation)throw cause; }
     }
-    void reconcileSpaceNotifications(session.vault, this.runtimeAbort.signal).catch(() => undefined);
+    void reconcileSpaceNotifications(session.vault, runtime.signal).catch(() => undefined);
     if (session.vault.pendingJointRecovery) { this.renderJointProgress(); return; }
     if (jointEntry) { this.renderJointRecovery(jointEntry); return; }
     if (session.vault.pairingState === 'recovering') {
       try {
         await this.completePendingRecovery();
       } catch (cause) {
-        if (this.isRuntimeActive(epoch, session)) this.renderPendingRecovery(cause);
+        if (runtime.isCurrent()) this.renderPendingRecovery(cause);
         return;
       }
-      if (!this.isRuntimeActive(epoch, session)) return;
+      if (!runtime.isCurrent()) return;
       if (session.vault.pairingState === 'recovering') {
         this.renderPendingRecovery();
         return;
@@ -4867,9 +4881,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       return;
     }
     const configureUnread = () => {
-      if (!this.isRuntimeActive(epoch, session) || (session.vault.pairingState && session.vault.pairingState !== 'ready')) return;
+      if (!runtime.isCurrent() || (session.vault.pairingState && session.vault.pairingState !== 'ready')) return;
       void this.unreadCounter.ensureConfigured(session.vault, this.runtimeAbort?.signal).then(ready => {
-        if (!ready || !this.isRuntimeActive(epoch, session)) return;
+        if (!ready || !runtime.isCurrent()) return;
         this.markVisibleMessagesRead();
         this.refreshCoverUnread();
       });
@@ -4878,14 +4892,26 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     // first so the loading-failure cover can still receive unread updates.
     configureUnread();
     await this.preferenceSaveChain.catch(() => undefined);
-    if (!this.isRuntimeActive(epoch, session)) return;
-    this.privateArchiveRows.clear();this.privateArchiveLimit=100;
-    this.privateArchiveItems=session.vault.roomArchiveV2?visiblePrivateItems(await loadPrivateArchiveItems(session)):[];
+    if (!runtime.isCurrent()) return;
+    this.privateHistory=null;
+    this.privateArchiveRows.clear();
     const preferences = await loadUiPreferences(session);
-    if (!this.isRuntimeActive(epoch, session)) return;
+    if (!runtime.isCurrent()) return;
+    if(session.vault.roomArchiveV2){
+      const history=new PrivateHistoryController(session,runtime.signal,()=>runtime.isCurrent(),()=>{
+        if(!runtime.isCurrent())return;
+        this.privateArchiveRows.clear();
+        if(this.activeSurface==='chat'&&this.root.querySelector('#message-list')){const saved=this.uiPreferences.privateArchiveAnchor;this.renderMessages({scroll:'position'});if(saved&&history.page.items.some(item=>`${item.originRoomId}:${item.message.clientMsgId}`===saved.id)){this.uiPreferences.privateArchiveAnchor=saved;this.restoreChatAnchor(this.root.querySelector<HTMLElement>('#message-list')!,this.uiPreferences.chatAnchor);}}
+      });this.privateHistory=history;runtime.own(()=>history.dispose());
+      void history.load('latest',preferences.privateArchiveAnchor?.id);
+      const refresh=()=>{if(runtime.isCurrent()){void history.load('latest',this.uiPreferences.privateArchiveAnchor?.id);this.updateBackupStatus();}};
+      window.addEventListener('quiet-room:private-archive-change',refresh,{signal:runtime.signal});
+      window.addEventListener('storage',event=>{if(event.key==='quiet-room:private-archive-change')refresh();},{signal:runtime.signal});
+      window.addEventListener('quiet-room:archive-progress',()=>{if(runtime.isCurrent())this.updateBackupStatus();},{signal:runtime.signal});
+    }
     this.composerCheckpoint?.dispose(); this.composerCheckpoint = null;
-    const checkpoint = await prepareComposerDraft(session, preferences.composerDraft ?? '', () => this.isRuntimeActive(epoch, session));
-    if (!this.isRuntimeActive(epoch, session)) { checkpoint.dispose(); return; }
+    const checkpoint = await prepareComposerDraft(session, preferences.composerDraft ?? '', () => runtime.isCurrent());
+    if (!runtime.isCurrent()) { checkpoint.dispose(); return; }
     this.composerCheckpoint = checkpoint;
     preferences.composerDraft = checkpoint.draft;
     this.uiPreferences = preferences;
@@ -4894,13 +4920,13 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     // their encrypted scan alongside the visible-page work and do not expose
     // chat rows until tombstones are known; otherwise a previously deleted
     // target can flash on screen between unlock and the trailing event scan.
-    const messageEventsPromise = loadMessageEventHistory(session, { signal: this.runtimeAbort.signal });
+    const messageEventsPromise = loadMessageEventHistory(session, { signal: runtime.signal });
     const anchor = this.uiPreferences.chatAnchor;
     const beforeSeq = anchor && !anchor.pinnedToBottom
       ? Math.min(Number.MAX_SAFE_INTEGER, anchor.seq + 101)
       : undefined;
-    const initialPage = await loadHistoryPage(session, { limit: 200, ...(beforeSeq ? { beforeSeq } : {}), signal: this.runtimeAbort.signal });
-    if (!this.isRuntimeActive(epoch, session)) return;
+    const initialPage = await loadHistoryPage(session, { limit: 200, ...(beforeSeq ? { beforeSeq } : {}), signal: runtime.signal });
+    if (!runtime.isCurrent()) return;
     const pages = [initialPage];
     let page = initialPage;
     let historyHasMore = page.length >= 200 && Math.min(...page.map(message => message.seq)) > 1;
@@ -4908,8 +4934,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     // has no scrollbar, so fill backwards until there is a chat row to show.
     while (historyHasMore && !page.some(message => message.payload.kind !== 'gallery-image' && message.payload.kind !== 'gallery-file'
       && message.payload.kind !== 'reaction' && message.payload.kind !== 'message-delete' && message.payload.kind !== 'media-read' && message.payload.kind !== 'message-read')) {
-      page = await loadHistoryPage(session, { limit: 200, beforeSeq: Math.min(...page.map(message => message.seq)), signal: this.runtimeAbort.signal });
-      if (!this.isRuntimeActive(epoch, session)) return;
+      page = await loadHistoryPage(session, { limit: 200, beforeSeq: Math.min(...page.map(message => message.seq)), signal: runtime.signal });
+      if (!runtime.isCurrent()) return;
       pages.unshift(page);
       historyHasMore = page.length >= 200 && Math.min(...page.map(message => message.seq)) > 1;
     }
@@ -4933,7 +4959,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       loadUploadPlans(session),
       messageEventsPromise,
     ]);
-    if (!this.isRuntimeActive(epoch, session)) return;
+    if (!runtime.isCurrent()) return;
     // Same-browser replacement retains encrypted local records. Old-device
     // ciphertext/receipts must stay durable without being replayed as this identity.
     const ownId = session.vault.identity.publicBundle.deviceId;
@@ -4953,35 +4979,35 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     this.messageEventHistory = new Map(messageEvents.map(message => [message.seq, message]));
     this.restoreChatAnchorOnNextRender = true;
     await withVaultMutation(session, async (mutation) => {
-      if (!this.isRuntimeActive(epoch, session)) return;
+      if (!runtime.isCurrent()) return;
       session.vault.lastSeq = Math.max(session.vault.lastSeq, contiguousSeq);
       session.vault.lastReceiptSeq ??= 0;
       await saveVault(session, mutation);
     });
-    if (!this.isRuntimeActive(epoch, session)) return;
+    if (!runtime.isCurrent()) return;
     if (session.vault.pairingState === 'joining') {
       try {
         await this.completePendingJoin();
       } catch (cause) {
-        if (this.isRuntimeActive(epoch, session)) this.renderPendingJoin(cause);
+        if (runtime.isCurrent()) this.renderPendingJoin(cause);
         return;
       }
     }
-    if (!this.isRuntimeActive(epoch, session)) return;
+    if (!runtime.isCurrent()) return;
     if (session.vault.pendingPersonalDevice) {
-      try { await this.advancePersonalDevice(this.runtimeAbort.signal); }
-      catch (cause) { if (this.isRuntimeActive(epoch, session)) this.renderPendingPersonalDevice(cause); return; }
-      if (!this.isRuntimeActive(epoch, session)) return;
+      try { await this.advancePersonalDevice(runtime.signal); }
+      catch (cause) { if (runtime.isCurrent()) this.renderPendingPersonalDevice(cause); return; }
+      if (!runtime.isCurrent()) return;
       if (session.vault.pendingPersonalDevice) { this.renderPendingPersonalDevice(); return; }
     }
     if (session.vault.pairingState === 'linking') {
       try {
         await this.completePendingDeviceLink();
       } catch (cause) {
-        if (this.isRuntimeActive(epoch, session)) await this.renderPendingDeviceLink(cause);
+        if (runtime.isCurrent()) await this.renderPendingDeviceLink(cause);
         return;
       }
-      if (!this.isRuntimeActive(epoch, session)) return;
+      if (!runtime.isCurrent()) return;
       if (session.vault.pairingState === 'linking') {
         await this.renderPendingDeviceLink();
         return;
@@ -4991,7 +5017,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       await this.renderPendingRepair();
       return;
     }
-    if (!this.isRuntimeActive(epoch, session)) return;
+    if (!runtime.isCurrent()) return;
     const activeRoles = new Set(session.vault.members.filter((member) => member.status !== 'pending' && member.status !== 'revoked').map((member) => member.role));
     // A compatibility backup entry still needs the normal authenticated runtime.
     // Returning to chat must keep a live connection and a working durable outbox.
@@ -4999,11 +5025,12 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     else if (activeRoles.size < 2) this.renderChat();
     else this.resumeUnlockedPage();
     configureUnread();
-    void this.connectSocket().catch(cause => { if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '安全通话身份准备失败，请重新解锁'); });
+    void this.connectSocket().catch(cause => { if (runtime.isCurrent()) this.operationalError(cause, '安全通话身份准备失败，请重新解锁'); });
     if (activeRoles.size === 2) { void this.resumeDeferredImage(); this.showPairingWelcome(); }
     this.startAutomaticBackup();
-    this.startOwnDirectoryServices(session, this.runtimeAbort.signal);
-    void this.startBrowserAccessServices(session,this.runtimeAbort.signal);
+    this.startOwnDirectoryServices(session, runtime.signal);
+    void this.startBrowserAccessServices(session,runtime.signal);
+    } catch(cause) { if(runtime.isCurrent())throw cause; }
   }
 
   private startOwnDirectoryServices(session: VaultSession, signal: AbortSignal): void {
@@ -7257,6 +7284,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
   }
 
   private renderChat(retiringSettings?: HTMLElement): void {
+    if(this.session)this.root.dataset.roomStage=roomBusinessState({vault:this.session.vault}).stage;
     if (!this.session) return;
     if (this.accessFailure === 'denied' || this.session.vault.localAccessDeniedDeviceId === this.session.vault.identity.publicBundle.deviceId) {
       this.accessFailure = 'denied';
@@ -9067,7 +9095,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
   private setActiveSurface(surface: 'away' | 'chat', preservePresence = false): boolean {
     if (surface === 'away' && this.activeSurface === 'chat') this.captureChatAnchor(true);
     if (surface !== this.activeSurface) this.chatScrollRevision += 1;
-    if (surface === 'away') { this.closeMemePicker(); this.memeCache.view = undefined; }
+    if (surface === 'away') { this.privateHistory?.pauseMedia();this.privateArchiveRows.clear();this.closeMemePicker(); this.memeCache.view = undefined; }
     this.stopViewerMedia();
     if (surface === 'away') {
       this.replyJumpVersion += 1;
@@ -9156,6 +9184,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
   private captureChatAnchor(persist = false, preservePosition = false): ChatScrollAnchor | null {
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!list || this.activeSurface !== 'chat') return this.uiPreferences.chatAnchor ?? null;
+    const privateRow=[...list.querySelectorAll<HTMLElement>('[data-private-archive-id]')].find(row=>row.getBoundingClientRect().bottom>this.chatViewportTop);
+    if(privateRow&&privateRow.getBoundingClientRect().top<=this.chatViewportTop+80){this.uiPreferences.privateArchiveAnchor={id:privateRow.dataset.privateArchiveId!,offset:privateRow.getBoundingClientRect().top-this.chatViewportTop};}
+    else if(this.chatPinnedToBottom&&!this.privateHistory?.loading)delete this.uiPreferences.privateArchiveAnchor;
     // A tall photo can temporarily become a short placeholder after unlock.
     // Keep its saved position until it decodes, instead of switching to the next row.
     if (this.chatRestoreAnchor) return this.chatRestoreAnchor;
@@ -9196,6 +9227,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
 
   private restoreChatAnchor(list: HTMLElement, anchor: ChatScrollAnchor | null | undefined): void {
     if (!list.isConnected) return;
+    const privateAnchor=this.uiPreferences.privateArchiveAnchor;
+    if(privateAnchor){const row=list.querySelector<HTMLElement>(`[data-private-archive-id="${CSS.escape(privateAnchor.id)}"]`);if(row){this.chatPinnedToBottom=false;this.chatScrollIntent='up';this.setChatScrollTop(this.chatScrollTop+row.getBoundingClientRect().top-this.chatViewportTop-privateAnchor.offset);return;}}
     if (!anchor || anchor.pinnedToBottom) {
       this.scrollChatToBottom();
       return;
@@ -11959,6 +11992,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       }
       this.cancelChatMessageMotion();
     }
+    const privateReadingAnchor=scroll==='restore'?this.uiPreferences.privateArchiveAnchor:undefined;
     const priorScrollTop = this.chatScrollTop;
     const anchor = scroll === 'restore'
       ? this.uiPreferences.chatAnchor
@@ -11974,11 +12008,16 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     const messages = this.orderedMessages(deletedForEveryone);
     const privateItems = privateTimelineItems(this.privateArchiveItems, messages, this.session.vault.roomId);
     const privateRows:HTMLElement[]=[];
-    if(privateItems.length>this.privateArchiveLimit){const more=document.createElement('button');more.type='button';more.className='text-button';more.textContent='查看更早恢复的记录';more.addEventListener('click',()=>{this.privateArchiveLimit+=100;this.renderMessages({scroll:'position'});});privateRows.push(more);}
-    for(const item of privateItems.slice(-this.privateArchiveLimit)){
+    const history=this.privateHistory;
+    const privateAction=(label:string,run:()=>void)=>{const button=document.createElement('button');button.type='button';button.className='text-button';button.textContent=label;button.addEventListener('click',run);privateRows.push(button);};
+    if(history?.loading){const status=document.createElement('p');status.className='message-meta';status.setAttribute('role','status');status.textContent='正在核对恢复历史…';privateRows.push(status);}
+    if(history?.error){const error=document.createElement('p');error.className='message-meta';error.setAttribute('role','alert');error.textContent=history.error;privateRows.push(error);privateAction('重新读取恢复历史',()=>void history.load());}
+    if(history&&!history.loading&&history.page.start>0)privateAction('查看更早恢复的记录',()=>void history.load('older'));
+    for(const item of privateItems){
       const id=`${item.originRoomId}:${item.message.clientMsgId}`;
-      let row=this.privateArchiveRows.get(id);if(!row){row=privateArchiveRow(item,this.session,this.runtimeAbort!.signal,text=>this.showNotice(text,'error'));this.privateArchiveRows.set(id,row);}privateRows.push(row);
+      let row=this.privateArchiveRows.get(id);if(!row){row=privateArchiveRow(item,this.session,history?.pageSignal??this.runtimeAbort!.signal,text=>this.showNotice(text,'error'));row.dataset.privateArchiveId=id;this.privateArchiveRows.set(id,row);}privateRows.push(row);
     }
+    if(history&&!history.loading&&history.page.end<history.page.total)privateAction('查看较新恢复的记录',()=>void history.load('newer'));
 
 
     const visibleMessageIds = new Set(messages.map(message => message.clientMsgId));
@@ -12215,6 +12254,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       this.animateChatReactionReflow(reflowOrigins, undefined, continuingMotion);
     }
     this.updateChatBottomControl();
+    if(privateReadingAnchor){this.uiPreferences.privateArchiveAnchor=privateReadingAnchor;this.restoreChatAnchor(list,anchor);}
   }
 
   private cancelChatMessageMotion(): void {
@@ -12762,8 +12802,19 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
   }
 
   private runAutomaticBackup(force = false): Promise<void> {
+    const owner=this.session,ownerSignal=this.runtimeAbort?.signal,ownerEpoch=this.runtimeEpoch;
+    if(owner?.vault.roomArchiveV2&&ownerSignal&&!this.privacyCovered&&!document.hidden){
+      if(!this.archiveBackup||this.archiveBackup.session!==owner||this.archiveBackup.signal!==ownerSignal){
+        this.archiveBackup=new ArchiveBackupController(owner,ownerSignal,()=>this.isRuntimeActive(ownerEpoch,owner)&&!ownerSignal.aborted&&!document.hidden&&(!this.roomRuntime||this.roomRuntime.signal!==ownerSignal||this.roomRuntime.isCurrent()),signal=>syncRoomArchive(owner,signal),()=>{
+          if(this.isRuntimeActive(ownerEpoch,owner)&&!ownerSignal.aborted){this.backupError=this.archiveBackup?.snapshot.error??'';this.updateBackupStatus();}
+        });
+      }
+      const controller=this.archiveBackup;
+      const run=controller.run(force).then(()=>undefined).finally(()=>{if(this.backupRun===run)this.backupRun=null;});
+      this.backupRun=run;return run;
+    }
     if (!force && this.session?.vault.roomArchiveV2?.automaticBackup === false) return Promise.resolve();
-    if (this.backupRun) return force ? this.backupRun.then(() => this.runAutomaticBackup(true)) : this.backupRun;
+    if (this.backupRun) return force ? this.backupRun.then(() => { if(owner&&ownerSignal&&!ownerSignal.aborted&&this.isRuntimeActive(ownerEpoch,owner))return this.runAutomaticBackup(true); }) : this.backupRun;
     const session = this.session;
     const runtimeSignal = this.runtimeAbort?.signal;
     if (!session || !runtimeSignal || this.privacyCovered || document.hidden) return Promise.resolve();
@@ -12771,7 +12822,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     this.automaticBackupAbort=automaticAbort;
     const signal=automaticAbort?AbortSignal.any([runtimeSignal,automaticAbort.signal]):runtimeSignal;
     const epoch = this.runtimeEpoch;
-    const operation = session.vault.roomArchiveV2 ? syncRoomArchive(session, signal) : syncCloudBackup(session, signal, { force }).then(() => syncSpaceDirectory(session, signal));
+    const operation = syncCloudBackup(session, signal, { force }).then(() => syncSpaceDirectory(session, signal));
     const run = operation.then(() => {
       if (this.isRuntimeActive(epoch, session)) {
         this.backupError = '';
@@ -13240,13 +13291,14 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     if (!session || this.privacyCovered) return;
     if (session.vault.roomArchiveV2 && this.runtimeAbort) {
       this.captureChatAnchor(false);this.closeVoiceRecorder();this.voicePlayback.stop();this.setActiveSurface('away');
-      const epoch=this.runtimeEpoch;let restored=false;
+      const epoch=this.runtimeEpoch,archiveSignal=this.runtimeAbort.signal;let restored=false;
       mountArchiveSettings({root:this.root,session,startWithCredential,startWithRestore,name:()=>this.currentSpaceName,verify:()=>this.authorizeArchiveExport(),signal:this.runtimeAbort.signal,active:()=>this.isRuntimeActive(epoch,session),
-        backupChanged:enabled=>{if(!enabled){this.automaticBackupAbort?.abort();this.backupError='';}else{void (this.backupRun??Promise.resolve()).then(()=>this.runAutomaticBackup());}this.updateBackupStatus();},
+        backupSnapshot:()=>readArchiveBackupSnapshot(session,archiveSignal,this.archiveBackup?.session===session&&this.archiveBackup.signal===archiveSignal?this.archiveBackup.snapshot:{running:false,error:''}),
+        backupChanged:enabled=>{if(!enabled){this.archiveBackup?.pauseAutomatic();this.backupError='';}else{void this.runAutomaticBackup();}this.updateBackupStatus();},
         notice:(text,error)=>this.showNotice(text,error?'error':'info'),back:()=>{this.transitionPage('backward',()=>{if(restored){void this.openSession().catch(cause=>this.operationalError(cause,'返回失败'));}else this.renderChat();});},
         beginPick:()=>this.beginNativeHandoff('picker',60_000),finishPick:()=>this.finishNativeHandoff('picker'),
         saveImage:blob=>this.withSystemSurface(()=>downloadBlob(blob,'聊天归档恢复卡.png')),
-        sync:async()=>{await this.runAutomaticBackup(true);if(this.isRuntimeActive(epoch,session)){if(this.backupError)throw new Error(this.backupError);this.showNotice('已执行备份，当前进度见自动备份状态');}},restored:()=>{restored=true;this.settingsReturn=null;}});
+        sync:async()=>{if(archiveSignal.aborted||!this.isRuntimeActive(epoch,session))return;await this.runAutomaticBackup(true);if(this.isRuntimeActive(epoch,session)){if(this.backupError)throw new Error(this.backupError);this.showNotice(this.archiveBackup?.snapshot.outcome?.kind==='complete'?'当前本机记录及原文件已备份':'本轮处理结束，最新范围见备份状态');}},restored:()=>{restored=true;this.settingsReturn=null;}});
       return;
     }
     // Consume the compatibility entry once; later returns follow the page flow.
@@ -16731,7 +16783,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
 
   private lockNow({ preserveFilePicker = false, desktopContinuation = false }: { preserveFilePicker?: boolean; desktopContinuation?: boolean } = {}): void {
     clearBrowserRoomKey();
-    this.privateArchiveRows.clear();this.privateArchiveItems=[];
+    this.roomRuntime?.dispose();
+    this.privateHistory?.dispose();this.privateHistory=null;this.privateArchiveRows.clear();
     if (this.locking) return;
     this.cancelSpaceNavigation?.();
     // Repeated hidden/idle signals cannot renew or discard an existing return lease.
@@ -16912,6 +16965,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     this.preferenceSaveTimer = null;
     if (this.uiPreferencesHydrated) this.flushUiPreferencesSave();
     this.desktopWorkspace.clear();
+    this.privateHistory?.dispose(); this.privateHistory=null; this.archiveBackup=null;
+    this.roomRuntime?.dispose(); this.roomRuntime=null;
+    this.privateArchiveRows.clear();
     this.runtimeEpoch += 1;
     this.runtimeAbort?.abort();
     this.runtimeAbort = null;

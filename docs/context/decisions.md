@@ -637,3 +637,8 @@ Linux WebKit 的真实失败栈定位到 ts-mls 默认实现的原生 Ed25519 ge
 ## D-080: Original-device approval for discovered rooms and macOS host
 
 2026-10-26 user confirmed the PC V1 scope, waived this prototype and authorized implementation, then added more-button geometry. Discovered own rooms may request access through an existing trusted same-role device edge; the original device explicitly approves in the target-room system card after operation authentication. Separate authenticated purpose and mailbox preserve metadata compatibility. Existing device proof, MLS add, three-device and pre-join history boundaries remain. The independent macOS host fixes the official origin and uses existing password setup where embedded passkey support is unavailable. Ad-hoc signing is not public-distribution notarization. Scope, failures and verification are owned by [the V1 record](../requirements/2026-10-26-pc-eight-macos/README.md); production still needs a new exact-SHA approval.
+
+
+## D-081：房间运行身份、备份事实与私有历史分页
+
+用户于2026-10-27确认本会话完整V1并明确不制作原型，授权实施、合并及请求生产发布；精确SHA确认仍独立。每次打开独立运行身份，结果与清理不得借用后续上下文；备份分别表达凭证、偏好、任务、已确认范围与最新覆盖；旧成功不会被新失败抹去。私有段先完成来源删除投影再分页，保留来源身份、独立私有副本与原件、普通新增设备历史边界。派生目录加密且可重建，原数据保留；网络等待不持有保险库写租约，MLS原子写与原密文重试不改。更大范围Worker／虚拟列表／发送媒体迁移仅由测量触发。依据、模块及分层证据见[需求V1](../requirements/2026-10-27-room-runtime-archive-v1/README.md)。

@@ -16,8 +16,8 @@ describe('browser regression groups', () => {
   it('partitions group 2 into disjoint concurrent runner shards without omissions', async () => {
     const shards = Array.from({ length: 4 }, (_, i) => selectBrowserScripts('2', `${i + 1}/4`));
     expect(shards.flat().sort()).toEqual(selectBrowserScripts('2').sort());
-    expect(new Set(shards.flat()).size).toBe(81);
-    expect(shards.map(shard => shard.length)).toEqual([21, 20, 20, 20]);
+    expect(new Set(shards.flat()).size).toBe(84);
+    expect(shards.map(shard => shard.length)).toEqual([21, 21, 21, 21]);
     for (const shard of ['0/4', '5/4', '1/0', '1/99', 'x', '1/2/3']) {
       expect(() => parseBrowserArguments(['--group', '2', '--shard', shard])).toThrow();
     }
@@ -32,13 +32,13 @@ describe('browser regression groups', () => {
       'browser', 'mobile-debug', 'mobile-safari-feedback', 'mobile-space-voice', 'frontend-lifecycle', 'draft-refresh', 'motion-system', 'motion-completion', 'release-update', 'settings-appearance', 'settings-v14', 'p1-controls', 'chat-bottom-control', 'chat-list-viewport', 'chat-continuity', 'chat-scroll-stability', 'message-timeline', 'message-read', 'desktop-layout', 'desktop-privacy', 'desktop-session-flow',
       'vault-resume', 'system-surfaces', 'privacy-surface', 'blank-double-lock', 'file-flow', 'file-outbox', 'file-interactions', 'document-reader', 'meme-picker',
       'unread-counter', 'reaction-history', 'message-deletion', 'vault-lifecycle', 'media-cache', 'message-window', 'offline-outbox', 'outbox-epoch-review', 'spaces', 'passkey-management', 'browser-access', 'space-drawer-ui', 'space-profile', 'notifications', 'voice-lifecycle', 'voice-message-ui', 'voice-submission',
-      'cloud-backup-lifecycle', 'local-history-backup', 'backup-access', 'joint-recovery', 'chamber-polish', 'new-room-passkey', 'new-room-flows', 'new-room-mobile', 'new-room-invite-privacy', 'room-archive-lifecycle', 'chamber-chat-ui', 'mobile-settings-chat-fixes', 'legacy-chamber-retirement', 'audit-interactions', 'device-access-page', 'password-fallback', 'numeric-password', 'recovery-card-entry', 'entry-feedback', 'entry-switch-repair', 'webview-password', 'prototype-fidelity', 'history-restore', 'backup-admin-ui', 'admin-workspace', 'admin-collection-ui',
+      'cloud-backup-lifecycle', 'local-history-backup', 'backup-access', 'joint-recovery', 'chamber-polish', 'new-room-passkey', 'new-room-flows', 'new-room-mobile', 'new-room-invite-privacy', 'room-archive-lifecycle', 'room-runtime-isolation', 'private-archive-pagination', 'archive-backup-state', 'chamber-chat-ui', 'mobile-settings-chat-fixes', 'legacy-chamber-retirement', 'audit-interactions', 'device-access-page', 'password-fallback', 'numeric-password', 'recovery-card-entry', 'entry-feedback', 'entry-switch-repair', 'webview-password', 'prototype-fidelity', 'history-restore', 'backup-admin-ui', 'admin-workspace', 'admin-collection-ui',
       'chat-image-privacy', 'gallery-loading', 'photo-details', 'video-flow', 'video-upload', 'media-upload', 'voice-gestures', 'chat-tools', 'presence-circuit',
     ].map(name => `tests/${name}.e2e.mjs`);
     const all = selectBrowserScripts();
     expect(all).toEqual(expected);
     expect([...selectBrowserScripts('1'), ...selectBrowserScripts('2')]).toEqual(all);
-    expect(new Set(all).size).toBe(82);
+    expect(new Set(all).size).toBe(85);
     expect(Object.keys(browserGroups)).toEqual(['1', '2']);
     expect(selectBrowserScripts('1')).toEqual(['tests/browser.e2e.mjs']);
     const main = await readFile(path.join(root, 'tests/browser.e2e.mjs'), 'utf8');
@@ -80,8 +80,8 @@ describe('browser regression groups', () => {
       active--;
     } });
     expect(seen).toEqual(selectBrowserScripts());
-    expect(log.mock.calls.filter(([line]) => line.startsWith('[browser] PASS'))).toHaveLength(82);
-    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 8.20s; 82 passed, 0 failed, 0 not run.');
+    expect(log.mock.calls.filter(([line]) => line.startsWith('[browser] PASS'))).toHaveLength(85);
+    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 8.50s; 85 passed, 0 failed, 0 not run.');
   });
 
   it('stops a failing group, preserves its failure and explicitly reports scripts that did not run', async () => {
@@ -90,7 +90,7 @@ describe('browser regression groups', () => {
     const log = vi.fn();
     await expect(runBrowserTests({ group: '2', run, log, now: () => 0 })).rejects.toBe(failure);
     expect(run.mock.calls.map(([script]) => script)).toEqual(selectBrowserScripts('2').slice(0, 2));
-    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 0.00s; 1 passed, 1 failed, 79 not run.');
+    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 0.00s; 1 passed, 1 failed, 82 not run.');
   });
 
   it('does not start another script after cancellation', async () => {

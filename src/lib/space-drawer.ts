@@ -1,3 +1,4 @@
+import { roomBusinessState } from './room-business-state';
 import {uiNotice} from './ui-notice';
 import { presenceCircuitMarkup } from './presence-circuit';
 import { layoutViewport } from './form-input';
@@ -227,7 +228,7 @@ const removable = Boolean(options.remove && (space.waiting || space.roomArchiveV
     const i = options.spaces.indexOf(s), selected = s.roomId === options.currentRoom;
 const expiry = pendingSpaceExpiry(s);
     const waitingCopy = `等待对方加入${expiry ? ` · 剩余 ${formatPendingCountdown(expiry - Date.now())}` : ''}`;
-    const status = s.catalogOnly ? '尚未在此浏览器接入' : s.accessState === 'unprepared' ? '请先在原设备打开此密室' : s.accessState === 'restricted' ? '待对方授权' : s.waiting ? waitingCopy : s.preview || '打开密室查看消息';
+    const status = s.catalogOnly ? roomBusinessState({catalogOnly:true}).label : s.accessState === 'unprepared' ? '请先在原设备打开此密室' : s.accessState === 'restricted' ? '待对方授权' : s.waiting ? waitingCopy : s.preview || '打开密室查看消息';
     const statusLine = s.waiting && !s.accessState && !s.catalogOnly
       ? `<small class="space-message-preview is-waiting" ${expiry ? `data-expires="${expiry}" data-countdown="${i}"` : ''}>${escape(waitingCopy)}</small>`
       : `<small class="space-message-preview">${escape(status)}</small>`;

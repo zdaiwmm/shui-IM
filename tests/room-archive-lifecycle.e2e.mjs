@@ -94,6 +94,33 @@ try{
   const deleted=(await v.readStoredRoom(v.vaultSpaceId(third.stored)))===null;
   const afterDeleteItems=await v.loadPrivateArchiveItems(third);
   const afterDeleteMedia=await v.loadPrivateMediaChunk(a.privateItemSession(third,image),manifest.blobId,0,chunks.get(0).byteLength);
+  const resumeOwner=await create(),lateOrigin='f0000000-0000-4000-8000-000000000001',earlyOrigin='00000000-0000-4000-8000-000000000002';
+  const privateText=originRoomId=>({originRoomId,sourceScope:resumeOwner.vault.localDataScope??resumeOwner.vault.roomId,self:true,message:{...text,clientMsgId:crypto.randomUUID()}});
+  await v.savePrivateArchiveItem(resumeOwner,privateText(lateOrigin));
+  const prepareAbort=new AbortController();
+  const stopPrepared=()=>{if(resumeOwner.vault.archiveState?.preparing&&!resumeOwner.vault.archiveState.pending)prepareAbort.abort();};window.addEventListener('quiet-room:archive-progress',stopPrepared);
+  try{await a.syncRoomArchive(resumeOwner,prepareAbort.signal);}catch(cause){if(!prepareAbort.signal.aborted)throw cause;}finally{window.removeEventListener('quiet-room:archive-progress',stopPrepared);}
+  if(!resumeOwner.vault.archiveState?.preparing)throw new Error('Resume fixture did not persist a preparation checkpoint');
+  await v.savePrivateArchiveItem(resumeOwner,privateText(earlyOrigin));
+  await v.saveHistoryMessage(resumeOwner,{...text,seq:1,clientMsgId:crypto.randomUUID(),senderId:resumeOwner.vault.identity.publicBundle.deviceId});resumeOwner.vault.lastSeq=1;await v.saveVault(resumeOwner);
+  await a.syncRoomArchive(resumeOwner,signal);
+  if((resumeOwner.vault.archiveState.privateDone?.length??0)!==2||resumeOwner.vault.archiveState.cursor!==1||!resumeOwner.vault.archiveState.lastComplete)throw new Error('BAK-14 resumed preparation skipped an earlier import or a new shared record');
+  const business=await create();
+  for(let seq=1;seq<=12;seq++)await v.saveHistoryMessage(business,{...text,seq,clientMsgId:crypto.randomUUID(),senderId:business.vault.identity.publicBundle.deviceId});
+  business.vault.lastSeq=12;await v.saveVault(business);
+  const partial=await a.syncRoomArchive(business,signal);
+  if(partial.kind!=='partial'||business.vault.archiveState.cursor!==10||business.vault.archiveState.lastComplete)throw new Error('BAK-04 ten-row pass falsely completed latest range');
+  const {readArchiveBackupSnapshot}=await import('/src/lib/archive-backup-state.ts');
+  let snapshot=await readArchiveBackupSnapshot(business,signal,{running:false,error:''});if(snapshot.coverage!=='partial'||snapshot.counts.messages!==10)throw new Error('Partial checkpoint lost committed counts');
+  await a.syncRoomArchive(business,signal);snapshot=await readArchiveBackupSnapshot(business,signal,{running:false,error:''});if(snapshot.coverage!=='complete'||snapshot.counts.messages!==12)throw new Error('Current complete range lacks witness');
+  await v.savePrivateArchiveItem(business,{originRoomId:crypto.randomUUID(),sourceScope:business.vault.localDataScope??business.vault.roomId,self:true,message:{...text,clientMsgId:crypto.randomUUID()}});
+  snapshot=await readArchiveBackupSnapshot(business,signal,{running:false,error:''});if(snapshot.coverage!=='partial')throw new Error('BAK-14 new private import retained full coverage');
+  await a.syncRoomArchive(business,signal);snapshot=await readArchiveBackupSnapshot(business,signal,{running:false,error:''});if(snapshot.coverage!=='complete'||snapshot.counts.messages!==13)throw new Error('Private rebackup was not included in completion witness');
+  const priorHead=JSON.stringify(business.vault.archiveState.head);
+  await v.saveHistoryMessage(business,{...text,seq:13,clientMsgId:crypto.randomUUID(),senderId:business.vault.identity.publicBundle.deviceId,payload:{v:1,kind:'image',image:manifest,sentAt:now}});business.vault.lastSeq=13;await v.saveVault(business);
+  let missingOriginal=false;try{await a.syncRoomArchive(business,signal);}catch{missingOriginal=true;}
+  snapshot=await readArchiveBackupSnapshot(business,signal,{running:false,error:'原文件缺失'});
+  if(!missingOriginal||snapshot.coverage!=='partial'||snapshot.counts.messages!==13||JSON.stringify(business.vault.archiveState.head)!==priorHead||!business.vault.archiveState.lastComplete)throw new Error('BAK-02/07 missing original destroyed old restore point or claimed latest complete');
   const final=await create();await a.restoreRoomArchive(final,currentKey,signal,()=>{});
   const cloudSurvivesDelete=(await v.loadPrivateArchiveItems(final)).length,staleCredential=await k.automaticRoomCredential();
   await v.clearAllRoomBrowserData(await v.readRoomProtection());k.clearBrowserRoomKey();
