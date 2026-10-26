@@ -16,7 +16,8 @@ try {
   const origin=`http://127.0.0.1:${vite.httpServer.address().port}`;
   const newPage=async()=>{const context=await browser.newContext({permissions:['clipboard-read','clipboard-write'],viewport:{width:1440,height:900}});await context.addInitScript(()=>{localStorage.setItem('quiet-room:auto-lock-seconds','0');localStorage.setItem('quiet-room:lock-on-hidden','0');});const page=await context.newPage();page.setDefaultTimeout(25000);page.on('pageerror',e=>errors.push(e.message));return page;};
   const owner=await newPage(),peer=await newPage(),candidate=await newPage();participants=[owner,peer,candidate];
-  const capture=async(page,name)=>{if(process.env.QR_VISUAL_DIR){await mkdir(process.env.QR_VISUAL_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.QR_VISUAL_DIR,name+'.png')});}};
+  const settle=async page=>{await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));await page.evaluate(async()=>{await Promise.allSettled(document.getAnimations().filter(a=>Number.isFinite(a.effect.getComputedTiming().endTime)).map(a=>a.finished));});};
+  const capture=async(page,name)=>{if(process.env.QR_VISUAL_DIR){await settle(page);await mkdir(process.env.QR_VISUAL_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.QR_VISUAL_DIR,name+'.png')});}};
   const ready=page=>page.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);
   const invite=async page=>{await page.locator('#copy-invite').click();return page.evaluate(()=>app.participantInviteUrl(app.session));};
   await owner.goto(origin);await owner.locator('#create-room').click();await owner.locator('#copy-invite').waitFor();
@@ -36,7 +37,7 @@ try {
   // Real UI request: a catalog entry must never be confused with membership.
   await candidate.locator('#chat-settings').click();await candidate.locator('#chamber-switch-space').click();
   assert.equal(await candidate.locator('.space-drawer-header #space-settings').count(),0);
-  const row=candidate.locator('.space-row').filter({hasText:'尚未在此浏览器接入'});await row.click();
+  const row=candidate.locator('.space-row').filter({hasText:'尚未在此浏览器接入'});await row.waitFor();await capture(candidate,'pc-room-list');await row.click();
   await candidate.getByText('申请已发送',{exact:false}).waitFor();
   await owner.locator('[data-own-authorization]').waitFor();await capture(owner,'pc-authorization');
   assert.equal(await candidate.evaluate(()=>app.session.vault.roomId),carrierRoom,'Pending approval does not install the target room');
@@ -54,12 +55,17 @@ try {
   await candidate.locator('#message-input').fill('synthetic message after admission');await candidate.locator('#composer').evaluate(f=>f.requestSubmit());await peer.getByText('synthetic message after admission',{exact:true}).waitFor();
   // Desktop layout assertions use actual product components in the same room.
   await candidate.locator('#open-chat-tools').click();
-  const compositor=await candidate.locator('#composer').evaluate(n=>({color:getComputedStyle(n).backgroundColor,width:n.getBoundingClientRect().width,shell:n.closest('.chat-shell').clientWidth}));
-  assert.notEqual(compositor.color,'rgba(0, 0, 0, 0)');assert.ok(Math.abs(compositor.width-compositor.shell)<1,JSON.stringify(compositor));await capture(candidate,'pc-tools');await candidate.keyboard.press('Escape');
+  await settle(candidate);
+  const panel=await candidate.locator('#chat-tools').boundingBox(),composer=await candidate.locator('#composer').boundingBox();assert.ok(panel.y>=0&&panel.y+panel.height<composer.y,JSON.stringify({panel,composer}));
+  const compositor=await candidate.locator('#composer').evaluate(n=>({color:getComputedStyle(n).backgroundColor,bottom:getComputedStyle(n,'::after').backgroundColor,width:n.getBoundingClientRect().width,shell:n.closest('.chat-shell').clientWidth}));
+  assert.notEqual(compositor.color,'rgba(0, 0, 0, 0)');assert.equal(compositor.bottom,compositor.color);assert.ok(Math.abs(compositor.width-compositor.shell)<1,JSON.stringify(compositor));await capture(candidate,'pc-tools');await candidate.locator('#open-chat-tools').click();await candidate.locator('#chat-tools').waitFor({state:'hidden'});
   const more=candidate.locator('.message.outgoing .desktop-message-more').last();await candidate.locator('.message.outgoing').last().hover();
+  await more.hover();
   const dots=await more.evaluate(n=>{const r=n.getBoundingClientRect(),s=n.querySelector('svg').getBoundingClientRect(),b=n.closest('.message').getBoundingClientRect();return {dx:(s.x+s.width/2)-(r.x+r.width/2),dy:(s.y+s.height/2)-(r.y+r.height/2),gap:b.left-r.right};});assert.ok(Math.abs(dots.dx)<1&&Math.abs(dots.dy)<1&&Math.abs(dots.gap-8)<1,JSON.stringify(dots));
+  await capture(candidate,'pc-more-button');
   stage='PC settings geometry';await candidate.locator('#chat-settings').click();await candidate.locator('.desktop-settings-page').waitFor();
   const backCenter=await candidate.locator('.desktop-settings-page .page-back-button').evaluate(n=>{const b=n.getBoundingClientRect(),p=n.closest('.desktop-settings-page').getBoundingClientRect();return (b.x+b.width/2)-(p.x+p.width/2);});assert.ok(Math.abs(backCenter)<1);
+  const backBottom=await candidate.locator('.desktop-settings-page .page-back-button').evaluate(n=>n.closest('.desktop-settings-page').getBoundingClientRect().bottom-n.getBoundingClientRect().bottom);assert.ok(backBottom>=15&&backBottom<=24,`Footer bottom clearance: ${backBottom}`);
   await capture(candidate,'pc-settings');
   const before=await candidate.locator('.desktop-settings-page').boundingBox();await candidate.locator('#room-lock-settings').click();
   const snapshot=await candidate.locator('.page-transition-outgoing .desktop-settings-page').evaluate(n=>n.getBoundingClientRect().toJSON());assert.ok(Math.abs(snapshot.x-before.x)<1&&Math.abs(snapshot.width-before.width)<1,JSON.stringify({before,snapshot}));

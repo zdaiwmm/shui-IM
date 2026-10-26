@@ -4,6 +4,7 @@
   #app .page-back-footer { position:absolute; left:50%; right:auto; bottom:0; width:min(100%,520px); translate:-50% 0; }
   #app .chamber-settings-page > .chamber-page-footer { position:static; translate:none; margin-inline:auto; flex:none; }
   #app .desktop-settings-page .space-drawer { box-sizing:border-box; padding:0; }
+  #app .desktop-settings-page .space-drawer.page-back-page { padding-bottom:0 !important; }
   #app .desktop-settings-page .space-drawer-header { padding-inline:28px; }
   #app .desktop-settings-page .space-drawer-scroll { box-sizing:border-box; padding-inline:20px; }
   #app .desktop-settings-page .page-back-footer { position:static; translate:none; flex:none; margin-inline:auto; }
@@ -15,6 +16,7 @@
   #app[data-desktop-workspace=true] .chat-shell .composer,
   #app[data-desktop-workspace=true] .composer:has(#chat-tools:not([hidden])) { isolation:isolate; background:var(--composer-surface-current); }
   #app[data-desktop-workspace=true] .composer::before { display:block; content:''; position:absolute; inset:0; z-index:-1; background:var(--composer-surface-current); pointer-events:none; }
+  #app[data-desktop-workspace=true] .composer:has(#chat-tools:not([hidden]))::after { background:var(--composer-surface-current); }
   #app[data-desktop-workspace=true] > .cover-practice-page,
   #app .cover-practice-page { box-sizing:border-box; padding:0; overflow:hidden; width:100%; max-width:none; height:100%; min-height:0; }
   #app .cover-practice-page > .cover { box-sizing:border-box; width:100%; min-width:0; height:100%; margin:0; padding:0; overflow:hidden; }
