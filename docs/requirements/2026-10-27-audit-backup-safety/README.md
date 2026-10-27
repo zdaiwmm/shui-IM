@@ -18,17 +18,25 @@
 
 - 定向 `manual-backup`、`disaster-recovery`、`backup-retention`、`backup-capacity` 共4文件／18项通过，包含默认保留、显式两日期、损坏／未知点保留、容量与创建失败保留旧点、严格／reserve边界、参数错误和真实CLI入口错误退出。
 - 首轮隔离演练总耗时1844ms；snapshot12ms、verify3ms、restore8ms、boot6ms、health8ms、decrypt1703ms。两条双端消息及2,097,189字节原件完整解密。容量证据标为`controlled-admission-fixture`，不代表宿主盘具备strict条件，也不代表整站生产恢复时间。
-- 完整构建／单元及既有灾备专项待冻结执行；精确PR CI独立核对。首轮定向无失败。
+- 原源完整构建／单元及既有灾备专项均通过；最终组合及精确PR CI见下方交付证据。首轮定向无失败。
 - 外部告警实际送达、Mac实际快照新鲜度、独立不可变存储及生产RTO仍未验证，由后续已确定渠道／存储的任务分别完成。
 
 ## 交付与接续
 
-实现及定向验证已完成，准备冻结；提交／PR／精确CI／合并事实分别由Git与PR记录拥有。此为手工运维工具变更，网页版本文件保持，不能把工具合并视为客户端或生产切换。提交前核对仅含源码、测试及必要Markdown；无截图、备份、凭据或大型产物。
+实现、组合本地验收与精确PR完整CI已通过并合并；提交／PR／精确CI／合并事实分别由Git与PR记录拥有。此为手工运维工具变更，网页版本文件保持，不能把工具合并视为客户端或生产切换。提交前核对仅含源码、测试及必要Markdown；无截图、备份、凭据或大型产物。
+
+## 最终组合交付
+
+- 最终干净源 `15774ff898c84a9561d2034599a0885c21e13212`，完整文件树 `dd6c7698944c35fe43f8e907e28865ad4de47c2c`。组合check于2026-10-27T10:30:53.770Z开始，23130ms通过：153文件／1144项；既有灾备专项另通过31项。七份本次相关文档检查通过。
+- 组合隔离解密演练1997ms：snapshot16ms、verify3ms、restore7ms、boot7ms、health9ms、decrypt1835ms；两条消息与2,097,189字节原件完整通过，容量前提仍明确标为受控夹具。原生CLI的实际主机准入证据和首轮测量独立保留，不外推生产RTO。
+- [最终精确PR完整CI40489144941](https://github.com/zdaiwmm/shui-IM/actions/runs/40489144941) attempt1全部成功，含五浏览器分片、通话、依赖扫描、两架构镜像及verify。旧空间恢复分片在最终组合完整通过，但没有据此宣称首轮超时根因已修复。
+- [PR #437](https://github.com/zdaiwmm/shui-IM/pull/437)合并为 `7516e8e49959f7b24a5bfb305e5aa820191c4931`，与最终源完整文件树相同；[精确main完整CI40490796677](https://github.com/zdaiwmm/shui-IM/actions/runs/40490796677) attempt1全部通过，包含全部浏览器、通话、依赖审计及同轮两架构镜像；已核对精确应用SHA和verify，PR绿色未替代main门禁。
+- 代码合并不代表生产切换；本轮未发布、未安装运维任务／代理配置、未接触真实备份。外部告警／存储按用户决定延期；真机、独立外审、真实生产恢复时间保持未知。
 
 ## 首轮CI与必要集成
 
 - 原冻结源 `0520e663e0ace1bac4e5bf80ea634bd39efe5727` 的本地构建及150文件／1132项全部通过，干净证据31038ms；既有灾备专项31项通过，完整专项演练2740ms，原件与双端解密均通过。
 - 真实Node CLI另用本机实际statfs执行strict准入，并完成合成快照校验、恢复与本地健康检查：83ms，小型单房间／单17字节附件。此为实际主机准入＋入口证据；与较大MLS原件演练分开，不作为生产RTO。
-- [PR #437首轮CI](https://github.com/zdaiwmm/shui-IM/actions/runs/40485673851) attempt 1 的browser group2 shard3在 `tests/spaces.e2e.mjs:229` 等待旧恢复输入框超时，9通过／1失败／11未运行。第二批未改src/server；同一源本地 `CI=1 node tests/spaces.e2e.mjs` 完整通过，根因未知，没有更改页面或放宽断言。完整原样复验attempt2启动后，因下述必要集成被新源替代，结果按CI实际状态保留，不能标为通过。
+- [PR #437首轮CI](https://github.com/zdaiwmm/shui-IM/actions/runs/40485673851) attempt 1 的browser group2 shard3在 `tests/spaces.e2e.mjs:229` 等待旧恢复输入框超时，9通过／1失败／11未运行。第二批未改src/server；同一源本地 `CI=1 node tests/spaces.e2e.mjs` 完整通过，根因未知，没有更改页面或放宽断言。完整原样复验attempt2因下述必要集成被新源替代而取消，未作为成功证据。
 - 第一批[PR #436](https://github.com/zdaiwmm/shui-IM/pull/436)先合并到 `668407ca5e762e591b9c07731510019ef832ac81`。项目地图同位置新增两段说明发生文档冲突；在本任务树合入该精确main并保留两段，其他文件自动合并。该main与第一批已验收源的src/server/deploy/release内容相同；其余已有主线记录原样保留。
 - 集成后重新冻结，组合本地构建／单元／灾备专项及新精确PR完整CI独立核对。网页版本保持第一批 `2026.10.27.4`，没有追加生产切换或改变外部存储延期决定。
