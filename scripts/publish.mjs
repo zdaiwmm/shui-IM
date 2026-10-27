@@ -55,7 +55,7 @@ function publishApproved(args, run, timed) {
   }
   const readback = () => timed('independent-readback', () => {
     try {
-      run(process.execPath, [path.join(root, 'scripts/production-readback.mjs'), ...targetArgs, '--sha', sha], { stdio: 'inherit', timeout: 120000 });
+      run(process.execPath, [path.join(root, 'scripts/production-readback.mjs'), ...targetArgs, '--sha', sha], { stdio: 'inherit', timeout: 8 * 60_000 });
     } catch {
       throw new Error(`READBACK_REQUIRED sha=${sha}; retry --readback-only with the same environment and SHA; do not redeploy`);
     }

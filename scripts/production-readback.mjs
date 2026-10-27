@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
+import { setTimeout as pause } from 'node:timers/promises';
 import { isMainModule } from './release-runtime.mjs';
 import { assertKeyFiles, loadConfig as loadDeployConfig, publicOrigin, targetArguments, validateConfig } from './deploy-config.mjs';
 
@@ -123,7 +124,7 @@ function parsePairs(output, expectedKeys, phase, classification) {
   return values;
 }
 
-export function validateServerState(state, expectedSha, expectedOrigin) {
+function validateCommonState(state, expectedSha, expectedOrigin) {
   if (expectedOrigin && state.publicOrigin !== expectedOrigin) throw new ReadbackError('production-state', 'validate-state', 'Server public origin differs from the selected environment');
   const expectedRelease = `/opt/quiet-room/git-releases/${state.deployedAt}-${expectedSha.slice(0, 12)}`;
   if (state.currentSha !== expectedSha || !/^\d{8}T\d{6}Z$/.test(state.deployedAt) || state.release !== expectedRelease || state.maintenance !== 'absent') {
@@ -132,7 +133,7 @@ export function validateServerState(state, expectedSha, expectedOrigin) {
   if (![state.adminEnabled, state.callsEnabled].every(value => value === '0' || value === '1')) {
     throw new ReadbackError('production-state', 'validate-state', 'Production feature-state metadata is invalid');
   }
-  if (state.appRunning !== 'true' || state.backupRunning !== 'true' || state.appHealth !== 'healthy' || !['healthy', 'none'].includes(state.backupHealth)) {
+  if (state.appRunning !== 'true' || state.backupRunning !== 'true' || state.appHealth !== 'healthy') {
     throw new ReadbackError('container-state', 'validate-state', 'Required production containers are not running with their declared health guarantees');
   }
   const turnMatchesState = state.callsEnabled === '1'
@@ -142,6 +143,14 @@ export function validateServerState(state, expectedSha, expectedOrigin) {
   const expectedRef = `quiet-room-app:${expectedSha}`;
   if (!digestPattern.test(state.targetImageId) || state.appImageId !== state.targetImageId || state.backupImageId !== state.targetImageId || state.appImageRef !== expectedRef || state.backupImageRef !== expectedRef) {
     throw new ReadbackError('image-mismatch', 'validate-state', 'Running container images do not match the expected immutable image');
+  }
+  return state;
+}
+
+export function validateServerState(state, expectedSha, expectedOrigin) {
+  validateCommonState(state, expectedSha, expectedOrigin);
+  if (!['healthy', 'none'].includes(state.backupHealth)) {
+    throw new ReadbackError('container-state', 'validate-state', 'Backup has not passed its declared health check');
   }
   return state;
 }
@@ -239,6 +248,41 @@ export async function runReadback(expectedSha, operations, emit = console.log, c
   };
   try {
     evidence.server = await phase('server-state', 'server-inspection', () => operations.inspectState(expectedSha));
+    if (evidence.server.backupHealth === 'starting') {
+      evidence.server = await phase('backup-readiness', 'server-inspection', async () => {
+        const initial = evidence.server;
+        const waitMs = target.waitReadyMs ?? 6 * 60_000;
+        if (!Number.isSafeInteger(waitMs) || waitMs < 0 || waitMs > 6 * 60_000) {
+          throw new ReadbackError('configuration', 'backup-readiness', 'Invalid readiness wait budget');
+        }
+        const deadline = clock() + BigInt(waitMs) * 1_000_000n;
+        evidence.readiness = { polls: 0, budgetMs: waitMs };
+        let sample = initial;
+        while (true) {
+          // Check all identity, image, origin, maintenance and other container
+          // guarantees before waiting. Only a running backup's starting state
+          // is transient; failed health checks and connectivity fail immediately.
+          validateCommonState(sample, expectedSha, target.origin);
+          if (['deployedAt', 'release', 'targetImageId', 'adminEnabled', 'callsEnabled']
+            .some(key => sample[key] !== initial[key])) {
+            throw new ReadbackError('production-state', 'backup-readiness', 'Deployment changed while waiting');
+          }
+          if (sample.backupHealth !== 'starting') {
+            if (sample.backupHealth !== 'healthy') throw new ReadbackError('container-state', 'backup-readiness', 'Starting backup did not become healthy');
+            if (clock() > deadline) throw new ReadbackError('container-startup-timeout', 'backup-readiness', 'Readiness sample arrived after the bounded wait');
+            validateServerState(sample, expectedSha, target.origin);
+            return sample;
+          }
+          const remainingMs = Number((deadline - clock()) / 1_000_000n);
+          if (remainingMs <= 0) throw new ReadbackError('container-startup-timeout', 'backup-readiness', 'Backup remained starting beyond the bounded wait');
+          emit(`READBACK_WAIT role=backup state=starting remaining_ms=${remainingMs}`);
+          await (operations.pause ?? pause)(Math.min(10_000, remainingMs));
+          sample = await operations.inspectState(expectedSha);
+          evidence.server = sample;
+          evidence.readiness.polls++;
+        }
+      });
+    }
     await phase('validate-state', 'production-state', () => validateServerState(evidence.server, expectedSha, target.origin));
     evidence.health = await phase('https-health', 'public-health', () => operations.inspectHealth());
     const publicHashes = await phase('public-artifacts', 'public-artifact', () => operations.inspectPublicArtifacts());

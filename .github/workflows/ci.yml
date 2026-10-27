@@ -192,6 +192,12 @@ jobs:
       - name: Verify Docker storage replacement and failure recovery
         if: matrix.arch == 'amd64'
         run: sudo env GITHUB_ACTIONS=true QUIET_ROOM_STORAGE_FIXTURE_IMAGE="quiet-room-app:$GITHUB_SHA" python3 tests/storage-maintenance-docker.py
+      - name: Verify backup startup cadence and unchanged health guarantees
+        if: matrix.arch == 'amd64'
+        timeout-minutes: 3
+        env:
+          QUIET_ROOM_BACKUP_FIXTURE_IMAGE: quiet-room-app:${{ github.sha }}
+        run: python3 tests/backup-startup-docker.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure() && matrix.arch == 'amd64'
         with:
