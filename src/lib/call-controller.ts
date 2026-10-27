@@ -67,6 +67,7 @@ export class CallController {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private credentialTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingPermissions = new Set<() => void>();
+  private unboundStreams = new Set<MediaStream>();
   private permissionCount = 0;
   private mediaBusy = false;
   private negotiating = false;
@@ -231,7 +232,24 @@ export class CallController {
       this.emit({ phase: 'outgoing', statusText: '正在呼叫…' });
       this.incomingExpiresAt = Date.now() + RING_MS;
       this.stages?.begin('signaling', RING_MS);
-      for (const peerId of [...this.invited]) await this.sendTo(peerId, 'invite', { kind, description, cameraEnabled: this.current.cameraEnabled, micMuted: false }, context);
+      for (const peerId of [...this.invited]) {
+        if (!this.valid(context) || this.peerId || this.serverWinner) break;
+        if (!this.invited.has(peerId)) continue;
+        try {
+          await this.sendTo(peerId, 'invite', { kind, description, cameraEnabled: this.current.cameraEnabled, micMuted: this.current.micMuted }, context);
+        } catch (error) {
+          if (!this.valid(context)) return;
+          const code = (error as { code?: string })?.code;
+          if (code === 'CALL_ALREADY_ACCEPTED') break; // Await the selected device's signed answer.
+          if (code !== 'CALL_UNAVAILABLE') throw error;
+          this.invited.delete(peerId);
+          this.peerKeys.delete(peerId);
+          if (!this.invited.size && !this.peerId && !this.serverWinner) {
+            await this.finish(statusByCode.CALL_UNAVAILABLE!, 'unavailable', false);
+            return;
+          }
+        }
+      }
     } catch (error) {
       if (!context || this.valid(context)) await this.finish(mediaError(error), 'failed', true);
     }
@@ -466,9 +484,13 @@ export class CallController {
       timer = setTimeout(() => { void release().finally(() => reject(new DOMException('等待设备授权超时，请重试', 'TimeoutError'))); }, MEDIA_MS);
       request.then(async (stream) => {
         if (finished || !this.valid(context)) { stopStream(stream); await release(); reject(new Error('通话已结束')); return; }
-        const permissionInvalidated = await release();
+        // Own capture before awaiting native focus handoff or sender replacement.
+        this.unboundStreams.add(stream);
+        let permissionInvalidated: boolean;
+        try { permissionInvalidated = await release(); }
+        catch (error) { stopStream(stream); this.unboundStreams.delete(stream); reject(error); return; }
         // The permission callback can lock/destroy the call synchronously.
-        if (permissionInvalidated || !this.valid(context)) { stopStream(stream); reject(new Error('通话已结束')); return; }
+        if (permissionInvalidated || !this.valid(context)) { stopStream(stream); this.unboundStreams.delete(stream); reject(new Error('通话已结束')); return; }
         resolve(stream);
       }, (error: unknown) => { void release().finally(() => reject(error)); });
     });
@@ -484,6 +506,8 @@ export class CallController {
     const video = stream.getVideoTracks()[0] ?? null;
     const transceivers = pc.getTransceivers();
     this.emit({ localStream: stream, cameraEnabled: video !== null });
+    this.unboundStreams.delete(stream);
+    if (!this.valid(context)) return;
     const attach = async (kind: 'audio' | 'video', track: MediaStreamTrack | null): Promise<RTCRtpSender> => {
       const existing = transceivers.find((item) => item.receiver.track.kind === kind);
       if (existing) {
@@ -571,7 +595,7 @@ export class CallController {
       await this.sendMediaState(context);
       void this.refreshCameras(context);
     } catch (error) { stopStream(stream); if (this.valid(context)) this.emit({ statusText: mediaError(error) }); }
-    finally { if (this.valid(context)) this.mediaBusy = false; }
+    finally { if (stream) this.unboundStreams.delete(stream); if (this.valid(context)) this.mediaBusy = false; }
   }
 
   async switchCamera(): Promise<void> {
@@ -598,7 +622,7 @@ export class CallController {
     } catch (error) {
       stopStream(replacement);
       if (this.valid(context)) { this.emit({ cameraEnabled: false, facingMode: previousFacing, statusText: mediaError(error) }); await this.sendMediaState(context); }
-    } finally { if (this.valid(context)) this.mediaBusy = false; }
+    } finally { if (replacement) this.unboundStreams.delete(replacement); if (this.valid(context)) this.mediaBusy = false; }
   }
 
   private sendMediaState(context: Context) {
@@ -609,13 +633,17 @@ export class CallController {
     const callId = this.current.callId;
     const result = this.sendQueue.then(async () => {
       if (!callId || !this.valid(context) || !this.peerStillTrusted(recipientId)) return;
+      if (action === 'invite' && (this.peerId || this.serverWinner)) return;
       const envelope = await sealCallSignal(this.vault(), recipientId, callId, action, payload);
       for (let attempt = 0; attempt < 4; attempt += 1) {
         if (!this.valid(context) || !this.peerStillTrusted(recipientId)) return;
+        if (action === 'invite' && (this.peerId || this.serverWinner)) return;
         await this.waitForSignaling();
         try { await this.options.send(envelope); return; }
         catch (error) {
           if (!this.valid(context)) return;
+          const code = (error as { code?: string })?.code;
+          if (code?.startsWith('CALL_') && !['CALL_PEER_RECONNECTING', 'CALL_BACKPRESSURE', 'CALL_RATE_LIMITED'].includes(code)) throw error;
           this.stages?.noteFailure('websocket', this.safeError(error, 'websocket'));
           if (attempt === 3) throw error;
           await networkDelay(250 * 2 ** attempt, this.lifetime.signal);
@@ -686,7 +714,7 @@ export class CallController {
           void this.flushLocalCandidates(this.context).catch(() => {});
         }
       }
-    } else if (event.state === 'error' && event.code === 'CALL_ALREADY_ACCEPTED' && this.caller && this.serverWinner) {
+    } else if (event.state === 'error' && event.code === 'CALL_ALREADY_ACCEPTED' && this.caller) {
       // A later invite to another device can race the first successful acceptance.
       return;
     } else if (event.state === 'error' && event.code === 'CALL_UNAVAILABLE' && this.caller && !this.peerId && event.recipientId) {
@@ -1004,9 +1032,10 @@ export class CallController {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.credentialTimer) clearTimeout(this.credentialTimer);
     this.statsTimer = null; this.reconnectTimer = null; this.credentialTimer = null;
-    for (const stream of [this.current.localStream, this.current.remoteStream]) {
+    for (const stream of new Set([this.current.localStream, this.current.remoteStream, ...this.unboundStreams])) {
       stream?.getTracks().forEach((track) => { track.onended = null; track.onmute = null; track.onunmute = null; track.stop(); });
     }
+    this.unboundStreams.clear();
     const pc = this.pc;
     if (pc) {
       pc.ontrack = null; pc.onicecandidate = null; pc.onconnectionstatechange = null; pc.oniceconnectionstatechange = null; pc.onicegatheringstatechange = null; pc.onicecandidateerror = null;

@@ -216,7 +216,7 @@ secrecy after device-key compromise. Media keys use a separate ephemeral DTLS
 exchange. The server observes routing and call timing; TURN sees traffic and
 address metadata, while direct peers may learn each other's public IP. TURN has
 short-lived authenticated credentials rather than an anonymous relay. Background
-or privacy teardown stops capture and invalidates the unlocked runtime on every client. Calls do not remove the endpoint, malicious-served-JavaScript
+or privacy teardown stops capture and invalidates the unlocked runtime on every client. Capture ownership includes granted streams still awaiting native handoff or sender replacement; teardown stops them before those asynchronous operations settle. An unselected invited endpoint leaving cannot end an already selected call; pre-accept cancellation remains bound to its authenticated invitation. Calls do not remove the endpoint, malicious-served-JavaScript
 or independent-audit limitations below. See `CALLS.md` for operational details.
 
 ## What this protects
