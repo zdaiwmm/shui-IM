@@ -1,12 +1,12 @@
 # Quiet Room 当前状态
 
-## 待发取消续接 V2：已合并，未发布（2026-10-27）
+## 待发取消续接 V2 已发布（2026-10-27 11:33）
 
 [PR #428](https://github.com/zdaiwmm/shui-IM/pull/428)合并为应用 `608dfea1e11ba20ddf2456fe380e38ea01230134`／`2026.10.27.1`，与最终源 `d4b6087` 完整文件树一致。取消后持久发送队列不再包含该项；独立加密核验材料仅供已接收消息的迟到回传，正常落盘后原子退役。刷新／重连继续收发，本机隐藏保持；DB16、协议、权限与运维配置未变。
 
-最终干净源完整本地 148 文件／1114 单元、86/86 浏览器入口通过，0 失败／0 未运行，1667475ms；[精确 PR CI 40438327515](https://github.com/zdaiwmm/shui-IM/actions/runs/40438327515)及[精确应用 main CI 40441136003](https://github.com/zdaiwmm/shui-IM/actions/runs/40441136003)均 attempt 1 成功，Full application verification 与同轮双架构镜像通过。唯一[固定只读预检 40442557633](https://github.com/zdaiwmm/shui-IM/actions/runs/40442557633)取得精确 PREFLIGHT_OK，296727ms 含正常审核等待，读到前版仍为 `926a786`。当前等待完整 SHA 生产确认；尚无本目标 DEPLOY_VERIFIED／READBACK_OK，下方最近已验证生产保持原值。
+最终干净源完整本地 148 文件／1114 单元、86/86 浏览器入口通过，0 失败／0 未运行，1667475ms；[精确 PR CI 40438327515](https://github.com/zdaiwmm/shui-IM/actions/runs/40438327515)及[精确应用 main CI 40441136003](https://github.com/zdaiwmm/shui-IM/actions/runs/40441136003)均 attempt 1 成功，Full application verification 与同轮双架构镜像通过。唯一[固定只读预检 40442557633](https://github.com/zdaiwmm/shui-IM/actions/runs/40442557633)取得精确 PREFLIGHT_OK，296727ms 含正常审核等待，实际前版为 `926a786`。用户确认上述完整 SHA 后，唯一[正式发布 40443816396](https://github.com/zdaiwmm/shui-IM/actions/runs/40443816396)取得精确 DEPLOY_VERIFIED；首次回读仅备份 starting，等待既有启动窗口后，同 SHA 只读回读取得 READBACK_OK。没有再次切换或运维配置变更。
 
-修复前四个真实故障、夹具／CI 失败与一次定向修正、兼容及旧材料缺失限制见[需求 V2](../requirements/2026-10-27-cancel-accepted-validation/README.md)；[发布准备记录](../../RELEASING.md#release-cancelled-send-20261027)拥有精确应用定位。真机与独立外审未新增证据，不扩大为整站无故障结论。
+修复前四个真实故障、夹具／CI 失败与一次定向修正、兼容及旧材料缺失限制见[需求 V2](../requirements/2026-10-27-cancel-accepted-validation/README.md)；[发布记录](../../RELEASING.md#release-cancelled-send-20261027)拥有精确应用定位。真机与独立外审未新增证据，不扩大为整站无故障结论。
 
 ## 恢复失败原件清理 R2 已发布（2026-10-27 08:54）
 
@@ -33,15 +33,15 @@
 本页是带时间的接手摘要，不是实时监控。历史详情保存在 [发布记录](../../RELEASING.md)、
 对应需求和 Git；[治理前完整状态快照](https://github.com/zdaiwmm/shui-IM/blob/bc329979e232d16a238190bc069eae32a85af4c9/docs/context/status.md)保留原证据和失败历史。
 
-## 最近已验证生产：2026-10-27 08:54
+## 最近已验证生产：2026-10-27 11:33
 
-- 应用`926a786e3e20c9148c8df805643c62fdd9edb9c7`，版本`2026.10.26.3`；[PR #425](https://github.com/zdaiwmm/shui-IM/pull/425)。实际前版`9cf771de91598370bc77c1e73128ef5889b8a092`；纯文档main不替换线上应用SHA。
-- [精确main完整CI40424742449](https://github.com/zdaiwmm/shui-IM/actions/runs/40424742449) attempt1成功，Full application verification及同轮双架构镜像通过；完整本地、PR CI与早期配额失败由[需求R2](../requirements/2026-10-27-restore-failure-validation/README.md)拥有。
-- [预检40426096627](https://github.com/zdaiwmm/shui-IM/actions/runs/40426096627)取得PREFLIGHT_OK；唯一[发布40427980206](https://github.com/zdaiwmm/shui-IM/actions/runs/40427980206)取得精确DEPLOY_VERIFIED，请求29da2dc7只派发一次，工作流来源ad6c938；批次20261027T004247Z，应用固定用户获批SHA。
-- 独立READBACK_OK于`2026-10-27T00:54:52.395Z`完成，3346ms：应用与备份running且healthy，TURN运行（探针none），SHA／镜像／HTTPS／数据库／存储／公开及容器资源摘要／新WebSocket全部一致，维护门absent；管理员与通话启用。
-- 前两次仅连接失败，公开补查通过不替代完整回读。用户报告防火墙IP已更新后只续同SHA只读回读，Agent没有修改访问控制、重启或再次发布。全部回执与失败历史见[发布记录](../../RELEASING.md#release-restore-original-cleanup-20261027)。
+- 应用 `608dfea1e11ba20ddf2456fe380e38ea01230134`，版本 `2026.10.27.1`；[PR #428](https://github.com/zdaiwmm/shui-IM/pull/428)。实际前版 `926a786e3e20c9148c8df805643c62fdd9edb9c7`；纯文档 main 不替换线上应用 SHA。
+- [精确 main 完整 CI 40441136003](https://github.com/zdaiwmm/shui-IM/actions/runs/40441136003) attempt 1 成功，Full application verification 及同轮双架构镜像通过；完整本地、PR CI 与失败历史由[需求 V2](../requirements/2026-10-27-cancel-accepted-validation/README.md)拥有。
+- [预检 40442557633](https://github.com/zdaiwmm/shui-IM/actions/runs/40442557633)取得 PREFLIGHT_OK；唯一[发布 40443816396](https://github.com/zdaiwmm/shui-IM/actions/runs/40443816396)取得精确 DEPLOY_VERIFIED，请求 `8a74e7eb-10c8-4a91-a20a-93ebe3f67cea` 只派发一次，工作流来源 `e6a3c66`；批次 `20261027T032526Z`，应用固定用户获批 SHA。
+- 独立 READBACK_OK 于 `2026-10-27T03:33:51.832Z` 完成，3234ms：应用与备份 running 且 healthy，TURN 运行（探针 none），SHA／镜像／HTTPS／数据库／存储／公开及容器资源摘要／新 WebSocket 全部一致，维护门 absent；管理员与通话启用。
+- 首次回读仅备份 starting；等待既有 5 分钟探针／启动期后，只续同 SHA 只读回读。没有重启、再次切换或运维配置变更。完整回执与首次失败见[发布记录](../../RELEASING.md#release-cancelled-send-20261027)。
 
-本页为部署时点事实，不是实时监控。脱敏组合证据保存在公共Git目录`quiet-room-deliveries/evidence/restore-original-cleanup-20261027/production-summary.json`；后续按固定入口核验本批资源，活动记录树及未知材料保留，不清理其他任务现场。备份追赶优化未授权，真机与外审仍暂缓。
+本页为部署时点事实，不是实时监控。脱敏组合证据保存在公共 Git 目录 `quiet-room-deliveries/evidence/cancelled-send-20261027/production-summary.json`；后续按固定入口核验本批资源，活动记录树与含缓存／专属证据的资源按实际检查保留，不清理其他任务现场。备份追赶优化未授权，真机与外审仍暂缓。
 
 ## 六批项目治理 V1：已包含于当前生产
 
