@@ -1,10 +1,10 @@
 # Quiet Room 当前状态
 
-## 实时视频与语音修复 V1：验证及预检通过，待精确发布确认（2026-10-27）
+## 实时视频与语音修复 V1 已发布（2026-10-27 14:41）
 
 [PR #431](https://github.com/zdaiwmm/shui-IM/pull/431) 已合并为应用 `75b01af61eb26ba1cbe5896881c3c354ead3a443`／`2026.10.27.2`，与冻结源 `264142d` 完整文件树一致。修复未选设备退出误挂、邀请失败与接听竞争、接听准备中取消及待挂载摄像头清理；加密与数据格式、TURN 和部署配置保持。范围、用户确认及失败分类由[通话修复 V1](../requirements/2026-10-27-call-reliability/README.md)拥有。
 
-最终源本地完整 149 文件／1127 单元集成、86/86 浏览器入口及通话专项通过；精确 PR CI attempt 2、[精确应用 main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/40457899410) attempt 1 完整通过。首轮未定位 WebKit 未读 Fetch 诊断仍保留于需求记录。唯一[固定只读预检](https://github.com/zdaiwmm/shui-IM/actions/runs/40459706774)取得精确PREFLIGHT_OK，mode为doctor，实际前版仍是 `608dfea`；没有生产切换，待用户对上述完整应用SHA确认。最近已验证生产仍为下方 `608dfea`，真机、真实公网长通话和独立外审没有新增证据。
+最终源本地完整149文件／1127单元集成、86/86浏览器入口及通话专项通过；精确PR CI attempt2、[精确应用main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/40457899410) attempt1完整通过。首轮未定位WebKit未读Fetch诊断保留于需求记录。唯一[只读预检](https://github.com/zdaiwmm/shui-IM/actions/runs/40459706774)取得PREFLIGHT_OK，用户随后确认上述完整SHA；唯一[正式发布](https://github.com/zdaiwmm/shui-IM/actions/runs/40461354285)取得DEPLOY_VERIFIED，独立READBACK_OK于2026-10-27T06:41:06.647Z完成。首次仅备份starting，等待既有窗口后只续回读，没有重启或再次切换；[发布记录](../../RELEASING.md#release-call-reliability-20261027)拥有批次定位。真机、真实公网长通话和独立外审没有新增证据。
 
 ## 待发取消续接 V2 已发布（2026-10-27 11:33）
 
@@ -39,15 +39,15 @@
 本页是带时间的接手摘要，不是实时监控。历史详情保存在 [发布记录](../../RELEASING.md)、
 对应需求和 Git；[治理前完整状态快照](https://github.com/zdaiwmm/shui-IM/blob/bc329979e232d16a238190bc069eae32a85af4c9/docs/context/status.md)保留原证据和失败历史。
 
-## 最近已验证生产：2026-10-27 11:33
+## 最近已验证生产：2026-10-27 14:41
 
-- 应用 `608dfea1e11ba20ddf2456fe380e38ea01230134`，版本 `2026.10.27.1`；[PR #428](https://github.com/zdaiwmm/shui-IM/pull/428)。实际前版 `926a786e3e20c9148c8df805643c62fdd9edb9c7`；纯文档 main 不替换线上应用 SHA。
-- [精确 main 完整 CI 40441136003](https://github.com/zdaiwmm/shui-IM/actions/runs/40441136003) attempt 1 成功，Full application verification 及同轮双架构镜像通过；完整本地、PR CI 与失败历史由[需求 V2](../requirements/2026-10-27-cancel-accepted-validation/README.md)拥有。
-- [预检 40442557633](https://github.com/zdaiwmm/shui-IM/actions/runs/40442557633)取得 PREFLIGHT_OK；唯一[发布 40443816396](https://github.com/zdaiwmm/shui-IM/actions/runs/40443816396)取得精确 DEPLOY_VERIFIED，请求 `8a74e7eb-10c8-4a91-a20a-93ebe3f67cea` 只派发一次，工作流来源 `e6a3c66`；批次 `20261027T032526Z`，应用固定用户获批 SHA。
-- 独立 READBACK_OK 于 `2026-10-27T03:33:51.832Z` 完成，3234ms：应用与备份 running 且 healthy，TURN 运行（探针 none），SHA／镜像／HTTPS／数据库／存储／公开及容器资源摘要／新 WebSocket 全部一致，维护门 absent；管理员与通话启用。
-- 首次回读仅备份 starting；等待既有 5 分钟探针／启动期后，只续同 SHA 只读回读。没有重启、再次切换或运维配置变更。完整回执与首次失败见[发布记录](../../RELEASING.md#release-cancelled-send-20261027)。
+- 应用 `75b01af61eb26ba1cbe5896881c3c354ead3a443`，版本 `2026.10.27.2`；[PR #431](https://github.com/zdaiwmm/shui-IM/pull/431)。实际前版 `608dfea1e11ba20ddf2456fe380e38ea01230134`；纯文档main不替换线上应用SHA。
+- [精确main完整CI40457899410](https://github.com/zdaiwmm/shui-IM/actions/runs/40457899410) attempt1成功，Full application verification、通话／TURN及同轮双架构镜像通过；完整本地、PR CI与失败历史由[通话修复V1](../requirements/2026-10-27-call-reliability/README.md)拥有。
+- [预检40459706774](https://github.com/zdaiwmm/shui-IM/actions/runs/40459706774)取得PREFLIGHT_OK；唯一[发布40461354285](https://github.com/zdaiwmm/shui-IM/actions/runs/40461354285)取得精确DEPLOY_VERIFIED，请求 `6853f46d-b4b9-4f7a-9711-d91c3c41b405` 只派发一次，工作流来源 `9bed60b`；批次 `20261027T063102Z`，应用固定用户获批SHA。
+- 独立READBACK_OK于 `2026-10-27T06:41:06.647Z` 完成，3366ms：应用与备份running且healthy，TURN运行（探针none），SHA／镜像／HTTPS／数据库／存储／公开及容器资源摘要／新WebSocket全部一致，维护门absent；管理员与通话启用。
+- 首次回读仅备份starting；等待既有5分钟探针／启动期后只续同SHA只读回读。没有重启、再次切换或运维配置变更。完整回执与首次失败见[发布记录](../../RELEASING.md#release-call-reliability-20261027)。
 
-本页为部署时点事实，不是实时监控。脱敏组合证据保存在公共 Git 目录 `quiet-room-deliveries/evidence/cancelled-send-20261027/production-summary.json`；后续按固定入口核验本批资源，活动记录树与含缓存／专属证据的资源按实际检查保留，不清理其他任务现场。备份追赶优化未授权，真机与外审仍暂缓。
+本页为部署时点事实，不是实时监控。脱敏组合证据保存在公共Git目录 `quiet-room-deliveries/evidence/call-reliability-20261027/production-summary.json`；本批资源按固定入口核验，活动记录树与含缓存／专属证据资源按实际检查保留，不清理其他任务现场。备份追赶优化未纳入，真机与外审仍暂缓。
 
 ## 六批项目治理 V1：已包含于当前生产
 

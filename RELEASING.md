@@ -1,5 +1,17 @@
 # Quiet Room 固定发布流程
 
+<a id="release-call-reliability-20261027"></a>
+## 实时视频与语音通话修复已发布（2026-10-27 14:41）
+
+- 展示完整应用SHA、版本、验证及预检后，用户在本会话回复「确认发布，并告诉我这次具体优化修复了什么问题」，精确授权 `75b01af61eb26ba1cbe5896881c3c354ead3a443`／`2026.10.27.2`；无独立消息permalink。[PR #431](https://github.com/zdaiwmm/shui-IM/pull/431)已合并，完整文件树与冻结源 `264142d4cc50be1767340ae1e3256bb8f6dbe14d` 同为 `0689fe3e9a66abc8e8ce2ed8cb3c43754c26dbc1`。
+- 修复未选设备锁定误挂、设备级邀请错误传播与接听竞争、接听准备中取消、待挂载摄像头清理；原加密与数据格式、TURN及运维配置保持。完整范围、失败分类和真机边界由[通话修复V1](docs/requirements/2026-10-27-call-reliability/README.md)拥有。
+- 干净源完整本地149文件／1127单元集成、86/86浏览器入口通过，0失败／0未运行，1668151ms；原生通话、视图及20弱网场景另通过，109012ms。[精确PR CI40453010499](https://github.com/zdaiwmm/shui-IM/actions/runs/40453010499/attempts/2) attempt2与[精确应用main CI40457899410](https://github.com/zdaiwmm/shui-IM/actions/runs/40457899410) attempt1完整成功，含Full application verification、真实TURN UDP／TCP及双架构镜像。PR首轮未定位WebKit未读Fetch诊断与一次原样复验的实际完整执行链保留于需求记录，不以绿色抹去失败。
+- 唯一[固定只读预检40459706774](https://github.com/zdaiwmm/shui-IM/actions/runs/40459706774)取得精确PREFLIGHT_OK，528212ms含production审核等待；请求 `342a557f-d6da-4a9e-a75e-e3014ee9cdfc` 为doctor且仅派发一次。元数据绑定产物12713512874／main CI40457899410／attempt1，到期2026-11-03T05:58:32Z；实际前版为 `608dfea1e11ba20ddf2456fe380e38ea01230134`。
+- 唯一[正式发布40461354285](https://github.com/zdaiwmm/shui-IM/actions/runs/40461354285)由固定 `publish.mjs --cloud --with-readback --environment production --sha <上述完整SHA>` 核对精确DEPLOY_VERIFIED；请求 `6853f46d-b4b9-4f7a-9711-d91c3c41b405` 为deploy且只派发一次，经既有production审核，不改环境保护或云权限。云工作流来源 `9bed60b536996d462330105dc62b7268bf3e7db3`，应用始终固定获批SHA；云回执2026-10-27T06:30:16.400Z至06:35:18.485Z，外层cloud-publish407328ms含审核等待。
+- 批次 `20261027T063102Z`；linux/amd64镜像 `sha256:3b2bc5b9c4e66fddbb84fe46d2b5aac7f513b44d09c2cfec5e0c7bbbd90e6f20`，归档SHA-256 `fa7375685966e88711ee33ef76335ba6fb69e35972acbf8762eb55a36fdb69ce`、210152038字节，绑定精确main CI40457899410／attempt1，已校验完整镜像与标签。
+- 首次独立回读06:35:40.112Z至06:35:41.075Z，962ms，仅备份starting使validate-state未通过；应用healthy、SHA／镜像一致、维护门absent。核对既有5分钟探针及启动期并等待后，只续同SHA的readback-only；最终2026-10-27T06:41:03.280Z至06:41:06.647Z取得READBACK_OK，3366ms：应用与备份running且healthy，TURN运行且探针none，HTTPS／数据库／存储、公开与容器产物摘要及新WebSocket均一致，管理员与通话启用，维护门absent。没有重启、再次切换或运维配置变更。
+- 脱敏组合证据位于公共Git目录 `quiet-room-deliveries/evidence/call-reliability-20261027/production-summary.json`，保留首次失败与最终成功回执；独立记录树不含部署配置，文档提交不替换线上应用SHA或触发再次发布。资源清理仅限本批并遵守缓存／专属证据等保留边界。真实iPhone、macOS采集、公网长通话／网络切换和独立安全审阅没有新增证据。
+
 <a id="release-cancelled-send-20261027"></a>
 ## 待发取消与迟到回传修复已发布（2026-10-27 11:33）
 
