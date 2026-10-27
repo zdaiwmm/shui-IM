@@ -2,10 +2,11 @@
 
 ## 身份与确认
 
-- 阶段：修复已通过本地完整验收、PR 与精确应用 main CI、固定只读预检，并合并远端 main。生产仍待最终精确应用 SHA 确认，尚未切换。
+- 阶段：用户确认的精确应用已取得 DEPLOY_VERIFIED 与独立 READBACK_OK；本独立文档树仅完成事实对账，不替换应用 SHA 或触发再次发布。
 - 规则来源：本机 main `4356531cea264dd01bd9110da90b9ff62cfd7a59` 的 AGENTS／固定流程；已核对最新规则差异。起始基线为 GitHub 实时 main 与本机 origin/main 一致的 `993d01f1750ce598372ca932ad80bae79c5e4e83`，本机 main 较旧。
 - 独立分支 `codex/call-reliability-20261027`；本机目录 `.worktrees/call-reliability-20261027`，由本任务新建，跨电脑须重新核验归属与 HEAD。
 - 本会话用户在只读审计四项问题及分批方案后回复「确认方案，立即实施，完成后合并发布生产」。没有独立消息 permalink。该确认授权本批实施、必要记录和远端交付；未把未产生的提交视为生产精确 SHA 授权。
+- 展示完整应用 `75b01af61eb26ba1cbe5896881c3c354ead3a443`／`2026.10.27.2`、验证与预检结果后，用户回复「确认发布，并告诉我这次具体优化修复了什么问题」，本次精确发布授权来自本会话，无独立消息 permalink。正式 Run 40461354285 的唯一请求 `6853f46d-b4b9-4f7a-9711-d91c3c41b405` 已核对为 deploy，并经既有 production 审核；不修改环境保护或运维配置。
 - 无新增页面、文案或关键操作设计；沿用既有接听、挂断、摄像头和隐私清理，原型／视觉流程不适用。
 
 ## 范围与边界
@@ -38,5 +39,9 @@
 - [精确应用 main CI 40457899410](https://github.com/zdaiwmm/shui-IM/actions/runs/40457899410) attempt 1 完整成功，push 事件与上述应用 SHA 一致；Full application verification、各浏览器分片、通话／TURN 与同轮双架构镜像均通过。一次本机 watcher TLS 握手超时只恢复同 Run 跟踪，没有重跑 main CI。
 - 唯一[固定只读预检 40459706774](https://github.com/zdaiwmm/shui-IM/actions/runs/40459706774)取得精确 PREFLIGHT_OK，外层528212ms含既有production审核等待。请求 `342a557f-d6da-4a9e-a75e-e3014ee9cdfc` 经核对为doctor，仅派发一次，应用与工作流来源均为 `75b01af`；只有一次成功preflight调用，没有生产切换。审核接口的字段筛选报类型不匹配后，只回查原Run及待审核数0，未重复审核或派发。
 - 预检实际前版为 `608dfea1e11ba20ddf2456fe380e38ea01230134`；镜像元数据绑定产物12713512874／main CI40457899410／attempt1，到期2026-11-03T05:58:32Z。预检不预载完整镜像，不替代正式发布时字节校验、切换前检查或发布后独立回读。
-- 待完成用户对完整应用 `75b01af61eb26ba1cbe5896881c3c354ead3a443` 的精确发布确认；随后才能固定发布、独立回读及第二树事实对账。真实设备、实际蜂窝／TURN TLS／长公网通话及独立外审没有新增证据。生产尚未执行。
+- 唯一[正式发布 40461354285](https://github.com/zdaiwmm/shui-IM/actions/runs/40461354285)由固定入口核对精确 DEPLOY_VERIFIED；应用始终为获批 SHA，云工作流来源为 `9bed60b536996d462330105dc62b7268bf3e7db3`。云回执2026-10-27T06:30:16.400Z至06:35:18.485Z，外层cloud-publish407328ms含审核等待。只有一次deploy调用；前版为上述 `608dfea`。
+- 批次 `20261027T063102Z`；linux/amd64镜像 `sha256:3b2bc5b9c4e66fddbb84fe46d2b5aac7f513b44d09c2cfec5e0c7bbbd90e6f20`，归档摘要 `fa7375685966e88711ee33ef76335ba6fb69e35972acbf8762eb55a36fdb69ce`、210152038字节，绑定精确main CI40457899410／attempt1。
+- 首次独立回读2026-10-27T06:35:40.112Z至06:35:41.075Z，962ms，仅因backup starting停在validate-state。应用healthy、获批SHA与镜像一致、维护门absent，TURN运行且探针none。已核对现有备份探针interval和start_period均5分钟；等待窗口后仅续同SHA只读回读，不放宽检查、重启或再次切换。
+- 最终独立回读于2026-10-27T06:41:03.280Z至06:41:06.647Z取得 READBACK_OK，3366ms；应用与备份running且healthy，TURN运行且探针none，获批SHA／镜像、HTTPS／数据库／存储、公开与容器产物摘要、新WebSocket均一致，维护门absent。只续同SHA的readback-only，没有重启或第二次切换。
+- 本地组合证据已保存到公共Git目录 `quiet-room-deliveries/evidence/call-reliability-20261027/production-summary.json`，包含首次失败和最终成功回读。云端发布与CI由上述远端链接定位；本机证据不会自动跨电脑同步。[发布记录](../../../RELEASING.md#release-call-reliability-20261027)拥有线上批次定位，文档提交不替换应用SHA。真实设备、实际蜂窝／TURN TLS／长公网通话及独立外审没有新增证据；本批资源依固定清理门槛核验，不强删忽略缓存或其他任务资源。
 - 提交前检查：仅文本源码、测试、契约及本记录；不提交依赖、构建产物、合成媒体或凭据。版本说明由固定准备工具生成。
