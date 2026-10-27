@@ -159,7 +159,7 @@ CI 镜像与双独立环境：`scripts/ci-image.mjs`、`scripts/deploy-config.mj
 - `npm run build`：TypeScript 类型检查后构建 Vite 产物。
 - `npm test`：运行 Vitest 自动发现的单元/集成测试；它不等于浏览器回归。
 - `npm run check`：依次运行 build 与 Vitest。
-- `npm run test:browser`：通过 `scripts/test-browser.mjs` 串行运行全部真实浏览器脚本，并输出逐脚本和总耗时。`-- --group 1` / `-- --group 2` 分别运行主流程与其余专项；CI 在两个独立执行环境中并行运行两组。
+- `npm run test:browser`：通过 `scripts/test-browser.mjs` 串行运行全部真实浏览器脚本，并输出逐脚本和总耗时。`-- --group 1` / `-- --group 2` 分别运行主流程与其余专项；CI主流程独立运行，其余专项按已记录耗时分为四个独立runner，同树不并发。测量数据只影响分片分配，未知脚本仍执行；完整分组顺序及浏览器轮数保留。
 - `npm run check:full`：运行 `check`，然后运行浏览器套件。
 - `npm run deploy:readback -- --sha <40位SHA>`：独立、只读地复核该精确生产版本，输出逐阶段耗时与失败分类，并在 `.git/quiet-room-readback/` 保存脱敏结构化证据；它不发布、不回滚，也不替代发布授权。
 - `npm run test:weak-network`：通话控制器、配置、信令确认和语音重试专项，以及 Chrome 信令/质量输入和 CDP WebRTC 网络故障注入；不等于真机或实际 TURN 验收。
