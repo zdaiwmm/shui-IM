@@ -85,3 +85,12 @@
 首个冻结候选 `84079e5` 的完整本地检查在单元阶段停止：147 文件／1110 项通过，`browser-runner.test.ts` 四项仍按原 85 个入口及四个均等分片断言，新注册专项后实际为 86 个入口。一次针对性更新明确入口列表、总数、分片数与汇总耗时预期，保留无遗漏／顺序／失败停止断言，不删除专项或放宽产品断言。同次收尾审查补充取消回传在原子落盘后不再写入已经移除的 outbox，避免无意义的后置空队列写入失败影响已完成的对账；新增对应故障保护，重新冻结后验证。
 
 候选 `2d3a585` 的 PR CI [40437633866](https://github.com/zdaiwmm/shui-IM/actions/runs/40437633866) attempt 1，分片 1/4 作业 121970104208 在新增专项启动前失败：容器的 Git 所有权检查拒绝脚本附带的 `git rev-parse HEAD`，该分片 9 通过／1 失败／12 未运行。一次针对性移除测试中非必要的 Git 元数据读取，精确 SHA 仍由既有外层交付证据与 CI 绑定；不新增 safe.directory 例外、不更改 CI／Git 安全配置、不放宽产品断言。旧候选未合并；新候选须重新完成适用门禁。本机旧候选的进行中完整检查不沿用为新候选的完整通过证据。
+
+## V2 实际交付与待发布目标
+
+- [PR #428](https://github.com/zdaiwmm/shui-IM/pull/428)已合并为应用 `608dfea1e11ba20ddf2456fe380e38ea01230134`，版本 `2026.10.27.1`；最终源 `d4b6087ea664788751f6b9f99abffcaaf3e9399a` 与应用完整树均为 `b95960439839f830cfae89d9dbe1195cc94da8f5`。
+- 最终干净源 check:full 实际通过：148 文件／1114 单元、86/86 浏览器入口，0 失败／0 未运行，1667475ms；浏览器部分 1639.12 秒。包含最终取消回传专项、无重发、隐藏保持、材料退役、陈旧写入者、两类原子中断及无需后置空待发写入的故障保护。
+- [精确 PR CI 40438327515](https://github.com/zdaiwmm/shui-IM/actions/runs/40438327515)与[精确应用 main CI 40441136003](https://github.com/zdaiwmm/shui-IM/actions/runs/40441136003)均 attempt 1 成功，Full application verification 与同轮双架构镜像通过。之前 Git 元数据失败的 PR run 后被新 head 的既有并发策略取消，不能记作通过。
+- 本机旧候选 `2d3a585` 检查在可移植性修正时按现有运行器主动中断：16 浏览器通过，当前用例记为中断失败，69 未运行；外层记录 clean=false／failed，不计为产品缺陷或最终通过。其余失败历史保留于前节。
+- 唯一[固定只读预检 40442557633](https://github.com/zdaiwmm/shui-IM/actions/runs/40442557633)经既有 production 正常审核取得精确 PREFLIGHT_OK，外层 296727ms 含审核等待。已核对请求 `fd1f586e-6950-475d-9b99-3ff1ba3f9e62` 为 doctor 且仅派发一次；工作流与应用均为上述 `608dfea`，镜像产物 12706382128 绑定 main CI 40441136003／attempt 1，到期 `2026-11-03T02:59:56Z`。读取前版 `926a786`，没有切换、重启或调整基础设施。
+- 独立记录树 `.worktrees/cancelled-send-release-record-20261027`／`codex/cancelled-send-release-record-20261027` 仅保存交付事实。尚待用户对上述完整应用 SHA 的确认，没有生产切换、独立 READBACK_OK 或本批资源清理结论；本机 main 保持旧基线，不把 origin/main 的更新写成共享目录已更新。公共 Git 脱敏证据为 `quiet-room-deliveries/evidence/cancelled-send-20261027/pre-release-summary.json`，远端定位由上述 PR／CI／预检链接保存。

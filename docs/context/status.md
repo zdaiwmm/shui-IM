@@ -1,5 +1,13 @@
 # Quiet Room 当前状态
 
+## 待发取消续接 V2：已合并，未发布（2026-10-27）
+
+[PR #428](https://github.com/zdaiwmm/shui-IM/pull/428)合并为应用 `608dfea1e11ba20ddf2456fe380e38ea01230134`／`2026.10.27.1`，与最终源 `d4b6087` 完整文件树一致。取消后持久发送队列不再包含该项；独立加密核验材料仅供已接收消息的迟到回传，正常落盘后原子退役。刷新／重连继续收发，本机隐藏保持；DB16、协议、权限与运维配置未变。
+
+最终干净源完整本地 148 文件／1114 单元、86/86 浏览器入口通过，0 失败／0 未运行，1667475ms；[精确 PR CI 40438327515](https://github.com/zdaiwmm/shui-IM/actions/runs/40438327515)及[精确应用 main CI 40441136003](https://github.com/zdaiwmm/shui-IM/actions/runs/40441136003)均 attempt 1 成功，Full application verification 与同轮双架构镜像通过。唯一[固定只读预检 40442557633](https://github.com/zdaiwmm/shui-IM/actions/runs/40442557633)取得精确 PREFLIGHT_OK，296727ms 含正常审核等待，读到前版仍为 `926a786`。当前等待完整 SHA 生产确认；尚无本目标 DEPLOY_VERIFIED／READBACK_OK，下方最近已验证生产保持原值。
+
+修复前四个真实故障、夹具／CI 失败与一次定向修正、兼容及旧材料缺失限制见[需求 V2](../requirements/2026-10-27-cancel-accepted-validation/README.md)；[发布准备记录](../../RELEASING.md#release-cancelled-send-20261027)拥有精确应用定位。真机与独立外审未新增证据，不扩大为整站无故障结论。
+
 ## 恢复失败原件清理 R2 已发布（2026-10-27 08:54）
 
 [PR #425](https://github.com/zdaiwmm/shui-IM/pull/425)已合并为应用`926a786e3e20c9148c8df805643c62fdd9edb9c7`／`2026.10.26.3`，与最终源`9246fe5`完整文件树一致。单份原件、随机run／来源范围及小型归属见证避免原件跨库再复制的额外配额；失败按归属清理，保留已有副本、其修复与并发写入。需求、旧候选失败及兼容边界由[恢复清理R2](../requirements/2026-10-27-restore-failure-validation/README.md)拥有，备份追赶优化未纳入。
