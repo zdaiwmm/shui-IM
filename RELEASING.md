@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+<a id="release-cancelled-send-20261027"></a>
+## 待发取消与迟到回传修复：已合并，等待精确发布确认（2026-10-27）
+
+- 用户在小范围合成验证确认同步阻断后，明确授权按已确认范围修复、验证、合并并请求发布生产；本次应用目标为 `608dfea1e11ba20ddf2456fe380e38ea01230134`／`2026.10.27.1`，尚待最终完整 SHA 确认。没有生产切换或本目标独立回读。
+- [PR #428](https://github.com/zdaiwmm/shui-IM/pull/428)已合并；应用与最终源 `d4b6087ea664788751f6b9f99abffcaaf3e9399a` 的完整文件树同为 `b95960439839f830cfae89d9dbe1195cc94da8f5`。取消原子移除待发，并保留独立加密的本人回传核验材料；该材料不进入发送队列，正常历史落盘时原子退役，本机隐藏保持。无数据库版本、协议、后端、页面或基础设施变化。
+- 最终干净源完整本地 check:full 通过：148 文件／1114 单元、86/86 浏览器入口，0 失败／0 未运行，1667475ms。新专项两引擎共 10 个正常续接及 2 个预期冲突拒绝，覆盖取消／接收事务中断、陈旧写入者、迟到回传、刷新／重连、无重发与材料退役；前次失败与边界由[需求 V2](docs/requirements/2026-10-27-cancel-accepted-validation/README.md)保存。
+- [精确 PR CI 40438327515](https://github.com/zdaiwmm/shui-IM/actions/runs/40438327515)及[精确应用 main CI 40441136003](https://github.com/zdaiwmm/shui-IM/actions/runs/40441136003)均 attempt 1 成功，Full application verification 及同轮双架构镜像通过。
+- 唯一[固定只读预检 40442557633](https://github.com/zdaiwmm/shui-IM/actions/runs/40442557633)经既有 production 正常审核取得精确 PREFLIGHT_OK，请求 `fd1f586e-6950-475d-9b99-3ff1ba3f9e62` 明确为 doctor，仅派发一次。工作流来源与应用均为上述 `608dfea`；外层 296727ms 含审核等待。预检绑定镜像产物 12706382128／main CI 40441136003／attempt 1，到期 `2026-11-03T02:59:56Z`；正式发布仍须下载并核对完整镜像字节与标签。读取前版 `926a786e3e20c9148c8df805643c62fdd9edb9c7`，不表示本目标已上线。
+- 脱敏准备证据位于公共 Git 目录 `quiet-room-deliveries/evidence/cancelled-send-20261027/pre-release-summary.json`。用户确认完整应用 SHA 后，沿用固定 cloud with-readback 入口，取得精确 DEPLOY_VERIFIED 与独立 READBACK_OK 后再对账和清理；不修改基础设施或绕过审核。
+- 旧客户端不会将核验记录补发，但不能自行处理该记录的迟到回传；旧版已删除的核验材料不能保证补回。真实 iPhone／iOS 27／Safari 与独立安全审阅仍未验证。记录工作树仅对账，不改产品版本，也不以文档 SHA 替换上述应用目标。
+
 <a id="release-restore-original-cleanup-20261027"></a>
 ## 恢复失败原件清理 R2 已发布（2026-10-27 08:54）
 
