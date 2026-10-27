@@ -166,6 +166,8 @@ CI 镜像与双独立环境：`scripts/ci-image.mjs`、`scripts/deploy-config.mj
 - `npm run test:calls`：完整通话专项入口，包含部分 Vitest 用例与 `call-native.e2e.mjs`、`call-view.e2e.mjs` 和 `call-weak-network.e2e.mjs`。`npm run test:calls:e2e` 只运行这三个浏览器专项；CI 与本地已完成 `check:full` 后使用此入口，避免重复运行已被 `npm test` 包含的通话单元测试。
 - `node scripts/audit-production.mjs`：使用 npm 官方源审计生产依赖；仅对明确的临时接口故障最多尝试三次。high/critical 漏洞、无效报告和接口持续不可用均阻断 CI。
 
+通话邀请跨层回归新增 `tests/call-delivery.test.ts`，覆盖真实 MLS 身份、加密信令、确认队列与服务端仲裁的设备掉线／接听竞争；`call-flow.e2e.mjs` 另走真实页面和认证 WebSocket 检查接听准备中取消及待替换摄像头清理。范围与分层证据见[通话修复 V1](../requirements/2026-10-27-call-reliability/README.md)。
+
 两个容易误判的细节：
 
 - `tests/browser.e2e.mjs` 会导入并执行 `verifyVoiceFlow` 和 `verifyCallFlow`，所以 `voice-flow.e2e.mjs`、`call-flow.e2e.mjs` 即使没有直接列在 `package.json` 的命令字符串中，仍属于浏览器主流程。

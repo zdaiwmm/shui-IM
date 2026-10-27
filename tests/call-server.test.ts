@@ -306,6 +306,47 @@ async function arbitrationHarness() {
 }
 
 describe('multi-device selection and lifecycle fences', () => {
+  it('keeps the selected call alive when an unselected invited device locks or loses access', async () => {
+    const { sockets, transmit, service } = await arbitrationHarness();
+    await transmit(0, 1, 'invite'); await transmit(0, 2, 'invite'); await transmit(1, 0, 'accept');
+    service.disconnect(sockets[2], 1000, 'Locked');
+    expect(sockets[0]!.frames.some(frame => frame.state === 'ended')).toBe(false);
+    await transmit(1, 0, 'signal');
+    expect(sockets[0]!.frames.at(-1)?.envelope?.action).toBe('signal');
+    service.disconnect(sockets[2], 4403, 'Access revoked');
+    expect(sockets[0]!.frames.some(frame => frame.state === 'ended')).toBe(false);
+  });
+
+  it('removes only a locked ringing device while another invited device can still accept', async () => {
+    const { sockets, transmit, service } = await arbitrationHarness();
+    await transmit(0, 1, 'invite'); await transmit(0, 2, 'invite');
+    service.disconnect(sockets[1], 1000, 'Locked');
+    expect(sockets[0]!.frames.some(frame => frame.state === 'ended')).toBe(false);
+    await transmit(2, 0, 'accept');
+    expect(sockets[0]!.frames.some(frame => frame.state === 'accepted')).toBe(true);
+    await transmit(1, 0, 'accept');
+    expect(sockets[1]!.frames.at(-1)?.code).toBe('CALL_FORBIDDEN');
+  });
+
+  it('ends an invitation when the last ringing device locks', async () => {
+    const { sockets, transmit, service } = await arbitrationHarness();
+    await transmit(0, 1, 'invite'); service.disconnect(sockets[1], 1000, 'Locked');
+    expect(sockets[0]!.frames.at(-1)).toMatchObject({ state: 'ended', code: 'CALL_UNAVAILABLE' });
+  });
+
+  it('accepts an invited callee end before acceptance and frees the room for the next call', async () => {
+    const { sockets, transmit } = await arbitrationHarness();
+    await transmit(0, 1, 'invite'); await transmit(0, 2, 'invite');
+    await transmit(1, 0, 'end');
+    expect(sockets[0]!.frames.some(frame => frame.state === 'ended')).toBe(true);
+    expect(sockets[1]!.frames.at(-1)?.type).toBe('call-ack');
+    await transmit(2, 0, 'accept');
+    expect(sockets[2]!.frames.at(-1)?.code).toBe('CALL_NOT_FOUND');
+    const next = { callId: crypto.randomUUID() };
+    await transmit(1, 0, 'invite', next);
+    expect(sockets[0]!.frames.at(-1)?.envelope?.callId).toBe(next.callId);
+  });
+
   it('atomically selects one callee and prevents an unselected sibling from ending or injecting into the accepted call', async () => {
     const { sockets, transmit, identities } = await arbitrationHarness();
     await transmit(0, 1, 'invite');

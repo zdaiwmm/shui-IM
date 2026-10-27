@@ -9,6 +9,50 @@ import type { Vault } from '../src/lib/types';
 
 import { getUserMedia, Track, Stream, Peer, pair, setup, invite, deferred, SDP } from './helpers/call-harness';
 describe('foreground call controller security lifecycle', () => {
+  it('stops granted capture synchronously while permission handoff completion is pending', async () => {
+    const { a } = await pair();
+    const { controller, onPermissionChange } = setup(a);
+    const handoff = deferred<boolean>();
+    const stream = new Stream([new Track('audio'), new Track('video')]);
+    getUserMedia.mockResolvedValue(stream);
+    onPermissionChange.mockImplementation(active => active ? undefined : handoff.promise);
+    const starting = controller.start('video');
+    await vi.waitFor(() => expect(onPermissionChange).toHaveBeenCalledWith(false));
+    controller.destroy();
+    expect(stream.getTracks().every(track => track.readyState === 'ended')).toBe(true);
+    handoff.resolve(false);
+    await starting;
+  });
+
+  for (const operation of ['open', 'switch'] as const) it(`stops a newly acquired camera during pending ${operation} replacement on hangup`, async () => {
+    const { a, b } = await pair();
+    const { controller, sent } = setup(a);
+    await controller.start(operation === 'open' ? 'audio' : 'video');
+    const kind = operation === 'open' ? 'audio' : 'video';
+    await controller.receive(await sealCallSignal(b, a.identity.publicBundle.deviceId, sent[0]!.callId, 'accept', { kind, description: { type: 'answer', sdp: SDP } }));
+    const replacement = new Stream([new Track('video')]);
+    getUserMedia.mockResolvedValue(replacement);
+    const pending = deferred<void>();
+    const sender = Peer.instances[0]!.getSenders()[1]!;
+    sender.replaceTrack.mockImplementation(() => pending.promise);
+    const changing = operation === 'open' ? controller.toggleCamera() : controller.switchCamera();
+    await vi.waitFor(() => expect(sender.replaceTrack).toHaveBeenCalledWith(replacement.getVideoTracks()[0]));
+    const ending = controller.hangup();
+    expect(replacement.getTracks().every(track => track.readyState === 'ended')).toBe(true);
+    await ending;
+    controller.dismiss();
+    getUserMedia.mockImplementation(async constraints => new Stream([
+      ...(constraints.audio ? [new Track('audio')] : []), ...(constraints.video ? [new Track('video')] : []),
+    ]));
+    await controller.start('video');
+    const nextStream = controller.state.localStream;
+    pending.resolve();
+    await changing;
+    expect(controller.state.localStream).toBe(nextStream);
+    expect(nextStream!.getTracks().every(track => track.readyState === 'live')).toBe(true);
+    expect(controller.state.phase).toBe('outgoing');
+  });
+
   it('fails closed when an adapter returns raw ICE config without local identity verification', async () => {
     const { a } = await pair();
     const { controller, getIceConfig, sent } = setup(a);

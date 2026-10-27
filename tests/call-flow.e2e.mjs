@@ -208,6 +208,46 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
       await dismiss(joiner);
     }
 
+    // Callee cancellation while its native permission is pending must reach the real server.
+    for (const kind of ['audio', 'video']) {
+      await start(creator, kind);
+      await phase(joiner, 'incoming').waitFor();
+      await joiner.evaluate(() => { window.__callFlow.deferNext = true; });
+      await joiner.locator('.call-answer').click();
+      await joiner.waitForFunction(() => typeof window.__callFlow.resolvePermission === 'function');
+      await joiner.locator('.call-hangup').click();
+      await Promise.all(pages.map(page => phase(page, 'ended').waitFor({ timeout: 10_000 })));
+      await joiner.evaluate(async kind => {
+        const state = window.__callFlow;
+        const stream = await state.media({ audio: true, video: kind === 'video' });
+        state.tracks.push(...stream.getTracks());
+        state.resolvePermission(stream); state.resolvePermission = null;
+      }, kind);
+      await Promise.all(pages.map(tracksStopped));
+      await dismiss(creator); await dismiss(joiner);
+    }
+
+    // Use native camera tracks and a deliberately delayed sender handoff to expose capture ownership.
+    await connect(creator, joiner, 'audio');
+    await creator.evaluate(() => {
+      const state = window.__callFlow;
+      const peer = state.peers.findLast(peer => peer.connectionState === 'connected');
+      const sender = peer.getTransceivers().find(item => item.receiver.track.kind === 'video').sender;
+      const replace = sender.replaceTrack.bind(sender);
+      sender.replaceTrack = track => new Promise((resolve, reject) => {
+        state.resumeReplacement = () => replace(track).then(resolve, reject);
+      });
+    });
+    await creator.locator('.call-camera').click();
+    await creator.waitForFunction(() => typeof window.__callFlow.resumeReplacement === 'function');
+    await creator.locator('.call-hangup').click();
+    assert.equal(await creator.evaluate(() => window.__callFlow.tracks.every(track => track.readyState === 'ended')), true,
+      'Hangup must synchronously stop the acquired camera before replaceTrack settles');
+    await creator.evaluate(() => { window.__callFlow.resumeReplacement(); window.__callFlow.resumeReplacement = null; });
+    await Promise.all(pages.map(page => phase(page, 'ended').waitFor()));
+    await Promise.all(pages.map(tracksStopped));
+    await dismiss(creator); await dismiss(joiner);
+
     // Browser suspension is a lock as well, and cannot leave an audio-only call capturing.
     await connect(creator, joiner, 'audio');
     await creator.evaluate(() => document.dispatchEvent(new Event('freeze')));

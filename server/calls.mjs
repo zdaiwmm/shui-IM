@@ -237,6 +237,14 @@ export function createCallService({ store, clientsByRoom, socketSessions, send, 
       commit();
       return;
     }
+    // A callee can cancel while permission/SDP preparation is still in flight.
+    // Once selected, only that selected endpoint may end the established call.
+    if (envelope.action === 'end' && invitedCallee && !call.acceptedBy) {
+      deliver(call.callerSocket, { type: 'call', envelope });
+      finish(call, 'CALL_ENDED');
+      commit();
+      return;
+    }
     if (envelope.action === 'end' && fromCaller) {
       // Cancellation may have been encrypted for another ringing sibling just
       // before the winning acceptance reached the caller. The authenticated
@@ -284,7 +292,15 @@ export function createCallService({ store, clientsByRoom, socketSessions, send, 
       if (!call) return;
       const deviceId = session.deviceId;
       if (call.callerSocket === socket || call.calleeSocket === socket || call.invited.get(deviceId) === socket) {
-        if ((code === 1000 && reason === 'Locked') || [4401, 4403].includes(code)) { finish(call, 'CALL_ENDED'); return; }
+        const selected = call.callerSocket === socket || call.calleeSocket === socket;
+        const terminal = (code === 1000 && reason === 'Locked') || [4401, 4403].includes(code);
+        if (!selected && (call.acceptedBy || terminal)) {
+          call.invited.delete(deviceId);
+          call.detachedUntil.delete(deviceId);
+          if (!call.acceptedBy && !call.invited.size) finish(call, 'CALL_UNAVAILABLE');
+          return;
+        }
+        if (terminal) { finish(call, 'CALL_ENDED'); return; }
         call.detachedUntil.set(deviceId, Date.now() + TRANSPORT_GRACE_MS);
       }
     },
