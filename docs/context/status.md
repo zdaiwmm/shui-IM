@@ -1,18 +1,18 @@
 # Quiet Room 当前状态
 
-## 恢复失败原件清理 R2：已合并，等待精确发布确认（2026-10-27）
+## 恢复失败原件清理 R2 已发布（2026-10-27 08:54）
 
 [PR #425](https://github.com/zdaiwmm/shui-IM/pull/425)已合并为应用`926a786e3e20c9148c8df805643c62fdd9edb9c7`／`2026.10.26.3`，与最终源`9246fe5`完整文件树一致。单份原件、随机run／来源范围及小型归属见证避免原件跨库再复制的额外配额；失败按归属清理，保留已有副本、其修复与并发写入。需求、旧候选失败及兼容边界由[恢复清理R2](../requirements/2026-10-27-restore-failure-validation/README.md)拥有，备份追赶优化未纳入。
 
-最终干净源完整本地148文件／1114单元、85/85浏览器入口通过，0失败／未运行，1558905ms；含25恢复用例、两引擎清理保护、无锁并发与旧版兼容。[PR CI 40421681687](https://github.com/zdaiwmm/shui-IM/actions/runs/40421681687)和[精确main完整CI 40424742449](https://github.com/zdaiwmm/shui-IM/actions/runs/40424742449)均attempt 1成功，Full application verification与双架构构建通过。[只读预检40426096627](https://github.com/zdaiwmm/shui-IM/actions/runs/40426096627)取得PREFLIGHT_OK，120197ms，doctor请求66c71ca1仅派发一次；前版仍为9cf771de。
+最终干净源完整本地148文件／1114单元、85/85浏览器入口通过，0失败／未运行，1558905ms；含25恢复用例、两引擎清理保护、无锁并发与旧版兼容。[PR CI 40421681687](https://github.com/zdaiwmm/shui-IM/actions/runs/40421681687)和[精确main完整CI 40424742449](https://github.com/zdaiwmm/shui-IM/actions/runs/40424742449)均attempt 1成功，Full application verification与双架构构建通过。[只读预检40426096627](https://github.com/zdaiwmm/shui-IM/actions/runs/40426096627)取得PREFLIGHT_OK，120197ms，doctor请求66c71ca1仅派发一次；预检读到的前版为9cf771de。
 
-当前等待用户确认上述完整应用SHA；尚无本目标生产切换或独立回读。准备记录属于纯文档，不改变应用提交，也不重发预检。后续固定入口、真实发布／回读及对账清理见[发布准备记录](../../RELEASING.md#release-restore-original-cleanup-20261027)。下方最近已验证生产保持原值；真机与外审边界保持。
+用户确认上述完整应用SHA后，唯一[发布40427980206](https://github.com/zdaiwmm/shui-IM/actions/runs/40427980206)取得精确DEPLOY_VERIFIED。两次独立回读因连接关闭停止；用户报告防火墙IP已改后，仅续同SHA readback-only，于2026-10-27T00:54:52.395Z取得READBACK_OK，3346ms。应用／备份健康、SHA／镜像／公开及容器资源、新连接一致，维护门absent；没有再次切换。具体回执和前次失败见[发布记录](../../RELEASING.md#release-restore-original-cleanup-20261027)，文档对账不替换线上应用SHA；真机与外审边界保持。
 
-## 房间运行与归档 V1 已发布（2026-10-27 02:33）
+## 前批房间运行与归档 V1：已包含当前生产
 
 用户明确免原型实施并授权合并；[需求 V1](../requirements/2026-10-27-room-runtime-archive-v1/README.md)记录边界、DB16升级与回退要求、测量及失败分类。[PR #422](https://github.com/zdaiwmm/shui-IM/pull/422)已合并为应用`9cf771de91598370bc77c1e73128ef5889b8a092`/`2026.10.26.2`，包含独立打开上下文、统一备份状态、加密私有目录与有界正文页，以及接入阶段投影；完整文件树与最终源`1768145`一致。
 
-最终干净源本地148文件/1114项、85/85浏览器入口及通话专项通过；[精确PR完整CI 40368042830](https://github.com/zdaiwmm/shui-IM/actions/runs/40368042830) attempt 1成功。[精确应用main CI 40372398641](https://github.com/zdaiwmm/shui-IM/actions/runs/40372398641/attempts/3) attempt 3完整复验成功，Full application verification及同轮双架构镜像已核对；首轮WebKit未读Fetch诊断未定位，局部attempt 2因镜像轮次绑定不足取消，完整原样复验与全部失败历史见需求记录。[只读预检40375941485](https://github.com/zdaiwmm/shui-IM/actions/runs/40375941485)取得精确PREFLIGHT_OK，88825ms；首轮预检因CI未通过停止。用户随后确认精确应用SHA，固定入口DEPLOY_VERIFIED与独立READBACK_OK均通过；具体生产证据见下方。
+最终干净源本地148文件/1114项、85/85浏览器入口及通话专项通过；[精确PR完整CI 40368042830](https://github.com/zdaiwmm/shui-IM/actions/runs/40368042830) attempt 1成功。[精确应用main CI 40372398641](https://github.com/zdaiwmm/shui-IM/actions/runs/40372398641/attempts/3) attempt 3完整复验成功，Full application verification及同轮双架构镜像已核对；首轮WebKit未读Fetch诊断未定位，局部attempt 2因镜像轮次绑定不足取消，完整原样复验与全部失败历史见需求记录。[只读预检40375941485](https://github.com/zdaiwmm/shui-IM/actions/runs/40375941485)取得精确PREFLIGHT_OK，88825ms；首轮预检因CI未通过停止。用户随后确认精确应用SHA，固定入口DEPLOY_VERIFIED与独立READBACK_OK均通过；该批生产证据见[历史发布记录](../../RELEASING.md#release-room-runtime-archive-20261027)。
 
 ## 前批 PC 八项与 macOS V1：已包含当前生产
 
@@ -25,15 +25,15 @@
 本页是带时间的接手摘要，不是实时监控。历史详情保存在 [发布记录](../../RELEASING.md)、
 对应需求和 Git；[治理前完整状态快照](https://github.com/zdaiwmm/shui-IM/blob/bc329979e232d16a238190bc069eae32a85af4c9/docs/context/status.md)保留原证据和失败历史。
 
-## 最近已验证生产：2026-10-27 02:33
+## 最近已验证生产：2026-10-27 08:54
 
-- 应用`9cf771de91598370bc77c1e73128ef5889b8a092`，版本`2026.10.26.2`；[PR #422](https://github.com/zdaiwmm/shui-IM/pull/422)。实际前版`460c57d06081d05419226c5d39f3afb659e1abca`；纯文档main不替换线上应用SHA。
-- [精确main完整CI 40372398641](https://github.com/zdaiwmm/shui-IM/actions/runs/40372398641/attempts/3) attempt 3成功，Full application verification与同轮双架构镜像通过；未定位WebKit诊断及复验历史由需求记录保留。
-- [预检40375941485](https://github.com/zdaiwmm/shui-IM/actions/runs/40375941485)取得PREFLIGHT_OK；唯一[发布40376981116](https://github.com/zdaiwmm/shui-IM/actions/runs/40376981116)取得精确DEPLOY_VERIFIED，请求18bafe71仅派发一次，云工作流来源188c086，应用始终固定用户获批SHA。
-- 独立READBACK_OK于`2026-10-26T18:33:16.148Z`完成，3162ms：应用与备份running且healthy，TURN运行（探针none），SHA/镜像/HTTPS/数据库/存储/公开及容器产物/新WebSocket全部一致，维护门absent；管理员与通话启用。
-- 首轮仅备份starting；核对原5分钟检查窗口后仅续同SHA readback-only，没有重启或再次切换。完整证据见[发布记录](../../RELEASING.md#release-room-runtime-archive-20261027)及[需求](../requirements/2026-10-27-room-runtime-archive-v1/README.md)。
+- 应用`926a786e3e20c9148c8df805643c62fdd9edb9c7`，版本`2026.10.26.3`；[PR #425](https://github.com/zdaiwmm/shui-IM/pull/425)。实际前版`9cf771de91598370bc77c1e73128ef5889b8a092`；纯文档main不替换线上应用SHA。
+- [精确main完整CI40424742449](https://github.com/zdaiwmm/shui-IM/actions/runs/40424742449) attempt1成功，Full application verification及同轮双架构镜像通过；完整本地、PR CI与早期配额失败由[需求R2](../requirements/2026-10-27-restore-failure-validation/README.md)拥有。
+- [预检40426096627](https://github.com/zdaiwmm/shui-IM/actions/runs/40426096627)取得PREFLIGHT_OK；唯一[发布40427980206](https://github.com/zdaiwmm/shui-IM/actions/runs/40427980206)取得精确DEPLOY_VERIFIED，请求29da2dc7只派发一次，工作流来源ad6c938；批次20261027T004247Z，应用固定用户获批SHA。
+- 独立READBACK_OK于`2026-10-27T00:54:52.395Z`完成，3346ms：应用与备份running且healthy，TURN运行（探针none），SHA／镜像／HTTPS／数据库／存储／公开及容器资源摘要／新WebSocket全部一致，维护门absent；管理员与通话启用。
+- 前两次仅连接失败，公开补查通过不替代完整回读。用户报告防火墙IP已更新后只续同SHA只读回读，Agent没有修改访问控制、重启或再次发布。全部回执与失败历史见[发布记录](../../RELEASING.md#release-restore-original-cleanup-20261027)。
 
-本页为部署时点事实，不是实时监控。脱敏组合证据保存在公共Git目录`quiet-room-deliveries/evidence/room-runtime-archive-v1-20261027/production-summary.json`；本批仅轻治理接手状态，未清理或改写其他任务现场。前批后续现仅授权上方恢复清理R2；备份追赶优化未授权，真机与外审仍暂缓。
+本页为部署时点事实，不是实时监控。脱敏组合证据保存在公共Git目录`quiet-room-deliveries/evidence/restore-original-cleanup-20261027/production-summary.json`；后续按固定入口核验本批资源，活动记录树及未知材料保留，不清理其他任务现场。备份追赶优化未授权，真机与外审仍暂缓。
 
 ## 六批项目治理 V1：已包含于当前生产
 
