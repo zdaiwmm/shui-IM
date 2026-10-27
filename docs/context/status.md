@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 部署效率 V1 已验证合并，未发布（2026-10-27）
+
+[第一批PR #439](https://github.com/zdaiwmm/shui-IM/pull/439)合并为`da6f7d6`，补按耗时分片与精确本地验证复用；[第二批PR #440](https://github.com/zdaiwmm/shui-IM/pull/440)合并为候选`69b437c2f016aecde5063fff1be7070ebf1ac0cf`，补10秒启动期探针及最长6分钟的独立回读观察。原健康判定、宽限期、备份／回滚边界、全部浏览器及精确CI门槛保留。
+
+两批精确PR完整CI均通过，第一批精确main完整CI通过（590秒）。69b437c的主线轮被后续发布文档更新取消，未通过；后续`11ecacf422e794a102e958ec810ad31afe38c16c`仅改文档，应用及验证代码与69b437c相同，[该精确main CI40499312268](https://github.com/zdaiwmm/shui-IM/actions/runs/40499312268) attempt1完整成功（649秒），Full application verification及同轮双架构镜像通过，固定精确CI核验器通过。它作为当前已验证应用候选，本文档提交不替换它。[需求记录](../requirements/2026-10-27-deploy-efficiency-v1/README.md)拥有逐层证据、执行指纹修正、合并历史处置及计时口径。本任务没有生产发布／重启／helper安装，真实生产提速待后续精确提交获批发布后测量；下方既有生产记录保持。
+
 ## 审计整改两批 V1 已发布（2026-10-27 19:28）
 
 用户确认整改方案V1并授权执行；[第一批PR #436](https://github.com/zdaiwmm/shui-IM/pull/436)合并为 `668407ca5e762e591b9c07731510019ef832ac81`，补可信来源、四路写入限流、后台来源额度及畸形路径400，并澄清当前新旧格式规则。[第二批PR #437](https://github.com/zdaiwmm/shui-IM/pull/437)合并为应用 `7516e8e49959f7b24a5bfb305e5aa820191c4931`／`2026.10.27.4`，补手工备份容量准入、显式保留策略及隔离计时演练；与最终组合源 `15774ff` 完整文件树一致。
