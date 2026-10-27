@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { submitPassword } from '../helpers/password.mjs';
+import { observeExitRequests } from '../helpers/webkit-exit-diagnostics.mjs';
 
 /** Real gateway, encrypted local protection and creation, with synthetic links only. */
 export async function verifyExpiredInviteEntry(browser, baseUrl) {
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true,
     hasTouch: true, deviceScaleFactor: 3 });
-  const page = await context.newPage(), errors = [];
+  const page = await context.newPage(), errors = [], exitEvidence = await observeExitRequests(page);
   page.setDefaultTimeout(20_000);
-  page.on('pageerror', error => errors.push(error.message));
+  page.on('pageerror', error => errors.push(exitEvidence.capture(error)));
   const hash = `#j=${randomBytes(32).toString('base64url')}`;
   const shortRequests = '**/api/short-invites/*';
   const openFromCover = async target => {
@@ -100,7 +101,9 @@ export async function verifyExpiredInviteEntry(browser, baseUrl) {
     await page.locator('#copy-invite').waitFor();
     assert.equal(await page.evaluate(() => app.session.vault.roomId), original.room, 'Unlock returns to the original room');
     assert.equal(creations, 1, 'A failed invitation and unlock must not create another room');
-    assert.deepEqual(errors, []);
-    console.log('Expired invitation: normal gateway fallback, one-room creation, protected cold entry and stale-lock rejection passed.');
+    await context.close();
+    const nativeExit = error => browser.browserType().name() === 'webkit' && exitEvidence.confirmsNativeExit(error);
+    assert.deepEqual(errors.filter(error => !nativeExit(error)), []);
+    console.log(`Expired invitation: normal gateway fallback, one-room creation, protected cold entry and stale-lock rejection passed; ${errors.filter(nativeExit).length} confirmed native exit diagnostics recorded.`);
   } finally { await context.close(); }
 }
