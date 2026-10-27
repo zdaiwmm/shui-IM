@@ -1,5 +1,19 @@
 # Quiet Room 固定发布流程
 
+<a id="release-audit-remediation-20261027"></a>
+## 审计整改两批 V1：已发布（2026-10-27 19:28）
+
+- 用户在本任务会话明确要求「将这两批审计整改发布到生产，目标提交 7516e8e49959f7b24a5bfb305e5aa820191c4931，并完成代理配置安装和实际链路验收。」无独立消息 permalink。实际应用为该完整 SHA／`2026.10.27.4`；纳入 [PR #436](https://github.com/zdaiwmm/shui-IM/pull/436) 与 [PR #437](https://github.com/zdaiwmm/shui-IM/pull/437)，实际前版 `e6dfcedccedd8b8adcea9a97224478c23fd59578`。
+- [精确应用 main CI40490796677](https://github.com/zdaiwmm/shui-IM/actions/runs/40490796677) attempt 1 完整通过；两批本地、精确 PR 及原空间恢复超时的证据由[第一批](docs/requirements/2026-10-27-audit-abuse-hardening/README.md)和[第二批](docs/requirements/2026-10-27-audit-backup-safety/README.md)需求记录拥有。[只读预检40493800787](https://github.com/zdaiwmm/shui-IM/actions/runs/40493800787)取得 PREFLIGHT_OK，238178ms；请求 `11d1d02f-c5fd-432e-9028-71253bbb0ff4`，云调用 `t-wh071ar384b4xkw`。
+- 在原部署锁内安装精确获批 nginx 文件，四处 XFF 覆盖为 `$remote_addr`。旧 SHA-256 `27569ec216f771655e1d24bb64bdcb6c673b8c6a0c35e386c8c1f96737a889b5` → 新 `16c8ff4adaee5f2d8e4a9b91f106c2b20a30bdcf6031e024bec2f1ced905c01b`；实测直连代理 peer 为 `10.255.2.1`，生产配置限定 `TRUSTED_PROXY_ADDRESSES=127.0.0.1,::1,10.255.2.1`，新容器已独立核对生效。未启用通用 real-IP header 或扩大可信网段。
+- 安装于 `2026-10-27T11:14:17.659065Z`，服务器 `nginx -t`、平滑重载与公开健康通过。原 nginx 和环境文件保存在服务器私有目录 `/opt/quiet-room/deploy-state/nginx-backups/20261027T111417Z-audit-remediation-7516e8e`；未复制环境文件到仓库。后台 nginx 原已覆盖 XFF，其实装摘要独立复核一致。
+- 唯一[正式发布40494694818](https://github.com/zdaiwmm/shui-IM/actions/runs/40494694818)取得精确 DEPLOY_VERIFIED；请求 `3584b93a-e124-411b-a80e-a5c1b017f1f3` 只派发一次，工作流来源／规则 main `26a1dfc7e905823eeaf0408fef67617aaf810646`。云调用 preflight `t-wh071arsyzk9zwg`、deploy `t-wh071artzqdi96o`、postflight `t-wh071as3w0658u8` 均 success；外层发布487548ms，包含正常生产环境审批等待，未绕过保护。
+- 批次 `20261027T111947Z`；linux/amd64 镜像 `sha256:da9be21ac1fc0590d8f87fbbf45bc31976e1d5ac4bb846b62e550420d0c0c31a`，归档 SHA-256 `1105046db09bd673c826e82c306f4195260903153310b82e1e2496a564448af8`、210157916字节，绑定精确 main CI40490796677／attempt 1。
+- 两次独立回读分别于11:22:58及11:27:22 UTC启动，均仅因备份 still starting 停止；第二次距容器既有5分钟首次探针仍差约9秒。窗口后只续同 SHA readback-only，于 `2026-10-27T11:28:01.568Z` 取得 READBACK_OK，3266ms。应用／备份均 healthy、TURN running（无健康探针）、维护门 absent；SHA／镜像／公开与容器资源及新 WebSocket 一致。回读续跑没有重启、改配置或再次切换。
+- 主站公网经真实 TLS nginx：随机不存在的房间与无效 bearer，约8请求／秒；同来源245次且每次更换伪造 XFF，240次401、从第241次起共5次429／RATE_LIMITED，首个 Retry-After 31秒。同期服务器 loopback 经同一 TLS nginx 仍401，本机来源继续429；两者是本机公网来源与服务器回环来源，不是两地公网客户端。后台相同方法用无效合成验证因素，8次401后第9次起429，另一实际来源仍401。两者自然窗口后均恢复401；没有真实凭据、TOTP消费、认证写入或用户内容读取。
+- 脱敏授权、预检／发布／全部回读与主站／后台实测证据位于公共 Git 目录 `quiet-room-deliveries/evidence/audit-remediation-production-20261027/`。第二个无部署配置工作树对账；文档提交不替换线上应用 SHA。资源按固定清理入口逐项核验，活动目录、忽略缓存／专属证据及晚于应用的文档分支按结果保留。
+- 用户指定外部告警渠道／独立不可变存储另定，仍未建立；隔离演练不代表生产恢复时间。真机、独立外审及公开高安全门槛未新增结论。
+
 <a id="release-expired-invite-20261027"></a>
 ## 失效邀请创建修复已发布（2026-10-27 18:03）
 

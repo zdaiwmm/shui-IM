@@ -1,12 +1,12 @@
 # Quiet Room 当前状态
 
-## 审计整改 V1 已合并，未发布（2026-10-27）
+## 审计整改两批 V1 已发布（2026-10-27 19:28）
 
 用户确认整改方案V1并授权执行；[第一批PR #436](https://github.com/zdaiwmm/shui-IM/pull/436)合并为 `668407ca5e762e591b9c07731510019ef832ac81`，补可信来源、四路写入限流、后台来源额度及畸形路径400，并澄清当前新旧格式规则。[第二批PR #437](https://github.com/zdaiwmm/shui-IM/pull/437)合并为应用 `7516e8e49959f7b24a5bfb305e5aa820191c4931`／`2026.10.27.4`，补手工备份容量准入、显式保留策略及隔离计时演练；与最终组合源 `15774ff` 完整文件树一致。
 
 第一批完整本地86浏览器入口通过；组合本地153文件／1144项及灾备专项31项通过，两批精确PR完整CI均通过。原备份候选的旧空间恢复超时、取消的旧源复验、必要文档冲突集成及各层证据分别由[第一批记录](../requirements/2026-10-27-audit-abuse-hardening/README.md)和[备份记录](../requirements/2026-10-27-audit-backup-safety/README.md)拥有，不将未复现错误认定已修复。
 
-应用 `7516e8e` 的[精确main完整CI40490796677](https://github.com/zdaiwmm/shui-IM/actions/runs/40490796677) attempt1已通过，含全部浏览器、通话及同轮双架构镜像。本批尚未获得生产发布授权，未安装／重载代理配置或生产回读。真实代理链、真机、独立外审继续单独取证；用户明确将外部告警渠道及不可变存储另定。下方既有生产记录保持，本文档提交不替换线上应用SHA。
+应用 `7516e8e` 的[精确main完整CI40490796677](https://github.com/zdaiwmm/shui-IM/actions/runs/40490796677) attempt1已通过，含全部浏览器、通话及同轮双架构镜像。用户随后明确授权上述完整SHA、代理安装及实际链路验收。唯一[发布40494694818](https://github.com/zdaiwmm/shui-IM/actions/runs/40494694818)取得DEPLOY_VERIFIED，同SHA最终独立READBACK_OK于2026-10-27T11:28:01.568Z完成；两次备份starting回读按原窗口后续跑，没有再次切换。实装nginx、实测代理peer及新容器信任配置一致，主站／后台伪造XFF不能重置来源预算，另一实际来源有独立额度，自然窗口恢复；细节由[发布记录](../../RELEASING.md#release-audit-remediation-20261027)拥有。真机及独立外审没有新增结论；外部告警渠道和不可变存储继续按用户决定另定。本文档提交不替换线上应用SHA。
 
 ## 失效邀请创建修复已发布（2026-10-27 18:03）
 
@@ -53,15 +53,14 @@
 本页是带时间的接手摘要，不是实时监控。历史详情保存在 [发布记录](../../RELEASING.md)、
 对应需求和 Git；[治理前完整状态快照](https://github.com/zdaiwmm/shui-IM/blob/bc329979e232d16a238190bc069eae32a85af4c9/docs/context/status.md)保留原证据和失败历史。
 
-## 最近已验证生产：2026-10-27 18:03
+## 最近已验证生产：2026-10-27 19:28
 
-- 应用 `e6dfcedccedd8b8adcea9a97224478c23fd59578`，版本 `2026.10.27.3`；[PR #434](https://github.com/zdaiwmm/shui-IM/pull/434)／[PR #435](https://github.com/zdaiwmm/shui-IM/pull/435)。实际前版 `75b01af61eb26ba1cbe5896881c3c354ead3a443`；后续纯文档main不替换线上应用SHA。
-- [精确main完整CI40482174872](https://github.com/zdaiwmm/shui-IM/actions/runs/40482174872) attempt1成功，Full application verification、浏览器分组、通话／TURN、审计与同轮双架构镜像通过。产品文件与原520f2f7一致，原目标失败和验证续修由[原需求记录](../requirements/2026-10-27-expired-invite-create/README.md)持有。
-- 只读doctor通过；唯一[发布40484081401](https://github.com/zdaiwmm/shui-IM/actions/runs/40484081401)取得精确DEPLOY_VERIFIED。请求 `bedc4b79-5a7d-41b4-8052-37b0e1c30414` 只派发一次，工作流来源为获批e6dfced；批次 `20261027T095419Z`。
-- 独立READBACK_OK于 `2026-10-27T10:03:16.062Z` 完成，4559ms：应用／备份running且healthy、TURN运行（探针none），SHA／镜像／HTTPS／数据库／存储／公开及容器产物／新WebSocket全部一致，维护门absent；管理员与通话启用。
-- 首次回读仅备份starting；等待原5分钟探针／启动期后只续同SHA只读回读。回读续跑未额外重启、切换或变更配置。完整回执见[发布记录](../../RELEASING.md#release-expired-invite-20261027)。
+- 应用 `7516e8e49959f7b24a5bfb305e5aa820191c4931`，版本 `2026.10.27.4`；[PR #436](https://github.com/zdaiwmm/shui-IM/pull/436)／[PR #437](https://github.com/zdaiwmm/shui-IM/pull/437)。实际前版 `e6dfcedccedd8b8adcea9a97224478c23fd59578`；后续纯文档 main 不替换线上应用 SHA。
+- 精确 main 完整CI40490796677 attempt1通过；只读预检40493800787通过。唯一[发布40494694818](https://github.com/zdaiwmm/shui-IM/actions/runs/40494694818)取得精确DEPLOY_VERIFIED，请求 `3584b93a-e124-411b-a80e-a5c1b017f1f3`，批次 `20261027T111947Z`；工作流来源26a1dfc。
+- `2026-10-27T11:28:01.568Z` 独立READBACK_OK：应用／备份healthy、TURN运行且无健康探针、维护门absent，SHA／镜像／公开与容器资源及新WebSocket一致。两次仅备份starting，最终只续同SHA回读，没有再次切换。
+- nginx精确配置已安装并通过语法／重载／健康；新容器实测peer `10.255.2.1`与信任名单一致。主站第241次起、后台第9次起同来源伪造XFF仍被限流，服务器回环经同TLS代理的另一个来源仍有独立额度；自然到期恢复。未使用真实用户凭据或读取消息。
 
-本页为部署时点事实，不是实时监控。脱敏组合证据保存在公共Git目录 `quiet-room-deliveries/evidence/expired-invite-20261027/production-summary.json`；资源按固定入口核验，活动目录与缓存／回执／未知内容按实际结果保留，不清理其他任务。真机及独立外审边界保持。
+本页为部署时点事实，不是实时监控。[发布记录](../../RELEASING.md#release-audit-remediation-20261027)持有回执与代理备份定位；脱敏组合证据在公共Git目录 `quiet-room-deliveries/evidence/audit-remediation-production-20261027/production-summary.json`。仅按固定入口核验本批资源，活动、忽略缓存／专属证据和晚于应用的文档资源按结果保留，不处理其他任务。外部告警／不可变存储另定，真机与外审边界保持。
 
 ## 六批项目治理 V1：已包含于当前生产
 
