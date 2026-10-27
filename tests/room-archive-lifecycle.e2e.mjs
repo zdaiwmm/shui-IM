@@ -134,3 +134,6 @@ try{
  console.log(`Private archive lifecycle passed (${engine.name()}): full-sized chunks, interrupted upload/reopen/idempotent resume, default backup, PNG card, private restore/rebackup, original bytes and local deletion.`);
 }finally{await browser?.close();await vite?.close();await service?.close();await rm(dataDir,{recursive:true,force:true});}
 }
+
+// Storage rollback and quota regressions share the archive lifecycle gate.
+await import('./restore-original-cleanup.e2e.mjs');

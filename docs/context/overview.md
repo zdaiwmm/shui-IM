@@ -210,3 +210,5 @@ Chamber聊天卡片随键盘滚动、透明浮动顶栏、加入前样式门禁�
 即时设置／九套整体配色／桌面应用入口：`src/lib/appearance.ts`、`src/appearance.css`、`src/lib/app-access.ts`、`public/manifest.webmanifest`；入口由 `src/app.ts` 与扁平 `space-drawer.ts` 承载。回归 `tests/settings-appearance.e2e.mjs`、`appearance.test.ts`、`desktop-access.test.ts`、`desktop-session-flow.e2e.mjs` 和 `draft-refresh.e2e.mjs`；真实系统安装、原生通行密钥及iPhone证据单列。[确认范围](../requirements/2026-10-10-settings-appearance-desktop/README.md)取代旧默认60秒和桌面每次锁后验证的描述。九主题、经典与松绿／雾紫差异及18套明暗验证由[九主题V1](../requirements/2026-10-25-appearance-nine/README.md)及P1 V1.32补充；语音主题继承另见`voice-message-ui.e2e.mjs`。
 
 移动表单统一输入：`src/lib/form-input.ts`／`src/form-input.css`；背景几何消费者通过 `layoutViewport()` 保持稳定，前景编辑器读取原始VisualViewport。`src/lib/gateway-intro.ts`维护入口图形三态。产品与安全边界见本次[需求记录](../requirements/2026-10-14-mobile-debug-feedback/README.md)。
+
+恢复失败原件清理：`room-archive.ts`与`vault.ts`共用独立未发布原件范围、小型run归属见证、消息／原件引用／目录原子发布及保守旧残留回收；`tests/restore-original-cleanup.e2e.mjs`由既有room-archive-lifecycle入口顺序纳入。范围和证据见[恢复清理R2](../requirements/2026-10-27-restore-failure-validation/README.md)。

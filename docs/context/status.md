@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 恢复失败原件清理 R2：已授权实施，待验证交付
+
+[小范围验证R1](../requirements/2026-10-27-restore-failure-validation/README.md)确认取消／失败留下长期原件并可阻挡后续恢复。用户随后明确「完成修复并合并发布生产」，授权客户端清理、验证及PR/CI合并；生产仍独立确认精确SHA，备份追赶优化未纳入。
+
+早期af5ca9d完整本地门禁通过，但Linux低配额对照连续失败；独立调用未解决，持久档案又确认大原件跨库移动产生额外分配。最终改为单份原件、随机run／来源范围及小型归属见证，消息／原件引用／目录原子发布。23专项、两引擎保护与并发取消通过，持久8MiB完整恢复及5MiB失败回收／后续小恢复通过；旧版副本兼容补项两引擎通过；最终精确完整门禁／CI、合并／生产待取证。旧完整门禁不挪给新树；下方最近已验证生产保持原值。
+
 ## 房间运行与归档 V1 已发布（2026-10-27 02:33）
 
 用户明确免原型实施并授权合并；[需求 V1](../requirements/2026-10-27-room-runtime-archive-v1/README.md)记录边界、DB16升级与回退要求、测量及失败分类。[PR #422](https://github.com/zdaiwmm/shui-IM/pull/422)已合并为应用`9cf771de91598370bc77c1e73128ef5889b8a092`/`2026.10.26.2`，包含独立打开上下文、统一备份状态、加密私有目录与有界正文页，以及接入阶段投影；完整文件树与最终源`1768145`一致。
@@ -25,7 +31,7 @@
 - 独立READBACK_OK于`2026-10-26T18:33:16.148Z`完成，3162ms：应用与备份running且healthy，TURN运行（探针none），SHA/镜像/HTTPS/数据库/存储/公开及容器产物/新WebSocket全部一致，维护门absent；管理员与通话启用。
 - 首轮仅备份starting；核对原5分钟检查窗口后仅续同SHA readback-only，没有重启或再次切换。完整证据见[发布记录](../../RELEASING.md#release-room-runtime-archive-20261027)及[需求](../requirements/2026-10-27-room-runtime-archive-v1/README.md)。
 
-本页为部署时点事实，不是实时监控。脱敏组合证据保存在公共Git目录`quiet-room-deliveries/evidence/room-runtime-archive-v1-20261027/production-summary.json`；本批仅轻治理接手状态，未清理或改写其他任务现场。下一阶段仅输出优化方案，尚未授权实施；真机与外审仍暂缓。
+本页为部署时点事实，不是实时监控。脱敏组合证据保存在公共Git目录`quiet-room-deliveries/evidence/room-runtime-archive-v1-20261027/production-summary.json`；本批仅轻治理接手状态，未清理或改写其他任务现场。前批后续现仅授权上方恢复清理R2；备份追赶优化未授权，真机与外审仍暂缓。
 
 ## 六批项目治理 V1：已包含于当前生产
 

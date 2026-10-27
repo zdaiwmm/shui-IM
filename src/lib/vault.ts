@@ -1,3 +1,4 @@
+import { sha256 } from '@noble/hashes/sha2.js';
 import { compareOutboxItems } from './outbox-order';
 import { isWindowMessage, expiredMessage } from './message-window';
 import { mergeHistoryProjection } from './history-projection';
@@ -3051,6 +3052,50 @@ export async function writePasskeyName(session: VaultSession, record: PlatformCr
 }
 
 type StagedPrivateRecord = {id:string;roomId:string;record:StoredLocalRecord;previous?:StoredLocalRecord};
+type StagedPrivateMedia = {id:string;roomId:string;kind:'media';mediaId:string;witness:string;retain:boolean};
+type StagedPrivateImport = StagedPrivateRecord | StagedPrivateMedia;
+const isStagedPrivateMedia = (value:StagedPrivateImport):value is StagedPrivateMedia => 'kind' in value && value.kind==='media';
+const privateMediaWitness = (record:StoredLocalRecord):string => toBase64Url(sha256(encoder.encode(canonicalStringify(record))));
+
+function privateImportMediaSession(session:VaultSession,scope:string):VaultSession {
+  const root=localDataScope(session.vault),prefix=`${root}:private:`;
+  if(scope!==root&&(!scope.startsWith(prefix)||!/^[0-9a-f-]{36}$/i.test(scope.slice(prefix.length))))throw new Error('恢复原件范围不正确');
+  return {...session,get stored(){return session.stored;},vault:{...session.vault,localDataScope:scope}};
+}
+
+/** The caller allocates fresh, unguessable namespaces for unpublished imports.
+ * Another run (including legacy clients) cannot borrow them before publication.
+ * Save one original and a small ownership witness together; moving a large IDB
+ * value between stores can require a second quota-sized allocation. Published
+ * copies reuse their original scope, and repairs of those copies are retained. */
+export async function stagePrivateArchiveMedia(session:VaultSession,runId:string,scope:string,blobId:string,index:number,raw:ArrayBuffer,signal:AbortSignal,published=false):Promise<void>{
+  await withVaultMutation(session,async()=>{
+    signal.throwIfAborted();const root=localDataScope(session.vault),source=privateImportMediaSession(session,scope),id=`${blobId}:${index}`,encoded=toBase64Url(raw);
+    if(scope===root&&!published)throw new Error('未发布原件必须使用本次恢复的独立范围');
+    const mediaId=`${scope}:${id}`,current=await transaction<StoredLocalRecord|undefined>('privateMedia','readonly',store=>store.get(mediaId));
+    if(current){if(await decryptLocalRecord<string>(source,'privateMedia',current)!==encoded)throw new Error('导入原文件与本机历史冲突');return;}
+    const stagedId=`${root}:${runId}:media:${mediaId}`,record=await encryptLocalRecord(source,'privateMedia',id,encoded);
+    const marker:StagedPrivateMedia={id:stagedId,roomId:root,kind:'media',mediaId,witness:privateMediaWitness(record),retain:published};
+    signal.throwIfAborted();const db=await openDatabase();
+    await new Promise<void>((resolve,reject)=>{
+      const tx=db.transaction(['vault','privateMedia','privateArchiveStaging'],'readwrite');
+      const guard=tx.objectStore('vault').get(vaultSpaceId(session.stored));guard.onsuccess=()=>{if(!sameStoredVault(guard.result,session.stored))tx.abort();};
+      const check=tx.objectStore('privateMedia').get(mediaId);check.onsuccess=()=>{if(check.result){tx.abort();return;}tx.objectStore('privateMedia').put(record);tx.objectStore('privateArchiveStaging').put(marker);};
+      tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>{db.close();reject(tx.error??staleVaultError());};
+    });
+  });signal.throwIfAborted();
+}
+
+export async function loadStagedPrivateArchiveMedia(session:VaultSession,runId:string,scope:string,blobId:string,index:number,size:number):Promise<ArrayBuffer|null>{
+  const source=privateImportMediaSession(session,scope),mediaId=`${scope}:${blobId}:${index}`,id=`${localDataScope(session.vault)}:${runId}:media:${mediaId}`;
+  const marker=await transaction<StagedPrivateMedia|undefined>('privateArchiveStaging','readonly',store=>store.get(id));
+  const record=await transaction<StoredLocalRecord|undefined>('privateMedia','readonly',store=>store.get(mediaId));
+  if(!record)return null;
+  if(marker&&(!isStagedPrivateMedia(marker)||marker.mediaId!==mediaId||marker.witness!==privateMediaWitness(record)))throw new Error('暂存原文件归属不正确');
+  const raw=fromBase64Url(await decryptLocalRecord<string>(source,'privateMedia',record));
+  if(raw.length!==size)throw new Error('历史原文件分块不完整');return raw.buffer;
+}
+
 export async function stagePrivateArchiveItem(session:VaultSession,runId:string,item:import('./room-archive').PrivateArchiveItem,signal:AbortSignal):Promise<void> {
   await withVaultMutation(session,async()=>{
     signal.throwIfAborted();const scope=localDataScope(session.vault),id=`${item.originRoomId}:${item.message.clientMsgId}`;
@@ -3069,16 +3114,23 @@ export async function commitPrivateArchiveImport(session:VaultSession,runId:stri
     signal.throwIfAborted();const database=await openDatabase(),prefix=`${localDataScope(session.vault)}:${runId}:`;
     try {
     const meta=await readPrivateCatalogMeta(session,signal);
-    const added=await new Promise<number>((resolve,reject)=>{const tx=database.transaction('privateArchiveStaging','readonly');let n=0;const cursor=tx.objectStore('privateArchiveStaging').openCursor(IDBKeyRange.bound(prefix,`${prefix}\uffff`));cursor.onsuccess=()=>{const c=cursor.result;if(c){if(!(c.value as StagedPrivateRecord).previous)n++;c.continue();}};tx.oncomplete=()=>resolve(n);tx.onabort=()=>reject(tx.error);});
+    const added=await new Promise<number>((resolve,reject)=>{const tx=database.transaction('privateArchiveStaging','readonly');let n=0;const cursor=tx.objectStore('privateArchiveStaging').openCursor(IDBKeyRange.bound(prefix,`${prefix}\uffff`));cursor.onsuccess=()=>{const c=cursor.result;if(c){const row=c.value as StagedPrivateImport;if(!isStagedPrivateMedia(row)&&!row.previous)n++;c.continue();}};tx.oncomplete=()=>resolve(n);tx.onabort=()=>reject(tx.error);});
     const metaRecord=await encryptLocalRecord(session,'privateCatalog','meta',added?{revision:crypto.randomUUID(),rawCount:meta.rawCount+added,retired:[...(meta.retired??[]),...(meta.catalog?[meta.catalog.generation]:[])]}:meta);
     signal.throwIfAborted();
     await new Promise<void>((resolve,reject)=>{
-      const tx=database.transaction(['vault','privateArchive','privateArchiveStaging','privateCatalog'],'readwrite');
+      const tx=database.transaction(['vault','privateArchive','privateMedia','privateArchiveStaging','privateCatalog'],'readwrite');
       tx.objectStore('privateCatalog').put(metaRecord);
       const abort=()=>{try{tx.abort();}catch{/* Already committed. */}};signal.addEventListener('abort',abort,{once:true});
       const vault=tx.objectStore('vault').get(vaultSpaceId(session.stored));vault.onsuccess=()=>{if(!sameStoredVault(vault.result,session.stored))abort();};
       const cursor=tx.objectStore('privateArchiveStaging').openCursor(IDBKeyRange.bound(prefix,`${prefix}\uffff`));
-      cursor.onsuccess=()=>{const entry=cursor.result;if(!entry)return;const staged=entry.value as StagedPrivateRecord;
+      cursor.onsuccess=()=>{const entry=cursor.result;if(!entry)return;const staged=entry.value as StagedPrivateImport;
+        if(isStagedPrivateMedia(staged)){
+          const current=tx.objectStore('privateMedia').get(staged.mediaId);current.onsuccess=()=>{
+            if(!current.result||privateMediaWitness(current.result)!==staged.witness){abort();return;}
+            // Publish ownership with the messages; the original stays in place.
+            entry.delete();entry.continue();
+          };return;
+        }
         const current=tx.objectStore('privateArchive').get(staged.record.id);current.onsuccess=()=>{
           if(canonicalStringify(current.result??null)!==canonicalStringify(staged.previous??null)){abort();return;}
           tx.objectStore('privateArchive').put(staged.record);entry.delete();entry.continue();
@@ -3090,12 +3142,54 @@ export async function commitPrivateArchiveImport(session:VaultSession,runId:stri
     } finally {database.close();}
   });privateArchiveChanged();
 }
-export async function discardPrivateArchiveStaging(session:VaultSession,runId?:string):Promise<void> {
-  const database=await openDatabase(),scope=localDataScope(session.vault),prefix=runId?`${scope}:${runId}:`:`${scope}:`;
-  await new Promise<void>((resolve,reject)=>{const tx=database.transaction('privateArchiveStaging','readwrite');
-    const cursor=tx.objectStore('privateArchiveStaging').openKeyCursor(IDBKeyRange.bound(prefix,`${prefix}\uffff`));
-    cursor.onsuccess=()=>{const entry=cursor.result;if(entry){tx.objectStore('privateArchiveStaging').delete(entry.primaryKey);entry.continue();}};
-    tx.oncomplete=()=>{database.close();resolve();};tx.onabort=()=>{database.close();reject(tx.error);};
+/** A run can remove only its unchanged originals in its unpublished namespaces.
+ * Publication removes these witnesses atomically with the messages, so a later
+ * failed reimport cannot delete published originals. Repaired published chunks
+ * and records replaced by another writer are retained. */
+export async function discardPrivateArchiveStaging(session:VaultSession,runId:string):Promise<void> {
+  await withVaultMutation(session,async()=>{
+    const db=await openDatabase(),prefix=`${localDataScope(session.vault)}:${runId}:`;
+    await new Promise<void>((resolve,reject)=>{
+      const tx=db.transaction(['vault','privateMedia','privateArchiveStaging'],'readwrite');
+      const guard=tx.objectStore('vault').get(vaultSpaceId(session.stored));guard.onsuccess=()=>{if(!sameStoredVault(guard.result,session.stored))tx.abort();};
+      const cursor=tx.objectStore('privateArchiveStaging').openCursor(IDBKeyRange.bound(prefix,`${prefix}\uffff`));
+      cursor.onsuccess=()=>{const entry=cursor.result;if(!entry)return;const row=entry.value as StagedPrivateImport;
+        if(isStagedPrivateMedia(row)&&!row.retain){
+          const current=tx.objectStore('privateMedia').get(row.mediaId);current.onsuccess=()=>{if(current.result&&privateMediaWitness(current.result)===row.witness)tx.objectStore('privateMedia').delete(row.mediaId);entry.delete();entry.continue();};
+        }else{entry.delete();entry.continue();}
+      };
+      tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>{db.close();reject(tx.error??staleVaultError());};
+    });
+  });
+}
+
+/** Only the caller holding its restore task lock may reclaim abandoned imports.
+ * Query while holding the global vault lease: a legacy task starting after the
+ * query cannot write before collection ends. Any other active restore, unknown
+ * lock support, corrupt history or stale vault keeps original data untouched. */
+export async function collectAbandonedPrivateArchiveImports(session:VaultSession,lockName:string):Promise<void>{
+  if(typeof navigator==='undefined'||!navigator.locks?.query)return;
+  await withVaultMutation(session,async()=>{
+    let held:LockInfo[];try{held=(await navigator.locks.query()).held??[];}catch{return;}
+    if(!held.some(lock=>lock.name===lockName&&lock.mode==='exclusive')||held.some(lock=>lock.name?.startsWith('quiet-room:archive-restore:')&&lock.name!==lockName))return;
+    const scope=localDataScope(session.vault),references=new Map<string,number>();
+    for await(const item of scanPrivateArchiveItems(session)){
+      if(!item?.message||!isMessagePayload(item.message.payload)||typeof item.sourceScope!=='string')throw new Error('私有历史完整性检查失败，原文件已保留');
+      if(item.sourceScope!==scope&&(!item.sourceScope.startsWith(`${scope}:private:`)||!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(item.sourceScope.slice(`${scope}:private:`.length))))return;
+      const p=item.message.payload,media='images'in p?p.images:'image'in p?[p.image]:'file'in p?[p.file]:'audio'in p?[p.audio]:[];
+      for(const manifest of media){const key=`${item.sourceScope}:${manifest.blobId}`;references.set(key,Math.max(references.get(key)??0,manifest.chunkCount));}
+    }
+    const mediaPrefix=`${scope}:private:`,stagingPrefix=`${scope}:`,db=await openDatabase();
+    await new Promise<void>((resolve,reject)=>{
+      const tx=db.transaction(['vault','privateArchiveStaging','privateMedia'],'readwrite');
+      const guard=tx.objectStore('vault').get(vaultSpaceId(session.stored));guard.onsuccess=()=>{if(!sameStoredVault(guard.result,session.stored))tx.abort();};
+      const staging=tx.objectStore('privateArchiveStaging').openKeyCursor(IDBKeyRange.bound(stagingPrefix,`${stagingPrefix}\uffff`));
+      staging.onsuccess=()=>{const c=staging.result;if(c){tx.objectStore('privateArchiveStaging').delete(c.primaryKey);c.continue();}};
+      const media=tx.objectStore('privateMedia').openKeyCursor(IDBKeyRange.bound(mediaPrefix,`${mediaPrefix}\uffff`));
+      media.onsuccess=()=>{const c=media.result;if(!c)return;const id=String(c.primaryKey),suffix=id.slice(mediaPrefix.length),match=/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}:([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}):(0|[1-9]\d*)$/i.exec(suffix);
+        if(match){const index=Number(match[2]),blob=id.slice(0,id.lastIndexOf(':'));if(Number.isSafeInteger(index)&&index>=(references.get(blob)??0))tx.objectStore('privateMedia').delete(c.primaryKey);}c.continue();};
+      tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>{db.close();reject(tx.error??staleVaultError());};
+    });
   });
 }
 
