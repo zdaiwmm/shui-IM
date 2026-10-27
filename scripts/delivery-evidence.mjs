@@ -14,7 +14,13 @@ function validRecord(r) {
     && ['passed', 'failed', 'interrupted'].includes(r.result) && typeof r.startedAt === 'string'
     && /^\d{4}-\d{2}-\d{2}T[0-9:.]+Z$/.test(r.startedAt) && Number.isFinite(Date.parse(r.startedAt));
 }
+function verificationEnvironment(environment = process.env) {
+  // This per-tool-call transport ID changes between otherwise identical CLI
+  // invocations. Remove it from both the fingerprint and the child test process.
+  return Object.fromEntries(Object.entries(environment).filter(([key]) => key !== 'CODEX_TOOL_CALL_ID'));
+}
 export function executionFingerprint(root, environment = process.env) {
+  environment = verificationEnvironment(environment);
   const digest = value => createHash('sha256').update(value).digest('hex');
   const identity = file => {
     // macOS may update browser ctime when launching an unchanged signed app.
@@ -92,7 +98,7 @@ export function deliveryEvidence(args, root = process.cwd()) {
     return reusable;
   }
   const startedAt = new Date().toISOString(), started = performance.now();
-  const run = spawnSync('npm', ['run', args[1]], { cwd: root, stdio: 'inherit' });
+  const run = spawnSync('npm', ['run', args[1]], { cwd: root, stdio: 'inherit', env: verificationEnvironment() });
   const unchanged = clean && !git('status', '--porcelain') && head === git('rev-parse', 'HEAD')
     && fingerprint === executionFingerprint(root);
   const result = { version: 1, head, tree, clean: unchanged, command: args[1], startedAt,
