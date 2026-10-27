@@ -30,6 +30,8 @@ Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请�
 
 # Quiet Room 项目地图
 
+手工备份加固V1：`scripts/backup.mjs`默认严格容量准入并明确保留全部旧点，仅显式`--retain-days N`才启用既有成功校验后的UTC日期保留；自动worker保持原策略。`tests/manual-backup.test.ts`验证失败保留、参数和容量边界，`tests/disaster-recovery.test.ts`经真实手工入口完成隔离计时演练。范围／测量见[备份V1](../requirements/2026-10-27-audit-backup-safety/README.md)，不代表生产RTO或外部告警／不可变存储已完成。
+
 待发取消与迟到回传：`src/lib/vault.ts`原子移除待发并另存本人设备绑定、只供接收核验的加密记录，`app.ts`正常本人回传落盘后原子退役；旧客户端不会把该记录当待发送项。专项`tests/cancelled-send.e2e.mjs`覆盖真实双端MLS、提交前／后取消、刷新／重连、事务中断及篡改拒绝，已注册浏览器门禁。修复前失败、授权与兼容限制见[本次记录](../requirements/2026-10-27-cancel-accepted-validation/README.md)。
 
 PC 八项与 macOS：`src/pc-layout.css`、`app.ts`修复桌面页几何和输入底色；`own-room-access.ts`与独立`own-admission`服务器邮箱实现本人已发现密室申请，复用原成对认证与 MLS 加入。`tests/pc-room-access.e2e.mjs`覆盖实际链路；`desktop/macos`及`npm run build:macos`生成本机独立包。范围与平台缺口见[需求 V1](../requirements/2026-10-26-pc-eight-macos/README.md)。
