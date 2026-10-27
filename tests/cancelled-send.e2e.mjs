@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
 import { startServer } from '../server/index.mjs';
@@ -11,8 +10,8 @@ import { startServer } from '../server/index.mjs';
 const directory = await mkdtemp(path.join(tmpdir(), 'quiet-cancel-accepted-'));
 const output = process.env.QR_CANCEL_RESULT ? path.resolve(process.env.QR_CANCEL_RESULT) : null;
 const save = () => output ? writeFile(output, JSON.stringify(results, null, 2) + '\n') : Promise.resolve();
-const results = { baseline: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
-  fixtureRevision: 'V2', startedAt: new Date().toISOString(), scope: 'synthetic local application, server, MLS and IndexedDB', cases: [] };
+const results = { fixtureRevision: 'V2', startedAt: new Date().toISOString(),
+  scope: 'synthetic local application, server, MLS and IndexedDB', cases: [] };
 let service, vite, browser, stage = 'setup';
 
 const ready = page => page.waitForFunction(() => window.auditApp?.connectionState === 'connected'
