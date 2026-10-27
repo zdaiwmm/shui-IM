@@ -191,6 +191,18 @@ try {
                 journalKept: Boolean(await v.loadCancelledSend(reopened, id)), cursorKept: reopened.vault.lastSeq === before };
             }, { id, seq: targetSeq });
             assert.deepEqual(rollback, { injected: true, rejected: true, historyAbsent: true, journalKept: true, cursorKept: true });
+            await sender.evaluate(() => {
+              const original = IDBDatabase.prototype.transaction;
+              window.emptyOutboxWrites = 0;
+              window.restoreOutboxTransactions = () => { IDBDatabase.prototype.transaction = original; };
+              IDBDatabase.prototype.transaction = function(stores, ...args) {
+                const tx = original.call(this, stores, ...args);
+                if (args[0] === 'readwrite' && Array.isArray(stores) && stores.includes('outbox') && !stores.includes('history') && !stores.includes('preferences')) {
+                  window.emptyOutboxWrites++; queueMicrotask(() => tx.abort());
+                }
+                return tx;
+              };
+            });
           }
         }
         const heldTypes = gate.held.map(item => item.type);
@@ -211,6 +223,10 @@ try {
         // For accepted scenarios, wait for the actual durable receive or failure, not only socket readiness.
         if (accepted) await sender.waitForFunction(id => document.querySelector('#fatal-message')
           || [...auditApp.messages.values()].some(message => message.clientMsgId === id), id, { polling: 100 });
+        if (mode === 'cancel-accepted-release') {
+          const emptyWrites = await sender.evaluate(() => { window.restoreOutboxTransactions(); return window.emptyOutboxWrites; });
+          assert.equal(emptyWrites, 0, 'A cancelled echo must not depend on a redundant outbox write after durable receive');
+        }
         let snapshot = await local(sender);
         const conflict = mode === 'cancel-accepted-conflict';
         let bidirectional = false, blockedAfterPeerSend = false;

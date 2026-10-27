@@ -6155,7 +6155,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
           }
           if (ownDevice) {
             this.clearRetry(message.clientMsgId);
-            await deleteOutboxItem(session, message.clientMsgId, mutation);
+            // Cancelled sends already left the outbox. Their history transaction
+            // retired receive-only material; no later empty-queue write may undo progress.
+            if (this.outbox.has(message.clientMsgId)) await deleteOutboxItem(session, message.clientMsgId, mutation);
           }
           if (!this.isRuntimeActive(epoch, session)) return;
           this.messages.set(message.seq, message);
