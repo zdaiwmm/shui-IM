@@ -110,4 +110,25 @@ describe('local verification reuse', () => {
       expect(executionFingerprint(root)).not.toBe(before);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
+  it('reuses across independent CLI calls without forwarding orchestration IDs to the test', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'quiet-cli-reuse-'));
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+    try {
+      git('init', '-b', 'codex/fixture');
+      writeFileSync(path.join(root, 'package.json'), JSON.stringify({ scripts: {
+        test: `node -e "require('fs').appendFileSync('.git/count', process.env.CODEX_TOOL_CALL_ID ? 'leaked' : 'x')"`,
+      } }));
+      git('add', 'package.json');
+      git('-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '-m', 'fixture');
+      const entry = new URL('../scripts/delivery-evidence.mjs', import.meta.url).pathname;
+      const cli = (id: string) => execFileSync(process.execPath, [entry, 'ensure', 'test'], {
+        cwd: root, encoding: 'utf8', env: { ...process.env, CODEX_TOOL_CALL_ID: id },
+      });
+      expect(cli('first')).toContain('DELIVERY_EVIDENCE ');
+      expect(cli('second')).toContain('DELIVERY_EVIDENCE_REUSED');
+      expect(readFileSync(path.join(root, '.git/count'), 'utf8')).toBe('x');
+      expect(executionFingerprint(root, { ...process.env, CODEX_TOOL_CALL_ID: 'first' }))
+        .toBe(executionFingerprint(root, { ...process.env, CODEX_TOOL_CALL_ID: 'second' }));
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
 });
