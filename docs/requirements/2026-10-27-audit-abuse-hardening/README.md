@@ -27,12 +27,19 @@
 | 真实签名welcome／event重复、九附件完成重试、签名退订 | `tests/abuse-controls.test.ts` | 定向通过（新增专项12/12；既有admin、push及部署均通过） |
 | 后台跨来源、到期、删除二验、TOTP重放及单并发 | `tests/admin-abuse.test.ts`、`tests/admin.test.ts` | 定向通过（新增专项12/12；既有admin、push及部署均通过） |
 | 畸形URL无500／错误堆栈、代理配置保留edge限制 | `tests/abuse-controls.test.ts`、`tests/deploy-script.test.ts` | 定向通过（新增专项12/12；既有admin、push及部署均通过） |
-| 完整应用与文档 | `npm run delivery:evidence -- run check:full`、`scripts/check-docs.mjs` | 待冻结后执行 |
+| 完整应用与文档 | `npm run delivery:evidence -- run check:full`、`scripts/check-docs.mjs` | 最终干净源152文件／1139项与86浏览器全部通过；文档通过 |
 
 本机没有nginx／Docker可执行程序，尚未执行真实nginx配置解析；静态配置断言不能替代安装后的代理链验收。本批无生产授权、代理配置安装、生产流量测试、真机或独立外审证据。
 
 ## 当前阶段与接续
 
-实现与定向验证已完成，准备冻结及完整验收。新增后台测试首轮因fetch未保留测试Host返回404、未进入认证；改用项目既有node:http测试方式后原断言全部通过，没有修改产品Host校验。语法与TypeScript检查通过。
+实现、本地完整验收与远端交付已完成，未发布本批生产。新增后台测试首轮因fetch未保留测试Host返回404、未进入认证；改用项目既有node:http测试方式后原断言全部通过，没有修改产品Host校验。语法与TypeScript检查通过。
 
-提交、PR、精确CI和合并结果分别由Git与PR记录拥有。冻结前准备唯一发布版本，验证结果绑定最终文件树，不把本机通过当作已发布。需求与概要只同步必要事实，提交前检查材料、格式、链接及凭据误纳入。
+提交、PR、精确CI和合并结果分别由Git与PR记录拥有。已由固定工具准备唯一发布版本，验证结果绑定最终文件树，不把本机通过当作已发布。需求与概要只同步必要事实，提交前检查材料、格式、链接及凭据误纳入。
+
+## 最终交付证据
+
+- 干净冻结源 `2bb59ab7fe9cb79168c673bdc0dea9b1f2f50851`，完整文件树 `69e5a3dfed6a8ef71d3a4cc24884833053e6b7a6`；本地check:full于2026-10-27T09:59:00.128Z开始，1679821ms通过：152文件／1139项、86浏览器入口，0失败／0未运行。
+- [精确PR完整CI40485087836](https://github.com/zdaiwmm/shui-IM/actions/runs/40485087836) attempt1成功，含全部浏览器分片、通话、依赖审计和双架构镜像。[PR #436](https://github.com/zdaiwmm/shui-IM/pull/436)合并为 `668407ca5e762e591b9c07731510019ef832ac81`；其src/server/deploy/release内容与已验收源一致，主线已有生产记录原样保留。[精确main完整CI40488710232](https://github.com/zdaiwmm/shui-IM/actions/runs/40488710232)成功。
+- 本批版本为`2026.10.27.4`；后续第二批只补手工运维工具和验证，最终组合的事实由[备份V1](../2026-10-27-audit-backup-safety/README.md)拥有。未发布、未验证安装后代理链，没有真机或独立外审结论。
+- 材料检查只含源码、测试、必要Markdown与版本JSON；无依赖目录、构建产物、截图、真实消息、邀请或凭据。脱敏本地验收与交接证据保存在公共Git目录`quiet-room-deliveries/evidence/audit-remediation-20261027/`；PR／CI为跨电脑可访问证据。

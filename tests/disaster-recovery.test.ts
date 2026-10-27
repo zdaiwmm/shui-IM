@@ -1,10 +1,12 @@
-import { expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { useAvailableBackupSpace } from './fixtures/backup-capacity';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { createStore } from '../server/storage.mjs';
-import { createConsistentBackup, restoreBackup, verifyBackup } from '../server/backup.mjs';
+import { restoreBackup, verifyBackup } from '../server/backup.mjs';
+import { runManualBackup } from '../scripts/backup.mjs';
 import { startServer } from '../server/index.mjs';
 import { generateIdentity, createJoinProof } from '../src/lib/crypto';
 import { randomBase64Url } from '../src/lib/base64';
@@ -14,7 +16,10 @@ import type { RoomMember, Vault } from '../src/lib/types';
 
 // Entirely synthetic. Client MLS/file keys stay in this test process, outside
 // the server snapshot. This is an isolated restore drill, not production RTO.
+beforeEach(() => { useAvailableBackupSpace(); });
+afterEach(() => { vi.restoreAllMocks(); });
 it('restores a server snapshot, boots health, and decrypts two-party MLS and original attachment bytes', async () => {
+  const started = performance.now();
   const root = await mkdtemp(path.join(tmpdir(), 'quiet-room-restore-drill-'));
   const dataDir = path.join(root, 'source');
   const source = await createStore({ dataDir });
@@ -61,7 +66,8 @@ it('restores a server snapshot, boots health, and decrypts two-party MLS and ori
     joiner.mls.groupState = reply.nextGroupState;
     source.insertMessage(roomId, reply.envelope);
 
-    const snapshot = await timed('snapshotMs', () => createConsistentBackup({ dataDir, backupRoot: path.join(root, 'snapshots') }));
+    const snapshot = await timed('snapshotMs', () => runManualBackup({ env: { DATA_DIR: dataDir, BACKUP_DIR: path.join(root, 'snapshots') } }));
+    expect(snapshot.retention).toEqual({ mode: 'keep-all', days: null });
     await timed('verifyMs', () => verifyBackup(snapshot.backupDir));
     source.close(); sourceClosed = true;
     const target = path.join(root, 'restored');
@@ -87,7 +93,8 @@ it('restores a server snapshot, boots health, and decrypts two-party MLS and ori
       });
       expect(new Uint8Array(await blob.arrayBuffer())).toEqual(original);
     });
-    console.info(JSON.stringify({ kind: 'synthetic-restore-drill', timings, messages: rows.length, originalBytes: original.length }));
+    console.info(JSON.stringify({ kind: 'synthetic-restore-drill', timings, totalMs: Math.round(performance.now() - started),
+      capacityEvidence: 'controlled-admission-fixture', messages: rows.length, originalBytes: original.length }));
   } finally {
     if (!sourceClosed) source.close();
     await restored?.close();
