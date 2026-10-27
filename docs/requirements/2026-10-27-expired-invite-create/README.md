@@ -6,7 +6,7 @@
 - 用户明确确认「同意，免原型和流程图，按 V1 直接修复、验证并完成 PR 合并」。来源为本任务会话该消息，未提供外部消息定位。
 - 规则取自本机 main `322b0b1ff49c4b474e829d69063a9f73c86fb090` 的 AGENTS 与固定流程；开工时主线快进到 GitHub 实时 main `a4c62a89d07d6ec2bb397462df61b5fcabda8a82`，规则文件未变化。
 - 独立分支 `codex/expired-invite-create-20261027`；本机任务树 `/Users/zhouding/ss-worktrees/expired-invite-create-20261027`。跨电脑应重新核验实际目录与 HEAD。
-- V1 产品修复已合并；主线发布验证发现测试取样竞争，本轮仅续修测试与记录。原实施、验证和 PR 合并授权沿用本任务已确认范围；精确生产目标与实际状态见下方发布申请记录。
+- V1 产品修复与验证续修已合并，用户确认的新精确应用 e6dfced 已取得 DEPLOY_VERIFIED 与独立 READBACK_OK；本记录树仅对账，线上应用仍固定下方完整 SHA。
 
 ## 方案与边界
 
@@ -57,8 +57,16 @@
 - 该提交来自 [PR #434](https://github.com/zdaiwmm/shui-IM/pull/434)，与最终 PR head `7c192e8d772b0b790407b0bccf5dfbdd68c5955a` 完整文件树相同；[PR CI 40475057892](https://github.com/zdaiwmm/shui-IM/actions/runs/40475057892) attempt 1 完整通过。主线 CI 是独立门禁，不复用 PR 绿色代替。
 - [main CI 40476614811 attempt 1](https://github.com/zdaiwmm/shui-IM/actions/runs/40476614811/attempts/1) 的 group 2 shard 4/4 为 13 通过／1 失败／7 未运行。新增失效邀请用例均通过，原专项最终收到一条未被既有见证确认的 WebKit catalog Fetch 诊断；根因未确认，未忽略该错误。
 - 对同一 SHA 完整原样复验一次。[attempt 2](https://github.com/zdaiwmm/shui-IM/actions/runs/40476614811/attempts/2) 的同一分片仍为 13 通过／1 失败／7 未运行，但失败点不同：第三轮 WebKit 冷启动前后保险库密文快照不相同。两次失败分别保留，未把第二次误记成同一 Fetch 诊断。
-- 只读生产 doctor 通过，取到旧应用 `75b01af61eb26ba1cbe5896881c3c354ead3a443`。本轮未派发 publish.yml，没有执行生产切换或生产回读；精确目标 `520f2f7` 的完整主线 CI 未通过，生产发布受阻。
+- 只读生产 doctor 通过，取到旧应用 `75b01af61eb26ba1cbe5896881c3c354ead3a443`。初次申请当时未派发 publish.yml，没有执行生产切换或生产回读；精确目标 `520f2f7` 的完整主线 CI 未通过，该目标没有发布。后续改发授权和结果见下节。
 - 只读代码核对显示：快照原先取于仍解锁的活跃运行期，真实默认备份可在取样后继续以新随机 IV 保存 `archiveState`。仅密文不相同不能证明真实数据损坏，也不能反向认定该失败无害。测试基线改为等待真实入口准备、执行真实锁定、等偏好落盘，再经同一保险库生命周期锁读取快照；锁定后的逐字节不变、原身份、原密室及解锁要求仍逐项断言。
 - 普通冷刷新前等待该密室的实际浏览器接入准备 Promise，再锁定并等待落盘，避免用无关的准备请求退出竞争干扰冷启动验证。该 Promise 由测试 Vite 入口观测并原样返回，不替换业务实现或吞掉异常；受控迟到响应／锁定／隐藏用例和严格退出见证规则保持。
-- 本轮任务树 `/Users/zhouding/ss-worktrees/expired-invite-ci-proof-20261027`，分支 `codex/expired-invite-ci-proof-20261027`，起始基线为上述获批 `520f2f7`。正式产品、服务端、依赖、版本与发布入口均保持原文件内容；测试修正候选的本地／PR／main CI 各自核对后，再展示新的完整 SHA 供用户确认生产目标。
+- 本轮任务树 `/Users/zhouding/ss-worktrees/expired-invite-ci-proof-20261027`，分支 `codex/expired-invite-ci-proof-20261027`，起始基线为上述获批 `520f2f7`。正式产品、服务端、依赖、版本与发布入口均保持原文件内容；测试修正候选经本地／PR／main CI 分别核对后，已展示新的完整 SHA 并取得改发确认，见下节。
 - 本轮本地 `CI=1 node tests/new-room-invite-privacy.e2e.mjs` 通过，包含 Chromium 一轮和 WebKit 三轮；锁定基线的逐字节不变、原密室身份、真实解锁、一次创建、迟到失败门禁及原专项均通过，未确认错误为零。文档检查通过。生产代码没有变化，原本完整本地门禁证据继续仅归属于原冻结源；新测试候选另行接受完整 PR／main CI。
+
+## 新目标已发布与独立回读
+
+- 用户在本会话完整列出新SHA、版本、CI与预检的确认问题中选择「确认改发 e6dfced」，精确批准 `e6dfcedccedd8b8adcea9a97224478c23fd59578`，不再沿用原520的授权作为替代。来源为本会话该回复，无独立消息permalink。
+- 验证修正经[PR #435](https://github.com/zdaiwmm/shui-IM/pull/435)合并，新应用与源89b328f的完整文件树均为 `c197bbf3c6e29d631e9f8cf9d25f9490c2b87940`；与520相比仅两个测试文件和本记录变化，正式产品代码、依赖与版本不变。[精确PR CI40480620282](https://github.com/zdaiwmm/shui-IM/actions/runs/40480620282)及[精确main CI40482174872](https://github.com/zdaiwmm/shui-IM/actions/runs/40482174872)均attempt1成功，Full application verification、所有浏览器分片、通话／TURN、审计及双架构镜像已核对。
+- 唯一[固定发布40484081401](https://github.com/zdaiwmm/shui-IM/actions/runs/40484081401)核对精确DEPLOY_VERIFIED。请求 `bedc4b79-5a7d-41b4-8052-37b0e1c30414` 为deploy且只派发一次，经既有production正常审核；实际前版75b01af。批次、镜像摘要、归档绑定与云回执由[发布记录](../../../RELEASING.md#release-expired-invite-20261027)持有。
+- 首次独立回读仅备份starting；核对原5分钟检查与启动期并等待后，只续同SHA的readback-only，于2026-10-27T10:03:16.062Z取得READBACK_OK，4559ms。应用与备份健康、TURN运行且探针none，SHA／镜像、HTTPS／数据库／存储、公开及容器产物与新WebSocket一致，维护门不存在。回读续跑未额外重启、切换或变更运维配置。
+- 脱敏组合证据位于公共Git目录 `quiet-room-deliveries/evidence/expired-invite-20261027/production-summary.json`，包含先前失败及最终成功。文档对账在独立且不含部署配置的树完成，不修改线上应用SHA或重新发布；资源的机械检查／保留事实由本机交接与清理回执持有。真机与外部独立审阅仍未验证。
