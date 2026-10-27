@@ -1,14 +1,18 @@
 # Quiet Room 固定发布流程
 
 <a id="release-restore-original-cleanup-20261027"></a>
-## 恢复失败原件清理 R2：已合并，等待精确提交发布确认（2026-10-27）
+## 恢复失败原件清理 R2 已发布（2026-10-27 08:54）
 
-- 用户在小范围验证确认残留会阻挡恢复后，明确要求修复、合并及发布；[需求R2](docs/requirements/2026-10-27-restore-failure-validation/README.md)保存范围、失败历史和证据边界。本次应用目标固定为`926a786e3e20c9148c8df805643c62fdd9edb9c7`／`2026.10.26.3`，尚待用户确认完整SHA，当前没有生产切换或新应用回读结论。
+- 用户在小范围验证确认残留会阻挡恢复后，明确要求修复、合并及发布；[需求R2](docs/requirements/2026-10-27-restore-failure-validation/README.md)保存范围、失败历史和证据边界。展示完整SHA、版本和验证结果后，用户回复「确认，发布生产」，精确授权应用`926a786e3e20c9148c8df805643c62fdd9edb9c7`／`2026.10.26.3`；本会话无独立消息permalink。
 - [PR #425](https://github.com/zdaiwmm/shui-IM/pull/425)已合并，完整文件树`9f26f1a60bdf18ee5696f6316292332efb940767`与最终源`9246fe5f585e426f2d166f5d3417868c7ff5e82f`一致。采用单份原件、独立run／来源范围与小型归属见证，验证后原子发布消息、原件引用及目录；取消与失败清理本次未发布原件，保留已有副本、其修复及并发写入。密码格式、权限、数据库版本、页面、备份调度与运维保持。
 - 最终干净源完整本地门禁通过：148文件／1114单元、85/85浏览器入口，0失败／0未运行，1558905ms；含25恢复用例、两引擎各7类清理保护、无锁并发取消与旧版兼容。原生持久8MiB完整恢复通过，5MiB大失败回收及后续一次小恢复通过；旧候选内存配额诊断与跨库复制失败不被后续绿色抹去。
 - [精确PR完整CI 40421681687](https://github.com/zdaiwmm/shui-IM/actions/runs/40421681687)及[精确应用main完整CI 40424742449](https://github.com/zdaiwmm/shui-IM/actions/runs/40424742449)均attempt 1成功，Full application verification及双架构镜像构建通过。纯记录提交不替代应用提交，不以文档CI发布应用。
-- 唯一[只读预检40426096627](https://github.com/zdaiwmm/shui-IM/actions/runs/40426096627)经既有production正常审核取得精确PREFLIGHT_OK；请求`66c71ca1-c9ed-4ba0-a4da-780bb1f67cf8`为doctor，工作流来源与应用均为`926a786`，外层120197ms含审核等待。预检绑定产物12699591161／main CI 40424742449／attempt 1，到期2026-11-03T00:16:13Z；正式入口仍须下载并核对镜像字节与标签。预检读到前版`9cf771de91598370bc77c1e73128ef5889b8a092`，不代表本目标已上线。
-- 准备证据保存在公共Git目录`quiet-room-deliveries/evidence/restore-original-cleanup-20261027/pre-release-summary.json`。确认精确SHA后使用固定cloud with-readback入口，取得精确DEPLOY_VERIFIED及独立READBACK_OK后再对账和清理；失败仅续跑对应后置步骤。浏览器底层回收不保证即时，真机、触控取消、物理磁盘耗尽与外审未验证，WebKit配额为受控事务故障。
+- 唯一[只读预检40426096627](https://github.com/zdaiwmm/shui-IM/actions/runs/40426096627)经既有production正常审核取得精确PREFLIGHT_OK；请求`66c71ca1-c9ed-4ba0-a4da-780bb1f67cf8`为doctor，工作流来源与应用均为`926a786`，外层120197ms含审核等待。预检绑定产物12699591161／main CI 40424742449／attempt 1，到期2026-11-03T00:16:13Z；正式发布随后完成镜像字节与标签校验。预检与正式回执读到的前版均为`9cf771de91598370bc77c1e73128ef5889b8a092`。
+- 唯一[正式发布40427980206](https://github.com/zdaiwmm/shui-IM/actions/runs/40427980206)经既有production正常审核，固定publish.mjs核对精确DEPLOY_VERIFIED；请求`29da2dc7-b675-4d5e-b86b-420cf48fc8fa`仅派发一次。云工作流来源`ad6c938c8037de39e530105bcb123ca32474e4e9`，应用始终固定获批SHA；云回执2026-10-27T00:42:09.035Z至00:45:27.493Z，外层cloud-publish266990ms含审核等待。
+- 批次`20261027T004247Z`；linux/amd64镜像`sha256:3c3cb90db42aada1357d28efc613ce305ce40430782b2b96a00404c35ee96fe1`，镜像归档SHA-256`82ddb74fd3276e1153a700fbecdff8d7fcd7967d0dfdd2f0986e8b4ff7022c5c`、210174904字节，绑定精确main CI40424742449／attempt1。
+- 首次独立回读00:45:43.931Z至00:45:48.959Z及唯一即时只读重试00:46:15.383Z至00:46:20.447Z均在server-state阶段以connectivity失败，原有SSH连接被关闭，不能据此判断容器故障。00:47:31.097Z公开健康三项、六份资源与获批树构建摘要及新WebSocket另行通过，但不替代完整回读。
+- 用户随后报告「防火墙ip已改，继续完成发布」；仅续跑同SHA的固定readback-only，于2026-10-27T00:54:49.047Z至00:54:52.395Z取得READBACK_OK，3346ms。应用与备份running且healthy，TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、公开及容器产物摘要、新WebSocket全部一致，维护门absent，管理员与通话启用。Agent未修改访问控制、重启或再次切换。
+- 脱敏组合证据位于公共Git目录`quiet-room-deliveries/evidence/restore-original-cleanup-20261027/production-summary.json`，保留准备、两次连接失败及最终成功回执；本机证据不自动跨电脑同步，PR／CI／发布链接为远端定位。独立记录树只对账，不改变线上应用SHA；随后按固定入口核验本批资源，活动记录树及未知材料保留。浏览器底层回收不保证即时，真机、触控取消、物理磁盘耗尽与外审未验证，WebKit配额为受控事务故障。
 
 
 <a id="release-room-runtime-archive-20261027"></a>

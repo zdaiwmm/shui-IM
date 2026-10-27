@@ -3,7 +3,7 @@
 ## 身份与授权
 
 - 用户先要求「先做小范围验证，确认恢复取消、失败和空间不足时到底有没有实际问题，有结果后再决定修复和备份追赶优化。只看软件本身，不涉及运维」，发现下述缺陷后明确「完成修复并合并发布生产」。来源为本会话，无独立permalink。
-- R1只作本地合成实验；R2已获I/D修复、验收及PR/CI合并授权。生产仍待最终精确SHA确认，备份追赶优化未纳入。没有页面或交互变化，原型与流程图不适用，不继承前批发布SHA。
+- R1只作本地合成实验；R2已获I/D修复、验收及PR/CI合并授权。展示最终完整SHA后，用户明确「确认，发布生产」，仅授权下方应用926a786；备份追赶优化未纳入。没有页面或交互变化，原型与流程图不适用，不继承前批发布SHA。
 - 规则来源为本机main `4356531cea264dd01bd9110da90b9ff62cfd7a59`；起点为核实一致的GitHub main/origin/main `c9c58d758f4a64bde8eca350a5212a7bcf62286a`。
 - 本任务独占目录`.worktrees/restore-failure-validation-20261027`；R1分支随后改名为`codex/restore-original-cleanup-20261027`。共享主目录只读。
 
@@ -53,10 +53,12 @@
 证据限于合成数据、桌面Chromium／WebKit与所列故障点。WebKit配额为受控事务中断，Chromium为原生配额；没有实体iPhone、触控取消、物理磁盘耗尽、生产数据或独立安全审计证据。
 
 
-## 实际交付与待发布目标
+## 实际交付与生产验证
 
 - [PR #425](https://github.com/zdaiwmm/shui-IM/pull/425)合并应用`926a786e3e20c9148c8df805643c62fdd9edb9c7`，版本`2026.10.26.3`；最终干净源`9246fe5f585e426f2d166f5d3417868c7ff5e82f`与应用完整树均为`9f26f1a60bdf18ee5696f6316292332efb940767`。
 - 精确源完整本地check:full通过：148文件／1114单元、85/85浏览器入口，0失败／0未运行，1558905ms，包含最终25恢复用例、两引擎各7类保护、并发取消与旧版重导入。
 - [精确PR完整CI 40421681687](https://github.com/zdaiwmm/shui-IM/actions/runs/40421681687)与[精确应用main完整CI 40424742449](https://github.com/zdaiwmm/shui-IM/actions/runs/40424742449)均attempt 1成功，Full application verification与双架构镜像构建通过。Linux持久8MiB完整恢复成功，使用5829274字节；其他控制与保护检查亦通过。
 - 唯一[只读预检40426096627](https://github.com/zdaiwmm/shui-IM/actions/runs/40426096627)经既有production正常审核取得精确PREFLIGHT_OK，请求`66c71ca1-c9ed-4ba0-a4da-780bb1f67cf8`为doctor，外层120197ms；工作流来源与应用均为926a786。定位产物12699591161／CI40424742449／attempt1，到期2026-11-03T00:16:13Z；预检读到前版`9cf771de91598370bc77c1e73128ef5889b8a092`。
-- 尚待用户确认本次完整应用SHA，没有生产切换、独立READBACK_OK或本批资源清理结论。准备记录在独立文档树对账，不改应用版本；精确确认后沿用固定cloud with-readback入口，再按真实回执对账、清理。准备证据位于公共Git目录`quiet-room-deliveries/evidence/restore-original-cleanup-20261027/pre-release-summary.json`，不是可跨机器自动同步的文件；上方PR／CI链接为持久远端证据。
+- 用户确认完整应用SHA后，唯一[正式发布40427980206](https://github.com/zdaiwmm/shui-IM/actions/runs/40427980206)经既有production审核取得精确DEPLOY_VERIFIED；请求29da2dc7-b675-4d5e-b86b-420cf48fc8fa只派发一次，工作流来源ad6c938，前版9cf771de，应用目标保持926a786。镜像与同轮main CI、字节摘要和时间由[发布记录](../../../RELEASING.md#release-restore-original-cleanup-20261027)拥有。
+- 前两次独立回读仅因连接失败停止，公开资源／健康／新WebSocket补查通过不替代完整核验。用户报告「防火墙ip已改，继续完成发布」后，仅续固定readback-only，于2026-10-27T00:54:52.395Z取得READBACK_OK，3346ms；应用／备份健康，精确SHA／镜像／公开及容器摘要／新连接一致，维护门absent。Agent没有修改访问控制、重启或再次切换。
+- 准备及最终脱敏证据分别位于公共Git目录`quiet-room-deliveries/evidence/restore-original-cleanup-20261027/pre-release-summary.json`及`production-summary.json`，保留早期失败；本机证据不自动跨电脑同步，PR／CI／发布链接为远端定位。独立文档树对账不改变线上应用，之后按固定入口核验本批资源，活动记录树和未知内容保留。
