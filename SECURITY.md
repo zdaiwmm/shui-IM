@@ -1,5 +1,28 @@
 # Security model
 
+## Current scope and abuse-control contract
+
+Current room formats and product behavior are summarized in [PRODUCT.md](PRODUCT.md#当前格式与适用规则). New `room-archive-v2` rooms follow [NEW_ROOM_ARCHIVES.md](NEW_ROOM_ARCHIVES.md); preserved mnemonic Chamber and earlier recovery-card rooms retain their own contracts. Invitation expiry is not a new authorization to delete stored rooms or archives. Manual safety-code UI in a compatibility path does not apply to new admission-secret device links.
+
+The six-digit application lock has a 10^6 offline search space. An archive recovery card instead requires its own 12–128-character password at creation; its encrypted wrapper and password are not uploaded as part of the cloud archive. Password length alone does not establish entropy. MLS serialization is part of the encrypted local vault payload; writable IndexedDB is not equivalent to possession of an unlocked vault or a compromised executing origin.
+
+The [V1 hardening](docs/requirements/2026-10-27-audit-abuse-hardening/README.md) accepts forwarding only from explicitly trusted immediate peers and only as one syntactically valid IP. The public nginx configuration overwrites XFF with its connection address. Untrusted, malformed, multi-value or chained forwarding falls back to the socket address; equivalent IPv6/mapped-IPv4 addresses are canonicalized. Deployment must verify the actual proxy/container peer and installed configuration; repository changes alone do not prove production enforcement.
+
+Application rate-limit buckets are process-local, expire lazily and have fixed capacity. Saturation rejects new keys instead of evicting active limits. Existing limits keep their budgets. Four authenticated writes additionally have source and room/device/operation budgets per minute:
+
+| Operation | Source | Device |
+| --- | --- | --- |
+| MLS membership event | 720 | 60 |
+| Initial MLS welcome | 240 | 12 |
+| Attachment completion | 1440 | 120 |
+| Push unsubscribe | 240 | 12 |
+
+Source admission precedes device lookup; device admission precedes body parsing, signature verification or completion work. A rejection returns 429/RATE_LIMITED and Retry-After; rejected attempts do not extend the fixed window. Device limits persist across source-address changes. Duplicate valid operations retain their existing idempotency semantics. These are request budgets, not a new ciphertext quota or a replacement for edge/DDoS controls.
+
+Administrator login and fresh-factor deletion share an eight-attempt/minute budget per trusted source, with at most 1024 active sources. Expensive password verification remains single-flight. Source exhaustion returns 429/RATE_LIMITED; global verifier contention returns 503/AUTH_BUSY with a short retry interval. Password parameters, persistent TOTP replay protection, same-origin checks, CSRF and cookies remain required. Shared NAT users still share source admission; distributed traffic or capacity saturation can still affect availability, and process restart resets these limits. No additional raw IP/request-body logging is introduced.
+
+Malformed percent-encoded HTTP paths return 400/INVALID_PATH without an internal-error stack. Full security validation, physical-device evidence, trusted-client distribution and off-host immutable backup/alert gates remain independently open in [PRODUCTION_SECURITY_GATE.md](PRODUCTION_SECURITY_GATE.md).
+
 ## 2026-10-27 Atomic restore originals and conservative collection
 
 Unpublished imports allocate a fresh random original namespace per run/source; other restores, including legacy clients, cannot borrow it. Original ciphertext is written once to privateMedia with a small run ownership witness in the same vault-CAS transaction. The witness hashes the complete ciphertext record; originals retain the existing authenticated format. Messages, deletion events, catalog revision and witness retirement publish atomically without copying large originals. Failure removes only unchanged witnessed originals in the run's unpublished namespaces. Published copies reuse their recorded sourceScope, including legacy origin-based scopes; repairs of published originals and records replaced by another writer survive cancellation. No plaintext content index, cryptographic construction or database-version change is introduced.
