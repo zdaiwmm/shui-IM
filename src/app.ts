@@ -1609,10 +1609,20 @@ export class QuietRoomApp {
 
   private async renderGatewayPage({ trustedCoverActivation = false, autoUnlock = trustedCoverActivation }: { trustedCoverActivation?: boolean; autoUnlock?: boolean } = {}): Promise<void> {
     if (location.hash.startsWith('#j=')) {
-      const epoch=this.runtimeEpoch,attempt=this.gatewayFailureEpoch;
-      const current=()=>this.runtimeEpoch===epoch&&this.gatewayFailureEpoch===attempt;
-      try { await expandShortRoomLink(current); }
-      catch(cause) { if(current()){history.replaceState(history.state,'','/');this.renderFirstRun(null);this.showNotice(cause instanceof Error?cause.message:'聊天链接已失效','error');} return; }
+      const epoch = this.runtimeEpoch, attempt = this.gatewayFailureEpoch, entry = this.coverEntryEpoch;
+      const hash = location.hash;
+      const current = () => this.runtimeEpoch === epoch && this.gatewayFailureEpoch === attempt
+        && this.coverEntryEpoch === entry && !document.hidden;
+      try { if (!await expandShortRoomLink(current)) return; }
+      catch (cause) {
+        if (!current() || location.hash !== hash) return;
+        history.replaceState(history.state, '', location.pathname + location.search);
+        // Re-enter the ordinary gateway so its cover state and local-vault
+        // verification agree with the page, including an existing app lock.
+        await this.renderGatewayPage({ trustedCoverActivation, autoUnlock });
+        if (current() && !this.privacyCovered) this.showNotice(cause instanceof Error ? cause.message : '聊天链接已失效', 'error');
+        return;
+      }
       if(!current())return;
     }
     if (this.desktopAccess.peek()) {
