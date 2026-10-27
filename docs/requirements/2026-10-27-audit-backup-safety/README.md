@@ -30,7 +30,7 @@
 - 最终干净源 `15774ff898c84a9561d2034599a0885c21e13212`，完整文件树 `dd6c7698944c35fe43f8e907e28865ad4de47c2c`。组合check于2026-10-27T10:30:53.770Z开始，23130ms通过：153文件／1144项；既有灾备专项另通过31项。七份本次相关文档检查通过。
 - 组合隔离解密演练1997ms：snapshot16ms、verify3ms、restore7ms、boot7ms、health9ms、decrypt1835ms；两条消息与2,097,189字节原件完整通过，容量前提仍明确标为受控夹具。原生CLI的实际主机准入证据和首轮测量独立保留，不外推生产RTO。
 - [最终精确PR完整CI40489144941](https://github.com/zdaiwmm/shui-IM/actions/runs/40489144941) attempt1全部成功，含五浏览器分片、通话、依赖扫描、两架构镜像及verify。旧空间恢复分片在最终组合完整通过，但没有据此宣称首轮超时根因已修复。
-- [PR #437](https://github.com/zdaiwmm/shui-IM/pull/437)合并为 `7516e8e49959f7b24a5bfb305e5aa820191c4931`，与最终源完整文件树相同；[精确main CI40490796677](https://github.com/zdaiwmm/shui-IM/actions/runs/40490796677)独立核对，PR绿色不替代生产发布所需精确main门禁。
+- [PR #437](https://github.com/zdaiwmm/shui-IM/pull/437)合并为 `7516e8e49959f7b24a5bfb305e5aa820191c4931`，与最终源完整文件树相同；[精确main完整CI40490796677](https://github.com/zdaiwmm/shui-IM/actions/runs/40490796677) attempt1全部通过，包含全部浏览器、通话、依赖审计及同轮两架构镜像；已核对精确应用SHA和verify，PR绿色未替代main门禁。
 - 代码合并不代表生产切换；本轮未发布、未安装运维任务／代理配置、未接触真实备份。外部告警／存储按用户决定延期；真机、独立外审、真实生产恢复时间保持未知。
 
 ## 首轮CI与必要集成
