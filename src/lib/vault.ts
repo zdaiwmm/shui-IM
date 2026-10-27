@@ -2854,6 +2854,8 @@ async function commitMlsVaultAndRecords(
     ? await encryptLocalRecord(session, 'receiptOutbox', records.pendingReceipt.clientMsgId, records.pendingReceipt)
     : null;
   const draftRecord = records.draft ? await encryptLocalRecord(session, 'preferences', draftCommitId(session), records.draft) : null;
+  const cancelledId = records.history?.senderId === session.vault.identity.publicBundle.deviceId
+    ? cancelledSendId(session, records.history.clientMsgId) : null;
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const stores = [
@@ -2862,7 +2864,7 @@ async function commitMlsVaultAndRecords(
       ...(historyRecord ? ['history'] : []),
       ...(historyRecord && records.history && isGalleryMediaPayload(records.history.payload) ? ['galleryHistory'] : []),
       ...(receiptRecord ? ['receiptOutbox'] : []),
-      ...(draftRecord ? ['preferences'] : []),
+      ...(draftRecord || cancelledId ? ['preferences'] : []),
     ];
     const tx = database.transaction(stores, 'readwrite');
     putCurrentVault(tx, nextStored, session.stored);
@@ -2871,6 +2873,8 @@ async function commitMlsVaultAndRecords(
     if (historyRecord && records.history && isGalleryMediaPayload(records.history.payload)) tx.objectStore('galleryHistory').put(historyRecord);
     if (receiptRecord) tx.objectStore('receiptOutbox').put(receiptRecord);
     if (draftRecord) tx.objectStore('preferences').put(draftRecord);
+    // Retire reconciliation material only with the durable history and ratchet.
+    if (cancelledId) tx.objectStore('preferences').delete(`${localDataScope(session.vault)}:${cancelledId}`);
     tx.oncomplete = () => {
       database.close();
       session.vault = nextVault;
@@ -2946,10 +2950,37 @@ export async function hasOutboxItem(session:VaultSession,clientMsgId:string,muta
   return Boolean(await transaction('outbox','readonly',store=>store.get(`${localDataScope(session.vault)}:${clientMsgId}`),session.stored));
 }
 
-/** Cancel durable work and retain only an encrypted local deletion projection.
+function cancelledSendId(session: VaultSession, clientMsgId: string): string {
+  return `cancelled-send:${session.vault.identity.publicBundle.deviceId}:${clientMsgId}`;
+}
+
+function validCancelledSend(session: VaultSession, item: OutboxItem | undefined, clientMsgId: string): boolean {
+  return Boolean(item && item.clientMsgId === clientMsgId && isMessagePayload(item.payload)
+    && item.envelope?.v === 2 && item.envelope.protocol === 'mls-rfc9420'
+    && item.envelope.roomId === session.vault.roomId && item.envelope.clientMsgId === clientMsgId
+    && item.envelope.senderId === session.vault.identity.publicBundle.deviceId);
+}
+
+/** Receive-only material. Its separate preference key is invisible to old and new outbox drains. */
+export async function loadCancelledSend(session: VaultSession, clientMsgId: string): Promise<OutboxItem | undefined> {
+  const record = await transaction<StoredLocalRecord | undefined>('preferences', 'readonly', store =>
+    store.get(`${localDataScope(session.vault)}:${cancelledSendId(session, clientMsgId)}`));
+  if (!record) return;
+  const value = await decryptLocalRecord<{ v: number; item: OutboxItem }>(session, 'preferences', record);
+  if (value?.v !== 1 || !validCancelledSend(session, value.item, clientMsgId)) throw new Error('已取消消息的本机核验记录不正确');
+  return value.item;
+}
+
+/** Cancel durable sending, preserving receive-only evidence for an already accepted echo.
  * Never rewind the MLS ratchet: a generated but unsubmitted generation is skipped. */
 export async function cancelOutboxItem(session:VaultSession,clientMsgId:string,mutation?:VaultMutation):Promise<void>{
   if(!ownsVaultMutation(session,mutation))return withVaultMutation(session,lease=>cancelOutboxItem(session,clientMsgId,lease));
+  const queued = await transaction<StoredLocalRecord | undefined>('outbox', 'readonly', store =>
+    store.get(`${localDataScope(session.vault)}:${clientMsgId}`));
+  const item = queued ? await decryptLocalRecord<OutboxItem>(session, 'outbox', queued) : undefined;
+  if (item?.envelope?.v === 2 && !validCancelledSend(session, item, clientMsgId)) throw new Error('待发消息的本机核验记录不正确');
+  const cancelled = item?.envelope?.v === 2 ? await encryptLocalRecord(session, 'preferences',
+    cancelledSendId(session, clientMsgId), { v: 1, item }) : null;
   const preferences=await loadUiPreferences(session);
   const hidden=new Set(preferences.hiddenChatMessageIds??[]);hidden.add(clientMsgId.toLowerCase());
   if(hidden.size>20_000)throw new Error('本机删除记录超过上限');
@@ -2963,6 +2994,7 @@ export async function cancelOutboxItem(session:VaultSession,clientMsgId:string,m
     putCurrentVault(tx,nextStored,session.stored);
     tx.objectStore('outbox').delete(`${localDataScope(session.vault)}:${clientMsgId}`);
     tx.objectStore('preferences').put(record);
+    if (cancelled) tx.objectStore('preferences').put(cancelled);
     tx.oncomplete=()=>{database.close();session.stored=nextStored;resolve();};
     tx.onabort=()=>{database.close();reject(tx.error??new Error('取消发送未能保存'));};
     tx.onerror=()=>reject(tx.error??new Error('取消发送未能保存'));

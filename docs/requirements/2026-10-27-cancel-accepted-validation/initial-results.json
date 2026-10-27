@@ -1,0 +1,102 @@
+{
+  "baseline": "e176f27eed3ccc9e6084026b6c589bb8fbbcd899",
+  "startedAt": "2026-10-27T01:51:33.763Z",
+  "scope": "synthetic local application, server, MLS and IndexedDB",
+  "cases": [
+    {
+      "engine": "chromium",
+      "mode": "delayed-no-cancel",
+      "acceptedBeforeCancel": true,
+      "peerDecryptedTarget": true,
+      "heldTypes": [
+        "ack",
+        "message",
+        "sync",
+        "sync",
+        "sync"
+      ],
+      "serverTargetCopies": 1,
+      "durableTargetOutboxRemoved": true,
+      "localHidden": false,
+      "targetDurable": true,
+      "priorCursor": 2,
+      "finalCursor": 8,
+      "fatal": null,
+      "bidirectional": true,
+      "blockedAfterPeerSend": false,
+      "afterCancelSubmissions": 0,
+      "pageErrors": []
+    },
+    {
+      "engine": "chromium",
+      "mode": "cancel-before-submit",
+      "acceptedBeforeCancel": false,
+      "peerDecryptedTarget": false,
+      "heldTypes": [],
+      "serverTargetCopies": 0,
+      "durableTargetOutboxRemoved": true,
+      "localHidden": true,
+      "targetDurable": false,
+      "priorCursor": 2,
+      "finalCursor": 5,
+      "fatal": null,
+      "bidirectional": true,
+      "blockedAfterPeerSend": false,
+      "afterCancelSubmissions": 0,
+      "pageErrors": []
+    },
+    {
+      "engine": "chromium",
+      "mode": "cancel-accepted-release",
+      "acceptedBeforeCancel": true,
+      "peerDecryptedTarget": true,
+      "heldTypes": [
+        "ack",
+        "message",
+        "sync",
+        "sync",
+        "sync"
+      ],
+      "serverTargetCopies": 1,
+      "durableTargetOutboxRemoved": true,
+      "localHidden": false,
+      "targetDurable": false,
+      "priorCursor": 2,
+      "finalCursor": null,
+      "fatal": "本机 MLS 待发记录与服务器消息不一致",
+      "bidirectional": false,
+      "blockedAfterPeerSend": true,
+      "afterCancelSubmissions": 0,
+      "pageErrors": []
+    },
+    {
+      "engine": "chromium",
+      "mode": "cancel-accepted-reload",
+      "acceptedBeforeCancel": true,
+      "peerDecryptedTarget": true,
+      "heldTypes": [
+        "ack",
+        "message",
+        "sync",
+        "sync",
+        "sync"
+      ],
+      "serverTargetCopies": 1,
+      "durableTargetOutboxRemoved": true,
+      "localHidden": false,
+      "targetDurable": false,
+      "priorCursor": 2,
+      "finalCursor": null,
+      "fatal": "本机 MLS 待发记录与服务器消息不一致",
+      "bidirectional": false,
+      "blockedAfterPeerSend": true,
+      "afterCancelSubmissions": 0,
+      "pageErrors": []
+    }
+  ],
+  "harnessFailure": {
+    "stage": "webkit/delayed-no-cancel: submit",
+    "name": "AssertionError",
+    "message": "The sender must not have consumed the held target\n\n2 !== 1\n"
+  }
+}
