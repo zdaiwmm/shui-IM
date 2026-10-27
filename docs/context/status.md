@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 实时视频与语音修复 V1：验证及预检通过，待精确发布确认（2026-10-27）
+
+[PR #431](https://github.com/zdaiwmm/shui-IM/pull/431) 已合并为应用 `75b01af61eb26ba1cbe5896881c3c354ead3a443`／`2026.10.27.2`，与冻结源 `264142d` 完整文件树一致。修复未选设备退出误挂、邀请失败与接听竞争、接听准备中取消及待挂载摄像头清理；加密与数据格式、TURN 和部署配置保持。范围、用户确认及失败分类由[通话修复 V1](../requirements/2026-10-27-call-reliability/README.md)拥有。
+
+最终源本地完整 149 文件／1127 单元集成、86/86 浏览器入口及通话专项通过；精确 PR CI attempt 2、[精确应用 main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/40457899410) attempt 1 完整通过。首轮未定位 WebKit 未读 Fetch 诊断仍保留于需求记录。唯一[固定只读预检](https://github.com/zdaiwmm/shui-IM/actions/runs/40459706774)取得精确PREFLIGHT_OK，mode为doctor，实际前版仍是 `608dfea`；没有生产切换，待用户对上述完整应用SHA确认。最近已验证生产仍为下方 `608dfea`，真机、真实公网长通话和独立外审没有新增证据。
+
 ## 待发取消续接 V2 已发布（2026-10-27 11:33）
 
 [PR #428](https://github.com/zdaiwmm/shui-IM/pull/428)合并为应用 `608dfea1e11ba20ddf2456fe380e38ea01230134`／`2026.10.27.1`，与最终源 `d4b6087` 完整文件树一致。取消后持久发送队列不再包含该项；独立加密核验材料仅供已接收消息的迟到回传，正常落盘后原子退役。刷新／重连继续收发，本机隐藏保持；DB16、协议、权限与运维配置未变。

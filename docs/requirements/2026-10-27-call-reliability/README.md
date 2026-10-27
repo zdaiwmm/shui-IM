@@ -2,7 +2,7 @@
 
 ## 身份与确认
 
-- 阶段：正式实施及自动验证；随后按授权交付 PR／CI／合并。生产仍待最终精确应用 SHA 确认。
+- 阶段：修复已通过本地完整验收、PR 与精确应用 main CI、固定只读预检，并合并远端 main。生产仍待最终精确应用 SHA 确认，尚未切换。
 - 规则来源：本机 main `4356531cea264dd01bd9110da90b9ff62cfd7a59` 的 AGENTS／固定流程；已核对最新规则差异。起始基线为 GitHub 实时 main 与本机 origin/main 一致的 `993d01f1750ce598372ca932ad80bae79c5e4e83`，本机 main 较旧。
 - 独立分支 `codex/call-reliability-20261027`；本机目录 `.worktrees/call-reliability-20261027`，由本任务新建，跨电脑须重新核验归属与 HEAD。
 - 本会话用户在只读审计四项问题及分批方案后回复「确认方案，立即实施，完成后合并发布生产」。没有独立消息 permalink。该确认授权本批实施、必要记录和远端交付；未把未产生的提交视为生产精确 SHA 授权。
@@ -32,5 +32,11 @@
 - 扩展定向：控制器、跨层邀请、服务端、弱网及信令队列 5 文件／88 项通过；首次受限执行中 8 项本地监听被 EPERM 阻断，受控权限原样重跑成功，没有修改断言。TypeScript 与生产构建通过。
 - 跨层夹具采用真实 MLS 配对／成员验证、信令加密、确认队列和服务端仲裁，媒体及 socket 为合成；浏览器补充仍由真实页面与认证 WebSocket 验证。
 - 环境：初次 npm 安装因沙箱 DNS 失败，受控权限重试锁定依赖成功；公共 Git 元数据探针同样须受控权限。未改依赖版本或降低安全断言。
-- 待完成：候选冻结、完整本地与通话专项、PR／main CI、只读预检；真实设备与独立外审没有新增证据。生产尚未执行。
+- 最终干净源 `264142d4cc50be1767340ae1e3256bb8f6dbe14d` 的完整本地 `check:full` 通过：149 文件／1127 单元集成、86/86 浏览器入口，0 失败／0 未运行，1668151ms。原生 WebRTC、通话视图及 20 个弱网浏览器场景另通过，109012ms；两项等待替换的摄像头回归还核对迟到结果不能影响下一通。
+- [PR #431](https://github.com/zdaiwmm/shui-IM/pull/431) 已合并为应用 `75b01af61eb26ba1cbe5896881c3c354ead3a443`／`2026.10.27.2`；源与应用完整文件树同为 `0689fe3e9a66abc8e8ce2ed8cb3c43754c26dbc1`。这份独立记录不替换应用 SHA，不修改版本说明或部署配置。
+- [精确 PR CI 40453010499](https://github.com/zdaiwmm/shui-IM/actions/runs/40453010499/attempts/2) attempt 2 成功，包含 Full application verification、真实 TURN UDP／TCP、浏览器和双架构构建。首轮 [WebKit 分片](https://github.com/zdaiwmm/shui-IM/actions/runs/40453010499/job/122019908233) 13 通过／1 失败／7 未运行：`new-room-invite-privacy.e2e.mjs` 捕获未读 Fetch 的原生 access-control 诊断，栈落到 `unread-counter.ts` 的 refresh；未被退出诊断白名单证明。该测试、未读代码、app.ts 与锁文件均未改，历史有同类记录，但根因仍未定位。仅请求一次失败作业原样复验，实际执行完整 attempt 2 并成功；没有改产品或断言，不以绿色抹去原失败。
+- [精确应用 main CI 40457899410](https://github.com/zdaiwmm/shui-IM/actions/runs/40457899410) attempt 1 完整成功，push 事件与上述应用 SHA 一致；Full application verification、各浏览器分片、通话／TURN 与同轮双架构镜像均通过。一次本机 watcher TLS 握手超时只恢复同 Run 跟踪，没有重跑 main CI。
+- 唯一[固定只读预检 40459706774](https://github.com/zdaiwmm/shui-IM/actions/runs/40459706774)取得精确 PREFLIGHT_OK，外层528212ms含既有production审核等待。请求 `342a557f-d6da-4a9e-a75e-e3014ee9cdfc` 经核对为doctor，仅派发一次，应用与工作流来源均为 `75b01af`；只有一次成功preflight调用，没有生产切换。审核接口的字段筛选报类型不匹配后，只回查原Run及待审核数0，未重复审核或派发。
+- 预检实际前版为 `608dfea1e11ba20ddf2456fe380e38ea01230134`；镜像元数据绑定产物12713512874／main CI40457899410／attempt1，到期2026-11-03T05:58:32Z。预检不预载完整镜像，不替代正式发布时字节校验、切换前检查或发布后独立回读。
+- 待完成用户对完整应用 `75b01af61eb26ba1cbe5896881c3c354ead3a443` 的精确发布确认；随后才能固定发布、独立回读及第二树事实对账。真实设备、实际蜂窝／TURN TLS／长公网通话及独立外审没有新增证据。生产尚未执行。
 - 提交前检查：仅文本源码、测试、契约及本记录；不提交依赖、构建产物、合成媒体或凭据。版本说明由固定准备工具生成。
