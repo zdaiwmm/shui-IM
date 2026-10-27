@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+<a id="release-expired-invite-20261027"></a>
+## 失效邀请创建修复已发布（2026-10-27 18:03）
+
+- 用户原先批准 `520f2f7`，其精确 main CI 两轮失败，未执行发布；在测试取样／冷启动验证修正经 [PR #435](https://github.com/zdaiwmm/shui-IM/pull/435) 合并并完整验证后，用户在本会话的确认问题中明确选择「确认改发 e6dfced」，精确授权 `e6dfcedccedd8b8adcea9a97224478c23fd59578`／`2026.10.27.3`。无独立消息 permalink。初次产品修复见 [PR #434](https://github.com/zdaiwmm/shui-IM/pull/434)；失败分类、验证修正与授权由[原需求记录](docs/requirements/2026-10-27-expired-invite-create/README.md)持有。
+- 失效短邀请清理目标后复用正常入口：可正常创建，已有密室仍使用原应用锁，锁定／隐藏后的迟到结果不能覆盖新入口。发布应用的产品、服务端、依赖和版本文件与原 `520f2f7` 相同；后续差异仅两个测试文件与需求记录，保留完整存储／隐私断言。
+- 原冻结源本地149文件／1127项、86/86浏览器入口通过；验证续修的本地 Chromium 一轮／WebKit 三轮专项通过。[精确 PR CI 40480620282](https://github.com/zdaiwmm/shui-IM/actions/runs/40480620282)与[精确 main CI 40482174872](https://github.com/zdaiwmm/shui-IM/actions/runs/40482174872)均 attempt 1 完整通过，Full application verification、通话／TURN及同轮双架构镜像已核对。应用与 PR head `89b328ff2fee58484ec7a1606ff2d54863175a54` 完整文件树同为 `c197bbf3c6e29d631e9f8cf9d25f9490c2b87940`；所有前轮失败继续保留。
+- 固定只读 doctor 验证生产连接、环境／helper、GitHub 与 CI 读取，实际前版为 `75b01af61eb26ba1cbe5896881c3c354ead3a443`。唯一[正式发布 40484081401](https://github.com/zdaiwmm/shui-IM/actions/runs/40484081401)由固定 `publish.mjs --cloud --with-readback --environment production --sha <上述完整SHA>` 核对 DEPLOY_VERIFIED；唯一请求 `bedc4b79-5a7d-41b4-8052-37b0e1c30414` 为 deploy，经既有 production reviewer 权限正常批准，未改变环境保护或云权限。工作流来源与应用均为获批 SHA；云回执2026-10-27T09:53:42.710Z至09:57:35.727Z，外层cloud-publish337778ms含审核等待。
+- 批次 `20261027T095419Z`；linux/amd64 镜像 `sha256:dae2bc3c0c20092914bb0dfd65ebd294860b5de12f471044e7c0013a33f8ae25`，归档 SHA-256 `fd87cbdc97026be74d67ee9d79e00c6fabc168ea77ef3f7136c7c0d16f78982e`、210158113字节，绑定 main CI40482174872／attempt1。原入口核对了完整镜像、标签和精确成功回执。
+- 首次独立回读09:57:52.973Z至09:57:53.957Z，983ms，仅备份starting使validate-state未通过；应用healthy、SHA／镜像一致、维护门absent。核对原5分钟探针／启动期并等待后，只续同SHA的readback-only，最终2026-10-27T10:03:11.500Z至10:03:16.062Z取得READBACK_OK，4559ms；应用与备份running且healthy、TURN运行（探针none），HTTPS／数据库／存储、公开与容器产物及新WebSocket全部一致，管理员与通话启用。回读续跑未额外重启、切换或变更运维配置。
+- 脱敏组合证据位于公共Git目录 `quiet-room-deliveries/evidence/expired-invite-20261027/production-summary.json`，包含两个原main CI失败的定位、唯一发布及首次失败／最终成功回读。此独立记录树不含部署配置；对账文档提交不替换线上应用SHA，也不触发再次发布。资源按固定脚本核验，活动目录、缓存／专属回执及未知未跟踪内容按实际结果保留；清理回执与本机交接记录持有结果。真实iPhone／iOS27／Safari及独立外审没有新增证据。
+
 <a id="release-call-reliability-20261027"></a>
 ## 实时视频与语音通话修复已发布（2026-10-27 14:41）
 

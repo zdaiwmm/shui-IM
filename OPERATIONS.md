@@ -2,6 +2,12 @@
 
 This service can preserve confidentiality when storage is disclosed, but availability and recovery still depend on ordinary operations. A backup that has never been restored is not a recovery plan.
 
+## Trusted proxy rollout
+
+The public nginx configuration replaces X-Forwarded-For with `$remote_addr`, matching the administrator origin. The application accepts one valid forwarded IP only when the immediate socket peer is in TRUSTED_PROXY_ADDRESSES; chains or malformed values fall back to that peer. Canonical IPv6 and IPv4-mapped IPv6 share the corresponding bucket. Preserve the existing request/connection edge limits. See the [application contract](SECURITY.md#current-scope-and-abuse-control-contract).
+
+Before installing a reviewed proxy change, determine the actual nginx-to-container socket address and any upstream proxy topology. Do not add arbitrary public clients or entire networks as trusted peers, or assume loopback is the observed container peer. A separately trusted upstream must supply nginx with a verified client address; do not enable a general client-controlled real-IP header. Run the real nginx configuration check before reload, then verify same-source forged XFF requests share admission and real distinct sources remain distinct. Repository/static tests do not prove this installed chain; an application-only release does not establish that nginx configuration was updated. This task has not installed or reloaded production nginx.
+
 ## Capacity governance
 
 The bounded host tool `deploy/server/quiet-room-capacity` exposes `preflight`,
