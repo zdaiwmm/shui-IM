@@ -2,7 +2,7 @@
 
 ## 身份与当前阶段
 
-- 阶段：用户已确认套餐、独立部署方案、域名及账户升级；AWS 付费升级向导已推进至添加付款方式，等待用户本人完成付款资料与验证。高级功能尚未激活；尚未购买实例、部署应用或改动 DNS。
+- 阶段：用户已完成 AWS 付费账户升级，成功页面及高级功能表单已核对；高级功能激活页等待用户指定管理邮箱并完成验证。尚未购买实例、部署应用或改动 DNS。
 - 规则来源／起始基线：`7516e8e49959f7b24a5bfb305e5aa820191c4931`；开工时本机 main、origin/main 与 GitHub main 一致。
 - 本任务分支：`codex/aws-tokyo-public-20261027`；独立工作树 `aws-tokyo-public-20261027`，共享主目录只读。
 - 类型：基础设施与部署，无产品页面变化；原型和页面业务流程不适用。
@@ -32,7 +32,9 @@
 - 当前 AWS 是新注册体验的受管理项目，项目默认地区为悉尼。东京 Lightsail 页面返回 403；GetBundles、GetBlueprints、GetInstances、GetKeyPairs、GetRegions 被上层服务控制策略明确拒绝。未尝试更换身份或绕过策略。
 - AWS 官方[项目地区说明](https://docs.aws.amazon.com/accounts/latest/reference/project-regions.html)规定，这种项目按联系地址分配固定地区；使用其他地区需激活高级功能。
 - [付费计划升级](https://docs.aws.amazon.com/accounts/latest/reference/upgrade-account.html)不可撤回，单独升级付费计划不提供高级功能；[激活高级功能](https://docs.aws.amazon.com/accounts/latest/reference/activate-advanced-features.html)需先升级，激活亦不可撤回，会移除项目费用硬上限，并需要管理账户邮箱验证及 root 密码设置。用户已在知悉这些影响后确认继续，凭据设置由用户本人完成。
-- 升级向导填写月度支出限额 24 美元，未启用会提前暂停运行中资源的额外早期成本控制。当前停在第 3 步“添加付款方式”，未填入付款或身份资料、未提交升级。此向导限额不代表高级功能激活后仍存在费用硬上限。
+- 升级向导填写月度支出限额 24 美元，未启用会提前暂停运行中资源的额外早期成本控制。2026-10-27 用户完成付款设置并回报“账户已经升级好了”；浏览器 `/billing/upgrade/complete` 显示付款方式添加成功及设置完成，高级功能表单已可编辑。付款、身份及验证资料未进入本记录。
+- 当前接续位置为 `/projects/activate-advanced`：AWS 提示登录邮箱已关联其他账户，需要另一个尚未绑定 AWS 账户的管理邮箱。用户须自行选定并验证邮箱；不能替用户臆造管理账户地址。当前 24 美元向导限额不代表高级功能激活后仍存在费用硬上限。
+- 精确 CI 的 AMD64／ARM64 两份镜像产物仍存在且未过期；尚未下载、导入或启动镜像。
 
 ## 验收与接续
 
