@@ -1,35 +1,73 @@
 import { spawnSync, execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, readdirSync, writeFileSync, renameSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { release } from 'node:os';
+import { createRequire } from 'node:module';
 import { isMainModule } from './release-runtime.mjs';
 
 const allowed = new Set(['build', 'test', 'check', 'check:full', 'test:browser', 'test:calls', 'test:calls:e2e', 'test:weak-network']);
-export function summarize(records, head, tree) {
-  return { version: 1, head, tree, checks: records.filter(r => r.version === 1 && allowed.has(r.command)
+function validRecord(r) {
+  return r?.version === 1 && allowed.has(r.command)
     && /^[a-f0-9]{40}$/.test(r.head) && /^[a-f0-9]{40}$/.test(r.tree)
     && typeof r.clean === 'boolean' && Number.isSafeInteger(r.durationMs) && r.durationMs >= 0
-    && ['passed', 'failed', 'interrupted'].includes(r.result) && typeof r.startedAt === 'string' && /^\d{4}-\d{2}-\d{2}T[0-9:.]+Z$/.test(r.startedAt))
+    && ['passed', 'failed', 'interrupted'].includes(r.result) && typeof r.startedAt === 'string'
+    && /^\d{4}-\d{2}-\d{2}T[0-9:.]+Z$/.test(r.startedAt) && Number.isFinite(Date.parse(r.startedAt));
+}
+export function executionFingerprint(root, environment = process.env) {
+  const digest = value => createHash('sha256').update(value).digest('hex');
+  const identity = file => {
+    try { const s = statSync(file); return [file, s.size, s.mtimeMs, s.ctimeMs]; } catch { return [file, 'unavailable']; }
+  };
+  const npm = execFileSync('npm', ['--version'], { cwd: root, encoding: 'utf8', timeout: 10_000 }).trim();
+  const files = [process.execPath, path.join(root, 'node_modules/.package-lock.json'),
+    environment.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'];
+  try {
+    const { chromium, webkit } = createRequire(path.join(root, 'package.json'))('playwright');
+    files.push(chromium.executablePath(), webkit.executablePath());
+  } catch { files.push(path.join(root, 'node_modules/playwright-unavailable')); }
+  // Only the aggregate digest is saved: no environment values, credentials or
+  // local browser/key paths are written into evidence or logs.
+  return digest(JSON.stringify({ node: process.version, npm, platform: process.platform,
+    arch: process.arch, kernel: release(), files: files.map(identity),
+    environment: digest(JSON.stringify(Object.entries(environment).sort(([a], [b]) => a.localeCompare(b)))) }));
+}
+export function reusableRecord(records, command, head, tree, fingerprint) {
+  // Never fall back past a newer failed, dirty, foreign-environment or legacy
+  // result for the same command. CI and production proof are never reused here.
+  const latest = records.findLast(record => record?.command === command);
+  return allowed.has(command) && /^[a-f0-9]{64}$/.test(fingerprint ?? '')
+    && validRecord(latest) && latest.head === head && latest.tree === tree
+    && latest.clean === true && latest.result === 'passed'
+    && latest.executionFingerprint === fingerprint ? latest : undefined;
+}
+export function summarize(records, head, tree, fingerprint) {
+  return { version: 1, head, tree, checks: records.filter(validRecord)
     .map(r => ({ command: r.command, head: r.head, tree: r.tree, clean: r.clean, startedAt: r.startedAt,
-      durationMs: r.durationMs, result: r.result, applicable: r.clean && r.tree === tree })),
+      durationMs: r.durationMs, result: r.result, applicable: r.clean && r.tree === tree,
+      reusable: Boolean(reusableRecord(records, r.command, head, tree, fingerprint) === r) })),
     ci: 'not queried', merged: 'not queried', production: 'not queried', realDevice: 'not verified' };
 }
 function evidenceFiles(directory) {
   return readdirSync(directory).filter(name => /^[0-9a-f-]+\.json$/.test(name)).sort((a, b) => statSync(path.join(directory, a)).mtimeMs - statSync(path.join(directory, b)).mtimeMs);
 }
 export function deliveryEvidence(args, root = process.cwd()) {
-  if (!((args.length === 1 || args.length === 2 && args[1] === '--remote') && args[0] === 'summary') && !(args.length === 2 && args[0] === 'run' && allowed.has(args[1]))) throw new Error('Usage: delivery:evidence -- run <allowed npm script> | summary');
+  if (!((args.length === 1 || args.length === 2 && args[1] === '--remote') && args[0] === 'summary') && !(args.length === 2 && ['run', 'ensure'].includes(args[0]) && allowed.has(args[1]))) throw new Error('Usage: delivery:evidence -- run|ensure <allowed npm script> | summary');
   const git = (...values) => execFileSync('git', values, { cwd: root, encoding: 'utf8' }).trim();
   const head = git('rev-parse', 'HEAD'), tree = git('rev-parse', 'HEAD^{tree}');
   const clean = !git('status', '--porcelain');
   const directory = path.join(git('rev-parse', '--absolute-git-dir'), 'quiet-room-delivery-evidence');
   mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const fingerprint = executionFingerprint(root);
+  const records = evidenceFiles(directory).slice(-200).flatMap(name => {
+    try {
+      const record = JSON.parse(readFileSync(path.join(directory, name), 'utf8'));
+      return [validRecord(record) ? record : { command: args[1], result: 'invalid' }];
+    } catch { return [{ command: args[1], result: 'invalid' }]; }
+  });
   if (args[0] === 'summary') {
-    const records = evidenceFiles(directory).slice(-200).flatMap(name => {
-      try { return [JSON.parse(readFileSync(path.join(directory, name), 'utf8'))]; } catch { return []; }
-    });
-    const result = summarize(records, head, tree);
-    if (!clean) result.checks.forEach(check => { check.applicable = false; });
+    const result = summarize(records, head, tree, fingerprint);
+    if (!clean) result.checks.forEach(check => { check.applicable = false; check.reusable = false; });
     if (args[1] === '--remote') {
       // Read only GitHub metadata. Select fields explicitly; never persist API payloads or logs.
       const gh = values => JSON.parse(execFileSync('gh', values, { cwd: root, encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] }));
@@ -44,10 +82,18 @@ export function deliveryEvidence(args, root = process.cwd()) {
     }
     console.log(JSON.stringify(result, null, 2)); return result;
   }
+  const reusable = clean && reusableRecord(records, args[1], head, tree, fingerprint);
+  if (args[0] === 'ensure' && reusable) {
+    console.log(`DELIVERY_EVIDENCE_REUSED command=${args[1]} head=${head} started_at=${reusable.startedAt}`);
+    process.exitCode = 0;
+    return reusable;
+  }
   const startedAt = new Date().toISOString(), started = performance.now();
   const run = spawnSync('npm', ['run', args[1]], { cwd: root, stdio: 'inherit' });
-  const unchanged = clean && !git('status', '--porcelain') && head === git('rev-parse', 'HEAD');
+  const unchanged = clean && !git('status', '--porcelain') && head === git('rev-parse', 'HEAD')
+    && fingerprint === executionFingerprint(root);
   const result = { version: 1, head, tree, clean: unchanged, command: args[1], startedAt,
+    executionFingerprint: fingerprint,
     durationMs: Math.round(performance.now() - started), result: run.signal ? 'interrupted' : run.status === 0 && !run.error ? 'passed' : 'failed' };
   const file = path.join(directory, `${randomUUID()}.json`), temp = `${file}.tmp`;
   writeFileSync(temp, JSON.stringify(result, null, 2) + '\n', { mode: 0o600 }); renameSync(temp, file);
