@@ -205,6 +205,8 @@ CI 镜像与双独立环境：`scripts/ci-image.mjs`、`scripts/deploy-config.mj
 
 ### 邀请、恢复及接入状态定向回归
 
+失效短邀请沿正常入口恢复首页或原应用锁，由 `tests/fixtures/expired-invite-entry.mjs` 随 `tests/new-room-invite-privacy.e2e.mjs` 在 Chromium／WebKit 检查失败反馈、真实创建、原保险库保留及锁定／隐藏后的迟到响应。确认与证据见[失效邀请创建修复 V1](../requirements/2026-10-27-expired-invite-create/README.md)。
+
 Chamber聊天卡片随键盘滚动、透明浮动顶栏、加入前样式门禁、时长半屏及遮蔽演练对齐由`tests/chamber-chat-ui.e2e.mjs`覆盖真实组件；`tests/chamber-flow.e2e.mjs`另覆盖邀请方停留设置、丢失连接后的加密接续及首次聊天节点保留。确认和证据见[聊天接续V1](../requirements/2026-10-18-chamber-chat-continuity/README.md)，合成视口不代表iPhone真机。
 
 `tests/audit-interactions.e2e.mjs` 使用本地合成服务、独立浏览器密钥和虚拟认证器，覆盖同标签邀请取消重开、恢复读取重试／关闭／限流／隐藏、添加设备批准自动安装、锁定续接、返回草稿与设备撤销发送守卫；已纳入 `npm run test:browser` 第二组。可附目录参数保存脱敏截图；不代表 iPhone 真机或跨平台通行密钥同步验证。
