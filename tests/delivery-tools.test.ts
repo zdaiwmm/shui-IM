@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, rmSync, utimesSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -96,5 +96,18 @@ describe('local verification reuse', () => {
       expect(readFileSync(path.join(root, '.git/count'), 'utf8')).toBe('xxx');
       expect(deliveryEvidence(['summary'], root).checks.every((check: any) => !check.reusable)).toBe(true);
     } finally { process.exitCode = previousExitCode; rmSync(root, { recursive: true, force: true }); }
+  });
+  it('ignores metadata-only touches while invalidating changed execution bytes', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'quiet-identity-'));
+    try {
+      mkdirSync(path.join(root, 'node_modules'));
+      const lock = path.join(root, 'node_modules/.package-lock.json');
+      writeFileSync(lock, '{"installed":1}');
+      const before = executionFingerprint(root);
+      utimesSync(lock, new Date('2020-01-01'), new Date('2020-01-01'));
+      expect(executionFingerprint(root)).toBe(before);
+      writeFileSync(lock, '{"installed":2}');
+      expect(executionFingerprint(root)).not.toBe(before);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

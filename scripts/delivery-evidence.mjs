@@ -1,5 +1,5 @@
 import { spawnSync, execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, readdirSync, writeFileSync, renameSync, statSync, unlinkSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, writeFileSync, renameSync, realpathSync, statSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { release } from 'node:os';
@@ -17,11 +17,14 @@ function validRecord(r) {
 export function executionFingerprint(root, environment = process.env) {
   const digest = value => createHash('sha256').update(value).digest('hex');
   const identity = file => {
-    try { const s = statSync(file); return [file, s.size, s.mtimeMs, s.ctimeMs]; } catch { return [file, 'unavailable']; }
+    // macOS may update browser ctime when launching an unchanged signed app.
+    // Bind actual bytes and symlink destination, not mutable filesystem metadata.
+    try { return [file, realpathSync(file), digest(readFileSync(file))]; } catch { return [file, 'unavailable']; }
   };
   const npm = execFileSync('npm', ['--version'], { cwd: root, encoding: 'utf8', timeout: 10_000 }).trim();
   const files = [process.execPath, path.join(root, 'node_modules/.package-lock.json'),
     environment.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'];
+  if (files[2].includes('.app/Contents/MacOS/')) files.push(path.join(path.dirname(path.dirname(files[2])), 'Info.plist'));
   try {
     const { chromium, webkit } = createRequire(path.join(root, 'package.json'))('playwright');
     files.push(chromium.executablePath(), webkit.executablePath());
