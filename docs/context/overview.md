@@ -30,6 +30,8 @@ Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请�
 
 # Quiet Room 项目地图
 
+待发取消与迟到回传：`src/lib/vault.ts`原子移除待发并另存本人设备绑定、只供接收核验的加密记录，`app.ts`正常本人回传落盘后原子退役；旧客户端不会把该记录当待发送项。专项`tests/cancelled-send.e2e.mjs`覆盖真实双端MLS、提交前／后取消、刷新／重连、事务中断及篡改拒绝，已注册浏览器门禁。修复前失败、授权与兼容限制见[本次记录](../requirements/2026-10-27-cancel-accepted-validation/README.md)。
+
 PC 八项与 macOS：`src/pc-layout.css`、`app.ts`修复桌面页几何和输入底色；`own-room-access.ts`与独立`own-admission`服务器邮箱实现本人已发现密室申请，复用原成对认证与 MLS 加入。`tests/pc-room-access.e2e.mjs`覆盖实际链路；`desktop/macos`及`npm run build:macos`生成本机独立包。范围与平台缺口见[需求 V1](../requirements/2026-10-26-pc-eight-macos/README.md)。
 
 本人设备目录：`src/lib/own-space-directory.ts`、`server/own-space-directory.mjs`，同角色设备逐端加密/签名同步有界目录元数据；发现目录不授权成员或历史，列表移除保留已有数据。契约由`PRODUCT.md`、`NEW_ROOM_ARCHIVES.md`、`SECURITY.md`拥有，单元为`tests/own-space-directory.test.ts`，真实双浏览器回归由`tests/spaces.e2e.mjs`中的`tests/fixtures/own-space-directory.mjs`执行。系统媒体会话清理由`src/lib/system-media-session.ts`统一处理，实际iOS锁屏卡片需另验。

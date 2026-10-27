@@ -1,4 +1,4 @@
-// Local diagnostic only. Actual product remains untouched; all identities are disposable.
+// Real-server cancellation regression. Only transport timing is controlled; all identities are disposable.
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -9,9 +9,10 @@ import { createServer } from 'vite';
 import { startServer } from '../server/index.mjs';
 
 const directory = await mkdtemp(path.join(tmpdir(), 'quiet-cancel-accepted-'));
-const output = path.resolve('docs/requirements/2026-10-27-cancel-accepted-validation/results.json');
+const output = process.env.QR_CANCEL_RESULT ? path.resolve(process.env.QR_CANCEL_RESULT) : null;
+const save = () => output ? writeFile(output, JSON.stringify(results, null, 2) + '\n') : Promise.resolve();
 const results = { baseline: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
-  fixtureRevision: 'V1.1', startedAt: new Date().toISOString(), scope: 'synthetic local application, server, MLS and IndexedDB', cases: [] };
+  fixtureRevision: 'V2', startedAt: new Date().toISOString(), scope: 'synthetic local application, server, MLS and IndexedDB', cases: [] };
 let service, vite, browser, stage = 'setup';
 
 const ready = page => page.waitForFunction(() => window.auditApp?.connectionState === 'connected'
@@ -56,7 +57,7 @@ try {
   const origin = `http://127.0.0.1:${vite.httpServer.address().port}`;
   for (const [engineName, engine] of Object.entries({ chromium, webkit })) {
     browser = await engine.launch(engineName === 'chromium' && !process.env.CI ? { channel: 'chrome' } : {});
-    for (const mode of ['delayed-no-cancel', 'cancel-before-submit', 'cancel-accepted-release', 'cancel-accepted-reload']) {
+    for (const mode of ['delayed-no-cancel', 'cancel-before-submit', 'cancel-accepted-release', 'cancel-accepted-reload', 'cancel-accepted-reconnect', 'cancel-accepted-conflict']) {
       stage = `${engineName}/${mode}: pair`;
       const contexts = await Promise.all([browser.newContext(), browser.newContext()]);
       try {
@@ -68,6 +69,13 @@ try {
         const errors = [];
         for (const page of [peer, sender]) { page.setDefaultTimeout(15000); page.on('pageerror', error => errors.push(error.message)); }
         const gate = { armed: false, id: null, held: [], submitted: 0, cancelled: false, afterCancelSubmissions: 0 };
+        const incoming = raw => {
+          if (mode !== 'cancel-accepted-conflict') return raw;
+          const frame = JSON.parse(String(raw));
+          const targets = frame.type === 'message' ? [frame] : frame.type === 'sync' ? frame.messages ?? [] : [];
+          for (const message of targets) if (message.envelope.clientMsgId === gate.id) message.envelope.signature += 'A';
+          return JSON.stringify(frame);
+        };
         await sender.routeWebSocket('**/ws', route => {
           const server = route.connectToServer();
           route.onMessage(raw => {
@@ -85,7 +93,7 @@ try {
               || frame.type === 'message' && frame.envelope.clientMsgId === gate.id
               || frame.type === 'sync' && frame.messages?.some(message => message.envelope.clientMsgId === gate.id));
             if (gate.armed && target) gate.held.push({ route, raw, type: frame.type });
-            else route.send(raw);
+            else route.send(incoming(raw));
           });
         });
         await peer.goto(origin); await peer.locator('#create-room').click(); await peer.locator('#copy-invite').waitFor();
@@ -118,20 +126,83 @@ try {
           assert.ok(beforeCancel.lastSeq < targetSeq, 'The receive cursor must not cross the held target');
         }
         stage = `${engineName}/${mode}: cancel/release`;
+        let rollback = null;
+        if (mode === 'cancel-before-submit') {
+          rollback = await sender.evaluate(async id => {
+            const v = await import('/src/lib/vault.ts'), session = auditApp.session;
+            const original = IDBDatabase.prototype.transaction;
+            let injected = false, rejected = false;
+            IDBDatabase.prototype.transaction = function(stores, ...args) {
+              const tx = original.call(this, stores, ...args);
+              if (args[0] === 'readwrite' && Array.isArray(stores) && stores.includes('outbox') && stores.includes('preferences')) {
+                injected = true; IDBDatabase.prototype.transaction = original; queueMicrotask(() => tx.abort());
+              }
+              return tx;
+            };
+            try { await v.cancelOutboxItem(session, id); } catch { rejected = true; }
+            finally { IDBDatabase.prototype.transaction = original; }
+            const kept = (await v.loadOutbox(session)).find(item => item.clientMsgId === id);
+            window.cancelStaleSession = { ...session, stored: structuredClone(session.stored), vault: structuredClone(session.vault) };
+            window.cancelStaleItem = kept;
+            return { injected, rejected, outboxKept: Boolean(kept),
+              noJournal: !await v.loadCancelledSend(session, id), noHidden: !(await v.loadUiPreferences(session)).hiddenChatMessageIds?.includes(id) };
+          }, id);
+          assert.deepEqual(rollback, { injected: true, rejected: true, outboxKept: true, noJournal: true, noHidden: true });
+        }
         if (mode !== 'delayed-no-cancel') {
           await cancelThroughUI(sender, id); gate.cancelled = true;
           const cancelled = await local(sender);
           assert.equal(cancelled.outbox.includes(id), false);
           assert.ok(cancelled.hidden.includes(id));
           assert.equal(cancelled.history.some(message => message.id === id), false);
+          assert.equal(await sender.evaluate(async id => Boolean(await (await import('/src/lib/vault.ts')).loadCancelledSend(auditApp.session, id)), id), true);
+          if (mode === 'cancel-before-submit') {
+            const staleRejected = await sender.evaluate(async () => {
+              try { await (await import('/src/lib/vault.ts')).saveOutboxItem(window.cancelStaleSession, window.cancelStaleItem); return false; }
+              catch { return true; }
+            });
+            assert.equal(staleRejected, true, 'An old writer must not recreate cancelled sending work');
+          }
+          if (mode === 'cancel-accepted-release') {
+            const targetSeq = service.store.getMessageByClientId(roomId, id).seq;
+            rollback = await sender.evaluate(async ({ id, seq }) => {
+              const v = await import('/src/lib/vault.ts'), session = auditApp.session;
+              const item = await v.loadCancelledSend(session, id), before = session.vault.lastSeq;
+              const original = IDBDatabase.prototype.transaction;
+              let injected = false, rejected = false;
+              IDBDatabase.prototype.transaction = function(stores, ...args) {
+                const tx = original.call(this, stores, ...args);
+                if (args[0] === 'readwrite' && Array.isArray(stores) && stores.includes('history') && stores.includes('preferences')) {
+                  injected = true; IDBDatabase.prototype.transaction = original; queueMicrotask(() => tx.abort());
+                }
+                return tx;
+              };
+              try {
+                await v.withVaultMutation(session, async mutation => {
+                  session.vault.lastSeq = seq;
+                  try { await v.commitMlsReceive(session, { seq, clientMsgId: id, senderId: item.envelope.senderId,
+                    payload: item.payload, acceptedAt: item.createdAt, status: 'stored' }, session.vault.mls.groupState, undefined, mutation); }
+                  catch (cause) { session.vault.lastSeq = before; throw cause; }
+                });
+              } catch { rejected = true; }
+              finally { IDBDatabase.prototype.transaction = original; }
+              const reopened = await v.unlockVault(await (await import('/src/lib/browser-room-key.ts')).browserRoomKey());
+              return { injected, rejected, historyAbsent: !(await v.loadHistoryMessage(reopened, seq)),
+                journalKept: Boolean(await v.loadCancelledSend(reopened, id)), cursorKept: reopened.vault.lastSeq === before };
+            }, { id, seq: targetSeq });
+            assert.deepEqual(rollback, { injected: true, rejected: true, historyAbsent: true, journalKept: true, cursorKept: true });
+          }
         }
         const heldTypes = gate.held.map(item => item.type);
         gate.armed = false;
         if (mode === 'cancel-accepted-reload' || mode === 'cancel-before-submit') {
           gate.held = [];
           await sender.reload();
+        } else if (mode === 'cancel-accepted-reconnect') {
+          gate.held = [];
+          await sender.evaluate(() => auditApp.socket.socket.close());
         } else {
-          for (const item of gate.held.splice(0)) item.route.send(item.raw);
+          for (const item of gate.held.splice(0)) item.route.send(incoming(item.raw));
         }
         await sender.waitForFunction(() => document.querySelector('#fatal-message')
           || auditApp.session && !auditApp.outbox.size && [...auditApp.messages.values()].some(message => message.payload.text === 'SYNTHETIC target')
@@ -141,9 +212,10 @@ try {
         if (accepted) await sender.waitForFunction(id => document.querySelector('#fatal-message')
           || [...auditApp.messages.values()].some(message => message.clientMsgId === id), id, { polling: 100 });
         let snapshot = await local(sender);
+        const conflict = mode === 'cancel-accepted-conflict';
         let bidirectional = false, blockedAfterPeerSend = false;
         stage = `${engineName}/${mode}: subsequent delivery`;
-        if (!snapshot.fatal) {
+        if (!snapshot.fatal && !conflict) {
           await ready(sender);
           await submit(sender, 'SYNTHETIC after sender'); await peer.getByText('SYNTHETIC after sender', { exact: true }).waitFor();
           await submit(peer, 'SYNTHETIC after peer'); await sender.getByText('SYNTHETIC after peer', { exact: true }).waitFor();
@@ -159,30 +231,45 @@ try {
           durableTargetOutboxRemoved: !snapshot.outbox.includes(id), localHidden: snapshot.hidden.includes(id),
           targetDurable: snapshot.history.some(message => message.id === id), priorCursor: before.lastSeq, finalCursor: snapshot.lastSeq,
           runtimePresent: snapshot.runtimePresent, fatal: snapshot.fatal, bidirectional, blockedAfterPeerSend, afterCancelSubmissions: gate.afterCancelSubmissions,
-          pageErrors: [...errors] };
+          pageErrors: [...errors], rollback };
+        const journal = await sender.evaluate(async id => {
+          const v = await import('/src/lib/vault.ts');
+          const session = auditApp.session ?? await v.unlockVault(await (await import('/src/lib/browser-room-key.ts')).browserRoomKey());
+          return Boolean(await v.loadCancelledSend(session, id));
+        }, id);
+        row.journalRetained = journal;
         if (mode === 'cancel-before-submit') {
           assert.equal(row.serverTargetCopies, 0); assert.equal(await peer.getByText('SYNTHETIC target', { exact: true }).count(), 0);
           assert.equal(row.localHidden, true); assert.equal(row.targetDurable, false);
         } else assert.equal(row.serverTargetCopies, 1);
-        if (mode === 'delayed-no-cancel' || mode === 'cancel-before-submit') {
+        if (!conflict) {
           assert.equal(row.fatal, null); assert.equal(row.bidirectional, true);
+          assert.equal(journal, mode === 'cancel-before-submit', 'Only an unresolved cancelled send keeps receive-only material');
+          if (mode !== 'delayed-no-cancel') {
+            assert.equal(row.localHidden, true);
+            assert.equal(await sender.locator(`.message[data-client-msg-id="${id}"]`).count(), 0, 'Accepted cancellation must stay hidden');
+          }
+        } else {
+          assert.equal(row.fatal, '本机 MLS 待发记录与服务器消息不一致');
+          assert.equal(row.targetDurable, false); assert.equal(journal, true);
         }
         assert.equal(row.afterCancelSubmissions, 0); assert.deepEqual(errors, []);
         results.cases.push(row);
-        await writeFile(output, JSON.stringify(results, null, 2) + '\n');
+        await save();
         console.log(JSON.stringify(row));
       } finally { for (const context of contexts) await context.close(); }
     }
     await browser.close(); browser = null;
   }
   results.completedAt = new Date().toISOString();
-  results.observedFailures = results.cases.filter(row => row.fatal || !row.bidirectional).length;
-  console.log(`DIAGNOSTIC_COMPLETE ${results.cases.length} cases; ${results.observedFailures} observed product failures (not a product pass).`);
+  results.expectedConflictRejections = results.cases.filter(row => row.mode === 'cancel-accepted-conflict' && row.fatal).length;
+  assert.equal(results.cases.length, 12); assert.equal(results.expectedConflictRejections, 2);
+  console.log(`PASS cancelled sends: 10 continued bidirectional scenarios, 2 authenticated conflict rejections, atomic rollback and stale-writer fences.`);
 } catch (error) {
   results.harnessFailure = { stage, name: error.name, message: error.message };
   throw error;
 } finally {
-  await writeFile(output, JSON.stringify(results, null, 2) + '\n');
+  await save();
   await browser?.close(); await vite?.close(); await service?.close();
   await rm(directory, { recursive: true, force: true });
 }

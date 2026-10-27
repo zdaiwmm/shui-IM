@@ -4,7 +4,7 @@ import { ArchiveBackupController, readArchiveBackupSnapshot } from './lib/archiv
 import { RoomRuntime } from './lib/room-runtime';
 import { mountSubmissionFeedback } from './lib/ui-notice';
 import { updateTabUnread } from './lib/tab-unread';
-import { cancelOutboxItem, hasOutboxItem } from './lib/vault';
+import { cancelOutboxItem, hasOutboxItem, loadCancelledSend } from './lib/vault';
 import { RefreshCw } from 'lucide';
 import { compareOutboxItems } from './lib/outbox-order';
 import { mountRoomCreation } from './lib/room-creation-view';
@@ -6096,7 +6096,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
         try {
           if (serverMessage.envelope.v === 2) {
             if (ownDevice) {
-              const queued = this.outbox.get(serverMessage.envelope.clientMsgId);
+              const queued = this.outbox.get(serverMessage.envelope.clientMsgId)
+                ?? await loadCancelledSend(session, serverMessage.envelope.clientMsgId);
               if (!queued?.envelope || canonicalStringify(queued.envelope) !== canonicalStringify(serverMessage.envelope)) {
                 throw new Error('本机 MLS 待发记录与服务器消息不一致');
               }
