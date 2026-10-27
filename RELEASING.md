@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+<a id="release-restore-original-cleanup-20261027"></a>
+## 恢复失败原件清理 R2：已合并，等待精确提交发布确认（2026-10-27）
+
+- 用户在小范围验证确认残留会阻挡恢复后，明确要求修复、合并及发布；[需求R2](docs/requirements/2026-10-27-restore-failure-validation/README.md)保存范围、失败历史和证据边界。本次应用目标固定为`926a786e3e20c9148c8df805643c62fdd9edb9c7`／`2026.10.26.3`，尚待用户确认完整SHA，当前没有生产切换或新应用回读结论。
+- [PR #425](https://github.com/zdaiwmm/shui-IM/pull/425)已合并，完整文件树`9f26f1a60bdf18ee5696f6316292332efb940767`与最终源`9246fe5f585e426f2d166f5d3417868c7ff5e82f`一致。采用单份原件、独立run／来源范围与小型归属见证，验证后原子发布消息、原件引用及目录；取消与失败清理本次未发布原件，保留已有副本、其修复及并发写入。密码格式、权限、数据库版本、页面、备份调度与运维保持。
+- 最终干净源完整本地门禁通过：148文件／1114单元、85/85浏览器入口，0失败／0未运行，1558905ms；含25恢复用例、两引擎各7类清理保护、无锁并发取消与旧版兼容。原生持久8MiB完整恢复通过，5MiB大失败回收及后续一次小恢复通过；旧候选内存配额诊断与跨库复制失败不被后续绿色抹去。
+- [精确PR完整CI 40421681687](https://github.com/zdaiwmm/shui-IM/actions/runs/40421681687)及[精确应用main完整CI 40424742449](https://github.com/zdaiwmm/shui-IM/actions/runs/40424742449)均attempt 1成功，Full application verification及双架构镜像构建通过。纯记录提交不替代应用提交，不以文档CI发布应用。
+- 唯一[只读预检40426096627](https://github.com/zdaiwmm/shui-IM/actions/runs/40426096627)经既有production正常审核取得精确PREFLIGHT_OK；请求`66c71ca1-c9ed-4ba0-a4da-780bb1f67cf8`为doctor，工作流来源与应用均为`926a786`，外层120197ms含审核等待。预检绑定产物12699591161／main CI 40424742449／attempt 1，到期2026-11-03T00:16:13Z；正式入口仍须下载并核对镜像字节与标签。预检读到前版`9cf771de91598370bc77c1e73128ef5889b8a092`，不代表本目标已上线。
+- 准备证据保存在公共Git目录`quiet-room-deliveries/evidence/restore-original-cleanup-20261027/pre-release-summary.json`。确认精确SHA后使用固定cloud with-readback入口，取得精确DEPLOY_VERIFIED及独立READBACK_OK后再对账和清理；失败仅续跑对应后置步骤。浏览器底层回收不保证即时，真机、触控取消、物理磁盘耗尽与外审未验证，WebKit配额为受控事务故障。
+
+
 <a id="release-room-runtime-archive-20261027"></a>
 ## 房间运行与归档 V1 已发布（2026-10-27 02:33）
 
