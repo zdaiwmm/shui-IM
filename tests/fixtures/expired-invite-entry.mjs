@@ -80,14 +80,23 @@ export async function verifyExpiredInviteEntry(browser, baseUrl) {
     await page.locator('#create-room').tap();
     await page.locator('#copy-invite').waitFor();
     assert.equal(creations, 1, 'Creating after a failed invitation must create exactly one room');
+    await page.waitForFunction(() => window.invitePrivacyServices?.session === app.session);
     const original = await page.evaluate(async () => {
+      await window.invitePrivacyServices.promise;
       const keys = await import('/src/lib/browser-room-key.ts');
       const protection = await import('/src/lib/password-protection.ts');
       const vaults = await import('/src/lib/vault.ts');
       await keys.protectBrowserRoomKey(await protection.deriveNumericPasswordCredential('927451'));
       app.roomLockEnabled = true;
+      const room = app.session.vault.roomId;
+      // The baseline belongs to the locked entry, after authorized background
+      // writes and privacy teardown, rather than the previous live runtime.
+      localStorage.setItem('quiet-room:cover-enabled', '1');
+      app.lockNow();
+      await app.preferenceSaveChain;
+      const stored = JSON.stringify(await vaults.readStoredVault());
       localStorage.setItem('quiet-room:cover-enabled', '0');
-      return { room: app.session.vault.roomId, stored: JSON.stringify(await vaults.readStoredVault()) };
+      return { room, stored };
     });
 
     // Cold entry with a durable vault must use its ordinary lock screen. The
