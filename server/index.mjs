@@ -7,6 +7,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { createStore } from './storage.mjs';
 import { verifyPersonalDeviceBinding } from './personal-protocol.mjs';
 import { createAdminConsole } from './admin.mjs';
+import { createClientAddress, createRequestLimiter, WRITE_LIMITS } from './request-limits.mjs';
 import { adminBackupStatus, adminReleaseId } from './admin-diagnostics.mjs';
 import { createExpressionCatalog } from './expression-catalog.mjs';
 import { callIceConfiguration, createCallService } from './calls.mjs';
@@ -249,13 +250,13 @@ export async function startServer(options = {}) {
   });
   const clientsByRoom = new Map();
   const socketSessions = new WeakMap();
-  const rateLimits = new Map();
+  const rateLimits = createRequestLimiter();
   const incompleteBlobTtlMs = numericOption(options.incompleteBlobTtlMs ?? process.env.INCOMPLETE_BLOB_TTL_MS, 24 * 60 * 60 * 1000);
   const orphanRoomTtlMs = numericOption(options.orphanRoomTtlMs ?? process.env.ORPHAN_ROOM_TTL_MS, 60 * 60 * 1000);
   const maxConnectionsPerRoom = numericOption(options.maxConnectionsPerRoom ?? process.env.MAX_CONNECTIONS_PER_ROOM, 8);
   const maxConnectionsTotal = numericOption(options.maxConnectionsTotal ?? process.env.MAX_CONNECTIONS_TOTAL, 1000);
   const webSocketHeartbeatMs = numericOption(options.webSocketHeartbeatMs ?? process.env.WEBSOCKET_HEARTBEAT_MS, 30_000);
-  const trustedProxyAddresses = new Set(
+  const clientAddress = createClientAddress(
     String(options.trustedProxyAddresses ?? process.env.TRUSTED_PROXY_ADDRESSES ?? '')
       .split(',')
       .map((value) => value.trim())
@@ -283,34 +284,19 @@ export async function startServer(options = {}) {
     return [...identities.values()].slice(0, 6);
   }
 
-  function clientAddress(request) {
-    const socketAddress = request.socket.remoteAddress ?? 'unknown';
-    if (!trustedProxyAddresses.has(socketAddress)) return socketAddress;
-    const forwarded = request.headers['x-forwarded-for'];
-    const firstForwarded = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0];
-    return firstForwarded?.trim() || socketAddress;
+  function allowRequest(request, bucket, limit, windowMs = 60_000) {
+    return rateLimits.take(JSON.stringify(['source', clientAddress(request), bucket]), limit, windowMs).allowed;
   }
 
-  function allowRequest(request, bucket, limit, windowMs = 60_000) {
-    const now = Date.now();
-    if (rateLimits.size > 10_000) {
-      for (const [storedKey, stored] of rateLimits) {
-        if (stored.resetAt <= now) rateLimits.delete(storedKey);
-      }
-      while (rateLimits.size > 9_000) {
-        const oldestKey = rateLimits.keys().next().value;
-        if (oldestKey === undefined) break;
-        rateLimits.delete(oldestKey);
-      }
-    }
-    const key = `${clientAddress(request)}:${bucket}`;
-    const current = rateLimits.get(key);
-    if (!current || current.resetAt <= now) {
-      rateLimits.set(key, { count: 1, resetAt: now + windowMs });
-      return true;
-    }
-    current.count += 1;
-    return current.count <= limit;
+  function allowWrite(request, response, operation, roomId, deviceId) {
+    const policy = WRITE_LIMITS[operation];
+    const device = deviceId !== undefined;
+    const key = device ? ['device', roomId, deviceId, operation] : ['write-source', clientAddress(request), operation];
+    const result = rateLimits.take(JSON.stringify(key), device ? policy.device : policy.source);
+    if (result.allowed) return true;
+    response.setHeader('Retry-After', String(result.retryAfter));
+    json(request, response, 429, { error: '请求过于频繁，请稍后重试', code: 'RATE_LIMITED' });
+    return false;
   }
 
   function closeOverloaded(socket, notify = false) {
@@ -413,7 +399,7 @@ export async function startServer(options = {}) {
   const adminOrigin = options.adminOrigin ?? process.env.ADMIN_ORIGIN ?? 'https://admin.mijiu.cloud';
   const memes = createExpressionCatalog({ dataDir });
   const admin = await createAdminConsole({ config: options.adminConfig, configFile: options.adminConfigFile ?? process.env.ADMIN_CONFIG_FILE,
-    origin: adminOrigin, data: store.cloudBackups, expressions: memes, json, readJson,
+    origin: adminOrigin, data: store.cloudBackups, expressions: memes, json, readJson, clientAddress,
     readModel: store.adminData,
     diagnostics: async () => {
       let calls={configured:false,relayConfigured:false,valid:false};
@@ -436,7 +422,13 @@ export async function startServer(options = {}) {
   const httpServer = createHttpServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://localhost');
-      const pathname = decodeURIComponent(url.pathname);
+      let pathname;
+      try { pathname = decodeURIComponent(url.pathname); }
+      catch (error) {
+        if (!(error instanceof URIError)) throw error;
+        json(request, response, 400, { error: '请求路径格式不正确', code: 'INVALID_PATH' });
+        return;
+      }
       const scopedRoom = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})(?:/|$)`));
       if (scopedRoom && store.chamberLifecycle.closed(scopedRoom[1]) && !pathname.endsWith('/chamber-lifecycle')) throw new Error('ROOM_CLOSED');
       if (await admin(request, response, pathname)) return;
@@ -1226,12 +1218,14 @@ export async function startServer(options = {}) {
 
       const mlsEventsMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/mls-events$`));
       if (mlsEventsMatch && request.method === 'PUT') {
+        if (!allowWrite(request, response, 'mls-events')) return;
         const roomId = mlsEventsMatch[1];
         const device = store.authenticatedDevice(roomId, bearerToken(request));
         if (!device) {
           json(request, response, 401, { error: 'UNAUTHORIZED' });
           return;
         }
+        if (!allowWrite(request, response, 'mls-events', roomId, device.deviceId)) return;
         const body = await readJson(request);
         const envelope = body.event;
         if (
@@ -1282,6 +1276,7 @@ export async function startServer(options = {}) {
 
       const pushMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/push/(${ID_PATTERN})$`));
       if (pushMatch && ['GET', 'PUT', 'DELETE'].includes(request.method)) {
+        if (request.method === 'DELETE' && !allowWrite(request, response, 'push-delete')) return;
         const [, roomId, deviceId] = pushMatch;
         if (!store.authenticatedDevice(roomId, bearerToken(request), deviceId)) {
           json(request, response, 401, { error: 'UNAUTHORIZED' });
@@ -1297,6 +1292,7 @@ export async function startServer(options = {}) {
           json(request, response, 200, store.pushSubscriptionStatus(roomId, deviceId));
           return;
         }
+        if (request.method === 'DELETE' && !allowWrite(request, response, 'push-delete', roomId, deviceId)) return;
         const body = await readJson(request);
         if (request.method === 'DELETE') {
           const endpoint = typeof body.authorization?.endpoint === 'string' ? body.authorization.endpoint : '';
@@ -1342,12 +1338,14 @@ export async function startServer(options = {}) {
 
       const mlsWelcomeMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/mls-welcome$`));
       if (request.method === 'PUT' && mlsWelcomeMatch) {
+        if (!allowWrite(request, response, 'mls-welcome')) return;
         const roomId = mlsWelcomeMatch[1];
         const authenticated = store.authenticatedDevice(roomId, bearerToken(request));
         if (!authenticated) {
           json(request, response, 401, { error: 'UNAUTHORIZED' });
           return;
         }
+        if (!allowWrite(request, response, 'mls-welcome', roomId, authenticated.deviceId)) return;
         const body = await readJson(request);
         const envelope = body.welcome;
         if (store.roomState(roomId)?.protocol !== 'mls-rfc9420') {
@@ -1453,12 +1451,14 @@ export async function startServer(options = {}) {
 
       const completeBlobMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/blobs/(${ID_PATTERN})/complete$`));
       if (request.method === 'POST' && completeBlobMatch) {
+        if (!allowWrite(request, response, 'blob-complete')) return;
         const [, roomId, blobId] = completeBlobMatch;
         if (!store.authenticatedDevice(roomId, bearerToken(request))) {
           json(request, response, 401, { error: 'UNAUTHORIZED' });
           return;
         }
         const actor = requireActiveDevice(request, roomId);
+        if (!allowWrite(request, response, 'blob-complete', roomId, actor.deviceId)) return;
         const completed = await store.completeBlob(roomId, blobId, actor.deviceId);
         json(request, response, 200, completed);
         return;
