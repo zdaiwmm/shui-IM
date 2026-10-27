@@ -46,8 +46,17 @@
 | `af5ca9d` | 干净本地148文件／1114单元、85/85浏览器入口，0失败／未运行，1526881ms。PR CI [40415143813](https://github.com/zdaiwmm/shui-IM/actions/runs/40415143813) attempt1及唯一原样attempt2均在Linux后续小恢复配额断言失败；前置逻辑清理及旧数据保护断言通过，未定位，不抹去失败。 |
 | `96bef71` | 仅拆分两次浏览器调用并补原生使用量；[CI 40418214751](https://github.com/zdaiwmm/shui-IM/actions/runs/40418214751)仍失败。独立小对照成功3804199字节，大失败后逻辑清空但使用3778278字节未回落。该候选本地完整门禁主动中断，不记通过。 |
 | `624e12c` | 改持久档案及实际回收观测后5MiB对照通过；完整专项暴露原件跨库移动会额外分配空间，8MiB本可容纳最终数据却失败。该结果促成上方单份原件与归属见证实现，未放宽8MiB成功断言。 |
-| 单份原件实现 | 类型检查、23恢复用例、两引擎各7类清理保护及两引擎无锁并发取消验证通过。持久8MiB完整恢复成功，使用5829336字节；5MiB大失败后使用73836字节，后续小恢复成功；旧残留回收成功。旧版已发布副本重导入兼容另在两引擎通过（共25恢复用例覆盖）；最终精确完整门禁及CI待取证。 |
+| 单份原件实现 | 类型检查、23恢复用例、两引擎各7类清理保护及两引擎无锁并发取消验证通过。持久8MiB完整恢复成功，使用5829336字节；5MiB大失败后使用73836字节，后续小恢复成功；旧残留回收成功。旧版已发布副本重导入兼容另在两引擎通过（共25恢复用例覆盖）；最终精确完整门禁及CI已通过，见下方实际交付证据。 |
 
 所有失败、候选及脱敏诊断归档在公共Git目录`quiet-room-deliveries/evidence/restore-original-cleanup-20261027/`，不能随工作树清理丢失。早期完整门禁只属于对应旧树；最终精确候选需重新完整验收、PR CI、精确main完整CI及只读预检，生产仍独立确认SHA。
 
 证据限于合成数据、桌面Chromium／WebKit与所列故障点。WebKit配额为受控事务中断，Chromium为原生配额；没有实体iPhone、触控取消、物理磁盘耗尽、生产数据或独立安全审计证据。
+
+
+## 实际交付与待发布目标
+
+- [PR #425](https://github.com/zdaiwmm/shui-IM/pull/425)合并应用`926a786e3e20c9148c8df805643c62fdd9edb9c7`，版本`2026.10.26.3`；最终干净源`9246fe5f585e426f2d166f5d3417868c7ff5e82f`与应用完整树均为`9f26f1a60bdf18ee5696f6316292332efb940767`。
+- 精确源完整本地check:full通过：148文件／1114单元、85/85浏览器入口，0失败／0未运行，1558905ms，包含最终25恢复用例、两引擎各7类保护、并发取消与旧版重导入。
+- [精确PR完整CI 40421681687](https://github.com/zdaiwmm/shui-IM/actions/runs/40421681687)与[精确应用main完整CI 40424742449](https://github.com/zdaiwmm/shui-IM/actions/runs/40424742449)均attempt 1成功，Full application verification与双架构镜像构建通过。Linux持久8MiB完整恢复成功，使用5829274字节；其他控制与保护检查亦通过。
+- 唯一[只读预检40426096627](https://github.com/zdaiwmm/shui-IM/actions/runs/40426096627)经既有production正常审核取得精确PREFLIGHT_OK，请求`66c71ca1-c9ed-4ba0-a4da-780bb1f67cf8`为doctor，外层120197ms；工作流来源与应用均为926a786。定位产物12699591161／CI40424742449／attempt1，到期2026-11-03T00:16:13Z；预检读到前版`9cf771de91598370bc77c1e73128ef5889b8a092`。
+- 尚待用户确认本次完整应用SHA，没有生产切换、独立READBACK_OK或本批资源清理结论。准备记录在独立文档树对账，不改应用版本；精确确认后沿用固定cloud with-readback入口，再按真实回执对账、清理。准备证据位于公共Git目录`quiet-room-deliveries/evidence/restore-original-cleanup-20261027/pre-release-summary.json`，不是可跨机器自动同步的文件；上方PR／CI链接为持久远端证据。
