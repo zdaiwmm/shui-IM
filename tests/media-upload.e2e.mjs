@@ -18,7 +18,7 @@ try {
     const { QuietRoomApp } = await import('/src/app.ts');
     const vault = await import('/src/lib/vault.ts');
     const app = new QuietRoomApp(document.querySelector('#app'));
-    const own = { deviceId: crypto.randomUUID(), role: 'creator', status: 'active', capabilities: ['file-message-v1', 'image-album-v1', 'media-dimensions-v1', 'expression-image-v1', 'expression-kind-v1'] };
+    const own = { deviceId: crypto.randomUUID(), role: 'creator', status: 'active', capabilities: ['reply-v2', 'file-message-v1', 'image-album-v1', 'media-dimensions-v1', 'expression-image-v1', 'expression-kind-v1'] };
     const peer = { ...own, deviceId: crypto.randomUUID(), role: 'joiner' };
     const session = await vault.createVault({ v: 1, roomId: crypto.randomUUID(), accessToken: 'media-upload-fixture', role: 'creator', protocol: 'legacy-v1', lastSeq: 0, members: [own, peer], identity: { publicBundle: own } }, 'media-upload-password', 'password');
     app.session = session; app.privacyCovered = false; app.runtimeAbort = new AbortController();
@@ -112,9 +112,10 @@ try {
     await page.waitForFunction(() => [...document.querySelectorAll('.media-upload-preview')].every(cell => cell.querySelector('img')?.complete));
     const id = await draft.getAttribute('data-client-msg-id');
     const uploadBox = await geometry(draft.locator('.message-bubble'));
+    const uploadMediaBox = await geometry(draft.locator('.media-upload-previews'));
     assert.equal(new Set(uploadBox.corners).size, 1, 'Upload has four equal corners');
     if (variant.includes('gif-')) {
-      const box = await geometry(draft.locator('.message-bubble'));
+      const box = await geometry(draft.locator('.media-upload-previews'));
       const expected = variant === 'tall-gif-expression' ? { width: 64, height: 128 } : { width: 115.2, height: 115.2 };
       assert.ok(Math.abs(box.width - expected.width) < 1 && Math.abs(box.height - expected.height) < 1, `GIF not reduced to 60%: ${JSON.stringify(box)}`);
     }
@@ -142,7 +143,13 @@ try {
     assert.equal(await draft.locator('.message-delivery').count(), 0, 'Upload is not a sent message');
     const width = await draft.locator('img').first().evaluate(image => image.naturalWidth);
     assert.equal(width <= 128, !variant.includes('expression') || variant === 'hidden-expression', 'Only concealed derivatives may be painted for private media');
-    await page.evaluate(() => { const f = window.mediaFixture; f.row = document.querySelector('.media-upload'); f.app.renderMessages(); });
+    await page.evaluate(() => {
+      const f = window.mediaFixture;
+      f.row = document.querySelector('.media-upload');
+      f.shell = f.row.querySelector('.message-bubble');
+      f.status = f.row.querySelector('.media-send-status');
+      f.app.renderMessages();
+    });
     assert.equal(await draft.evaluate(node => node === window.mediaFixture.row), true, 'Progress updates retain the row');
     await page.evaluate(() => { const g = window.mediaFixture.gate; g.fail = true; g.release(); });
     await page.waitForFunction(() => document.querySelector('.media-upload')?.dataset.uploadState === 'failed');
@@ -194,21 +201,23 @@ try {
     }
     await message.locator('.image-preview[data-image-state="loaded"]').first().waitFor();
     assert.equal(await message.count(), 1);
-    const delivered = variant.includes('expression') ? message.locator('.image-preview') : message.locator('.message-bubble');
-    sameSize(uploadBox, await geometry(delivered), `${variant} upload to pending`);
+    sameSize(uploadBox, await geometry(message.locator('.message-bubble')), `${variant} complete shell upload to pending`);
+    assert.deepEqual(await message.evaluate(node => ({ row:node===window.mediaFixture.row,
+      shell:node.querySelector('.message-bubble')===window.mediaFixture.shell,
+      status:node.querySelector('.media-send-status')===window.mediaFixture.status })), {row:true,shell:true,status:true}, 'Upload commits in the original row, media shell and status slot');
+    assert.equal(await message.locator('.message-meta > .media-capsule-content > time').isVisible(), false, 'Only server-confirmed media shows a send time');
     if (variant.includes('expression')) {
       const placed = await message.locator('.image-preview').evaluate(preview => {
         const media = preview.getBoundingClientRect();
         const meta = preview.parentElement.querySelector('.message-meta');
-        const time = meta?.querySelector('time')?.getBoundingClientRect();
         const status = meta?.querySelector('.message-pending, .message-delivery')?.getBoundingClientRect();
         const box = meta?.getBoundingClientRect();
-        return { valid: Boolean(box && time && status && box.top >= media.bottom - 1 && Math.abs(time.top - status.top) < 2),
-          media: media.toJSON(), box: box?.toJSON(), time: time?.toJSON(), status: status?.toJSON() };
+        return { valid: Boolean(box && status && box.top >= media.bottom - 1 && Math.abs(box.height-24)<.01),
+          media: media.toJSON(), box: box?.toJSON(), status: status?.toJSON() };
       });
-      assert.equal(placed.valid, true, `${variant}: time and status stay on one line under the image: ${JSON.stringify(placed)}`);
+      assert.equal(placed.valid, true, `${variant}: fixed transparent 24px status row below the image: ${JSON.stringify(placed)}`);
     }
-    if (variant !== 'album') sameSize(uploadBox, await geometry(message.locator('.image-preview')), `${variant} content fills bubble`);
+    if (variant !== 'album') sameSize(uploadMediaBox, await geometry(message.locator('.image-preview')), `${variant} content fills media frame`);
     assert.match(await message.locator('.message-meta').innerText(), /等待连接/);
     assert.equal(await message.locator('.message-delivery').count(), 0, '100% upload is not server confirmation');
     assert.equal(await message.locator('.image-preview').first().getAttribute('data-revealed'), String(variant.includes('expression') && variant !== 'hidden-expression'));
@@ -238,12 +247,15 @@ try {
       return manifests.length;
     }, { id, variant });
     assert.equal(await message.locator('.media-send-meta').count(), 0);
-    sameSize(uploadBox, await geometry(variant.includes('expression') ? message.locator('.image-preview') : message.locator('.message-bubble')), `${variant} server confirmation`);
+    sameSize(uploadBox, await geometry(message.locator('.message-bubble')), `${variant} complete shell server confirmation`);
+    assert.equal(await message.locator('.message-meta > .media-capsule-content > time').isVisible(), true, 'Time appears after server acceptance');
     await page.waitForFunction(id => !document.querySelector(`[data-client-msg-id="${id}"] .media-upload-handoff`), id);
     const animation = await page.evaluate(() => window.mediaFixture.confirmationFade);
     assert.ok(animation.some(item => item.duration === 180 && item.keyframes.join(',') === '1,0'), 'Status fades out instead of vanishing');
     await page.waitForFunction(id => !document.querySelector(`[data-client-msg-id="${id}"] .media-capsule-retiring`), id);
-    assert.equal(await message.locator('.message-meta').evaluate(node => node.offsetHeight), 20, 'Completed receipt is 20px');
+    if (process.argv[2]) await page.screenshot({ path: `${process.argv[2]}/${variant}-confirmed.png` });
+    assert.equal(await message.locator('.message-meta').evaluate(node => node.offsetHeight), 24, 'Completed receipt retains its fixed 24px layout slot');
+    if (!variant.includes('expression')) assert.equal(await message.locator('.message-meta').evaluate(node => getComputedStyle(node,'::before').top), '2px', 'Completed 20px paint is centered inside the reserved 24px slot');
     for (const revealed of [false, true]) {
       await message.locator('.image-preview').first().evaluate((node, revealed) => { node.dataset.revealed = String(revealed); }, revealed);
       const original = await geometry(message.locator('.message-bubble'));
@@ -262,6 +274,71 @@ try {
     assert.equal(await message.locator('.image-preview').first().evaluate(node => node === window.mediaFixture.preview), true);
     console.log(`${variant}: immediate bubble, concealed policy, same-ID retry, ${outcome} original(s), confirmation continuity`);
   }
+  // An actual upload with a reply and a following message must keep the entire
+  // row, status anchor and reader's position through both kinds of failure.
+  const continuityId = await page.evaluate(async () => {
+    const f = window.mediaFixture;
+    const sentAt = new Date(Date.now()-60_000).toISOString();
+    const reply = {seq:1,clientMsgId:crypto.randomUUID(),senderId:f.own.deviceId,status:'stored',acceptedAt:sentAt,
+      payload:{v:1,kind:'text',text:'被回复的合成消息',sentAt}};
+    f.app.messages.set(1,reply); f.app.replyTarget=reply;
+    f.gate.hold=true; f.gate.release=null; f.gate.fail=false; f.gate.failCommit=false;
+    f.start([f.files[0]]);
+    return [...f.app.mediaUploads.keys()].at(-1);
+  });
+  await page.waitForFunction(id => document.querySelector(`[data-client-msg-id="${id}"]`)?.dataset.poster==='ready' && window.mediaFixture.gate.release, continuityId);
+  await page.evaluate(async id => {
+    const f = window.mediaFixture;
+    const followingId=crypto.randomUUID();
+    await f.app.enqueuePayload({v:1,kind:'text',text:'不应跳动的后续消息',sentAt:new Date().toISOString()},followingId);
+    f.app.renderMessages({scroll:'bottom'});
+    const finite=[...document.querySelectorAll('#message-list .message')].flatMap(row=>row.getAnimations({subtree:true})).filter(a=>a.effect?.getTiming().iterations!==Infinity);
+    await Promise.allSettled(finite.map(a=>a.finished));
+    f.continuityRow=document.querySelector(`[data-client-msg-id="${id}"]`);
+    f.continuityStatus=f.continuityRow.querySelector('.media-send-status');
+    f.continuityDate=[...document.querySelectorAll('#message-list > .message-date')].at(-1);
+    f.following=document.querySelector(`[data-client-msg-id="${followingId}"]`);
+    f.samples=[]; f.sampleContinuity=true;
+    const sample=()=>{
+      if(!f.sampleContinuity)return;
+      if(f.samples.length<600) f.samples.push([...f.continuityRow.querySelectorAll('.message-bubble,.media-send-status'),f.following].map(node=>{
+        const r=node.getBoundingClientRect();return [r.x,r.y,r.width,r.height];
+      }));
+      requestAnimationFrame(sample);
+    };
+    sample();
+  },continuityId);
+  const continuity = page.locator(`.message[data-client-msg-id="${continuityId}"]`);
+  assert.equal(await continuity.locator('.message-reply-quote').count(),1,'Reply geometry is present before upload finishes');
+  await page.evaluate(()=>{const f=window.mediaFixture;f.gate.fail=true;f.gate.release();});
+  await page.waitForFunction(()=>window.mediaFixture.continuityRow.dataset.uploadState==='failed');
+  await page.evaluate(()=>{const g=window.mediaFixture.gate;g.fail=false;g.hold=false;g.failCommit=true;});
+  await continuity.getByRole('button',{name:'重试',exact:true}).click();
+  await page.waitForFunction(()=>window.mediaFixture.continuityRow.dataset.failureStage==='message');
+  const completedUploads=await page.evaluate(()=>window.mediaFixture.gate.requests);
+  await page.evaluate(()=>{window.mediaFixture.gate.failCommit=false;});
+  await continuity.getByRole('button',{name:'重试',exact:true}).click();
+  await page.waitForFunction(()=>!window.mediaFixture.continuityRow.classList.contains('media-upload'));
+  assert.equal(await page.evaluate(()=>window.mediaFixture.gate.requests),completedUploads,'Media submission failure reuses uploaded bytes');
+  assert.equal(await continuity.locator('.message-meta > .media-capsule-content > time').isVisible(),false);
+  await page.evaluate(async id=>{
+    const f=window.mediaFixture;
+    f.app.pending.get(id).status='stored';f.app.renderMessages();
+    await Promise.allSettled([...f.continuityStatus.getAnimations({subtree:true})].filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished));
+    await new Promise(resolve=>requestAnimationFrame(resolve));f.sampleContinuity=false;
+  },continuityId);
+  const geometryProof=await page.evaluate(id=>{
+    const f=window.mediaFixture,base=f.samples[0];
+    return {samples:f.samples.length,maxDelta:Math.max(...f.samples.flatMap(sample=>sample.flatMap((r,i)=>r.map((value,j)=>Math.abs(value-base[i][j]))))),
+      sameRow:document.querySelector(`[data-client-msg-id="${id}"]`)===f.continuityRow,
+      sameStatus:f.continuityRow.querySelector('.media-send-status')===f.continuityStatus,
+      sameDate:[...document.querySelectorAll('#message-list > .message-date')].at(-1)===f.continuityDate};
+  },continuityId);
+  assert.ok(geometryProof.samples>2&&geometryProof.maxDelta<1,`Full row, reply, status and neighbour moved: ${JSON.stringify(geometryProof)}`);
+  assert.equal(geometryProof.sameRow&&geometryProof.sameStatus&&geometryProof.sameDate,true,JSON.stringify(geometryProof));
+  assert.equal(await continuity.locator('.message-meta > .media-capsule-content > time').isVisible(),true);
+  console.log('Whole-row/reply/neighbour continuity:',geometryProof);
+
   // Each ordinary file owns a fresh attempt, even after media reached 100%.
   await page.evaluate(() => {
     const f = window.mediaFixture; f.gate.hold = true; f.gate.release = null;

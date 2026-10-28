@@ -161,7 +161,7 @@ import { releaseSystemMediaSession } from './lib/system-media-session';
 import { prepareImageMotion, type ImageMotion } from './lib/image-animation';
 import { createConcealedImage } from './lib/concealed-image';
 import { mountPhotoDetails } from './lib/photo-details';
-import { createElement, Check, Info, Pause, Play, Plus, Camera, Maximize, Volume2, VolumeX, Trash2, RotateCcw, RotateCw, Link, Star, KeyRound, LockKeyhole, FileText, Settings, TriangleAlert, Smartphone, Laptop } from 'lucide';
+import { createElement, Check, Info, Pause, Play, Plus, Camera, Maximize, Volume2, VolumeX, Trash2, RotateCcw, RotateCw, Link, Star, KeyRound, LockKeyhole, FileText, Settings, TriangleAlert, Smartphone, Laptop, CircleAlert } from 'lucide';
 import { isReadableChatMessage, readMessageIds } from './lib/message-read';
 import { isChatMedia } from './lib/media-read';
 import { bindChatImageConcealGesture } from './lib/chat-image-conceal-gesture';
@@ -10821,7 +10821,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           this.animateChatReactionReflow(origins);
         }, () => {
           if (this.isRuntimeActive(epoch, session)) this.renderMessages({ scroll: 'preserve' });
-        }, expressionKind === 'gifs');
+        }, expressionKind === 'gifs', replyTarget ? this.createMessageReplyQuote(this.replyReference(replyTarget)) : undefined);
         mediaUpload = { view, files, expression, autoHide: expressionAutoHide, expressionKind, reply: replyTarget, sentAt: new Date().toISOString(), busy: true };
         this.mediaUploads.set(clientMsgId, mediaUpload);
       }
@@ -12179,11 +12179,33 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       const dateKeys = new Set<string>();
       const currentYear = new Date().getFullYear();
       const sequences = new Map<string, number>();
+      const appendDate = (sentAt: string) => {
+        const day = messageLocalDay(sentAt, currentYear);
+        if (day && !dateKeys.has(day.key)) {
+          dateKeys.add(day.key);
+          let separator = this.renderedMessageDates.get(day.key);
+          if (!separator) {
+            separator = document.createElement('div');
+            separator.className = 'message-date';
+            separator.dataset.dateKey = day.key;
+            separator.setAttribute('role', 'heading');
+            separator.setAttribute('aria-level', '3');
+            const time = document.createElement('time');
+            time.dateTime = day.key;
+            separator.append(time);
+            this.renderedMessageDates.set(day.key, separator);
+          }
+          separator.setAttribute('aria-label', day.description);
+          if (separator.firstChild!.textContent !== day.label) separator.firstChild!.textContent = day.label;
+          timeline.push(separator);
+        }
+      };
       const uploadDrafts = [...this.mediaUploads.entries()].filter(([id, draft]) => draft.view.geometryReady && !visibleMessageIds.has(id))
         .sort(([, a], [, b]) => a.sentAt.localeCompare(b.sentAt));
       for (const message of messages) {
         while (message.seq === Number.MAX_SAFE_INTEGER && uploadDrafts[0] && uploadDrafts[0][1].sentAt <= message.acceptedAt) {
-          timeline.push(uploadDrafts.shift()![1].view.element);
+          const draft = uploadDrafts.shift()![1];
+          appendDate(draft.sentAt); timeline.push(draft.view.element);
         }
         const key = message.clientMsgId;
         currentKeys.add(key);
@@ -12200,7 +12222,9 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         // that changed object only; unchanged history retains the fast path.
         const samePayload = cached?.payload === message.payload || Boolean(cached && canonicalStringify(cached.payload) === canonicalStringify(message.payload));
         const keepContent = Boolean(cached && (selecting || samePayload));
-        const element = keepContent ? cached!.element : this.createMessageElement(message, deletedForEveryone);
+        const upload = this.mediaUploads.get(key)?.view;
+        const uploadShell = upload?.element.querySelector('.image-bubble') ? upload.element : undefined;
+        const element = keepContent ? cached!.element : this.createMessageElement(message, deletedForEveryone, uploadShell);
         if (!keepContent && this.runtimeAbort) this.mediaUploads.get(key)?.view.handoff(element, this.runtimeAbort.signal);
         if (keepContent && (!unchanged || message.status === 'pending' && (isChatMedia(message) || message.payload.kind === 'file'))) {
           // A delivery receipt updates decoration only. Preserve decoded media,
@@ -12208,21 +12232,25 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           const meta = element.querySelector<HTMLElement>('.message-meta');
           const updated = this.createMessageMeta(message);
           if (meta) {
+            const syncAttributes = () => {
+              for (const attribute of ['title', 'aria-label', 'data-state', 'data-confirmed', 'data-waiting']) {
+                const value = updated.getAttribute(attribute);
+                if (value === null) meta.removeAttribute(attribute);
+                else meta.setAttribute(attribute, value);
+              }
+            };
             const liveContent = meta.querySelector(':scope > .media-capsule-content') ?? meta;
             if (meta.matches('.attachment-meta') && (meta.className !== updated.className || liveContent.innerHTML !== updated.innerHTML)) {
               transitionMediaCapsule(meta, () => {
                 meta.querySelector('.media-capsule-content')!.replaceChildren(...updated.childNodes);
                 meta.className = updated.className;
+                syncAttributes();
               }, true, this.runtimeAbort?.signal);
             } else if (!meta.matches('.attachment-meta')) {
               meta.replaceChildren(...updated.childNodes);
               meta.className = updated.className;
             }
-            for (const attribute of ['title', 'aria-label']) {
-              const value = updated.getAttribute(attribute);
-              if (value === null) meta.removeAttribute(attribute);
-              else meta.setAttribute(attribute, value);
-            }
+            syncAttributes();
           }
           element.classList.remove(`is-${cached!.status}`);
           element.classList.add(`is-${message.status}`);
@@ -12247,35 +12275,16 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         this.renderedMessages.set(key, { payload: message.payload, status: message.status, acceptedAt: message.acceptedAt, element });
         sequences.set(key, message.seq);
         elements.push(element);
-        const day = messageLocalDay(message.payload.sentAt, currentYear);
-        if (day && !dateKeys.has(day.key)) {
-          dateKeys.add(day.key);
-          let separator = this.renderedMessageDates.get(day.key);
-          if (!separator) {
-            separator = document.createElement('div');
-            separator.className = 'message-date';
-            separator.dataset.dateKey = day.key;
-            separator.setAttribute('role', 'heading');
-            separator.setAttribute('aria-level', '3');
-            const time = document.createElement('time');
-            time.dateTime = day.key;
-            separator.append(time);
-            this.renderedMessageDates.set(day.key, separator);
-          }
-          separator.setAttribute('aria-label', day.description);
-          if (separator.firstChild!.textContent !== day.label) separator.firstChild!.textContent = day.label;
-          timeline.push(separator);
-        }
+        appendDate(message.payload.sentAt);
         timeline.push(element);
       }
+      for (const [, draft] of uploadDrafts) { appendDate(draft.sentAt); timeline.push(draft.view.element); }
       for (const key of this.renderedMessages.keys()) {
         if (!currentKeys.has(key)) this.renderedMessages.delete(key);
       }
       for (const key of this.renderedMessageDates.keys()) {
         if (!dateKeys.has(key)) this.renderedMessageDates.delete(key);
       }
-      for (const [, draft] of uploadDrafts) timeline.push(draft.view.element);
-
       // Keep unchanged nodes in place so focus, image decode state, selection
       // and compositing survive incoming messages and delivery receipts.
       let next = list.firstElementChild;
@@ -12491,34 +12500,36 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
   }
 
-  private createMessageElement(message: DecryptedMessage, deletedForEveryone = this.messageDeletions()): HTMLElement {
+  private createMessageReplyQuote(reference: ReplyReference, deletedForEveryone = this.messageDeletions()): HTMLButtonElement {
+    const quote = document.createElement('button');
+    quote.type = 'button'; quote.className = 'message-reply-quote';
+    const projected = this.localReplyPreview(reference, deletedForEveryone);
+    quote.setAttribute('aria-label', projected === uiLiteral('消息已删除') ? uiLiteral('被回复的消息已删除') : uiTemplate`查看被回复的消息：${projected}`);
+    const label = document.createElement('strong');
+    label.textContent = this.isOwnMessage({ senderId: reference.senderId }) ? uiLiteral('你') : uiLiteral('对方');
+    const preview = document.createElement('span'); preview.textContent = projected;
+    quote.append(label, preview);
+    quote.addEventListener('click', () => void this.jumpToReplyTarget(reference.clientMsgId, reference.serverSeq));
+    return quote;
+  }
+
+  private createMessageElement(message: DecryptedMessage, deletedForEveryone = this.messageDeletions(), uploadShell?: HTMLElement): HTMLElement {
     const own = this.isOwnMessage(message);
-    const article = document.createElement('article');
+    const article = uploadShell ?? document.createElement('article');
+    article.removeAttribute('aria-busy');
     article.className = `message ${own ? 'outgoing' : 'incoming'} is-${message.status}`;
     article.dataset.clientMsgId = message.clientMsgId;
     article.tabIndex = 0;
     article.setAttribute('aria-label', own
       ? uiLiteral('我的消息，可向左滑动回复，或长按回应、复制、删除')
       : uiLiteral('对方消息，可向左滑动回复，或长按回应、回复、复制、删除'));
-    const bubble = document.createElement('div');
+    const bubble = article.querySelector<HTMLElement>(':scope > .message-bubble') ?? document.createElement('div');
+    bubble.replaceChildren();
+    bubble.removeAttribute('style');
+    article.replaceChildren();
     bubble.className = 'message-bubble';
     if ('replyTo' in message.payload && message.payload.replyTo) {
-      const quote = document.createElement('button');
-      quote.type = 'button';
-      quote.className = 'message-reply-quote';
-      const projectedReplyPreview = this.localReplyPreview(message.payload.replyTo, deletedForEveryone);
-      quote.setAttribute('aria-label', projectedReplyPreview === uiLiteral('消息已删除')
-        ? uiLiteral('被回复的消息已删除')
-        : uiTemplate`查看被回复的消息：${projectedReplyPreview}`);
-      const label = document.createElement('strong');
-      label.textContent = this.isOwnMessage({ senderId: message.payload.replyTo.senderId }) ? uiLiteral('你') : uiLiteral('对方');
-      const preview = document.createElement('span');
-      preview.textContent = projectedReplyPreview;
-      quote.append(label, preview);
-      const targetId = message.payload.replyTo.clientMsgId;
-      const targetSeq = message.payload.replyTo.serverSeq;
-      quote.addEventListener('click', () => void this.jumpToReplyTarget(targetId, targetSeq));
-      bubble.append(quote);
+      bubble.append(this.createMessageReplyQuote(message.payload.replyTo, deletedForEveryone));
     }
     if (message.payload.kind === 'text') {
       bubble.classList.add('text-bubble');
@@ -12610,9 +12621,17 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const meta = document.createElement('div');
     meta.className = 'message-meta';
     const attachment = isChatMedia(message) || message.payload.kind === 'file';
+    const stableMedia = own && isChatMedia(message);
+    const confirmed = ['stored', 'sent', 'delivered'].includes(message.status);
     const sendingMedia = own && attachment && (message.status === 'pending' || message.status === 'failed' && !this.expiredOutboxIds.has(message.clientMsgId));
     if (attachment) meta.classList.add('attachment-meta');
     if (sendingMedia) meta.classList.add('media-send-meta');
+    if (stableMedia) {
+      meta.classList.add('media-send-status');
+      meta.dataset.confirmed = String(confirmed);
+      meta.dataset.state = message.status;
+      meta.dataset.waiting = String(Boolean(this.accessFailure) || this.connectionState !== 'connected');
+    }
     const read = this.readMessageIds.has(message.clientMsgId);
     const status = own
       ? message.status === 'pending'
@@ -12624,6 +12643,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const time = document.createElement('time');
     time.dateTime = message.payload.sentAt;
     time.textContent = timeLabel(message.payload.sentAt);
+    if (stableMedia && !confirmed) time.hidden = true;
     meta.append(time);
     if (own && (message.status === 'stored' || message.status === 'sent' || message.status === 'delivered')) {
       const delivery = document.createElement('span');
@@ -12640,15 +12660,20 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     } else if (own && message.status === 'pending') {
       const waiting = document.createElement('span');
       waiting.className = sendingMedia ? 'message-pending media-send-pending' : 'message-pending';
-      waiting.innerHTML = isExpressionPayload(message.payload)
+      waiting.innerHTML = stableMedia || isExpressionPayload(message.payload)
         ? '<svg aria-hidden="true" viewBox="0 0 22 16"><circle cx="11" cy="8" r="6" stroke-dasharray="24 14"/></svg>'
         : '<svg aria-hidden="true" viewBox="0 0 22 16"><circle cx="11" cy="8" r="6"/><path d="M11 4.5V8l2.5 1.5"/></svg>';
       const label = document.createElement('span');
-      label.className = sendingMedia && !isExpressionPayload(message.payload) ? 'media-send-label' : 'sr-only';
+      label.className = sendingMedia && !stableMedia && !isExpressionPayload(message.payload) ? 'media-send-label' : 'sr-only';
       label.textContent = this.accessFailure ? uiLiteral('发送暂停') : sendingMedia ? this.connectionState === 'connected' ? uiLiteral('发送中') : uiLiteral('等待连接') : uiLiteral('等待发送');
       waiting.append(label);
       meta.append(waiting);
-    } else if (status) meta.append(document.createTextNode(status));
+    } else if (status) {
+      if (stableMedia) {
+        const caption = document.createElement('span'); caption.className = 'sr-only';
+        caption.textContent = status; meta.append(caption);
+      } else meta.append(document.createTextNode(status));
+    }
     if (own) {
       meta.title = this.accessFailure && ['pending', 'failed'].includes(message.status) ? uiLiteral('已保存在本机；此设备无法接入，发送暂停，不会自动发送') : read ? uiLiteral('对方已读：至少一台设备已在前台显示这条消息')
         : message.status === 'delivered' ? uiLiteral('服务器已保存加密消息，对方设备已接收，尚无已读回执')
@@ -12656,7 +12681,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           : message.status === 'pending' ? uiLiteral('已保存在本机，等待发送到服务器')
           : this.expiredOutboxIds.has(message.clientMsgId) ? uiLiteral('消息已超出服务器重试范围，无法继续发送；可复制内容后重新发送') : uiLiteral('发送失败，可以重试');
       if (!this.accessFailure && message.payload.kind === 'audio' && message.status === 'failed') { meta.title = VOICE_FAILURE_TEXT.VOICE_ACK_UNKNOWN; meta.dataset.errorCode = 'VOICE_ACK_UNKNOWN'; }
-      meta.setAttribute('aria-label', `${timeLabel(message.payload.sentAt)}，${meta.title}`);
+      meta.setAttribute('aria-label', `${stableMedia && !confirmed ? '' : `${timeLabel(message.payload.sentAt)}，`}${meta.title}`);
     }
     if (own && message.status === 'failed' && !this.accessFailure && !this.expiredOutboxIds.has(message.clientMsgId)) {
       const retry = document.createElement('button');
@@ -12664,13 +12689,15 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       retry.className = 'message-retry';
       const caption = document.createElement('span');
       caption.textContent = uiLiteral('重试');
+      if (stableMedia) retry.append(createElement(CircleAlert));
       retry.append(caption);
       retry.addEventListener('click', () => {
         message.status = 'pending';
         this.renderMessages();
         void this.attemptSend(message.clientMsgId);
       });
-      meta.append(' · ', retry);
+      if (!stableMedia) meta.append(' · ');
+      meta.append(retry);
     }
     return meta;
   }
