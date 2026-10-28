@@ -1,5 +1,9 @@
 # Quiet Room 当前状态
 
+## 内置浏览器应用锁与首次聊天修复 V1（2026-10-28）
+
+[本次需求](../requirements/2026-10-28-inapp-lock-first-chat/README.md)已获免原型实施、验证及合并授权，任务分支`codex/inapp-lock-first-chat-20261028`基于实时main `be615e3`。新保护统一能力判断和明确密码选择；新格式首次连接改为原位激活输入框。当前为本地定向验证阶段，完整门禁、PR及CI尚待完成；未部署、未新增iPhone真机证据。最终证据与复现限制由需求记录拥有。
+
 ## 部署效率 V1 已发布（2026-10-27 20:19）
 
 [第一批PR #439](https://github.com/zdaiwmm/shui-IM/pull/439)合并为`da6f7d6`，补按耗时分片与精确本地验证复用；[第二批PR #440](https://github.com/zdaiwmm/shui-IM/pull/440)合并为候选`69b437c2f016aecde5063fff1be7070ebf1ac0cf`，补10秒启动期探针及最长6分钟的独立回读观察。原健康判定、宽限期、备份／回滚边界、全部浏览器及精确CI门槛保留。

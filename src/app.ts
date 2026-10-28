@@ -41,9 +41,10 @@ import { readRecoveryCard, writeRecoveryCard, pickRecoveryCard } from './lib/rec
 import './entry-experience.css';
 import { transitionMediaCapsule, retireMediaCapsule } from './lib/media-capsule';
 import { requestPassword } from './lib/password-dialog';
+import { prepareNewProtection } from './lib/new-protection';
 import { derivePasswordCredential, deriveNumericPasswordCredential, isPasswordCredential, type LocalCredentialResult } from './lib/password-protection';
 import { passwordUnlockWaitMs } from './lib/vault';
-import { embeddedPasswordSetup, isPlatformVaultUnavailable, probePlatformVaultCapabilities, platformVaultSetupState } from './lib/platform-vault';
+import { embeddedPasswordSetup, probePlatformVaultCapabilities, platformVaultSetupState } from './lib/platform-vault';
 import { unlockPlatformCredentialPair, takeBrowserAccessPrf } from './lib/platform-vault';
 import { reauthenticateVault, assertPasswordProtectionEnvironment } from './lib/vault';
 import { DesktopWorkspace, desktopWidth } from './lib/desktop-workspace';
@@ -760,6 +761,7 @@ export class QuietRoomApp {
   private callReturnFocus: HTMLElement | null = null;
 
   private roomLockEnabled = false;
+  private roomLockSetupEpoch: number | null = null;
   private readonly emptyPrivateArchive:PrivateArchiveItem[]=[];
   private get privateArchiveItems():PrivateArchiveItem[]{return this.privateHistory?.page.items??this.emptyPrivateArchive;}
   private privateArchiveRows=new Map<string,HTMLElement>();
@@ -2136,23 +2138,17 @@ export class QuietRoomApp {
       // follows only after navigator.credentials has received that activation.
       const platformProof = preparedPlatformCredential
         ? Promise.resolve(preparedPlatformCredential)
-        : allowPassword && platformVaultSetupState() === 'unsupported'
-          ? this.preparePasswordProtection(active, verifyButton.closest('.gateway')?.hasAttribute('data-first-create') === true)
-        : createdPlatformRecord
-          ? this.withDeviceVerification(async () => ({
+        : this.prepareNewLocalProtection(active, verifyButton.closest('.gateway')?.hasAttribute('data-first-create') === true,
+          () => createdPlatformRecord ? this.withDeviceVerification(async () => ({
               record: createdPlatformRecord!,
               prfOutput: await unlockPlatformCredential(createdPlatformRecord!),
             }))
-          : this.withDeviceVerification(() => createPlatformCredential(record => { createdPlatformRecord = record; if (nameInput) nameInput.readOnly = true; }, name));
+          : this.withDeviceVerification(() => createPlatformCredential(record => { createdPlatformRecord = record; if (nameInput) nameInput.readOnly = true; }, name)), allowPassword);
       void platformProof.catch(() => undefined);
       setBusy(verifyButton, true, preparedPlatformCredential ? '正在重试…' : '正在验证…');
       void (async () => {
         try {
-          try { preparedPlatformCredential = await platformProof; }
-          catch (cause) {
-            if (!allowPassword || !isPlatformVaultUnavailable(cause) || !active()) throw cause;
-            preparedPlatformCredential = await this.preparePasswordProtection(active, verifyButton.closest('.gateway')?.hasAttribute('data-first-create') === true);
-          }
+          preparedPlatformCredential = await platformProof;
           if (!active()) return;
           setBusy(verifyButton, true, busyLabel);
           await onConfirmed(preparedPlatformCredential, active);
@@ -3351,10 +3347,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     if((await readRoomProtection())?.method==='automatic'){
       if(!active())throw new DOMException('操作已结束','AbortError');
       this.showNotice(`先设置应用锁，再${operation}`);
-      let credential:LocalCredentialResult;
-      if(platformVaultSetupState()==='unsupported')credential=await this.preparePasswordProtection(active);
-      else try{credential=await this.withDeviceVerification(()=>createPlatformCredential());}
-      catch(cause){if(!isPlatformVaultUnavailable(cause))throw cause;credential=await this.preparePasswordProtection(active);}
+      const credential=await this.prepareNewLocalProtection(active);
       if(!active()){this.releasePersonalCredential(credential);throw new DOMException('操作已结束','AbortError');}
       await protectBrowserRoomKey(credential);this.roomLockEnabled=true;
       if(readIdleSeconds(localStorage)===0)saveIdleSeconds(localStorage,30);
@@ -5906,7 +5899,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       const activeRoleCount = new Set(state.members.filter((member) => member.status === undefined || member.status === 'active').map((member) => member.role)).size;
       if ((before < 2 && activeRoleCount === 2) || mlsBecameReady) {
         void rememberLocalSpace(session).then(() => publishPreparedCatalog(session, this.runtimeAbort?.signal ?? AbortSignal.timeout(8000))).catch(() => undefined);
-        if (isChamberVault(session.vault)) this.refreshChamberChatActivation();
+        if (isChamberVault(session.vault) || session.vault.roomArchiveV2) this.refreshChamberChatActivation();
         else this.renderChat();
         this.showPairingWelcome();
         this.socket?.requestSync(session.vault.lastSeq);
@@ -5929,6 +5922,10 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     if (!session || this.privacyCovered || this.accessFailure || session.vault.mls?.phase !== 'active' || !this.peerHasJoined(session)) return;
     const shell = this.root.querySelector<HTMLElement>(':scope > .chat-shell');
     if (!shell) return;
+    // The joining placeholder has no live composer yet. Once mounted, keep
+    // the real textarea through all membership/MLS readiness notifications:
+    // replacing a touched target before touchend loses Safari's keyboard tap.
+    if (!shell.querySelector('#message-input')) { this.renderChat(); return; }
     shell.classList.remove('chamber-waiting');
     shell.querySelector('.chamber-waiting-footer')?.remove();
     for (const control of shell.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement>(
@@ -8036,6 +8033,18 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       isActive: active, signal: this.runtimeAbort?.signal, verify: deriveNumericPasswordCredential });
   }
 
+  private async prepareNewLocalProtection(active: () => boolean, firstCreate = false,
+    platform: () => Promise<LocalCredentialResult> = () => this.withDeviceVerification(() => createPlatformCredential()),
+    allowPassword = true): Promise<LocalCredentialResult> {
+    if (!allowPassword) return platform();
+    const owner = this.root.firstElementChild;
+    const current = () => active() && !!owner?.isConnected && this.root.contains(owner);
+    const credential = await prepareNewProtection(this.root, { platform, password: () => this.preparePasswordProtection(current, firstCreate),
+      isActive: current, signal: this.runtimeAbort?.signal });
+    if (!current()) { this.releasePersonalCredential(credential); throw new DOMException('设置已结束', 'AbortError'); }
+    return credential;
+  }
+
   private async confirmDeviceCredential(operation = '继续此操作'): Promise<VaultSession> {
     const session = this.session;
     if (!session) throw new Error('请先解锁目标密室');
@@ -9735,16 +9744,14 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
   }
 
   private renderRoomLockSettings(change=false):void {
-    const session=this.session;if(!session?.vault.roomArchiveV2||this.privacyCovered)return;
+    const session=this.session;if(!session?.vault.roomArchiveV2||this.privacyCovered||this.roomLockSetupEpoch===this.runtimeEpoch)return;
     if(this.roomLockEnabled&&!change){this.renderAutoLockSettings();return;}
+    this.roomLockSetupEpoch=this.runtimeEpoch;
     const epoch=this.runtimeEpoch,active=()=>this.isRuntimeActive(epoch,session);
     void(async()=>{
       if(change)await this.verifyRoomOperation();
       if(!active())return;
-      let credential:LocalCredentialResult;
-      if(platformVaultSetupState()==='unsupported')credential=await this.preparePasswordProtection(active);
-      else try{credential=await this.withDeviceVerification(()=>createPlatformCredential());}
-      catch(cause){if(!isPlatformVaultUnavailable(cause))throw cause;credential=await this.preparePasswordProtection(active);}
+      const credential=await this.prepareNewLocalProtection(active);
       if(!active()){this.releasePersonalCredential(credential);return;}
       await protectBrowserRoomKey(credential);this.roomLockEnabled=true;
       if(!change){try{if(readIdleSeconds(localStorage)===0)saveIdleSeconds(localStorage,30);this.resetIdleLock();}
@@ -9752,7 +9759,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       await withVaultMutation(session,async mutation=>{if(!active())return;session.vault.personalGuide={...session.vault.personalGuide,autoLockRead:true};await saveVault(session,mutation);});
       try{localStorage.setItem('quiet-room:room-protection-change',crypto.randomUUID());}catch{/* Revision checks still fence reuse. */}
       if(active()){this.renderAutoLockSettings();this.showNotice('应用锁已设置');}
-    })().catch(cause=>{if(active())this.showNotice(cause instanceof Error?cause.message:'应用锁未设置，请重试','error');});
+    })().catch(cause=>{if(active()&&!(cause instanceof DOMException&&cause.name==='AbortError'))this.showNotice(cause instanceof Error?cause.message:'应用锁未设置，请重试','error');})
+      .finally(()=>{if(this.roomLockSetupEpoch===epoch)this.roomLockSetupEpoch=null;});
   }
 
   private renderAutoLockSettings(): void {
@@ -13631,9 +13639,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
         const button = event.currentTarget as HTMLButtonElement; if (button.disabled || !active()) return;
         button.disabled = true;
         try {
-          let credential: LocalCredentialResult;
-          try { credential = await this.withDeviceVerification(() => createPlatformCredential()); }
-          catch (cause) { if (!isPlatformVaultUnavailable(cause)) throw cause; credential = await this.preparePasswordProtection(() => active() && !settled); }
+          const credential = await this.prepareNewLocalProtection(() => active() && !settled);
           if (active() && !signal.aborted) finish(credential); else { if (!isPasswordCredential(credential)) { credential.prfOutput.fill(0); credential.browserAccessPrf?.fill(0); } finish(); }
         } catch (cause) { if (!settled && active()) panel.querySelector('.form-error')!.textContent = cause instanceof Error ? cause.message : '设置未完成，请重试'; }
         finally { button.disabled = false; }

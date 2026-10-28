@@ -10,7 +10,7 @@ try {
  backend=await startServer({port:0,host:'127.0.0.1',dataDir,quiet:true});
  vite=await createServer({configFile:false,root:process.cwd(),logLevel:'error',plugins:[{name:'passkey-observer',enforce:'pre',transform(code,id){if(id.endsWith('/src/main.ts'))return code.replace('void app.start();','window.app=app;void app.start();');}}],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${backend.port}`,'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});await vite.listen();
  browser=await chromium.launch(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
- const context=await browser.newContext(),page=await context.newPage(),cdp=await context.newCDPSession(page),errors=[];page.on('pageerror',error=>errors.push(error.message));
+ const context=await browser.newContext({userAgent:'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile/15E148 Telegram/11.0'}),page=await context.newPage(),cdp=await context.newCDPSession(page),errors=[];page.on('pageerror',error=>errors.push(error.message));
  await cdp.send('WebAuthn.enable');await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',ctap2Version:'ctap2_1',transport:'internal',hasResidentKey:true,hasUserVerification:true,hasPrf:true,automaticPresenceSimulation:true,isUserVerified:true}});
  await context.addInitScript(()=>Object.defineProperty(PublicKeyCredential,'getClientCapabilities',{configurable:true,value:async()=>({'extension:prf':true,userVerifyingPlatformAuthenticator:true})}));
  await context.addInitScript(()=>{const get=navigator.credentials.get.bind(navigator.credentials);window.credentialRequests=0;const create=navigator.credentials.create.bind(navigator.credentials);navigator.credentials.create=async options=>{if(sessionStorage.getItem('cancel-next-create')==='1'){sessionStorage.removeItem('cancel-next-create');throw new DOMException('Cancelled','NotAllowedError');}return create(options);};navigator.credentials.get=async options=>{window.credentialRequests++;if(sessionStorage.getItem('cancel-next-unlock')==='1'){sessionStorage.removeItem('cancel-next-unlock');throw new DOMException('Cancelled','NotAllowedError');}return get(options);};});
@@ -33,7 +33,8 @@ try {
  await page.locator('#chat-settings').click();await page.locator('#room-lock-settings').click();
  const beforeChange=await page.evaluate(async()=>({revision:(await(await import('/src/lib/vault.ts')).readRoomProtection()).revision,requests:window.credentialRequests}));
  await page.evaluate(()=>sessionStorage.setItem('cancel-next-create','1'));await page.locator('[data-change-room-lock]').click();
- await page.locator('.app-toast').waitFor();await page.waitForFunction(n=>window.credentialRequests>n,beforeChange.requests);
+ await page.locator('.new-protection-choice').waitFor();await page.waitForFunction(n=>window.credentialRequests>n,beforeChange.requests);
+ await page.locator('[data-protection-cancel]').click();
  assert.equal(await page.locator('.auto-lock-page').count(),1,'Canceled replacement preserves the origin page');
  assert.equal(await page.evaluate(async()=>(await(await import('/src/lib/vault.ts')).readRoomProtection()).revision),beforeChange.revision);
  await page.locator('#auto-lock-back').click();await page.locator('.is-settings-page[aria-label="设置"]').waitFor();await page.locator('.is-settings-page .space-back:visible, .is-settings-page .settings-dismiss-handle:visible').click();

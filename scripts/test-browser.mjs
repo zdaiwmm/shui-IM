@@ -64,6 +64,7 @@ export const browserGroups = Object.freeze({
     'tests/joint-recovery.e2e.mjs',
     'tests/chamber-polish.e2e.mjs',
     'tests/new-room-passkey.e2e.mjs',
+    'tests/inapp-lock-first-chat.e2e.mjs',
     'tests/new-room-flows.e2e.mjs',
     'tests/new-room-mobile.e2e.mjs',
     'tests/new-room-invite-privacy.e2e.mjs',
