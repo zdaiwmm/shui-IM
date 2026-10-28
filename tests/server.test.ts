@@ -307,7 +307,7 @@ describe('HTTP and WebSocket integration', () => {
     ]);
     expect(creatorLeft.every((frame) => !frame.roles.creator && frame.roles.joiner)).toBe(true);
     expect(creatorLeft[0].lastSeen.creator).toBeGreaterThan(Date.now() - 5000);
-    expect(creatorLeft[0].lastSeen.joiner).toBeNull();
+    expect(creatorLeft[0].lastSeen.joiner).toBeGreaterThan(Date.now() - 5000);
     expect(creatorLeft[1].lastSeen.creator).toBe(creatorLeft[0].lastSeen.creator);
 
     const secretText = 'SERVER_MUST_NEVER_SEE_THIS_PLAINTEXT';

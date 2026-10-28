@@ -54,6 +54,16 @@ try {
   assert.equal(await phase(), 'unknown');
   await state(true, false);
   assert.equal(await phase(), 'offline');
+  assert.equal(await page.locator('.peer-status').textContent(), '最近上线时间未知');
+  await page.evaluate(() => {
+    window.fixture.app.roleLastSeen = { creator: null, joiner: Date.now() - 5 * 60_000 };
+    window.fixture.app.updatePeerStatus();
+  });
+  assert.equal(await page.locator('.peer-status').textContent(), '5 分钟前在线');
+  await state(null, null);
+  assert.equal(await page.locator('.peer-status').textContent(), '连接中');
+  await state(true, false);
+  assert.equal(await page.locator('.peer-status').textContent(), '5 分钟前在线');
   await page.evaluate(async () => window.fixture.app.enqueuePayload({ v: 1, kind: 'text', text: 'Synthetic presence test', sentAt: new Date().toISOString() }));
   await page.waitForTimeout(150);
   assert.ok(await page.locator('[data-arc="right"]').getAttribute('d'));
