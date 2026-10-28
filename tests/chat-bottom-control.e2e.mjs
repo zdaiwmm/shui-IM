@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
 
@@ -123,7 +125,7 @@ try {
       probe.style.cssText=`position:absolute;background:${forcedColors?'Canvas':'var(--composer-field-surface)'}`;
       composer.append(probe);const expectedInput=getComputedStyle(probe).backgroundColor;probe.remove();
       for (const name of Object.keys(surfaceSelectors)) {
-        const expected=name==='input'?expectedInput:getComputedStyle(composer).backgroundColor;
+        const expected=name==='input'||forcedColors?expectedInput:getComputedStyle(composer).backgroundColor;
         if (snapshot[name].backgroundColor !== expected || snapshot[name].backgroundImage !== 'none') {
           throw Error(`${label} V1.5 surface disagreed with its role: ${JSON.stringify({snapshot,expected,name})}`);
         }
@@ -182,6 +184,57 @@ try {
     window.bottomFixture = { app, session, saveHistoryMessage, fresh, settle, up, button, visible, waitForComposerReveal,
       assertSurfaceSet, forceConditionalRules, assertGap }; await fresh();
   });
+
+  results.newMessageCapsule = await page.evaluate(async () => {
+    const { app, fresh, up, settle, button, waitForComposerReveal } = window.bottomFixture;
+    const idle = app.idlePrompt;
+    for(const scheme of ['light','dark']){
+      document.documentElement.dataset.colorScheme=scheme;await fresh();await up(400);await waitForComposerReveal();
+      app.chatNewMessageIds=new Set(['arrival-a','arrival-b']);app.updateChatBottomControl();
+      const list=document.querySelector('#message-list'),input=document.querySelector('#composer');
+      const before={height:list.getBoundingClientRect().height,top:input.getBoundingClientRect().top};
+      app.idleLease.start(60);app.idleDeadline=Date.now()+5000;app.idleMonotonicDeadline=performance.now()+5000;app.updateIdlePrompt();await settle();
+      const news=button().getBoundingClientRect(),lock=idle.element.getBoundingClientRect();
+      if(Math.abs(news.left+news.width/2-innerWidth/2)>1||news.height!==44||lock.height!==44||news.top-lock.bottom<7)throw Error(`Capsules overlap or are not centered: ${JSON.stringify({news:news.toJSON(),lock:lock.toJSON()})}`);
+      if(button().textContent.trim()!=='2 条新消息'||button().getAttribute('aria-label')!=='2 条新消息，回到最新消息')throw Error('Capsule lost count or accessible action');
+      app.idleLease.clear();idle.hide();await settle();
+      if(Math.abs(button().getBoundingClientRect().top-news.top)>1||list.getBoundingClientRect().height!==before.height||input.getBoundingClientRect().top!==before.top)throw Error('Lock warning changed chat layout or moved the news capsule');
+      app.chatNewMessageIds=new Set(Array.from({length:101},(_,i)=>String(i)));app.updateChatBottomControl();
+      if(!button().textContent.includes('99+ 条新消息'))throw Error('New count did not cap its display');
+      app.scrollChatToBottom();await settle();
+      if(app.chatNewMessageIds.size||button().dataset.newMessages!=='false')throw Error('Return to latest did not clear counted arrivals');
+    }
+    document.documentElement.dataset.colorScheme='light';await fresh();
+    return {centered:true,independent44pxTargets:true,stableComposer:true,lightAndDark:true,countCap:99};
+  });
+
+  results.capsuleViewports = [];
+  for(const [width,height,keyboard] of [[320,568,false],[390,844,true],[1440,900,false]]){
+    await page.setViewportSize({width,height});
+    const snapshot=await page.evaluate(async keyboard=>{
+      const {app,fresh,waitForComposerReveal,button,settle}=window.bottomFixture;
+      await fresh();app.chatScrollIntent='up';app.chatPinnedToBottom=false;app.setChatScrollTop(Math.max(0,app.chatBottomScrollTop()-400));await settle();await waitForComposerReveal();
+      app.chatNewMessageIds=new Set(['bottom-79','bottom-80']);app.updateChatBottomControl();
+      const viewport=window.visualViewport,savedHeight=Object.getOwnPropertyDescriptor(viewport,'height');
+      try{
+        if(keyboard){Object.defineProperty(viewport,'height',{configurable:true,value:430});viewport.dispatchEvent(new Event('resize'));await new Promise(r=>setTimeout(r,950));}
+        app.idleLease.start(60);app.idleDeadline=Date.now()+5000;app.idleMonotonicDeadline=performance.now()+5000;app.updateIdlePrompt();await settle();
+        const news=button().getBoundingClientRect(),lock=app.idlePrompt.element.getBoundingClientRect(),composer=document.querySelector('#composer').getBoundingClientRect();
+        if(!button().classList.contains('is-visible')||Math.abs(news.left+news.width/2-viewport.width/2)>1||news.top-lock.bottom<7||composer.top-news.bottom<7||lock.top<0)throw Error(`Viewport capsule geometry: ${JSON.stringify({visible:button().classList.contains('is-visible'),news:news.toJSON(),lock:lock.toJSON(),composer:composer.toJSON()})}`);
+        return {keyboard,width:innerWidth,news:news.toJSON(),lock:lock.toJSON()};
+      }finally{
+        app.idleLease.clear();app.idlePrompt.hide();if(savedHeight)Object.defineProperty(viewport,'height',savedHeight);else delete viewport.height;viewport.dispatchEvent(new Event('resize'));
+      }
+    },keyboard);
+    results.capsuleViewports.push(snapshot);
+    if(process.env.QR_VISUAL_DIR){
+      await page.evaluate(async()=>{const {app,waitForComposerReveal,settle}=window.bottomFixture;await settle();await waitForComposerReveal();app.updateChatBottomControl();app.idleLease.start(60);app.idleDeadline=Date.now()+5000;app.idleMonotonicDeadline=performance.now()+5000;app.scheduleIdleLock();await settle();});
+      await page.waitForFunction(()=>{const news=document.querySelector('#chat-bottom-control').getBoundingClientRect(),lock=document.querySelector('.idle-lock-prompt')?.getBoundingClientRect();return lock&&Math.abs(news.top-lock.bottom-8)<1;});
+      await mkdir(process.env.QR_VISUAL_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.QR_VISUAL_DIR,`chat-capsules-${width}.png`)});
+      await page.evaluate(()=>{const {app}=window.bottomFixture;app.idleLease.clear();app.idlePrompt.hide();});
+    }
+  }
+  await page.setViewportSize({width:390,height:844});await page.evaluate(()=>window.bottomFixture.fresh());
 
   results.strictThreshold = await page.evaluate(async () => {
     const { app, up, settle, button, visible, waitForComposerReveal, assertGap } = window.bottomFixture;
