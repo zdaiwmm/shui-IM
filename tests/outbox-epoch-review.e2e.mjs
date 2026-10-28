@@ -44,9 +44,16 @@ try {
       // Model transport backpressure while retaining authenticated incoming
       // membership updates. No payload or cryptographic state is injected.
       await b.evaluate(() => {
-        window.reviewOriginalSend = reviewApp.socket.sendEnvelope.bind(reviewApp.socket);
-        reviewApp.socket.sendEnvelope = () => false;
+        window.reviewTransportPrototype=Object.getPrototypeOf(reviewApp.socket);
+        window.reviewOriginalSend=window.reviewTransportPrototype.sendEnvelope;
+        // Hold admission for every real replacement socket, retaining its own this.
+        window.reviewTransportPrototype.sendEnvelope=()=>false;
       });
+      if(oldCount===64){
+        const replaced=await b.evaluate(async()=>{const previous=reviewApp.socket;await reviewApp.connectSocket();return reviewApp.socket!==previous;});
+        assert.equal(replaced,true,'Exercise a genuine socket replacement while admission is held');
+        await b.waitForFunction(()=>reviewApp.socket?.connected&&reviewApp.session?.vault.mls?.phase==='active');
+      }
       await b.evaluate(async count => {
         globalThis.enqueuePreviousClient = async text => {
           const v = await import('/src/lib/vault.ts'), m = await import('/src/lib/mls.ts');
@@ -76,8 +83,9 @@ try {
           generation: reviewApp.session.vault.mls.window.generated, senderSequence: reviewApp.session.vault.mls.sendSequence };
       });
       assert.equal(queued.count, oldCount + freshCount); assert.equal(queued.encrypted, queued.count); assert.equal(queued.intentsOnly, 0);
+      await b.waitForFunction(()=>reviewApp.socket?.connected&&reviewApp.session?.vault.mls?.phase==='active');
       const start = backend.store.roomState(roomId);
-      await b.evaluate(() => { reviewApp.socket.sendEnvelope = window.reviewOriginalSend; void reviewApp.resumeOutbox(); });
+      await b.evaluate(() => { window.reviewTransportPrototype.sendEnvelope=window.reviewOriginalSend; void reviewApp.resumeOutbox(); });
       // Bound both total work and lack of accepted-message progress. Crypto and
       // IndexedDB speed varies on shared CI hosts; a stuck queue still fails fast.
       const deadline = Date.now() + 180_000;
