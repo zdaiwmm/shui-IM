@@ -481,21 +481,26 @@ html[data-keyboard-open='true'] .composer {
 .composer { --composer-placeholder-ink: oklch(58% 0.006 255); }
 :root[data-color-scheme="dark"] .composer { --composer-placeholder-ink: oklch(64% 0.006 255); }
 
-/* Both controls use the composer's existing viewport owner. */
+/* Counted arrivals use a compact centered face within an independent 44px hit
+   target. The uncounted return control keeps its existing circular affordance. */
+.chat-bottom-capsule { display: contents; }
 .chat-new-count[hidden] { display: none; }
-.chat-new-count {
-  position: absolute;
-  top: -7px;
-  right: -5px;
-  min-width: 22px;
-  height: 20px;
-  padding: 0 5px;
-  display: grid;
-  place-items: center;
-  border-radius: 12px;
-  background: var(--accent);
-  color: var(--paper-pure);
-  font-size: 11px;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
+#app .chat-bottom-control[data-new-messages="true"] {
+  left: 50%; right: auto; width: max-content; max-width: calc(100% - 24px);
+  height: 44px; padding: 8px 0; border: 0; border-radius: 999px;
+  transform: translateX(-50%); background: transparent; box-shadow: none;
+}
+.chat-bottom-control[data-new-messages="true"] .chat-bottom-capsule {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 28px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface-raised); color: var(--ink);
+  box-shadow: 0 2px 8px color-mix(in oklch, var(--ink) 8%, transparent);
+  font: inherit; font-size: 12px; line-height: 1; white-space: nowrap;
+}
+.chat-bottom-control[data-new-messages="true"] svg { width: 16px; height: 16px; }
+.chat-new-count { font-variant-numeric: tabular-nums; }
+@media (forced-colors: active) {
+  .chat-bottom-control[data-new-messages="true"] .chat-bottom-capsule {
+    border-color: ButtonText; background: Canvas; color: ButtonText; box-shadow: none;
+  }
 }

@@ -45,6 +45,9 @@ export class IdleLockPrompt {
     const anchor = composer?.getBoundingClientRect();
     let bottom = top + height - 12;
     if (anchor && anchor.top > top && anchor.top < bottom) bottom = anchor.top - 6;
+    const newMessages = modal ? null : this.root.querySelector<HTMLElement>('#chat-bottom-control[data-new-messages="true"].is-visible');
+    const messagesBounds = newMessages?.getBoundingClientRect();
+    if (messagesBounds && messagesBounds.top > top && messagesBounds.top < bottom) bottom = messagesBounds.top - 8;
     if (modal) {
       const controls = modal.querySelector<HTMLElement>('.dialog-actions, .welcome-actions, .modal-actions, footer');
       const bounds = controls?.getBoundingClientRect();

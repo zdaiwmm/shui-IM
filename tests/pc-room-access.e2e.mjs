@@ -26,10 +26,11 @@ try {
   await owner.evaluate(()=>app.renderAddOwnDevice());await owner.locator('#copy-device-join').click();await submitPassword(owner,'123456');await submitPassword(owner,'123456');
   await owner.locator('.app-toast').filter({hasText:'设备链接已复制'}).waitFor();
   const deviceLink=await owner.evaluate(async()=>(await import('/src/lib/invite-link.ts')).makeDeviceInviteUrl(app.ownDeviceInvite));await candidate.goto(deviceLink);await ready(candidate);
+  const firstEndpoint=await candidate.evaluate(async()=>({slot:(await import('/src/lib/vault.ts')).currentSpaceId(),device:app.session.vault.identity.publicBundle.deviceId,collection:app.session.vault.spaceRecoveryCode}));
   await owner.evaluate(()=>{localStorage.setItem('quiet-room:auto-lock-seconds','0');app.scheduleIdleLock();});
   await owner.evaluate(()=>app.renderCreate());await owner.waitForFunction(old=>app.session?.vault.roomId&&app.session.vault.roomId!==old,carrierRoom);await owner.locator('#copy-invite').waitFor();
   stage='join target peer';await peer.evaluate(()=>app.leaveSpace());await peer.goto(await invite(owner));await ready(peer);stage='target owner ready';await ready(owner);
-  const targetRoom=await owner.evaluate(()=>app.session.vault.roomId);let approvalLinks=0;owner.on('request',r=>{if(r.method()==='POST'&&/\/device-links$/.test(new URL(r.url()).pathname))approvalLinks++;});
+  const targetRoom=await owner.evaluate(()=>app.session.vault.roomId);let approvalLinks=0;owner.on('response',r=>{if(r.ok()&&r.request().method()==='POST'&&/\/device-links$/.test(new URL(r.url()).pathname))approvalLinks++;});
   await owner.locator('#message-input').fill('synthetic message before admission');await owner.locator('#composer').evaluate(f=>f.requestSubmit());await peer.getByText('synthetic message before admission',{exact:true}).waitFor();
   await candidate.waitForFunction(async roomId=>(await(await import('/src/lib/own-space-directory.ts')).ownDirectorySpaces(app.session)).some(s=>s.roomId===roomId&&s.catalogOnly),targetRoom);
   assert.equal(await candidate.evaluate(()=>app.session.vault.roomId),carrierRoom);
@@ -43,16 +44,48 @@ try {
   assert.equal(await candidate.evaluate(()=>app.session.vault.roomId),carrierRoom,'Pending approval does not install the target room');
   assert.equal(approvalLinks,0,'A request alone never creates enrollment authority');
   const card=owner.locator('[data-own-authorization]');
+  stage='authorization card survives message refresh';
+  const cardStability=await owner.evaluate(async()=>{
+    const card=document.querySelector('[data-own-authorization]'),before=card.getBoundingClientRect(),scroll=window.scrollY;
+    let removals=0;const observer=new MutationObserver(records=>{for(const record of records)for(const node of record.removedNodes)if(node===card)removals++;});
+    observer.observe(card.parentElement,{childList:true});
+    for(let i=0;i<3;i++){app.renderMessages();await app.paintOwnRoomAccess();await new Promise(r=>requestAnimationFrame(r));}
+    observer.disconnect();const after=card.getBoundingClientRect();
+    return {same:document.querySelector('[data-own-authorization]')===card,removals,delta:after.top-before.top,scroll:window.scrollY-scroll};
+  });
+  assert.ok(cardStability.same&&cardStability.removals===0&&Math.abs(cardStability.delta)<1&&Math.abs(cardStability.scroll)<1,JSON.stringify(cardStability));
   const placement=await card.evaluate(n=>{const list=n.parentElement,last=[...list.querySelectorAll('.message')].at(-1);return {isLast:list.lastElementChild===n,afterMessages:!last||n.getBoundingClientRect().top>=last.getBoundingClientRect().bottom};});
   assert.ok(placement.isLast&&placement.afterMessages,JSON.stringify(placement));
   await card.locator('[data-reject]').click();
   await candidate.getByText('原设备已拒绝本次申请。',{exact:true}).waitFor();assert.equal(await candidate.evaluate(()=>app.session.vault.roomId),carrierRoom);
   await candidate.locator('[data-own-room-retry]').click();await owner.locator('[data-own-authorization]').waitFor();
+  stage='device limit uses toast without changing the card';
+  const beforeLimit=await owner.locator('[data-own-authorization]').boundingBox();
+  await owner.route('**/api/rooms/*/device-links',route=>route.fulfill({status:409,contentType:'application/json',body:JSON.stringify({code:'DEVICE_LIMIT',error:'每位参与者最多使用三台设备'})}));
+  await owner.locator('[data-own-authorization] [data-approve]').click();await submitPassword(owner,'123456');
+  await owner.locator('.app-toast').filter({hasText:'每位参与者最多使用三台设备'}).waitFor();
+  assert.equal(await owner.locator('[data-own-authorization]').getByText('每位参与者最多使用三台设备').count(),0);
+  assert.equal(await owner.locator('[data-own-authorization] [data-approve]').isEnabled(),true);
+  assert.equal((await owner.locator('[data-own-authorization]').boundingBox()).height,beforeLimit.height);
+  await owner.unroute('**/api/rooms/*/device-links');
+  stage='approve target room';
   await owner.locator('[data-own-authorization] [data-approve]').click();await submitPassword(owner,'123456');
   await candidate.waitForFunction(id=>app.session?.vault.roomId===id&&document.querySelector('#message-input')?.disabled===false,targetRoom);
   assert.equal(approvalLinks,1,'Explicit approval creates one internal single-use admission');
   assert.equal(await candidate.getByText('synthetic message before admission',{exact:true}).count(),0,'New admission does not disclose pre-join history');
   await candidate.locator('#message-input').fill('synthetic message after admission');await candidate.locator('#composer').evaluate(f=>f.requestSubmit());await peer.getByText('synthetic message after admission',{exact:true}).waitFor();
+  stage='two approved rooms retain independent endpoints';
+  const secondEndpoint=await candidate.evaluate(async()=>({slot:(await import('/src/lib/vault.ts')).currentSpaceId(),device:app.session.vault.identity.publicBundle.deviceId,collection:app.session.vault.spaceRecoveryCode}));
+  assert.notEqual(secondEndpoint.slot,firstEndpoint.slot,'A second admission must not overwrite the first room slot');
+  assert.equal(secondEndpoint.collection,firstEndpoint.collection,'A second admission retains this browser collection');
+  for(const [room,endpoint] of [[carrierRoom,firstEndpoint],[targetRoom,secondEndpoint],[carrierRoom,firstEndpoint],[targetRoom,secondEndpoint]]){
+    await candidate.evaluate(async roomId=>{const spaces=await(await import('/src/lib/own-space-directory.ts')).ownDirectorySpaces(app.session);const space=spaces.find(s=>s.roomId===roomId);if(!space?.localId||space.catalogOnly)throw new Error('Approved room lost its local endpoint');await app.switchPrivateSpace(space);},room);
+    await ready(candidate);await candidate.waitForFunction(id=>app.session?.vault.roomId===id,room);
+    assert.equal(await candidate.evaluate(()=>app.session.vault.identity.publicBundle.deviceId),endpoint.device);
+  }
+  await candidate.reload();await ready(candidate);
+  assert.equal(await candidate.evaluate(()=>app.session.vault.identity.publicBundle.deviceId),secondEndpoint.device);
+  assert.equal(approvalLinks,1,'Switching and reloading already approved rooms never requests another enrollment');
   // Desktop layout assertions use actual product components in the same room.
   await candidate.locator('#open-chat-tools').click();
   await settle(candidate);

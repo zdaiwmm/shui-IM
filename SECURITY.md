@@ -289,6 +289,10 @@ backlogs stay in the encrypted vault and refill after acknowledgement handling.
 An unacknowledged write reconnects after fifteen seconds. Closing or locking
 clears transport reservations and exact-envelope references; it does not erase
 the durable outbox or advance its message/receipt cursors.
+An MLS rejection retains its exact send reservation through authenticated
+membership handling and durable re-encryption before refilling. Failed repair
+keeps application backoff ownership; a late completion cannot release a newer
+transport's send reservation or block unrelated incoming delivery.
 An authenticated legacy transport that exceeds input or output capacity closes
 with upgrade-required code 4403 instead of entering a retry loop. When input
 overflows and output permits, the service also sends SYNC_UPGRADE_REQUIRED;

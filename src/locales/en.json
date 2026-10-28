@@ -1,4 +1,10 @@
 {
+  "正在获取链接预览…": "Fetching link preview…",
+  "暂时无法获取预览": "Preview is currently unavailable",
+  "可以直接发送链接": "You can send the link directly",
+  "移除链接预览": "Remove link preview",
+  "在新标签页打开": "Open in a new tab",
+  "链接预览等待设备更新": "Link preview is waiting for devices to update",
   "语言 / Language": "Language",
   "跟随系统": "System language",
   "用户反馈": "Feedback",
@@ -3125,10 +3131,5 @@
   "操作可能已完成，但审计记录失败。请刷新确认结果，不要重复提交。": "The operation may have been completed, but the audit record fails. update confirm results and don’t repeat submission.",
   "凭证密码仅用于本浏览器加密，不上传服务器。": "The credential password encrypts data only in this browser and is never uploaded to the server.",
   "密室数量已达上限，如需更多请联系客服": "Room limit reached. Contact support if you need more rooms.",
-  "正在获取链接预览…": "Fetching link preview…",
-  "暂时无法获取预览": "Preview is currently unavailable",
-  "可以直接发送链接": "You can send the link directly",
-  "移除链接预览": "Remove link preview",
-  "在新标签页打开": "Open in a new tab",
-  "链接预览等待设备更新": "Link preview is waiting for devices to update"
+  "条新消息": "new messages"
 }

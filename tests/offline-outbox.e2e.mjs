@@ -62,7 +62,25 @@ try {
   result.firstOffline = await local(b);
   assert.equal(result.firstOffline.outbox.length, 1);
   assert.equal(result.firstOffline.draft, '');
+  // Reconnect's incoming sync must not wait for this unrelated outgoing
+  // message-window HTTP request. Keep actual MLS, storage and WebSockets.
+  let releaseOutbound, enteredOutbound, outboundHeld = false;
+  const outboundWait = new Promise(resolve => { releaseOutbound = resolve; });
+  const outboundEntered = new Promise(resolve => { enteredOutbound = resolve; });
+  const outboundRoute = '**/api/rooms/*';
+  await b.route(outboundRoute, async route => {
+    if (route.request().method() !== 'GET' || outboundHeld) return route.continue();
+    outboundHeld = true; enteredOutbound(); await outboundWait; await route.continue().catch(() => {});
+  });
   await contextB.setOffline(false); await ready(b);
+  try {
+    await Promise.race([outboundEntered, new Promise((_, reject) => setTimeout(() => reject(Error('Outgoing window request did not start')), 5000))]);
+    const begun = Date.now();
+    await a.locator('#message-input').fill('INCOMING while outgoing refresh is blocked');
+    await a.locator('#composer').evaluate(form => form.requestSubmit());
+    await b.getByText('INCOMING while outgoing refresh is blocked', { exact: true }).waitFor({ timeout: 5000 });
+    result.receiveDuringOutboundNetworkWaitMs = Date.now() - begun;
+  } finally { releaseOutbound(); await b.unroute(outboundRoute); }
   await b.waitForFunction(() => auditApp.outbox.size === 0, undefined, {polling:100});
   result.firstOfflineAfterReconnect = await local(b);
   assert.equal(result.firstOfflineAfterReconnect.outbox.length, 0);
@@ -198,6 +216,28 @@ try {
   const nextId=await b.evaluate(()=>[...auditApp.messages.values()].find(m=>m.payload.text==='AFTER cancellation still decrypts').clientMsgId);
   assert.ok(serverMessages.find(x=>x.envelope.clientMsgId===nextId).envelope.retention.sendSequence>cancelled.sequence);
   result.cancelledGeneratedCiphertext={durableRemoved:true,ratchetPreserved:true,reloadNoRetry:true,nextMessageDecrypted:true,serverNeverAccepted:true};
+  // Real opposite-role arrivals, including reconnect sync, while the reader
+  // keeps an older visible anchor. Control receipts never inflate the count.
+  for(let index=0;index<14;index++){
+    await a.evaluate(async index=>{await auditApp.enqueuePayload({v:1,kind:'text',sentAt:new Date().toISOString(),text:`COUNT history ${index}\nsecond line\nthird line`});},index);
+    await b.getByText(`COUNT history ${index}\nsecond line\nthird line`,{exact:true}).waitFor();
+  }
+  await b.setViewportSize({width:390,height:600});
+  await b.evaluate(()=>{auditApp.chatScrollIntent='up';auditApp.chatPinnedToBottom=false;auditApp.setChatScrollTop(0);auditApp.updateChatBottomControl();});
+  await a.locator('#message-input').fill('COUNT real-time');await a.locator('#composer').evaluate(form=>form.requestSubmit());
+  await b.locator('.chat-new-count').filter({hasText:'1 条新消息'}).waitFor();
+  await disconnectB();
+  await a.locator('#message-input').fill('COUNT reconnect');await a.locator('#composer').evaluate(form=>form.requestSubmit());
+  await a.waitForFunction(()=>auditApp.outbox.size===0);
+  await contextB.setOffline(false);await ready(b);
+  await b.locator('.chat-new-count').filter({hasText:'2 条新消息'}).waitFor();
+  await b.evaluate(()=>auditApp.socket.requestSync(auditApp.session.vault.lastSeq-5));
+  await b.waitForTimeout(250);
+  assert.equal(await b.locator('.chat-new-count').innerText(),'2 条新消息','Duplicate sync and read events do not count twice');
+  assert.equal(await b.evaluate(()=>auditApp.chatPinnedToBottom),false,'Arrivals retain the historical reading position');
+  await b.locator('#chat-bottom-control').click();
+  await b.waitForFunction(()=>auditApp.chatNewMessageIds.size===0&&!document.querySelector('#chat-bottom-control').classList.contains('is-visible'));
+  result.newMessageCounts={live:true,reconnect:true,duplicateSyncIgnored:true,explicitReturnClears:true};
   // A network blackhole inside the vault lease must be cancelled by locking.
   // Route only the real window-refresh GET; retain the actual fetch/abort path.
   let releaseHeld, reachedHeld;

@@ -1,4 +1,10 @@
 {
+  "正在获取链接预览…": "Obteniendo vista previa…",
+  "暂时无法获取预览": "Vista previa no disponible",
+  "可以直接发送链接": "Puedes enviar el enlace directamente",
+  "移除链接预览": "Quitar vista previa",
+  "在新标签页打开": "Abrir en una pestaña nueva",
+  "链接预览等待设备更新": "La vista previa espera la actualización de los dispositivos",
   "语言 / Language": "Idioma / Language",
   "跟随系统": "Idioma del sistema",
   "用户反馈": "Comentarios",
@@ -3118,10 +3124,5 @@
   "本地文件需自行保存，新聊天要重新导出。云备份默认关闭，开启后只在页面打开、已解锁且联网时运行；关闭不删除已有云备份。缺少的原文件不会凭空恢复。": "Los archivos locales deben ser almacenados por sí mismos, el nuevo chat debe ser reexportado.Closado por defecto, la backup en la nube solo se abre cuando la página se desbloquea y se conecta;Closada sin eliminar la backups en la nuvem.Los archivos originales que faltan no se recuperan con el espacio.",
   "凭证密码仅用于本浏览器加密，不上传服务器。": "La contraseña de la credencial solo cifra los datos en este navegador y no se sube al servidor.",
   "密室数量已达上限，如需更多请联系客服": "Se ha alcanzado el límite de salas. Contacta con soporte si necesitas más.",
-  "正在获取链接预览…": "Obteniendo vista previa…",
-  "暂时无法获取预览": "Vista previa no disponible",
-  "可以直接发送链接": "Puedes enviar el enlace directamente",
-  "移除链接预览": "Quitar vista previa",
-  "在新标签页打开": "Abrir en una pestaña nueva",
-  "链接预览等待设备更新": "La vista previa espera la actualización de los dispositivos"
+  "条新消息": "mensajes nuevos"
 }

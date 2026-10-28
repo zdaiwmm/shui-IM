@@ -175,7 +175,8 @@ try {
   assert.equal(Boolean(service.store.roomState(currentWaiting)), false, await old.page.locator('#app-toast').textContent());
   await old.page.unroute(`**/api/rooms/${currentWaiting}`);
   await old.page.locator('.space-row.is-selected').click({button:'right'});await old.page.locator('#space-delete').click();
-  await old.page.locator('.space-drawer-overlay').waitFor({state:'detached'});
+  // The closing transition briefly retains an inert navigation cover too.
+  await old.page.waitForFunction(() => document.querySelectorAll('.space-drawer-overlay').length === 0);
   assert.notEqual(await old.page.evaluate(() => app.session?.vault.roomId), currentWaiting);
   await fresh.page.waitForFunction(roomId => !app.browserProfile.profile.spaces.some(s => s.roomId === roomId), currentWaiting);
   // A room created on the newly approved device appears on the original
