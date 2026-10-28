@@ -5,7 +5,7 @@
 - 2026-10-28，本聊天用户确认“加入不计入，只限制创建”，随后回复“确认，立即实施，完成后合并”。确认覆盖V1、免本次原型与流程图、正式实施和固定D交付；不含生产发布。消息定位未单独提供。
 - 接手规则来源本机main `b288052748c2d889c9d7acd5f109762c024fb3d5`；起始GitHub／origin/main均为 `2dc64d3b05cbea56bca79404d4f858da1721cbdc`，本机main较旧且干净。
 - 独立分支 `codex/browser-created-room-limit-20261028`；本机任务目录 `/Users/zhouding/ss-worktrees/browser-created-room-limit-20261028`。跨电脑接续须重新核验实际路径、HEAD及工作树状态。
-- 当前阶段：V1实施及Chromium／WebKit定向验证已完成，进入完整门禁与自动交付；最终精确head、CI和合并回查由本任务PR持有。
+- 当前阶段：已实施、通过精确完整PR CI并合并，未发布。代码交付由[PR #457](https://github.com/zdaiwmm/shui-IM/pull/457)持有；本次文档收尾在独立 `codex/browser-room-limit-delivery-20261028` 分支进行，不修改产品或触发发布。
 
 ## 已确认范围
 
@@ -27,7 +27,9 @@
 | 前3个可创建，第4次指定toast且保留列表，无创建请求 | `tests/new-room-creation-limit.e2e.mjs` | 本地Chromium／WebKit均通过；保存时迟到超限可返回原密室 |
 | 满额可加入、刷新仍限制、移除释放名额且不删保留历史 | 同上，真实本地服务与浏览器 | 两引擎均通过 |
 | 本人新增设备不占名额、同room去重、跨标签页最后一名额只允许一个成功、取消拒绝 | 同上，独立合成身份及真实IndexedDB | 两引擎均通过 |
-| 恢复凭证说明删句，原流程保持 | 同上及既有new-room-flows/mobile | 两引擎删句断言通过；原流程随完整门禁核验 |
+| 恢复凭证说明删句，原流程保持 | 同上及既有new-room-flows/mobile、new-room-invite-privacy | 两引擎删句与原三步流程专项通过；完整PR CI通过 |
 
-- 候选版本 `2026.10.28.4`；完整本地门禁由`delivery:evidence`保存到任务Git目录，最终结果在PR说明与GitHub CI回查。文档链接与差异格式检查通过；未进行物理iPhone验证，不含生产发布。
+- 候选版本 `2026.10.28.4`，源head `83ae3085298c2d3473d182abc1be13edb6fc983c`；[CI40659338970](https://github.com/zdaiwmm/shui-IM/actions/runs/40659338970) attempt1全部成功：155测试文件／1184项、全部87个浏览器入口、通话、双架构镜像及verify。PR #457于2026-10-28 17:00（上海）合并为 `c423647bd17ae85608cf8217a89815c41e8c9ef9`，已独立回查MERGED与远端main。
+- 本地构建与全部单元覆盖通过：整轮1181项通过，3项既有测试因5秒时限失败，对应2文件／9项独立复核通过，未修改其超时或断言。本地串行浏览器前17项通过，旧候选因同步删句断言而中止，未声明本地整轮成功；最终完整覆盖来自上述精确CI。新数量限制与既有邀请／凭证流程在Chromium、WebKit专项均通过。
+- 文档链接与差异格式检查通过；本机`delivery:evidence`保留实际门禁结果，不把本地中断写成通过。未进行物理iPhone验证，未执行生产发布。
 - 材料仅文本源码，无二进制、Base64、真实聊天、恢复材料或新增依赖；原型及流程图按本次明确例外省略。
