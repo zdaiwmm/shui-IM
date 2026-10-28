@@ -1,5 +1,6 @@
 import { createSocketBudget, SOCKET_LIMITS } from './socket-budget.mjs';
 import { createServer as createHttpServer } from 'node:http';
+import { createLinkPreviewService } from './link-preview.mjs';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -421,6 +422,7 @@ export async function startServer(options = {}) {
     } });
   await store.cleanupDeletedRooms();
 
+  const linkPreview = createLinkPreviewService();
   const httpServer = createHttpServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://localhost');
@@ -451,6 +453,35 @@ export async function startServer(options = {}) {
           const invalid = error instanceof SyntaxError || ['INVALID_FEEDBACK','INVALID_FEEDBACK_EMAIL','INVALID_FEEDBACK_MESSAGE'].includes(code);
           const status = code === 'FEEDBACK_CAPACITY' ? 503 : code === 'FEEDBACK_CONFLICT' ? 409 : code === 'BODY_TOO_LARGE' ? 413 : invalid ? 400 : 500;
           json(request,response,status,{code: ['FEEDBACK_CAPACITY','FEEDBACK_CONFLICT','INVALID_FEEDBACK_EMAIL','INVALID_FEEDBACK_MESSAGE','BODY_TOO_LARGE'].includes(code) ? code : invalid ? 'INVALID_FEEDBACK' : 'FEEDBACK_UNAVAILABLE'});
+        }
+        return;
+      }
+
+      const previewMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/link-preview$`));
+      if (previewMatch) {
+        if (request.method !== 'POST') { json(request,response,405,{code:'METHOD_NOT_ALLOWED'});return; }
+        const device = requireActiveDevice(request,previewMatch[1]);
+        let sameOrigin=false;
+        try {sameOrigin=new URL(request.headers.origin).host===request.headers.host;}catch {/* Fail closed. */}
+        if(!sameOrigin || request.headers['sec-fetch-site']==='cross-site' || !/^application\/json(?:;|$)/i.test(request.headers['content-type']??'')) {
+          json(request,response,403,{code:'INVALID_ORIGIN'});return;
+        }
+        if(!allowRequest(request,'link-preview',30) || !rateLimits.take(JSON.stringify(['preview-device',previewMatch[1],device.deviceId]),20).allowed) {
+          json(request,response,429,{code:'RATE_LIMITED'});return;
+        }
+        const controller=new AbortController();response.once('close',()=>controller.abort());
+        try {
+          const body=JSON.parse((await readBody(request,4096)).toString('utf8'));
+          if(!body || typeof body!=='object' || Object.keys(body).length!==1 || typeof body.url!=='string')throw new Error('PREVIEW_TARGET');
+          requireActiveDevice(request,previewMatch[1],device.deviceId);
+          const result=await linkPreview(body.url,controller.signal);
+          requireActiveDevice(request,previewMatch[1],device.deviceId);
+          json(request,response,200,result);
+        }catch(error){
+          if(controller.signal.aborted)return;
+          const code=error instanceof Error?error.message:'';
+          const status=code==='UNAUTHORIZED'?401:code==='PREVIEW_BUSY'?429:code==='PREVIEW_TARGET'||code==='BODY_TOO_LARGE'||error instanceof SyntaxError?400:502;
+          json(request,response,status,{code:'PREVIEW_UNAVAILABLE',error:'暂时无法获取预览'});
         }
         return;
       }

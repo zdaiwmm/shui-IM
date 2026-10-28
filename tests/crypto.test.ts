@@ -37,6 +37,17 @@ async function pairedVaults() {
 }
 
 describe('message encryption protocol', () => {
+  it('encrypts a bounded link preview snapshot with maximum Unicode text without exposing URLs', async () => {
+    const {creatorVault,joinerVault}=await pairedVaults();
+    const url='https://example.com/private-post';
+    const image=new Uint8Array(16*1024);image.set([255,216,255]);
+    const payload:MessagePayload={v:3,kind:'text',text:url+' '+'界'.repeat(3999-url.length),sentAt:new Date().toISOString(),
+      preview:{url,siteName:'Example',title:'Preview',description:'',layout:'large',image:{mimeType:'image/jpeg',data:Buffer.from(image).toString('base64url'),width:640,height:320}}};
+    const envelope=await encryptMessage(creatorVault,payload);
+    expect(JSON.stringify(envelope)).not.toContain(url);
+    if(envelope.v===1)expect(envelope.content.ciphertext.length).toBeLessThan(64*1024);
+    expect(await decryptMessage(joinerVault,envelope)).toEqual(payload);
+  });
   it('authenticates the invited device without revealing the pairing secret', async () => {
     const { joinerVault, proof } = await pairedVaults();
     expect(await verifyJoinProof(joinerVault.pairingSecret, joinerVault.identity.publicBundle, proof)).toBe(true);

@@ -18,6 +18,7 @@ import './system-chrome.css';
 import './form-input.css';
 import './chamber-refinements.css';
 import './room-polish.css';
+import './link-preview.css';
 import { mountSettingsLayout } from './lib/settings-layout';
 import { mountFormInputs } from './lib/form-input';
 import { mountGatewayIntros } from './lib/gateway-intro';
