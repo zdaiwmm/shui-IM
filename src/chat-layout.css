@@ -62,6 +62,12 @@ body:has(:where(#app) > .chat-shell) {
   pointer-events: none;
   z-index: 6;
 }
+/* Retain focus only on the existing webpage strip during native editing.
+   This does not extend its bounds or cover Safari's own address/keyboard UI. */
+html[data-keyboard-open="true"]:not(.privacy-obscured) .chat-shell[data-native-chrome="true"]:has(#message-input:focus) > .chat-keyboard-underlay {
+  pointer-events: auto;
+  touch-action: none;
+}
 /* Keep the title outside document-flow/sticky bounds, including Safari's
    bottom overscroll. positionChatChrome corrects its fixed viewport origin. */
 .chat-header::before,
