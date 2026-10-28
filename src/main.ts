@@ -35,15 +35,15 @@ document.addEventListener('dblclick', (event) => {
 
 const root = document.querySelector<HTMLElement>('#app');
 if (!root) throw new Error('Application root is missing');
-void mountLanguage().then(() => {
-  mountSystemChrome();
-  mountPortraitOrientation(root);
-  mountFormInputs(root);
-  mountGatewayIntros(root);
-  mountSettingsLayout(root);
-  const app = new QuietRoomApp(root);
-  void app.start();
-});
+await mountLanguage();
+mountSystemChrome();
+mountPortraitOrientation(root);
+mountFormInputs(root);
+mountGatewayIntros(root);
+mountSettingsLayout(root);
+
+const app = new QuietRoomApp(root);
+void app.start();
 
 if ('serviceWorker' in navigator && window.isSecureContext && import.meta.env.PROD) {
   startReleaseUpdateDetection();
