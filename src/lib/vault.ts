@@ -1071,14 +1071,52 @@ export async function downloadVaultDiagnostic(): Promise<void> {
   );
 }
 
+export const ROOM_CREATION_LIMIT_MESSAGE = '密室数量已达上限，如需更多请联系客服';
+const MAX_BROWSER_CREATED_ROOMS = 3;
+
+/** Count authenticated local creator endpoints, never joined devices or remote catalog entries. */
+async function assertRoomCreationCapacityLocked(secret: string, isActive: () => boolean): Promise<void> {
+  const check = () => { if (!isActive()) throw new DOMException('密室创建流程已经结束', 'AbortError'); };
+  check();
+  const ids = await transaction<IDBValidKey[]>('vault', 'readonly', store => store.getAllKeys(undefined, 257));
+  if (ids.length > 256) throw new Error('本机保险库数量超出自动核验范围，原数据已保留');
+  const created = new Set<string>();
+  const { isOwnSpaceRemoved } = await import('./own-space-directory');
+  for (const id of ids) {
+    check();
+    if (typeof id !== 'string') continue;
+    const stored = await readStoredVaultUnlocked(id);
+    if (!stored || stored.v !== 3 || stored.unlockMethod !== 'password' || !stored.browserRoomKey) continue;
+    const master = await unwrapPasswordMaster(stored, secret);
+    let session: VaultSession;
+    try { const key = await importMasterKey(master); session = { stored, key, vault: await decryptPayload(stored.payload, key) }; }
+    finally { master.fill(0); }
+    check();
+    const vault = session.vault;
+    if (!vault.roomArchiveV2 || vault.role !== 'creator' || !vault.members.some(member =>
+      member.role === 'creator' && !member.addedBy && member.deviceId === vault.identity.publicBundle.deviceId)) continue;
+    if (await isOwnSpaceRemoved(session, vault.roomId)) continue;
+    created.add(vault.roomId);
+    if (created.size >= MAX_BROWSER_CREATED_ROOMS) throw new Error(ROOM_CREATION_LIMIT_MESSAGE);
+  }
+  check();
+}
+
+export async function assertRoomCreationCapacity(secret: string, isActive: () => boolean): Promise<void> {
+  return withVaultLifecycle(() => assertRoomCreationCapacityLocked(secret, isActive));
+}
+
 export async function createVault(
   vault: Vault,
   legacySecret = '',
   unlockMethod: 'password' | 'platform' = 'platform',
   preparedPlatformCredential?: LocalCredentialResult,
   isActive: () => boolean = () => true,
+  roomCreation?: { browserSecret: string },
 ): Promise<VaultSession> {
   return withVaultLifecycle(async () => {
+    // Hold the existing cross-tab lease through the count and durable creator intent.
+    if (roomCreation) await assertRoomCreationCapacityLocked(roomCreation.browserSecret, isActive);
     // A second first-run tab must never replace the first tab's newly created room.
     if (await localSpaceExists(selectedSpace)) selectedSpace = crypto.randomUUID();
     return createVaultLocked(vault, legacySecret, unlockMethod, preparedPlatformCredential, isActive);

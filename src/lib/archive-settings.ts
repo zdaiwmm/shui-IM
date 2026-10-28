@@ -136,7 +136,7 @@ export function mountArchiveSettings(o:Options):void {
     }
     const credential=archive.credential;
     if(!credential||editing){
-      show(shell(editing?'修改凭证密码':'恢复凭证',`${editing?'':steps(1)}${editing?'':'<h2 class="archive-form-title">先设置凭证密码</h2>'}<p class="backup-intro">${editing?'输入原密码后设置新密码。修改成功后，需要重新保存并验证新凭证。':'凭证密码仅用于本浏览器加密，不上传服务器。完成密码设置、导出和原图回验后，隐私引导才会显示「已设置」。'}</p><form class="archive-password-form" data-card-form autocomplete="off" novalidate>${editing?field('original','原凭证密码','输入当前凭证密码','current-password'):''}${field('password',editing?'新凭证密码':'凭证密码','12–128 个字符')}${field('confirm','确认凭证密码','再次输入凭证密码')}<p class="archive-inline-error" data-archive-error role="alert"></p><p class="archive-form-note">凭证密码与应用锁独立，请分开保管。</p><button class="primary-button" type="submit">${editing?'保存新密码':'下一步：导出凭证'}</button></form>`));
+      show(shell(editing?'修改凭证密码':'恢复凭证',`${editing?'':steps(1)}${editing?'':'<h2 class="archive-form-title">先设置凭证密码</h2>'}<p class="backup-intro">${editing?'输入原密码后设置新密码。修改成功后，需要重新保存并验证新凭证。':'凭证密码仅用于本浏览器加密，不上传服务器。'}</p><form class="archive-password-form" data-card-form autocomplete="off" novalidate>${editing?field('original','原凭证密码','输入当前凭证密码','current-password'):''}${field('password',editing?'新凭证密码':'凭证密码','12–128 个字符')}${field('confirm','确认凭证密码','再次输入凭证密码')}<p class="archive-inline-error" data-archive-error role="alert"></p><p class="archive-form-note">凭证密码与应用锁独立，请分开保管。</p><button class="primary-button" type="submit">${editing?'保存新密码':'下一步：导出凭证'}</button></form>`));
       bindBack(editing?()=>card():o.startWithCredential?leave:settings);eyes(o.root,signal);
       const form=o.root.querySelector<HTMLFormElement>('[data-card-form]')!;
       signal.addEventListener('abort',()=>form.reset(),{once:true});
