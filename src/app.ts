@@ -10263,10 +10263,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
 
   private expiredOutboxIds = new Set<string>();
   private outboxDrain: Promise<void> | null = null;
+  private outboxResumeRequested = false;
   private async resumeOutbox(): Promise<void> {
-    if (this.outboxDrain) return this.outboxDrain;
+    if (this.outboxDrain) { this.outboxResumeRequested = true; return this.outboxDrain; }
     const session = this.session, epoch = this.runtimeEpoch;
     if (!session || this.connectionState !== 'connected' || this.accessFailure) return;
+    this.outboxResumeRequested = false;
     const operation = (async () => {
       for (const item of [...this.outbox.values()].sort(compareOutboxItems)) {
         if (!this.isRuntimeActive(epoch, session) || this.connectionState !== 'connected') return;
@@ -10278,7 +10280,16 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       }
     })();
     this.outboxDrain = operation;
-    try { await operation; } finally { if (this.outboxDrain === operation) this.outboxDrain = null; }
+    try { await operation; } finally {
+      if (this.outboxDrain === operation) {
+        this.outboxDrain = null;
+        const requested = this.outboxResumeRequested;
+        this.outboxResumeRequested = false;
+        // ACK, re-encryption or enqueue may request a refill before this send
+        // unwinds. Coalesce that request instead of losing its only wake-up.
+        if (requested && this.isRuntimeActive(epoch, session)) void this.resumeOutbox();
+      }
+    }
   }
 
   private sendPendingReceipt(receipt: DeliveryReceipt): void {
@@ -17034,6 +17045,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     this.runtimeAbort?.abort();
     this.runtimeAbort = null;
     this.outboxDrain = null;
+    this.outboxResumeRequested = false;
     this.imageLoadStatus.clear();
     this.gesturePad?.destroy();
     this.gesturePad = null;

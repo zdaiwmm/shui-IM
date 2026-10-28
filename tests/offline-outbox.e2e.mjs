@@ -72,6 +72,30 @@ try {
   await b.waitForFunction(() => auditApp.outbox.size === 0);
   result.onlineControl = (await local(b)).text.includes('AUDIT first offline message');
 
+  // Exercise the real scheduler with a controlled send completion. No network
+  // event can accidentally provide the wake-up this probe is testing. The real
+  // encryption, durable writes and transport are exercised by the flows below.
+  await b.evaluate(async () => {
+    const scheduler = Object.create(Object.getPrototypeOf(auditApp));
+    let finish;
+    const gate = new Promise(resolve => { finish = resolve; });
+    const sent = [];
+    Object.assign(scheduler, {
+      session: {vault:{protocol:'mls-rfc9420'}}, runtimeEpoch: 1,
+      connectionState:'connected', accessFailure:null, outboxDrain:null,
+      outboxResumeRequested:false, expiredOutboxIds:new Set(), pending:new Map(),
+      outbox:new Map([['first',{clientMsgId:'first',createdAt:'1'}]]),
+      isRuntimeActive:()=>true,
+      sendOutboxItem:async id=>{ sent.push(id); scheduler.outbox.delete(id); if(id==='first')await gate; return true; },
+    });
+    const completing = scheduler.resumeOutbox();
+    scheduler.outbox.set('second',{clientMsgId:'second',createdAt:'2'});
+    void scheduler.resumeOutbox();
+    finish(); await completing;
+    if(sent.join(',')!=='first,second'||scheduler.outbox.size)throw Error('Refill requested during send completion was lost');
+  });
+  result.refillDuringSendCompletion = true;
+
   // The production enqueue method accepts an existing logical ID for retries.
   // Pick valid descending UUIDs to make the otherwise ~50% ordering deterministic.
   // No MLS, IndexedDB, socket or server behavior is replaced.
