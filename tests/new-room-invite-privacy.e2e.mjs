@@ -22,7 +22,7 @@ try {
     const browser=await engine.launch(name==='chromium'&&!process.env.CI&&!process.env.CHROME_PATH?{channel:'chrome'}:process.env.CHROME_PATH&&name==='chromium'?{executablePath:process.env.CHROME_PATH}:{});
     try {
       await verifyExpiredInviteEntry(browser, `http://127.0.0.1:${vite.httpServer.address().port}`);
-      const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'});
+      const context=await browser.newContext({ locale: 'zh-CN',viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'});
       const page=await context.newPage(),exitEvidence=await observeExitRequests(page),errors=[],teardownFetchDiagnostics=[];page.setDefaultTimeout(20000);page.on('pageerror',error=>{
         errors.push(exitEvidence.capture(error));
       });

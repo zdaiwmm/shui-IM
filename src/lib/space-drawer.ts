@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate } from './language';
 import { roomBusinessState } from './room-business-state';
 import {uiNotice} from './ui-notice';
 import { presenceCircuitMarkup } from './presence-circuit';
@@ -52,7 +53,7 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
 }): void {
   const lifetime = new AbortController();
   const signal = AbortSignal.any([options.signal, lifetime.signal]);
-  const sheet = document.createElement('div'); sheet.className = 'space-drawer-overlay' + (options.initialSettings && options.restoreSettings ? ' is-visible is-restored' : ''); sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', '切换密室');
+  const sheet = document.createElement('div'); sheet.className = 'space-drawer-overlay' + (options.initialSettings && options.restoreSettings ? ' is-visible is-restored' : ''); sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', uiLiteral('切换密室'));
   const embedded = Boolean(options.presentation);
   if (embedded) { sheet.className = `space-embedded space-${options.presentation}`; sheet.removeAttribute('aria-modal'); sheet.setAttribute('role', 'region'); }
   (options.container ?? root).append(sheet);
@@ -72,7 +73,7 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
     const previousScrollTop=previousPage?.querySelector('.space-drawer-scroll')?.scrollTop??0;
     if (previousPage?.querySelector('.space-list')) listScrollTop = previousPage.querySelector('.space-drawer-scroll')!.scrollTop;
     const priorTitle = sheet.getAttribute('aria-label');
-    if (priorTitle === '设置') settingsScrollTop = previousPage?.querySelector('.space-drawer-scroll')?.scrollTop ?? settingsScrollTop;
+    if (priorTitle === uiLiteral('设置')) settingsScrollTop = previousPage?.querySelector('.space-drawer-scroll')?.scrollTop ?? settingsScrollTop;
     // Snapshot the old family before changing its ancestor classes. Reparenting
     // the live panel under the new family resizes/reflows it during the slide.
     const previousCanvas=previousPage?sheet.cloneNode(true) as HTMLElement:null;
@@ -85,17 +86,17 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
       panel.querySelector('.space-drawer-scroll')!.scrollTop=previousPage.querySelector('.space-drawer-scroll')!.scrollTop;
     }
     sheet.setAttribute('aria-label', title);
-    sheet.classList.toggle('is-settings-page', title === '设置');
-    sheet.classList.toggle('is-space-list-page', title === '切换密室');
-    const listing = title === '切换密室';
-    const settingsSheet = !embedded && title === '设置';
-    sheet.classList.toggle('is-settings-subpage', title === '在线状态样式');
+    sheet.classList.toggle('is-settings-page', title === uiLiteral('设置'));
+    sheet.classList.toggle('is-space-list-page', title === uiLiteral('切换密室'));
+    const listing = title === uiLiteral('切换密室');
+    const settingsSheet = !embedded && title === uiLiteral('设置');
+    sheet.classList.toggle('is-settings-subpage', title === uiLiteral('在线状态样式'));
     sheet.classList.toggle('is-settings-sheet', settingsSheet);
     const fullPage=listing&&!embedded;
-    const leading=!embedded?'':back?`<button class="icon-button space-back" aria-label="返回">${createElement(ArrowLeft).outerHTML}</button>`:`<button class="icon-button space-close" aria-label="${options.presentation==='sidebar'?'收起密室侧栏':'返回聊天'}">${createElement(options.presentation==='sidebar'?PanelLeftClose:ArrowLeft).outerHTML}</button>`;
-    const trailing=`${listing&&options.allowCreate!==false?`<button class="icon-button space-create" id="space-create" type="button" aria-label="新增密室">${createElement(Plus).outerHTML}<span>新增</span></button>`:''}${listing&&embedded&& !matchMedia('(min-width:1024px)').matches?`<button class="icon-button" id="space-settings" aria-label="设置">${spaceIcons.settings}</button>`:''}`;
-    const controls=`${footer}${!embedded&&back&&title!=='设置'&&!listing?'<button class="text-button space-back" type="button">返回</button>':''}${fullPage?'<button class="text-button space-return" type="button">返回</button>':''}`;
-    sheet.innerHTML=`<section class="space-drawer"><header class="space-drawer-header">${leading}<h2>${title}</h2>${trailing}</header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${controls?`<footer class="space-drawer-footer">${controls}</footer>`:''}${settingsSheet?'<button class="settings-dismiss-handle" type="button" aria-label="上滑关闭设置"><span></span></button>':''}</section>`;
+    const leading=!embedded?'':back?uiTemplate`<button class="icon-button space-back" aria-label="返回">${createElement(ArrowLeft).outerHTML}</button>`:`<button class="icon-button space-close" aria-label="${options.presentation==='sidebar'?uiLiteral('收起密室侧栏'):uiLiteral('返回聊天')}">${createElement(options.presentation==='sidebar'?PanelLeftClose:ArrowLeft).outerHTML}</button>`;
+    const trailing=`${listing&&options.allowCreate!==false?uiTemplate`<button class="icon-button space-create" id="space-create" type="button" aria-label="新增密室">${createElement(Plus).outerHTML}<span>新增</span></button>`:''}${listing&&embedded&& !matchMedia('(min-width:1024px)').matches?uiTemplate`<button class="icon-button" id="space-settings" aria-label="设置">${spaceIcons.settings}</button>`:''}`;
+    const controls=`${footer}${!embedded&&back&&title!==uiLiteral('设置')&&!listing?uiLiteral('<button class="text-button space-back" type="button">返回</button>'):''}${fullPage?uiLiteral('<button class="text-button space-return" type="button">返回</button>'):''}`;
+    sheet.innerHTML=`<section class="space-drawer"><header class="space-drawer-header">${leading}<h2>${title}</h2>${trailing}</header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${controls?`<footer class="space-drawer-footer">${controls}</footer>`:''}${settingsSheet?uiLiteral('<button class="settings-dismiss-handle" type="button" aria-label="上滑关闭设置"><span></span></button>'):''}</section>`;
     sheet.querySelector('.space-return')?.addEventListener('click',()=>{if(listReturnSettings)settings();else close();});
     const handle=sheet.querySelector<HTMLElement>('.settings-dismiss-handle');
     handle?.addEventListener('click',close);
@@ -107,10 +108,10 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
     handle?.addEventListener('pointercancel',clearDrag);
 
     bindSpaceAvatarPlayback(sheet, AbortSignal.any([signal, pageLifetime.signal]));
-    if (previousCanvas && priorTitle !== title && (!settingsSheet || priorTitle === '在线状态样式' || priorTitle === '切换密室')) {
+    if (previousCanvas && priorTitle !== title && (!settingsSheet || priorTitle === uiLiteral('在线状态样式') || priorTitle === uiLiteral('切换密室'))) {
       // Keep the old overlay outside the new page family. Nesting it under
       // the successor reapplies that family's layout rules to the old list.
-      animatePageReplacement(root, previousCanvas, sheet, title === '设置', signal, true);
+      animatePageReplacement(root, previousCanvas, sheet, title === uiLiteral('设置'), signal, true);
       previousCanvas.querySelector('.space-drawer-scroll')!.scrollTop=previousScrollTop;
     }
     sheet.querySelector('.space-close')?.addEventListener('click', close);
@@ -120,12 +121,12 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
     if (busy || signal.aborted) return;
     busy = true;
     sheet.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.disabled = true);
-    try { await action(); } catch (cause) { if (!signal.aborted) { uiNotice(root,cause instanceof Error ? cause.message : '操作未完成，请重试'); } }
+    try { await action(); } catch (cause) { if (!signal.aborted) { uiNotice(root,cause instanceof Error ? cause.message : uiLiteral('操作未完成，请重试')); } }
     finally { busy = false; if (!signal.aborted) sheet.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.disabled = false); }
   }
   function rename(space: PrivateSpace, origin: HTMLButtonElement) {
     const overlay = document.createElement('div'); overlay.className = 'space-modal-overlay'; overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-labelledby', 'space-name-title');
-    overlay.innerHTML = `<form class="space-name-dialog" id="space-name-form"><h2 id="space-name-title">编辑密室名称</h2><label class="sr-only" for="space-name">密室名称</label><input id="space-name" name="name" maxlength="40" value="${escape(space.name)}" required autocomplete="off"><p class="field-hint">仅修改你这边的名称，对方的名称不变。</p><p class="form-error" role="alert"></p><div class="space-dialog-actions"><button type="button" class="text-button" id="space-name-cancel">取消</button><button class="primary-button" type="submit">保存</button></div></form>`;
+    overlay.innerHTML = uiTemplate`<form class="space-name-dialog" id="space-name-form"><h2 id="space-name-title">编辑密室名称</h2><label class="sr-only" for="space-name">密室名称</label><input id="space-name" name="name" maxlength="40" value="${escape(space.name)}" required autocomplete="off"><p class="field-hint">仅修改你这边的名称，对方的名称不变。</p><p class="form-error" role="alert"></p><div class="space-dialog-actions"><button type="button" class="text-button" id="space-name-cancel">取消</button><button class="primary-button" type="submit">保存</button></div></form>`;
     root.append(overlay);
     const resize = new AbortController(), input = overlay.querySelector<HTMLInputElement>('input')!;
     let saving = false;
@@ -136,14 +137,14 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
     overlay.querySelector('form')!.addEventListener('submit', async e => {
       e.preventDefault(); if (saving) return;
       const name = input.value.trim();
-      if (!name || name.length > 40) { uiNotice(root,'请输入 1–40 个字符的密室名称'); input.focus({ preventScroll: true }); return; }
+      if (!name || name.length > 40) { uiNotice(root,uiLiteral('请输入 1–40 个字符的密室名称')); input.focus({ preventScroll: true }); return; }
       saving = true; overlay.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.disabled = true);
       try {
         await options.rename(space, name);
         if (signal.aborted) return;
         space.name = name; modal.close({ animate: false, restoreFocus: false }); list();
         sheet.querySelector<HTMLButtonElement>(`[data-space="${options.spaces.indexOf(space)}"]`)?.focus({ preventScroll: true });
-      } catch (cause) { if (!signal.aborted) uiNotice(root,cause instanceof Error ? cause.message : '名称未保存，请重试'); }
+      } catch (cause) { if (!signal.aborted) uiNotice(root,cause instanceof Error ? cause.message : uiLiteral('名称未保存，请重试')); }
       finally { saving = false; overlay.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.disabled = false); }
     });
     // Synchronous focus retains the user's activation for the iOS keyboard.
@@ -153,7 +154,7 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
     if (busy || signal.aborted || space.accessState || root.querySelector('.space-context-overlay')) return;
     const overlay = document.createElement('div'); overlay.className = 'space-context-overlay'; overlay.setAttribute('role','dialog'); overlay.setAttribute('aria-modal','true'); overlay.setAttribute('aria-label',space.name);
 const removable = Boolean(options.remove && (space.waiting || space.roomArchiveV2) && !space.accessState);
-    overlay.innerHTML = `<div class="space-context-menu"><button id="space-rename">${createElement(Pencil).outerHTML}<span>编辑密室名称</span></button>${options.editAvatar ? `<button id="space-avatar-edit">${createElement(Image).outerHTML}<span>修改密室头像</span></button>` : ''}${removable ? `<button id="space-delete" class="is-danger">${createElement(Trash2).outerHTML}<span>${escape(options.removeLabel?.(space) ?? '删除密室')}</span></button>` : ''}</div>`;
+    overlay.innerHTML = uiTemplate`<div class="space-context-menu"><button id="space-rename">${createElement(Pencil).outerHTML}<span>编辑密室名称</span></button>${options.editAvatar ? uiTemplate`<button id="space-avatar-edit">${createElement(Image).outerHTML}<span>修改密室头像</span></button>` : ''}${removable ? `<button id="space-delete" class="is-danger">${createElement(Trash2).outerHTML}<span>${escape(options.removeLabel?.(space) ?? uiLiteral('删除密室'))}</span></button>` : ''}</div>`;
     root.append(overlay);
     const dialog = mountDialog(overlay, { signal, isActive: () => !signal.aborted, returnFocus: origin });
     const rect = origin.getBoundingClientRect(), popup = overlay.firstElementChild as HTMLElement;
@@ -180,12 +181,12 @@ const removable = Boolean(options.remove && (space.waiting || space.roomArchiveV
   function styles() {
     if (signal.aborted || options.canStylePresence?.() === false) return;
     const value = readPresenceStyle();
-    page('在线状态样式', `<p class="space-description">选择聊天页顶部的显示方式。</p><div class="space-style-options" role="radiogroup" aria-label="在线状态样式">${(['capsule','heart'] as const).map(s => `<button class="space-style-choice" role="radio" tabindex="${s === value ? 0 : -1}" aria-checked="${s === value}" data-style="${s}"><span class="space-style-preview ${s}" aria-hidden="true">${s === 'capsule' ? `<span>TA</span>${presenceCircuitMarkup.replace('data-phase="unknown"','data-phase="online" data-self="true" data-peer="true"')}<span>我</span>` : presenceCircuitMarkup.replace('viewBox="0 0 100 24"', 'viewBox="34 -5.52 32 32"').replace('data-phase="unknown"','data-phase="online" data-self="true" data-peer="true" data-compact="true"')}</span><span class="space-style-copy"><strong>${s === 'capsule' ? '在线胶囊' : '心动按钮'}</strong><small>${s === 'capsule' ? '双方状态与连接动效' : '简洁爱心，显示在聊天页右上角'}</small></span><i class="space-radio" aria-hidden="true">${check}</i></button>`).join('')}</div><div class="space-presence-note"><p>左半颗代表对方，右半颗代表你。</p><p>在线状态不代表消息已读。</p></div>`, '', settings);
+    page(uiLiteral('在线状态样式'), uiTemplate`<p class="space-description">选择聊天页顶部的显示方式。</p><div class="space-style-options" role="radiogroup" aria-label="在线状态样式">${(['capsule','heart'] as const).map(s => `<button class="space-style-choice" role="radio" tabindex="${s === value ? 0 : -1}" aria-checked="${s === value}" data-style="${s}"><span class="space-style-preview ${s}" aria-hidden="true">${s === 'capsule' ? uiTemplate`<span>TA</span>${presenceCircuitMarkup.replace('data-phase="unknown"','data-phase="online" data-self="true" data-peer="true"')}<span>我</span>` : presenceCircuitMarkup.replace('viewBox="0 0 100 24"', 'viewBox="34 -5.52 32 32"').replace('data-phase="unknown"','data-phase="online" data-self="true" data-peer="true" data-compact="true"')}</span><span class="space-style-copy"><strong>${s === 'capsule' ? uiLiteral('在线胶囊') : uiLiteral('心动按钮')}</strong><small>${s === 'capsule' ? uiLiteral('双方状态与连接动效') : uiLiteral('简洁爱心，显示在聊天页右上角')}</small></span><i class="space-radio" aria-hidden="true">${check}</i></button>`).join('')}</div><div class="space-presence-note"><p>左半颗代表对方，右半颗代表你。</p><p>在线状态不代表消息已读。</p></div>`, '', settings);
     const choose = (button: HTMLButtonElement) => {
       if (signal.aborted) return;
-      if (options.canStylePresence?.() === false) { uiNotice(root,'加入密室后可设置'); return; }
+      if (options.canStylePresence?.() === false) { uiNotice(root,uiLiteral('加入密室后可设置')); return; }
       try { writePresenceStyle(button.dataset.style as PresenceStyle); options.styleChanged(readPresenceStyle()); }
-      catch { uiNotice(root,'浏览器未能保存设置，请重试'); return; }
+      catch { uiNotice(root,uiLiteral('浏览器未能保存设置，请重试')); return; }
       sheet.querySelectorAll<HTMLButtonElement>('[data-style]').forEach(b => { b.setAttribute('aria-checked',String(b === button)); b.tabIndex = b === button ? 0 : -1; });
     };
     sheet.querySelectorAll<HTMLButtonElement>('[data-style]').forEach(button => {
@@ -198,19 +199,19 @@ const removable = Boolean(options.remove && (space.waiting || space.roomArchiveV
     const order = ['appearance-settings', 'auto-lock-settings', 'app-access-settings', 'notification-settings', 'manage-devices', 'passkey-management', 'backup-settings', 'local-history-backup', 'local-history-restore', 'recover-other-space', 'cover-practice-menu', 'release-history'];
     const actions = [...options.actions].sort((a, b) => (order.indexOf(a.id) < 0 ? 99 : order.indexOf(a.id)) - (order.indexOf(b.id) < 0 ? 99 : order.indexOf(b.id)));
     const groups = [
-      {title:'聊天体验',ids:['appearance-settings','presence-style-setting','notification-settings']},
-      {title:'隐私保护',ids:['room-lock-settings','auto-lock-settings','passkey-management','cover-practice-menu']},
-      {title:'密室与设备',ids:['chamber-switch-space','manage-devices','help-peer-enter']},
-      {title:'备份与恢复',ids:['archive-settings','archive-restore','backup-settings','local-history-backup','local-history-restore','recover-other-space']},
-      {title:'关于',ids:['app-access-settings','release-history']},
-      {title:'密室操作',ids:['chamber-close']},
+      {title:uiLiteral('聊天体验'),ids:['appearance-settings','language-settings','presence-style-setting','notification-settings']},
+      {title:uiLiteral('隐私保护'),ids:['room-lock-settings','auto-lock-settings','passkey-management','cover-practice-menu']},
+      {title:uiLiteral('密室与设备'),ids:['chamber-switch-space','manage-devices','help-peer-enter']},
+      {title:uiLiteral('备份与恢复'),ids:['archive-settings','archive-restore','backup-settings','local-history-backup','local-history-restore','recover-other-space']},
+      {title:uiLiteral('关于'),ids:['app-access-settings','user-feedback','release-history']},
+      {title:uiLiteral('密室操作'),ids:['chamber-close']},
     ];
-    const presence = `<button class="space-setting" id="presence-style-setting" ${options.canStylePresence?.() === false ? 'disabled' : ''}><span class="space-setting-icon" data-setting="presence-style-setting" aria-hidden="true">${heart}</span><span class="space-setting-label">在线状态样式</span><small class="space-setting-value">${options.canStylePresence?.() === false ? '加入密室后可设置' : readPresenceStyle() === 'heart' ? '心动按钮' : '在线胶囊'}</small>${arrow}</button>`;
+    const presence = uiTemplate`<button class="space-setting" id="presence-style-setting" ${options.canStylePresence?.() === false ? 'disabled' : ''}><span class="space-setting-icon" data-setting="presence-style-setting" aria-hidden="true">${heart}</span><span class="space-setting-label">在线状态样式</span><small class="space-setting-value">${options.canStylePresence?.() === false ? uiLiteral('加入密室后可设置') : readPresenceStyle() === 'heart' ? uiLiteral('心动按钮') : uiLiteral('在线胶囊')}</small>${arrow}</button>`;
     const known = new Set(groups.flatMap(group=>group.ids));
     const cards = groups.map(group=>{const content=group.ids.map(id=>id==='presence-style-setting'?presence:actions.filter(a=>a.id===id).map(setting).join('')).join('');return content?`<section class="space-setting-section" aria-label="${group.title}"><h3>${group.title}</h3><div class="space-setting-card">${content}</div></section>`:'';}).filter(Boolean);
     const other = actions.filter(a => !known.has(a.id)).map(setting).join('');
     if (other) cards.push(`<div class="space-setting-card">${other}</div>`);
-    page('设置', `<div class="space-settings-list">${cards.join('')}</div>`, '', options.presentation === 'settings' ? close : list);
+    page(uiLiteral('设置'), `<div class="space-settings-list">${cards.join('')}</div>`, '', options.presentation === 'settings' ? close : list);
     sheet.querySelector('.space-drawer-scroll')!.scrollTop = settingsScrollTop;
     sheet.querySelector('#presence-style-setting')!.addEventListener('click', () => { styles(); sheet.querySelector<HTMLButtonElement>('[aria-checked=true]')?.focus({ preventScroll: true }); });
     for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { if (typeof action.keepOpen === 'function' ? action.keepOpen() : action.keepOpen) void run(async () => { await action.run(list); }); else { options.onSettingsLeave?.(sheet.querySelector('.space-drawer-scroll')!.scrollTop); handingOff = true; void action.run(list); } });
@@ -221,26 +222,26 @@ const removable = Boolean(options.remove && (space.waiting || space.roomArchiveV
   function badges() {
     sheet.querySelectorAll<HTMLElement>('[data-unread]').forEach(node => {
       const count = options.spaces[Number(node.dataset.unread)]?.unread ?? 0;
-      node.hidden = count === 0; node.textContent = count > 99 ? '99+' : String(count); node.setAttribute('aria-label',`${count} 条未读消息`);
+      node.hidden = count === 0; node.textContent = count > 99 ? '99+' : String(count); node.setAttribute('aria-label',uiTemplate`${count} 条未读消息`);
     });
   }
   function row(s: PrivateSpace) {
     const i = options.spaces.indexOf(s), selected = s.roomId === options.currentRoom;
 const expiry = pendingSpaceExpiry(s);
-    const waitingCopy = `等待对方加入${expiry ? ` · 剩余 ${formatPendingCountdown(expiry - Date.now())}` : ''}`;
-    const status = s.catalogOnly ? roomBusinessState({catalogOnly:true}).label : s.accessState === 'unprepared' ? '请先在原设备打开此密室' : s.accessState === 'restricted' ? '待对方授权' : s.waiting ? waitingCopy : s.preview || '打开密室查看消息';
+    const waitingCopy = uiTemplate`等待对方加入${expiry ? uiTemplate` · 剩余 ${formatPendingCountdown(expiry - Date.now())}` : ''}`;
+    const status = s.catalogOnly ? roomBusinessState({catalogOnly:true}).label : s.accessState === 'unprepared' ? uiLiteral('请先在原设备打开此密室') : s.accessState === 'restricted' ? uiLiteral('待对方授权') : s.waiting ? waitingCopy : s.preview || uiLiteral('打开密室查看消息');
     const statusLine = s.waiting && !s.accessState && !s.catalogOnly
       ? `<small class="space-message-preview is-waiting" ${expiry ? `data-expires="${expiry}" data-countdown="${i}"` : ''}>${escape(waitingCopy)}</small>`
       : `<small class="space-message-preview">${escape(status)}</small>`;
-    return `<div class="space-access-row"><button class="space-row ${selected ? 'is-selected' : ''}" data-space="${i}" aria-current="${selected ? 'true' : 'false'}">${spaceAvatarMarkup(s.avatar, s.name)}<span class="space-row-copy"><strong>${escape(s.name)}</strong>${statusLine}</span><span class="space-row-trailing"><span class="space-unread" data-unread="${i}" hidden></span>${selected ? '' : `<span class="space-row-arrow" aria-hidden="true">${arrow}</span>`}</span></button><button class="space-access-action" data-access="${i}" aria-label="授权 ${escape(s.name)} 的设备请求" hidden><span>授权</span></button></div>`;
+    return uiTemplate`<div class="space-access-row"><button class="space-row ${selected ? 'is-selected' : ''}" data-space="${i}" aria-current="${selected ? 'true' : 'false'}">${spaceAvatarMarkup(s.avatar, s.name)}<span class="space-row-copy"><strong>${escape(s.name)}</strong>${statusLine}</span><span class="space-row-trailing"><span class="space-unread" data-unread="${i}" hidden></span>${selected ? '' : `<span class="space-row-arrow" aria-hidden="true">${arrow}</span>`}</span></button><button class="space-access-action" data-access="${i}" aria-label="授权 ${escape(s.name)} 的设备请求" hidden><span>授权</span></button></div>`;
   }
   function list() {
-    if(sheet.getAttribute('aria-label')==='设置')listReturnSettings=true;
+    if(sheet.getAttribute('aria-label')===uiLiteral('设置'))listReturnSettings=true;
     const focused = sheet.contains(document.activeElement) && document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
     const focusedRoom = focused?.dataset.space ? options.spaces[Number(focused.dataset.space)]?.roomId : undefined;
     const focusedId = focused?.id;
     const current = options.spaces.find(s => s.roomId === options.currentRoom), others = options.spaces.filter(s => s !== current);
-    page('切换密室', `<div class="space-list">${current ? row(current) : ''}${others.map(row).join('')}${!options.spaces.length ? `<p class="space-empty">当前没有可进入的密室${options.allowCreate===false?'':'<br>点击右上角新增密室。'}</p>` : ''}</div>`);
+    page(uiLiteral('切换密室'), `<div class="space-list">${current ? row(current) : ''}${others.map(row).join('')}${!options.spaces.length ? uiTemplate`<p class="space-empty">当前没有可进入的密室${options.allowCreate===false?'':uiLiteral('<br>点击右上角新增密室。')}</p>` : ''}</div>`);
     sheet.querySelector('.space-drawer-scroll')!.scrollTop = listScrollTop; badges();authorizations();
     if (focusedRoom) sheet.querySelector<HTMLButtonElement>(`[data-space="${options.spaces.findIndex(s => s.roomId === focusedRoom)}"]`)?.focus({ preventScroll: true });
     else if (focusedId) sheet.querySelector<HTMLElement>(`#${CSS.escape(focusedId)}`)?.focus({ preventScroll: true });
@@ -307,14 +308,14 @@ const expiry = pendingSpaceExpiry(s);
     const presence = sheet.querySelector<HTMLButtonElement>('#presence-style-setting');
     if (presence) {
       presence.disabled = options.canStylePresence?.() === false;
-      presence.querySelector('.space-setting-value')!.textContent = presence.disabled ? '加入密室后可设置' : readPresenceStyle() === 'heart' ? '心动按钮' : '在线胶囊';
+      presence.querySelector('.space-setting-value')!.textContent = presence.disabled ? uiLiteral('加入密室后可设置') : readPresenceStyle() === 'heart' ? uiLiteral('心动按钮') : uiLiteral('在线胶囊');
     }
     const now = Date.now();
     sheet.querySelectorAll<HTMLElement>('[data-expires]').forEach(node => {
       const expiry = Number(node.dataset.expires);
       const remaining = expiry - now;
       const space = options.spaces[Number(node.dataset.countdown)];
-      node.textContent = remaining <= 0 ? '等待对方加入 · 已到期' : `等待对方加入 · 剩余 ${formatPendingCountdown(remaining)}`;
+      node.textContent = remaining <= 0 ? uiLiteral('等待对方加入 · 已到期') : uiTemplate`等待对方加入 · 剩余 ${formatPendingCountdown(remaining)}`;
       if (remaining <= 0 && space && !expiredRooms.has(space.roomId)) { expiredRooms.add(space.roomId); options.expired?.(space); }
     });
   };
@@ -337,7 +338,7 @@ const expiry = pendingSpaceExpiry(s);
 
 export function mountSpaceInvite(root: HTMLElement, options: { name: string; signal: AbortSignal; content: string; closed: () => void }) {
   const overlay = document.createElement('div'); overlay.className = 'space-invite-overlay'; overlay.setAttribute('role','dialog'); overlay.setAttribute('aria-modal','true'); overlay.setAttribute('aria-labelledby','space-invite-title');
-  overlay.innerHTML = `<section class="space-invite-sheet"><button class="half-sheet-handle space-invite-handle" id="invite-close" type="button" aria-label="关闭邀请"><span></span></button>${options.content}</section>`;
+  overlay.innerHTML = uiTemplate`<section class="space-invite-sheet"><button class="half-sheet-handle space-invite-handle" id="invite-close" type="button" aria-label="关闭邀请"><span></span></button>${options.content}</section>`;
   root.append(overlay);
   const dialog = mountDialog(overlay, { signal: options.signal, isActive: () => !options.signal.aborted, onClose: () => { if (overlay.isConnected) options.closed(); } });
   overlay.addEventListener('click', e => { if (e.target === overlay) dialog.close(); });

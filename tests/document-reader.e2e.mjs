@@ -18,7 +18,7 @@ try {
   await server.listen();
   browser = process.env.QUIET_ROOM_TEST_BROWSER === 'webkit' ? await webkit.launch()
     : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, hasTouch: true });
   const errors = [];
   const external = [];
   page.on('pageerror', error => errors.push(error.message));

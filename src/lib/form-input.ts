@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { mountDialog } from './dialog';
 import { createElement, Eye, EyeOff } from 'lucide';
 
@@ -40,7 +41,7 @@ function fieldAt(target: EventTarget | null): Field | null {
 
 function titleFor(field: Field): string {
   const labelled = (field.getAttribute('aria-labelledby') ?? '').split(/\s+/).map(id => document.getElementById(id)?.textContent ?? '').join(' ').trim();
-  return field.getAttribute('aria-label') || labelled || field.labels?.[0]?.textContent?.trim() || field.placeholder || '输入内容';
+  return field.getAttribute('aria-label') || labelled || field.labels?.[0]?.textContent?.trim() || field.placeholder || uiLiteral('输入内容');
 }
 
 /** One ephemeral draft. Only an explicitly marked verification code opts into Done submission. */
@@ -66,7 +67,7 @@ export function mountFormInputs(root: HTMLElement): () => void {
     root.style.setProperty('height', `${rootHeight}px`, 'important');
     const overlay = document.createElement('div'); overlay.className = 'form-input-overlay';
     overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-labelledby', 'form-input-title');
-    overlay.innerHTML = '<form class="form-input-panel" novalidate><h2 id="form-input-title"></h2><div class="form-input-field"><button type="button" data-form-input-done>完成</button></div></form>';
+    overlay.innerHTML = uiLiteral('<form class="form-input-panel" novalidate><h2 id="form-input-title"></h2><div class="form-input-field"><button type="button" data-form-input-done>完成</button></div></form>');
     const title = overlay.querySelector('h2')!;
     title.textContent = titleFor(original);
     const editor = document.createElement(original instanceof HTMLTextAreaElement ? 'textarea' : 'input') as Field;
@@ -80,7 +81,7 @@ export function mountFormInputs(root: HTMLElement): () => void {
     const codeFields = codeGroup ? [...codeGroup.querySelectorAll<HTMLInputElement>('[data-code-digit]')] : [];
     const codeValues = codeFields.map(field => field.value);
     if (codeGroup) {
-      title.textContent = '输入验证码';
+      title.textContent = uiLiteral('输入验证码');
       overlay.classList.add('form-input-code-overlay');
       editor.setAttribute('type', 'text'); editor.inputMode = 'numeric'; editor.maxLength = 4; editor.autocomplete = 'one-time-code';
       initialValue = codeValues.join('');
@@ -192,10 +193,10 @@ export function mountFormInputs(root: HTMLElement): () => void {
     if(original instanceof HTMLInputElement&&(original.type==='password'||original.closest('.archive-password-control'))){
       overlay.classList.add('form-input-password');
       const visible=(editor as HTMLInputElement).type==='text';
-      const eye=document.createElement('button');eye.type='button';eye.className='form-input-password-toggle';eye.setAttribute('aria-label',visible?'隐藏密码':'显示密码');eye.setAttribute('aria-pressed',String(visible));eye.innerHTML=createElement(visible?EyeOff:Eye).outerHTML;
+      const eye=document.createElement('button');eye.type='button';eye.className='form-input-password-toggle';eye.setAttribute('aria-label',visible?uiLiteral('隐藏密码'):uiLiteral('显示密码'));eye.setAttribute('aria-pressed',String(visible));eye.innerHTML=createElement(visible?EyeOff:Eye).outerHTML;
       overlay.querySelector('.form-input-field')!.append(eye);
       eye.addEventListener('pointerdown',event=>event.preventDefault(),{signal:events.signal});
-      eye.addEventListener('click',()=>{const input=editor as HTMLInputElement,start=input.selectionStart,end=input.selectionEnd,show=input.type==='password';input.type=show?'text':'password';eye.setAttribute('aria-label',show?'隐藏密码':'显示密码');eye.setAttribute('aria-pressed',String(show));eye.innerHTML=createElement(show?EyeOff:Eye).outerHTML;input.focus({preventScroll:true});if(start!==null)input.setSelectionRange(start,end);},{signal:events.signal});
+      eye.addEventListener('click',()=>{const input=editor as HTMLInputElement,start=input.selectionStart,end=input.selectionEnd,show=input.type==='password';input.type=show?'text':'password';eye.setAttribute('aria-label',show?uiLiteral('隐藏密码'):uiLiteral('显示密码'));eye.setAttribute('aria-pressed',String(show));eye.innerHTML=createElement(show?EyeOff:Eye).outerHTML;input.focus({preventScroll:true});if(start!==null)input.setSelectionRange(start,end);},{signal:events.signal});
     }
     // IME confirmation can emit an implicit form submit with isComposing=false.
     // Only the explicit Done action or a non-composing editor key completes.

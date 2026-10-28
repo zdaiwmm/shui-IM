@@ -18,7 +18,7 @@ try {
   browser = process.env.QUIET_ROOM_PHOTO_BROWSER === 'webkit'
     ? await webkit.launch()
     : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true, colorScheme: 'dark' });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, hasTouch: true, colorScheme: 'dark' });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__photo_details`);

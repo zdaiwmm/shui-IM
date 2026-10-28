@@ -1,12 +1,13 @@
+import { uiLiteral } from './language';
 import legacyCatalog from './space-avatar-catalog.json';
 import fluentCatalog from './fluent-avatar-catalog.json';
 const catalog = [...legacyCatalog, ...fluentCatalog];
 
 export const avatarEmoji = fluentCatalog;
 export const avatarBackgrounds = [
-  ['海蓝', '#59c6c4', '#538fd3'], ['青绿', '#62d4af', '#43a5b8'], ['草绿', '#bacb53', '#4eb76b'],
-  ['紫罗兰', '#cc75be', '#8d63d6'], ['玫瑰', '#f39b6f', '#df5e9d'], ['落日', '#efa555', '#e87366'],
-  ['暖金', '#efc454', '#ef9445'], ['雾灰', '#a8b7be', '#6f818e'],
+  [uiLiteral('海蓝'), '#59c6c4', '#538fd3'], [uiLiteral('青绿'), '#62d4af', '#43a5b8'], [uiLiteral('草绿'), '#bacb53', '#4eb76b'],
+  [uiLiteral('紫罗兰'), '#cc75be', '#8d63d6'], [uiLiteral('玫瑰'), '#f39b6f', '#df5e9d'], [uiLiteral('落日'), '#efa555', '#e87366'],
+  [uiLiteral('暖金'), '#efc454', '#ef9445'], [uiLiteral('雾灰'), '#a8b7be', '#6f818e'],
 ] as const;
 /** Private participant metadata only. Never a room identity or a remote URL. */
 export type SpaceAvatar = { v: 1; kind: 'emoji'; emoji: string; background: number }
@@ -27,14 +28,14 @@ export function validSpaceAvatar(value: unknown): value is SpaceAvatar {
 }
 export const defaultSpaceAvatar = (): SpaceAvatar => ({ v: 1, kind: 'emoji', emoji: 'fluent-slightly_smiling_face', background: 0 });
 const escape = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-export function spaceAvatarMarkup(avatar?: SpaceAvatar, name = '密室'): string {
+export function spaceAvatarMarkup(avatar?: SpaceAvatar, name = (uiLiteral('密室') as string)): string {
   if (avatar?.kind === 'image' && validSpaceAvatar(avatar)) return `<span class="space-avatar is-image" aria-hidden="true"><img src="${avatar.data}" alt="" draggable="false"></span>`;
   if (avatar?.kind === 'emoji' && validSpaceAvatar(avatar)) {
     const item = catalog.find(item => item.id === avatar.emoji)!;
     const colors = avatarBackgrounds[avatar.background]!;
     return `<span class="space-avatar" style="--avatar-start:${colors[1]};--avatar-end:${colors[2]}" aria-hidden="true"><img data-avatar-emoji="${item.id}" src="/space-avatars/${item.id}-still.webp" alt="" draggable="false"></span>`;
   }
-  return `<span class="space-avatar space-avatar-initial" aria-hidden="true">${escape(Array.from(name.trim())[0] ?? '空')}</span>`;
+  return `<span class="space-avatar space-avatar-initial" aria-hidden="true">${escape(Array.from(name.trim())[0] ?? uiLiteral('空'))}</span>`;
 }
 /** One observer for a surface. All visible grid cells play, including unselected ones. */
 export function bindSpaceAvatarPlayback(host: HTMLElement, signal: AbortSignal): () => void {

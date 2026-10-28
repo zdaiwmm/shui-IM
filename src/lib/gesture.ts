@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate } from './language';
 export const MIN_GESTURE_POINTS = 4;
 export const RECOMMENDED_GESTURE_POINTS = 6;
 
@@ -29,7 +30,7 @@ export function normalizeGesturePath(points: number[]): number[] {
 
 export function gestureSecret(points: number[]): string {
   const normalized = normalizeGesturePath(points);
-  if (normalized.length < MIN_GESTURE_POINTS) throw new Error(`请至少连接 ${MIN_GESTURE_POINTS} 个点`);
+  if (normalized.length < MIN_GESTURE_POINTS) throw new Error(uiTemplate`请至少连接 ${MIN_GESTURE_POINTS} 个点`);
   return `quiet-room-gesture-v1:${normalized.join('.')}`;
 }
 
@@ -48,15 +49,15 @@ export class GesturePad {
   constructor(
     host: HTMLElement,
     private readonly onComplete: (pattern: number[]) => void,
-    label = '绘制手势',
+    label = (uiLiteral('绘制手势') as string),
   ) {
-    host.innerHTML = `
+    host.innerHTML = uiTemplate`
       <div class="gesture-pad" role="group" aria-label="${label}">
         <svg class="gesture-trace" viewBox="0 0 300 300" aria-hidden="true">
           <polyline></polyline>
           <line></line>
         </svg>
-        ${Array.from({ length: 9 }, (_, index) => `
+        ${Array.from({ length: 9 }, (_, index) => uiTemplate`
           <button type="button" class="gesture-point" data-point="${index}" aria-label="点 ${index + 1}" aria-pressed="false"><span></span></button>
         `).join('')}
       </div>
@@ -184,7 +185,7 @@ export class GesturePad {
       point.classList.toggle('is-active', active);
       point.setAttribute('aria-pressed', String(active));
     });
-    this.countStatus.textContent = this.pattern.length > 0 ? `已选择 ${this.pattern.length} 个点` : '尚未选择点';
+    this.countStatus.textContent = this.pattern.length > 0 ? uiTemplate`已选择 ${this.pattern.length} 个点` : uiLiteral('尚未选择点');
     const last = centers.at(-1);
     if (this.drawing && last && this.pointerPosition) {
       this.livePath.removeAttribute('visibility');

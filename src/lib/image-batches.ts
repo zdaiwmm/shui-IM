@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { MAX_IMAGE_ALBUM_BYTES, MAX_IMAGE_ALBUM_ITEMS } from './message-payload';
 
 /** Preserve the selected order while keeping each message within its wire limits. */
@@ -22,7 +23,7 @@ function batchFiles<T extends { size: number }>(
   isImage: (file: T) => boolean,
 ): T[][] {
   if (files.some((file) => file.size > MAX_IMAGE_ALBUM_BYTES)) {
-    throw new Error('单个文件不能超过 256 MiB');
+    throw new Error(uiLiteral('单个文件不能超过 256 MiB'));
   }
   if (destination === 'gallery') return files.map((file) => [file]);
 

@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 /** A local, memory-only thumbnail. The caller supplies an already verified Blob URL. */
 export async function createVideoPoster(url: string, signal?: AbortSignal): Promise<{ blob: Blob; width: number; height: number }> {
   signal?.throwIfAborted();
@@ -15,7 +16,7 @@ export async function createVideoPoster(url: string, signal?: AbortSignal): Prom
         error ? reject(error) : resolve();
       };
       const aborted = () => finish(new DOMException('Session locked', 'AbortError'));
-      const failed = () => finish(new Error('此浏览器无法预览该视频'));
+      const failed = () => finish(new Error(uiLiteral('此浏览器无法预览该视频')));
       const loaded = () => finish();
       const timer = window.setTimeout(failed, 12_000);
       signal?.addEventListener('abort', aborted, { once: true });
@@ -33,7 +34,7 @@ export async function createVideoPoster(url: string, signal?: AbortSignal): Prom
         error ? reject(error) : resolve();
       };
       const aborted = () => finish(new DOMException('Session locked', 'AbortError'));
-      const failed = () => finish(new Error('此浏览器无法预览该视频'));
+      const failed = () => finish(new Error(uiLiteral('此浏览器无法预览该视频')));
       const seeked = () => finish();
       const timer = window.setTimeout(failed, 12_000);
       signal?.addEventListener('abort', aborted, { once: true });
@@ -41,13 +42,13 @@ export async function createVideoPoster(url: string, signal?: AbortSignal): Prom
       video.addEventListener('error', failed, { once: true });
       try { video.currentTime = target; } catch { failed(); }
     });
-    if (!video.videoWidth || !video.videoHeight) throw new Error('视频没有可显示的画面');
+    if (!video.videoWidth || !video.videoHeight) throw new Error(uiLiteral('视频没有可显示的画面'));
     const scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
     canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
     const context = canvas.getContext('2d');
-    if (!context) throw new Error('视频预览不可用');
+    if (!context) throw new Error(uiLiteral('视频预览不可用'));
     // Time zero and the first seeked event can still expose an undecoded black
     // frame for camera/WebM recordings. Try a few bounded positions and give
     // the decoder two paint frames before accepting a poster. A genuinely dark
@@ -72,7 +73,7 @@ export async function createVideoPoster(url: string, signal?: AbortSignal): Prom
       if (hasVisiblePixels() || index === candidates.length - 1) break;
     }
     const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
-      result => result ? resolve(result) : reject(new Error('视频预览不可用')), 'image/jpeg', 0.82));
+      result => result ? resolve(result) : reject(new Error(uiLiteral('视频预览不可用'))), 'image/jpeg', 0.82));
     signal?.throwIfAborted();
     return { blob, width: canvas.width, height: canvas.height };
   } finally {

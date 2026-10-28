@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
 import { isAuthenticatedCallRoster } from './call-membership';
@@ -19,7 +20,7 @@ function record(value: unknown): value is Record<string, unknown> {
 function onlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
   return Object.keys(value).every((key) => keys.includes(key));
 }
-function assert(condition: unknown, message = '通话安全验证失败'): asserts condition {
+function assert(condition: unknown, message = (uiLiteral('通话安全验证失败') as string)): asserts condition {
   if (!condition) throw new Error(message);
 }
 
@@ -27,11 +28,11 @@ function assert(condition: unknown, message = '通话安全验证失败'): asser
 export function trustedCallMember(vault: Vault, deviceId: string): RoomMember {
   const own = vault.members.find((member) => member.deviceId === vault.identity.publicBundle.deviceId);
   const peer = vault.members.find((member) => member.deviceId === deviceId);
-  assert(vault.protocol === 'mls-rfc9420' && vault.mls?.phase === 'active', '安全会话尚未就绪');
-  assert(isAuthenticatedCallRoster(vault), '通话成员尚未完成本机 MLS 身份验证');
-  assert(own?.status === 'active' && own.role === vault.role && !own.revokedAt, '本设备已无法通话');
-  assert(peer?.status === 'active' && !peer.revokedAt && peer.role !== own.role, '对方设备尚未通过验证');
-  assert(peer.capabilities?.includes(CALL_CAPABILITY), '对方设备暂不支持实时通话');
+  assert(vault.protocol === 'mls-rfc9420' && vault.mls?.phase === 'active', uiLiteral('安全会话尚未就绪'));
+  assert(isAuthenticatedCallRoster(vault), uiLiteral('通话成员尚未完成本机 MLS 身份验证'));
+  assert(own?.status === 'active' && own.role === vault.role && !own.revokedAt, uiLiteral('本设备已无法通话'));
+  assert(peer?.status === 'active' && !peer.revokedAt && peer.role !== own.role, uiLiteral('对方设备尚未通过验证'));
+  assert(peer.capabilities?.includes(CALL_CAPABILITY), uiLiteral('对方设备暂不支持实时通话'));
   return peer;
 }
 
@@ -71,7 +72,7 @@ function validCandidate(value: unknown): value is RTCIceCandidateInit {
 export function validateCallPayload(value: unknown, action: CallAction): asserts value is CallPayload {
   assert(record(value) && onlyKeys(value, ['kind', 'description', 'candidate', 'cameraEnabled', 'micMuted', 'reason']));
   assert(value.kind === 'audio' || value.kind === 'video');
-  if (value.description !== undefined) assert(validDescription(value.description), '通话证书或媒体协商无效');
+  if (value.description !== undefined) assert(validDescription(value.description), uiLiteral('通话证书或媒体协商无效'));
   if (value.candidate !== undefined) assert(validCandidate(value.candidate));
   if (value.cameraEnabled !== undefined) assert(typeof value.cameraEnabled === 'boolean');
   if (value.micMuted !== undefined) assert(typeof value.micMuted === 'boolean');
@@ -134,7 +135,7 @@ export async function openCallSignal(vault: Vault, envelope: CallEnvelope, now =
   for (const id of [envelope.callId, envelope.roomId, envelope.eventId, envelope.senderId, envelope.recipientId]) assert(typeof id === 'string' && IDENTIFIER.test(id));
   assert(ACTIONS.has(envelope.action));
   assert(Number.isSafeInteger(envelope.createdAt) && Number.isSafeInteger(envelope.expiresAt));
-  assert(envelope.createdAt > 0 && envelope.createdAt <= now + 10_000 && envelope.expiresAt > now && envelope.expiresAt > envelope.createdAt && envelope.expiresAt - envelope.createdAt <= (envelope.action === 'invite' ? 45_000 : 30_000), '通话请求已过期');
+  assert(envelope.createdAt > 0 && envelope.createdAt <= now + 10_000 && envelope.expiresAt > now && envelope.expiresAt > envelope.createdAt && envelope.expiresAt - envelope.createdAt <= (envelope.action === 'invite' ? 45_000 : 30_000), uiLiteral('通话请求已过期'));
   for (const value of [envelope.iv, envelope.ciphertext, envelope.signature]) assert(typeof value === 'string' && value.length <= MAX_SIGNAL_BYTES && BASE64.test(value));
   assert(fromBase64Url(envelope.iv).length === 12 && fromBase64Url(envelope.signature).length === 64 && fromBase64Url(envelope.ciphertext).length >= 16);
   const peer = trustedCallMember(vault, envelope.senderId);

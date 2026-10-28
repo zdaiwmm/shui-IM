@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import type { ArchiveSink } from './local-archive';
 
 export const MEMORY_BACKUP_LIMIT = 64 * 1024 * 1024;
@@ -16,23 +17,23 @@ function memoryBackup(signal: AbortSignal): BackupFile {
   return {
     sink: { write: async bytes => {
       signal.throwIfAborted();
-      if (closed || disposed) throw new Error('备份文件已关闭');
+      if (closed || disposed) throw new Error(uiLiteral('备份文件已关闭'));
       if (size + bytes.byteLength > MEMORY_BACKUP_LIMIT) {
         await dispose();
-        throw new Error('此浏览器的临时文件存储不可用，当前备份超过 64 MiB 备用上限。请恢复浏览器存储后重试。');
+        throw new Error(uiLiteral('此浏览器的临时文件存储不可用，当前备份超过 64 MiB 备用上限。请恢复浏览器存储后重试。'));
       }
       parts.push(new Blob([bytes])); size += bytes.byteLength;
     } },
     finish: async () => {
       signal.throwIfAborted();
-      if (closed || disposed) throw new Error('备份文件已关闭');
+      if (closed || disposed) throw new Error(uiLiteral('备份文件已关闭'));
       closed = true;
       const file = new File(parts, 'backup.qrlocal', { type: 'application/octet-stream' });
       parts = [];
       return file;
     },
     handoff: () => {
-      if (!closed || disposed) throw new Error('备份文件尚未完成');
+      if (!closed || disposed) throw new Error(uiLiteral('备份文件尚未完成'));
       signal.removeEventListener('abort', abort);
     },
     dispose,
@@ -71,18 +72,18 @@ export async function createLocalBackupFile(signal: AbortSignal): Promise<Backup
     return {
       sink: { write: async bytes => {
         signal.throwIfAborted();
-        if (!writer || disposed) throw new Error('备份文件已关闭');
+        if (!writer || disposed) throw new Error(uiLiteral('备份文件已关闭'));
         await writer.write(bytes);
       } },
       finish: async () => {
         signal.throwIfAborted();
-        if (!writer || disposed) throw new Error('备份文件已关闭');
+        if (!writer || disposed) throw new Error(uiLiteral('备份文件已关闭'));
         await writer.close(); writer = null;
         signal.throwIfAborted();
         return handle.getFile();
       },
       handoff: () => {
-        if (writer || disposed) throw new Error('备份文件尚未完成');
+        if (writer || disposed) throw new Error(uiLiteral('备份文件尚未完成'));
         // Native saving may blur/lock the app. Keep this ciphertext file valid
         // briefly while the OS reads it; no plaintext or key is retained here.
         signal.removeEventListener('abort', abort);

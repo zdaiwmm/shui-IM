@@ -24,7 +24,7 @@ try {
   await server.listen();
   browser = process.env.QUIET_ROOM_TEST_BROWSER === 'webkit' ? await webkit.launch()
     : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const page = await browser.newPage({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ locale: 'zh-CN', userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__frontend_regression`);
@@ -138,7 +138,7 @@ try {
 
   // A disposable context owns only synthetic localhost IndexedDB data. It has
   // no persistent profile and cannot access the user's production-origin vault.
-  const receiptContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const receiptContext = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 } });
   const receiptPage = await receiptContext.newPage();
   await receiptPage.goto(`http://localhost:${server.httpServer.address().port}/__frontend_regression`);
   await receiptPage.evaluate(initializeRegression);
@@ -2497,7 +2497,7 @@ try {
       await page.screenshot({ path: path.join(visualQaDirectory, `chat-glass-${scheme}-390.png`) });
     }
   }
-  const touchPage = await browser.newPage({ hasTouch: true, viewport: { width: 390, height: 844 },
+  const touchPage = await browser.newPage({ locale: 'zh-CN', hasTouch: true, viewport: { width: 390, height: 844 },
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
   try {
     await touchPage.goto(`http://localhost:${server.httpServer.address().port}/__frontend_regression`);
@@ -2551,7 +2551,7 @@ try {
   } finally { await touchPage.close(); }
   // A wide mobile-emulated page does not exercise desktop scrolling. Use the
   // engine's real desktop user agent and pointer model in a separate context.
-  const desktopPage = await browser.newPage({ viewport: { width: 1024, height: 768 } });
+  const desktopPage = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1024, height: 768 } });
   desktopPage.on('pageerror', error => errors.push(error.message));
   try {
     await desktopPage.goto(`http://localhost:${server.httpServer.address().port}/__frontend_regression`);

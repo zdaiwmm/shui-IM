@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { decodeGroupState } from 'ts-mls';
 import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
@@ -30,7 +31,7 @@ type CredentialBinding = {
 
 type PublicLeaf = { leafIndex: number; signatureKey: string; binding: CredentialBinding };
 
-function fail(): never { throw new Error('通话成员未通过本机 MLS 身份验证'); }
+function fail(): never { throw new Error(uiLiteral('通话成员未通过本机 MLS 身份验证')); }
 function active(member: RoomMember): boolean {
   return (member.status === 'active' || member.status === undefined) && !member.revokedAt;
 }

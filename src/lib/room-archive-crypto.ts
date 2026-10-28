@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { Aes256Gcm, CipherSuite, HkdfSha256 } from '@hpke/core';
 import { DhkemX25519HkdfSha256 } from '@hpke/dhkem-x25519';
 import { ed25519, x25519 } from '@noble/curves/ed25519.js';
@@ -13,7 +14,7 @@ const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: t
 const bytes = (value: unknown) => encoder.encode(canonicalStringify(value));
 const hash = (value: Uint8Array) => toBase64Url(sha256(value));
 const secret = (seed: string, purpose: string) => {
-  if (!/^[A-Za-z0-9_-]{43}$/.test(seed)) throw new Error('恢复材料不完整');
+  if (!/^[A-Za-z0-9_-]{43}$/.test(seed)) throw new Error(uiLiteral('恢复材料不完整'));
   return Uint8Array.from(hkdf(sha256, fromBase64Url(seed), new Uint8Array(), encoder.encode(`quiet-room-archive-v2:${purpose}`), 32));
 };
 export type ArchiveDescriptor = { v: 2; id: string; encryptionKey: string; signingKey: string; readHash: string };
@@ -44,13 +45,13 @@ export function newArchiveKey(): ArchiveKey {
 }
 export function validateArchiveKey(value: unknown): asserts value is ArchiveKey {
   const key = value as ArchiveKey;
-  if (!key || !['descriptor,seed,v','descriptor,readToken,seed,v'].includes(Object.keys(key).sort().join(',')) || (Object.hasOwn(key,'readToken') && !/^[A-Za-z0-9_-]{43}$/.test(key.readToken!)) || key.v !== 2 || canonicalStringify(descriptorForSeed(key.seed)) !== canonicalStringify(key.descriptor)) throw new Error('恢复材料校验失败');
+  if (!key || !['descriptor,seed,v','descriptor,readToken,seed,v'].includes(Object.keys(key).sort().join(',')) || (Object.hasOwn(key,'readToken') && !/^[A-Za-z0-9_-]{43}$/.test(key.readToken!)) || key.v !== 2 || canonicalStringify(descriptorForSeed(key.seed)) !== canonicalStringify(key.descriptor)) throw new Error(uiLiteral('恢复材料校验失败'));
 }
 /** Only archive data enters this envelope. Device credentials and MLS state are never inputs. */
 export async function sealArchiveObject(key: ArchiveKey, payload: unknown): Promise<ArchiveObject> {
   validateArchiveKey(key);
   const raw = bytes(payload);
-  if (raw.length > 3_000_000) throw new Error('归档分块过大');
+  if (raw.length > 3_000_000) throw new Error(uiLiteral('归档分块过大'));
   const id = crypto.randomUUID(), info = bytes(['quiet-room-private-archive-object-v2', key.descriptor.id, id]);
   const recipientPublicKey = await suite.kem.deserializePublicKey(fromBase64Url(key.descriptor.encryptionKey));
   const sender = await suite.createSenderContext({ recipientPublicKey, info: info.buffer });
@@ -72,7 +73,7 @@ export function verifyArchiveObject(descriptor: ArchiveDescriptor, object: Archi
 }
 export async function openArchiveObject(key: ArchiveKey, object: ArchiveObject): Promise<unknown> {
   validateArchiveKey(key);
-  if (!verifyArchiveObject(key.descriptor, object)) throw new Error('归档分块的来源或完整性校验失败');
+  if (!verifyArchiveObject(key.descriptor, object)) throw new Error(uiLiteral('归档分块的来源或完整性校验失败'));
   const encryption = secret(key.seed, 'decrypt');
   let raw: Uint8Array | undefined;
   try {
@@ -95,19 +96,19 @@ export async function protectArchiveCard(key: ArchiveKey, password: string): Pro
   finally { raw.fill(0); }
 }
 export async function unlockArchiveCard(text: string, password: string): Promise<ArchiveKey> {
-  if (typeof password!=='string'||Array.from(password).length>128) throw new Error('恢复口令过长');
-  if (encoder.encode(text).length > MAX_CARD_BYTES) throw new Error('恢复图片内容过大');
+  if (typeof password!=='string'||Array.from(password).length>128) throw new Error(uiLiteral('恢复口令过长'));
+  if (encoder.encode(text).length > MAX_CARD_BYTES) throw new Error(uiLiteral('恢复图片内容过大'));
   let card: ProtectedArchiveCard;
-  try { card = JSON.parse(text); } catch { throw new Error('无法识别这张恢复图片'); }
+  try { card = JSON.parse(text); } catch { throw new Error(uiLiteral('无法识别这张恢复图片')); }
   if (!card || Object.keys(card).sort().join(',') !== 'ciphertext,format,iv,kdf,v' || card.format !== 'quiet-room-private-archive' || card.v !== 2 ||
-    !validPasswordKdf(card.kdf) || !/^[A-Za-z0-9_-]{16}$/.test(card.iv) || typeof card.ciphertext !== 'string' || card.ciphertext.length > MAX_CARD_BYTES) throw new Error('恢复图片格式或保护参数不受支持');
+    !validPasswordKdf(card.kdf) || !/^[A-Za-z0-9_-]{16}$/.test(card.iv) || typeof card.ciphertext !== 'string' || card.ciphertext.length > MAX_CARD_BYTES) throw new Error(uiLiteral('恢复图片格式或保护参数不受支持'));
   const credential = await derivePasswordCredential(password, card.kdf); delete credential.rootKek;
   const { ciphertext, ...header } = card;
   let raw: Uint8Array | undefined;
   try {
     raw = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromBase64Url(card.iv), additionalData: bytes(header) }, credential.kek, fromBase64Url(ciphertext)));
     const key: unknown = JSON.parse(decoder.decode(raw)); validateArchiveKey(key); return key;
-  } catch { throw new Error('恢复口令不正确，或图片已经损坏'); }
+  } catch { throw new Error(uiLiteral('恢复口令不正确，或图片已经损坏')); }
   finally { raw?.fill(0); }
 }
 

@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
 import { generateMlsKeyMaterial } from './mls';
@@ -90,8 +91,8 @@ export async function createDeliveryReceipt(
   vault: Vault,
   message: { seq: number; envelope: MessageEnvelope },
 ): Promise<DeliveryReceipt> {
-  if (message.envelope.roomId !== vault.roomId) throw new Error('回执会话不匹配');
-  if (message.envelope.senderId === vault.identity.publicBundle.deviceId) throw new Error('不能为本机消息创建对端回执');
+  if (message.envelope.roomId !== vault.roomId) throw new Error(uiLiteral('回执会话不匹配'));
+  if (message.envelope.senderId === vault.identity.publicBundle.deviceId) throw new Error(uiLiteral('不能为本机消息创建对端回执'));
   const unsigned = receiptBody({
     v: 1,
     roomId: vault.roomId,
@@ -176,9 +177,9 @@ function envelopeHeader(roomId: string, clientMsgId: string, senderId: string, e
 }
 
 export async function encryptMessage(vault: Vault, payload: MessagePayload, clientMsgId: string = crypto.randomUUID()): Promise<MessageEnvelope> {
-  if (vault.members.length !== 2) throw new Error('会话尚未完成双设备绑定');
+  if (vault.members.length !== 2) throw new Error(uiLiteral('会话尚未完成双设备绑定'));
   if (!vault.members.some((member) => member.deviceId === vault.identity.publicBundle.deviceId)) {
-    throw new Error('本设备不在会话成员中');
+    throw new Error(uiLiteral('本设备不在会话成员中'));
   }
 
   const ephemeralPair = await crypto.subtle.generateKey(
@@ -240,9 +241,9 @@ export async function encryptMessage(vault: Vault, payload: MessagePayload, clie
 }
 
 export async function decryptMessage(vault: Vault, envelope: MessageEnvelope): Promise<MessagePayload> {
-  if (envelope.v !== 1 || envelope.roomId !== vault.roomId) throw new Error('消息协议或会话不匹配');
+  if (envelope.v !== 1 || envelope.roomId !== vault.roomId) throw new Error(uiLiteral('消息协议或会话不匹配'));
   const sender = vault.members.find((member) => member.deviceId === envelope.senderId);
-  if (!sender) throw new Error('消息发送设备不属于当前会话');
+  if (!sender) throw new Error(uiLiteral('消息发送设备不属于当前会话'));
   const { signature, ...unsigned } = envelope;
   const signingKey = await crypto.subtle.importKey(
     'jwk',
@@ -257,10 +258,10 @@ export async function decryptMessage(vault: Vault, envelope: MessageEnvelope): P
     fromBase64Url(signature),
     encoder.encode(canonicalStringify(unsigned)),
   );
-  if (!authentic) throw new Error('消息签名验证失败');
+  if (!authentic) throw new Error(uiLiteral('消息签名验证失败'));
 
   const recipient = envelope.recipients.find((entry) => entry.deviceId === vault.identity.publicBundle.deviceId);
-  if (!recipient) throw new Error('消息没有为本设备加密');
+  if (!recipient) throw new Error(uiLiteral('消息没有为本设备加密'));
   const privateKey = await importEcdhPrivate(vault.identity.encryptionPrivateKey);
   const ephemeralPublicKey = await importEcdhPublic(envelope.ephemeralPublicKey);
   const wrapKey = await deriveWrapKey(
@@ -283,6 +284,6 @@ export async function decryptMessage(vault: Vault, envelope: MessageEnvelope): P
     fromBase64Url(envelope.content.ciphertext),
   );
   const payload: unknown = JSON.parse(decoder.decode(plaintext));
-  if (!isMessagePayload(payload)) throw new Error('消息明文格式不正确');
+  if (!isMessagePayload(payload)) throw new Error(uiLiteral('消息明文格式不正确'));
   return payload;
 }

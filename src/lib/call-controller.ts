@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate } from './language';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { boundedOperation, networkDelay, NetworkOperationError } from './network-operation';
 import { classifyQuality, recoveryAction, VIDEO_LIMITS } from './call-network-policy';
@@ -14,31 +15,31 @@ const PATH_SETTLE_MS = 12_000;
 const MEDIA_MS = 30_000;
 const MAX_CANDIDATES = 256;
 const statusByCode: Record<string, string> = {
-  busy: '对方正在通话', offline: '对方暂时不在线', unavailable: '对方暂时无法接听',
-  timeout: '对方未接听', declined: '对方已拒绝', canceled: '通话已取消',
-  disconnected: '网络连接已中断', revoked: '设备权限已失效', expired: '通话请求已过期',
-  'already-accepted': '已在其他设备接听', 'not-allowed': '暂时无法建立安全通话',
-  INVALID_CALL: '通话请求无效', INVALID_CALL_SIGNATURE: '通话安全验证失败',
-  CALL_EXPIRED: '通话请求已过期', CALL_REPLAY: '通话请求已处理', CALL_BUSY: '对方正在通话',
-  CALL_UNAVAILABLE: '对方暂时不在线', CALL_NOT_FOUND: '通话已结束', CALL_FORBIDDEN: '暂时无法建立安全通话',
-  CALL_ALREADY_ACCEPTED: '已在其他设备接听', CALL_TIMEOUT: '对方未接听', CALL_DECLINED: '对方已拒绝',
-  CALL_ENDED: '通话已结束', CALL_DISCONNECTED: '网络连接已中断', CALL_DEVICE_INACTIVE: '设备权限已失效',
-  CALL_RATE_LIMITED: '通话操作过于频繁，请稍后重试', CALL_CONFIG_INVALID: '通话网络配置暂不可用',
+  get busy() { return uiLiteral('对方正在通话'); }, get offline() { return uiLiteral('对方暂时不在线'); }, get unavailable() { return uiLiteral('对方暂时无法接听'); },
+  get timeout() { return uiLiteral('对方未接听'); }, get declined() { return uiLiteral('对方已拒绝'); }, get canceled() { return uiLiteral('通话已取消'); },
+  get disconnected() { return uiLiteral('网络连接已中断'); }, get revoked() { return uiLiteral('设备权限已失效'); }, get expired() { return uiLiteral('通话请求已过期'); },
+  get 'already-accepted'() { return uiLiteral('已在其他设备接听'); }, get 'not-allowed'() { return uiLiteral('暂时无法建立安全通话'); },
+  get INVALID_CALL() { return uiLiteral('通话请求无效'); }, get INVALID_CALL_SIGNATURE() { return uiLiteral('通话安全验证失败'); },
+  get CALL_EXPIRED() { return uiLiteral('通话请求已过期'); }, get CALL_REPLAY() { return uiLiteral('通话请求已处理'); }, get CALL_BUSY() { return uiLiteral('对方正在通话'); },
+  get CALL_UNAVAILABLE() { return uiLiteral('对方暂时不在线'); }, get CALL_NOT_FOUND() { return uiLiteral('通话已结束'); }, get CALL_FORBIDDEN() { return uiLiteral('暂时无法建立安全通话'); },
+  get CALL_ALREADY_ACCEPTED() { return uiLiteral('已在其他设备接听'); }, get CALL_TIMEOUT() { return uiLiteral('对方未接听'); }, get CALL_DECLINED() { return uiLiteral('对方已拒绝'); },
+  get CALL_ENDED() { return uiLiteral('通话已结束'); }, get CALL_DISCONNECTED() { return uiLiteral('网络连接已中断'); }, get CALL_DEVICE_INACTIVE() { return uiLiteral('设备权限已失效'); },
+  get CALL_RATE_LIMITED() { return uiLiteral('通话操作过于频繁，请稍后重试'); }, get CALL_CONFIG_INVALID() { return uiLiteral('通话网络配置暂不可用'); },
 };
 
 function emptyState(): CallState {
-  return { phase: 'idle', callId: null, kind: 'audio', peerName: '对方', localStream: null, remoteStream: null,
+  return { phase: 'idle', callId: null, kind: 'audio', peerName: uiLiteral('对方'), localStream: null, remoteStream: null,
     micMuted: false, cameraEnabled: false, remoteVideoEnabled: false, remoteMuted: false,
     facingMode: 'user', startedAt: null, statusText: '', quality: 'good', canSwitchCamera: false };
 }
 function stopStream(stream: MediaStream | null) { stream?.getTracks().forEach((track) => track.stop()); }
 function mediaError(error: unknown): string {
   const name = error instanceof Error ? error.name : '';
-  if (name === 'NotAllowedError' || name === 'SecurityError') return '请允许使用麦克风和摄像头后重试';
-  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') return '未找到可用的麦克风或摄像头';
-  if (name === 'NotReadableError' || name === 'TrackStartError') return '麦克风或摄像头正在被其他应用使用';
-  if (name === 'TimeoutError') return '等待设备授权超时，请重试';
-  return error instanceof Error && error.message.length < 90 ? error.message : '暂时无法接通，请稍后重试';
+  if (name === 'NotAllowedError' || name === 'SecurityError') return uiLiteral('请允许使用麦克风和摄像头后重试');
+  if (name === 'NotFoundError' || name === 'DevicesNotFoundError') return uiLiteral('未找到可用的麦克风或摄像头');
+  if (name === 'NotReadableError' || name === 'TrackStartError') return uiLiteral('麦克风或摄像头正在被其他应用使用');
+  if (name === 'TimeoutError') return uiLiteral('等待设备授权超时，请重试');
+  return error instanceof Error && error.message.length < 90 ? error.message : uiLiteral('暂时无法接通，请稍后重试');
 }
 
 /** One foreground, one-to-one call. No media, SDP, candidates or keys are persisted. */
@@ -123,11 +124,11 @@ export class CallController {
   }
   private vault(): Vault {
     const vault = this.options.getVault();
-    if (!vault || vault.protocol !== 'mls-rfc9420' || vault.mls?.phase !== 'active') throw new Error('请先解锁并连接安全会话');
+    if (!vault || vault.protocol !== 'mls-rfc9420' || vault.mls?.phase !== 'active') throw new Error(uiLiteral('请先解锁并连接安全会话'));
     return vault;
   }
   private requireBrowser() {
-    if (typeof RTCPeerConnection === 'undefined' || !globalThis.navigator?.mediaDevices?.getUserMedia) throw new Error('当前浏览器不支持实时通话，请使用新版浏览器');
+    if (typeof RTCPeerConnection === 'undefined' || !globalThis.navigator?.mediaDevices?.getUserMedia) throw new Error(uiLiteral('当前浏览器不支持实时通话，请使用新版浏览器'));
   }
   private rememberPeer(vault: Vault, peerId: string) {
     const peer = trustedCallMember(vault, peerId);
@@ -161,9 +162,9 @@ export class CallController {
     if (stage === 'quality' || (stage === 'config' && this.current.startedAt)) return; // Retry stats on the next tick; never restart usable media for missing stats.
     if (stage === 'ice-gathering' || stage === 'ice-checking') { this.scheduleReconnect(); return; }
     const text: Record<CallConnectionStage, string> = {
-      config: '获取通话配置超时，请重试', websocket: '信令认证连接超时，请重试', signaling: this.caller ? '对方未接听' : '未接听',
-      sdp: '通话协商超时，请重新呼叫', 'ice-gathering': '候选收集超时', 'ice-checking': '媒体线路检查超时',
-      'dtls-srtp': '安全媒体连接超时，请重新呼叫', media: '未收到对方音频，请重新呼叫', quality: '', recovery: '媒体线路恢复失败，请重新呼叫',
+      config: uiLiteral('获取通话配置超时，请重试'), websocket: uiLiteral('信令认证连接超时，请重试'), signaling: this.caller ? uiLiteral('对方未接听') : uiLiteral('未接听'),
+      sdp: uiLiteral('通话协商超时，请重新呼叫'), 'ice-gathering': uiLiteral('候选收集超时'), 'ice-checking': uiLiteral('媒体线路检查超时'),
+      'dtls-srtp': uiLiteral('安全媒体连接超时，请重新呼叫'), media: uiLiteral('未收到对方音频，请重新呼叫'), quality: '', recovery: uiLiteral('媒体线路恢复失败，请重新呼叫'),
     };
     void this.finish(text[stage], CALL_STAGE_POLICY[stage].code, true);
   }
@@ -184,7 +185,7 @@ export class CallController {
   }
   private begin(kind: CallKind, callId: string, caller: boolean, vault: Vault) {
     this.cleanup(false);
-    this.current = { ...emptyState(), kind, callId, phase: caller ? 'outgoing' : 'incoming', statusText: caller ? '正在准备通话…' : `${kind === 'video' ? '视频' : '语音'}通话邀请` };
+    this.current = { ...emptyState(), kind, callId, phase: caller ? 'outgoing' : 'incoming', statusText: caller ? uiLiteral('正在准备通话…') : uiTemplate`${kind === 'video' ? uiLiteral('视频') : uiLiteral('语音')}通话邀请` };
     this.lifetime = new AbortController();
     this.caller = caller;
     this.context = this.capture(vault);
@@ -211,7 +212,7 @@ export class CallController {
       this.requireBrowser();
       const vault = this.vault();
       const peers = vault.members.filter((member) => member.role !== vault.role && member.status === 'active' && !member.revokedAt && member.capabilities?.includes(CALL_CAPABILITY));
-      if (!peers.length) throw new Error('对方设备暂不支持通话，请双方刷新页面后重试');
+      if (!peers.length) throw new Error(uiLiteral('对方设备暂不支持通话，请双方刷新页面后重试'));
       this.begin(kind, crypto.randomUUID(), true, vault);
       context = this.context!;
       peers.forEach((peer) => { this.rememberPeer(vault, peer.deviceId); this.invited.add(peer.deviceId); });
@@ -229,7 +230,7 @@ export class CallController {
       this.stages?.begin('ice-gathering');
       if (!this.valid(context)) return;
       const description = { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp };
-      this.emit({ phase: 'outgoing', statusText: '正在呼叫…' });
+      this.emit({ phase: 'outgoing', statusText: uiLiteral('正在呼叫…') });
       this.incomingExpiresAt = Date.now() + RING_MS;
       this.stages?.begin('signaling', RING_MS);
       for (const peerId of [...this.invited]) {
@@ -311,7 +312,7 @@ export class CallController {
       if (!this.caller || this.peerId || !this.invited.has(envelope.senderId) || (this.serverWinner && this.serverWinner !== envelope.senderId)) return;
       if (this.current.phase !== 'outgoing' || !this.pc) return;
       this.peerId = envelope.senderId;
-      this.emit({ phase: 'connecting', statusText: '正在安全连接…', remoteVideoEnabled: payload.cameraEnabled ?? this.current.kind === 'video', remoteMuted: payload.micMuted ?? false });
+      this.emit({ phase: 'connecting', statusText: uiLiteral('正在安全连接…'), remoteVideoEnabled: payload.cameraEnabled ?? this.current.kind === 'video', remoteMuted: payload.micMuted ?? false });
       this.stages?.complete('signaling');
       await this.operation('sdp', () => this.pc!.setRemoteDescription(payload.description!));
       if (!this.valid(context)) return;
@@ -324,12 +325,12 @@ export class CallController {
     }
     if (envelope.action === 'decline' && this.caller && !this.peerId && this.invited.has(envelope.senderId)) {
       // A deliberate refusal on any invited device ends this ringing attempt for all devices.
-      await this.finish(statusByCode[payload.reason ?? ''] ?? '对方已拒绝', 'declined', false);
+      await this.finish(statusByCode[payload.reason ?? ''] ?? uiLiteral('对方已拒绝'), 'declined', false);
       return;
     }
     if (envelope.senderId !== this.peerId) return;
     if (envelope.action === 'end' || envelope.action === 'decline') {
-      await this.finish(statusByCode[payload.reason ?? ''] ?? '通话已结束', payload.reason ?? 'ended', false);
+      await this.finish(statusByCode[payload.reason ?? ''] ?? uiLiteral('通话已结束'), payload.reason ?? 'ended', false);
       return;
     }
     if (envelope.action !== 'signal') return;
@@ -351,8 +352,8 @@ export class CallController {
     const offer = this.incomingOffer;
     try {
       this.requireBrowser();
-      if (Date.now() >= this.incomingExpiresAt || !this.peerStillTrusted(this.peerId)) throw new Error('通话邀请已过期');
-      this.emit({ phase: 'connecting', statusText: '正在准备接听…' });
+      if (Date.now() >= this.incomingExpiresAt || !this.peerStillTrusted(this.peerId)) throw new Error(uiLiteral('通话邀请已过期'));
+      this.emit({ phase: 'connecting', statusText: uiLiteral('正在准备接听…') });
       await this.waitForSignaling();
       if (!this.valid(context)) return;
       // Keep the original invitation deadline while waiting for permission; do not accept an expired call.
@@ -362,7 +363,7 @@ export class CallController {
       if (!this.valid(context)) return;
       const stream = await this.acquireMedia(this.current.kind === 'video', context);
       if (!this.valid(context)) { stopStream(stream); return; }
-      if (Date.now() >= this.incomingExpiresAt) { stopStream(stream); throw new Error('通话邀请已过期'); }
+      if (Date.now() >= this.incomingExpiresAt) { stopStream(stream); throw new Error(uiLiteral('通话邀请已过期')); }
       await this.bindInitialMedia(pc, stream);
       if (!this.valid(context)) return;
       const answer = await this.operation('sdp', () => pc.createAnswer());
@@ -371,7 +372,7 @@ export class CallController {
       this.stages?.begin('ice-gathering');
       if (!this.valid(context)) return;
       this.stages?.complete('signaling');
-      this.emit({ statusText: '正在安全连接…' });
+      this.emit({ statusText: uiLiteral('正在安全连接…') });
       await this.sendTo(this.peerId!, 'accept', { kind: this.current.kind, description: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp }, cameraEnabled: this.current.cameraEnabled, micMuted: this.current.micMuted }, context);
       if (!this.valid(context)) return;
       this.initialDescriptionSent = true;
@@ -383,8 +384,8 @@ export class CallController {
     } catch (error) { if (this.valid(context)) await this.finish(mediaError(error), 'failed', true); }
   }
 
-  decline(): Promise<void> { return this.finish('已拒绝', 'declined', true, 'decline'); }
-  hangup(reason = 'ended'): Promise<void> { return this.finish(statusByCode[reason] ?? '通话已结束', reason, true); }
+  decline(): Promise<void> { return this.finish(uiLiteral('已拒绝'), 'declined', true, 'decline'); }
+  hangup(reason = 'ended'): Promise<void> { return this.finish(statusByCode[reason] ?? uiLiteral('通话已结束'), reason, true); }
 
   private applyVerifiedPeerIds(config: CallIceConfiguration): boolean {
     if (!Array.isArray(config.verifiedPeerIds)) return false;
@@ -409,7 +410,7 @@ export class CallController {
       this.peerId = null;
       this.invited.clear();
       this.peerKeys.clear();
-      throw new Error('对方未准备好安全通话，请双方重新打开页面');
+      throw new Error(uiLiteral('对方未准备好安全通话，请双方重新打开页面'));
     }
     const pc = new RTCPeerConnection({
       iceServers: config.iceServers,
@@ -455,7 +456,7 @@ export class CallController {
   }
 
   private async acquireMedia(video: boolean, context: Context, audio = true): Promise<MediaStream> {
-    if (!this.valid(context)) throw new Error('通话已结束');
+    if (!this.valid(context)) throw new Error(uiLiteral('通话已结束'));
     this.permissionCount += 1;
     if (this.permissionCount === 1) this.options.onPermissionChange(true);
     let finished = false;
@@ -470,10 +471,10 @@ export class CallController {
       if (!this.permissionCount) return Boolean(await this.options.onPermissionChange(false));
       return false;
     };
-    const cancel = () => { void release().finally(() => rejectPending(new Error('通话已结束'))); };
+    const cancel = () => { void release().finally(() => rejectPending(new Error(uiLiteral('通话已结束')))); };
     this.pendingPermissions.add(cancel);
     const request = Promise.resolve().then(() => {
-      if (finished || !this.valid(context)) throw new Error('通话已结束');
+      if (finished || !this.valid(context)) throw new Error(uiLiteral('通话已结束'));
       return navigator.mediaDevices.getUserMedia({
       audio: audio ? { echoCancellation: true, noiseSuppression: true, autoGainControl: true } : false,
       video: video ? { width: { ideal: 1280, max: 1280 }, height: { ideal: 720, max: 720 }, frameRate: { ideal: 24, max: 30 }, facingMode: { ideal: this.current.facingMode } } : false,
@@ -481,16 +482,16 @@ export class CallController {
     });
     const result = new Promise<MediaStream>((resolve, reject) => {
       rejectPending = reject;
-      timer = setTimeout(() => { void release().finally(() => reject(new DOMException('等待设备授权超时，请重试', 'TimeoutError'))); }, MEDIA_MS);
+      timer = setTimeout(() => { void release().finally(() => reject(new DOMException(uiLiteral('等待设备授权超时，请重试'), 'TimeoutError'))); }, MEDIA_MS);
       request.then(async (stream) => {
-        if (finished || !this.valid(context)) { stopStream(stream); await release(); reject(new Error('通话已结束')); return; }
+        if (finished || !this.valid(context)) { stopStream(stream); await release(); reject(new Error(uiLiteral('通话已结束'))); return; }
         // Own capture before awaiting native focus handoff or sender replacement.
         this.unboundStreams.add(stream);
         let permissionInvalidated: boolean;
         try { permissionInvalidated = await release(); }
         catch (error) { stopStream(stream); this.unboundStreams.delete(stream); reject(error); return; }
         // The permission callback can lock/destroy the call synchronously.
-        if (permissionInvalidated || !this.valid(context)) { stopStream(stream); this.unboundStreams.delete(stream); reject(new Error('通话已结束')); return; }
+        if (permissionInvalidated || !this.valid(context)) { stopStream(stream); this.unboundStreams.delete(stream); reject(new Error(uiLiteral('通话已结束'))); return; }
         resolve(stream);
       }, (error: unknown) => { void release().finally(() => reject(error)); });
     });
@@ -531,12 +532,12 @@ export class CallController {
   private observeLocalTracks(stream: MediaStream, context: Context) {
     for (const track of stream.getTracks()) {
       track.onmute = () => {
-        if (this.valid(context)) this.emit({ statusText: track.kind === 'audio' ? '麦克风暂时不可用' : '摄像头暂时不可用' });
+        if (this.valid(context)) this.emit({ statusText: track.kind === 'audio' ? uiLiteral('麦克风暂时不可用') : uiLiteral('摄像头暂时不可用') });
       };
       track.onunmute = () => { if (this.valid(context) && this.current.phase === 'connected') this.emit({ statusText: '' }); };
       track.onended = () => {
         if (!this.valid(context)) return;
-        if (track.kind === 'audio') void this.finish('麦克风已断开，通话结束', 'media-ended', true);
+        if (track.kind === 'audio') void this.finish(uiLiteral('麦克风已断开，通话结束'), 'media-ended', true);
         else {
           stream.removeTrack(track);
           this.emit({ cameraEnabled: false });
@@ -585,7 +586,7 @@ export class CallController {
       stream = await this.acquireMedia(true, context, false);
       if (!this.valid(context)) { stopStream(stream); return; }
       const track = stream.getVideoTracks()[0];
-      if (!track) { stopStream(stream); throw new Error('未找到可用的摄像头'); }
+      if (!track) { stopStream(stream); throw new Error(uiLiteral('未找到可用的摄像头')); }
       await this.videoSender!.replaceTrack(track);
       if (!this.valid(context)) { stopStream(stream); return; }
       this.current.localStream!.addTrack(track);
@@ -611,7 +612,7 @@ export class CallController {
       replacement = await this.acquireMedia(true, context, false);
       if (!this.valid(context)) { stopStream(replacement); return; }
       const track = replacement.getVideoTracks()[0];
-      if (!track) throw new Error('暂时无法切换摄像头');
+      if (!track) throw new Error(uiLiteral('暂时无法切换摄像头'));
       await this.videoSender.replaceTrack(track);
       if (!this.valid(context)) { stopStream(replacement); return; }
       this.current.localStream!.addTrack(track);
@@ -706,7 +707,7 @@ export class CallController {
     if (event.state === 'accepted' && event.acceptedBy) {
       if (this.caller) {
         if (this.invited.has(event.acceptedBy)) this.serverWinner = event.acceptedBy;
-      } else if (event.acceptedBy !== this.context.deviceId) void this.finish('已在其他设备接听', 'already-accepted', false);
+      } else if (event.acceptedBy !== this.context.deviceId) void this.finish(uiLiteral('已在其他设备接听'), 'already-accepted', false);
       else {
         this.serverWinner = event.acceptedBy;
         if (this.initialDescriptionSent) {
@@ -723,17 +724,17 @@ export class CallController {
       if (!this.invited.size) void this.finish(statusByCode.CALL_UNAVAILABLE!, 'unavailable', false);
     } else if (event.state === 'error' && ['CALL_PEER_RECONNECTING', 'CALL_BACKPRESSURE', 'CALL_RATE_LIMITED'].includes(event.code ?? '')) {
       this.stages?.noteFailure('websocket', event.code!);
-      this.emit({ statusText: '正在等待信令线路恢复…' });
+      this.emit({ statusText: uiLiteral('正在等待信令线路恢复…') });
     } else if (event.state === 'ended' || event.state === 'error') {
       if (event.state === 'error') this.stages?.fail('signaling', event.code ?? 'SERVER_REJECTED');
-      void this.finish(statusByCode[event.code ?? ''] ?? (event.state === 'error' ? '暂时无法接通，请重试' : '通话已结束'), event.code ?? 'ended', false);
+      void this.finish(statusByCode[event.code ?? ''] ?? (event.state === 'error' ? uiLiteral('暂时无法接通，请重试') : uiLiteral('通话已结束')), event.code ?? 'ended', false);
     }
   }
   signalingFailure(code: string) {
     if (!this.active) return;
     this.stages?.noteFailure('websocket', code);
-    if (code === 'WS_AUTH_FAILED') void this.finish('设备信令认证失败，请重新解锁', code, false);
-    else this.emit({ statusText: code === 'WS_BACKPRESSURE' ? '信令发送拥堵，正在等待恢复…' : '信令连接暂不可用，正在重试…' });
+    if (code === 'WS_AUTH_FAILED') void this.finish(uiLiteral('设备信令认证失败，请重新解锁'), code, false);
+    else this.emit({ statusText: code === 'WS_BACKPRESSURE' ? uiLiteral('信令发送拥堵，正在等待恢复…') : uiLiteral('信令连接暂不可用，正在重试…') });
   }
   setConnection(connected: boolean) {
     const changed = this.connected !== connected;
@@ -742,21 +743,21 @@ export class CallController {
     if (!connected) {
       if (this.diagnostics) this.diagnostics.reconnects += 1;
       this.stages?.begin('websocket');
-      this.emit({ statusText: '信令连接中断，正在重连…' });
+      this.emit({ statusText: uiLiteral('信令连接中断，正在重连…') });
     } else {
       this.stages?.complete('websocket');
       if (this.localSignalsReady) void this.flushLocalCandidates(this.context).catch(() => {});
       this.connectionStateChanged(this.context);
-      if (this.current.phase === 'outgoing' || this.current.phase === 'incoming') this.emit({ statusText: this.caller ? '正在呼叫…' : '通话邀请' });
+      if (this.current.phase === 'outgoing' || this.current.phase === 'incoming') this.emit({ statusText: this.caller ? uiLiteral('正在呼叫…') : uiLiteral('通话邀请') });
       if (this.restartRequested) this.scheduleReconnect();
     }
   }
   updateMembers() {
     if (!this.active || !this.context) return;
-    if (!this.valid(this.context)) { void this.finish('设备权限已失效', 'revoked', false); return; }
-    if (this.peerId && !this.peerStillTrusted(this.peerId)) { void this.finish('对方设备权限已失效', 'revoked', false); return; }
+    if (!this.valid(this.context)) { void this.finish(uiLiteral('设备权限已失效'), 'revoked', false); return; }
+    if (this.peerId && !this.peerStillTrusted(this.peerId)) { void this.finish(uiLiteral('对方设备权限已失效'), 'revoked', false); return; }
     for (const deviceId of this.invited) if (!this.peerStillTrusted(deviceId)) this.invited.delete(deviceId);
-    if (this.caller && !this.peerId && !this.invited.size) void this.finish('对方设备暂时无法通话', 'revoked', false);
+    if (this.caller && !this.peerId && !this.invited.size) void this.finish(uiLiteral('对方设备暂时无法通话'), 'revoked', false);
   }
 
   private connectionStateChanged(context: Context) {
@@ -775,7 +776,7 @@ export class CallController {
         if (this.current.startedAt) {
           this.stages?.noteFailure('media', 'AUDIO_TEMPORARILY_MUTED');
           this.stages?.begin('recovery');
-          this.emit({ statusText: '对方音频暂时中断，正在等待恢复…', quality: 'recovering' });
+          this.emit({ statusText: uiLiteral('对方音频暂时中断，正在等待恢复…'), quality: 'recovering' });
         } else this.stages?.begin('media');
         return;
       }
@@ -786,12 +787,12 @@ export class CallController {
       this.restartRequested = false;
       this.reconnectAttempts = 0;
       if (this.diagnostics && this.diagnostics.setupMs === undefined) this.diagnostics.setupMs = Date.now() - this.setupStartedAt;
-      this.emit({ phase: 'connected', startedAt: this.current.startedAt ?? Date.now(), statusText: this.connected ? '' : '信令连接中断，正在重连…' });
+      this.emit({ phase: 'connected', startedAt: this.current.startedAt ?? Date.now(), statusText: this.connected ? '' : uiLiteral('信令连接中断，正在重连…') });
       if (!this.statsTimer) { this.statsTimer = setInterval(() => { void this.inspectQuality(context); }, 4000); void this.inspectQuality(context); }
       if (!this.credentialTimer) this.scheduleCredentialRenewal(context);
     } else if (pc.connectionState === 'failed' && ['connected', 'completed'].includes(pc.iceConnectionState)) {
       this.stages?.fail('dtls-srtp', 'DTLS_FAILED');
-      void this.finish('安全媒体连接失败，请重新呼叫', 'DTLS_FAILED', true);
+      void this.finish(uiLiteral('安全媒体连接失败，请重新呼叫'), 'DTLS_FAILED', true);
     } else if (['disconnected', 'failed'].includes(pc.connectionState) || ['disconnected', 'failed'].includes(pc.iceConnectionState)) {
       this.stages?.fail('ice-checking', pc.iceConnectionState === 'failed' ? 'ICE_FAILED' : 'PATH_DISCONNECTED');
       this.scheduleReconnect();
@@ -801,7 +802,7 @@ export class CallController {
     if (!this.context || !this.peerId || !this.pc || this.current.phase === 'incoming' || !this.active) return;
     this.restartRequested = true;
     this.stages?.begin('recovery');
-    this.emit({ phase: 'reconnecting', statusText: '媒体线路中断，正在恢复…', quality: 'recovering' });
+    this.emit({ phase: 'reconnecting', statusText: uiLiteral('媒体线路中断，正在恢复…'), quality: 'recovering' });
     if (this.reconnectTimer || this.recoveryBusy || !this.connected) return;
     const context = this.context;
     // A short flap retains the established path before any ICE restart.
@@ -817,7 +818,7 @@ export class CallController {
     const action = recoveryAction(++this.reconnectAttempts, this.relayConfigured);
     if (action === 'end-call') {
       this.stages?.fail('ice-checking', this.pc.getConfiguration().iceTransportPolicy === 'relay' ? 'RELAY_FAILED' : 'NO_USABLE_PATH');
-      await this.finish('无法建立媒体线路，请稍后重试', 'NO_USABLE_PATH', true);
+      await this.finish(uiLiteral('无法建立媒体线路，请稍后重试'), 'NO_USABLE_PATH', true);
       return;
     }
     this.recoveryBusy = true;
@@ -850,10 +851,10 @@ export class CallController {
     const config = await this.operation('config', signal => this.options.getIceConfig(signal));
     if (!this.valid(context) || pc !== this.pc) return false;
     if (!this.applyVerifiedPeerIds(config)) {
-      void this.finish('对方身份验证已失效，请重新发起通话', 'unverified', false);
+      void this.finish(uiLiteral('对方身份验证已失效，请重新发起通话'), 'unverified', false);
       return false;
     }
-    if (config.expiresAt !== undefined && config.expiresAt <= Date.now()) throw new NetworkOperationError('TURN_EXPIRED', '中继凭据已过期');
+    if (config.expiresAt !== undefined && config.expiresAt <= Date.now()) throw new NetworkOperationError('TURN_EXPIRED', uiLiteral('中继凭据已过期'));
     this.configuration = config;
     this.relayConfigured = config.relayConfigured;
     const relayOnly = pc.getConfiguration().iceTransportPolicy === 'relay' || config.iceTransportPolicy === 'relay';
@@ -869,7 +870,7 @@ export class CallController {
       if (refresh || (this.configuration?.expiresAt !== undefined && this.configuration.expiresAt <= Date.now() + 30_000)) {
         if (!(await this.refreshPeerConfiguration(pc, context))) return false;
       }
-      if (this.configuration?.expiresAt !== undefined && this.configuration.expiresAt <= Date.now()) throw new NetworkOperationError('TURN_EXPIRED', '中继凭据已过期');
+      if (this.configuration?.expiresAt !== undefined && this.configuration.expiresAt <= Date.now()) throw new NetworkOperationError('TURN_EXPIRED', uiLiteral('中继凭据已过期'));
       if (relay) pc.setConfiguration({ ...pc.getConfiguration(), iceTransportPolicy: 'relay' });
       if (pc.signalingState === 'have-local-offer') await this.operation('sdp', () => pc.setLocalDescription({ type: 'rollback' }));
       if (pc.signalingState !== 'stable') return false;
@@ -992,11 +993,11 @@ export class CallController {
     if (track && (pause || this.videoPausedByNetwork)) {
       track.enabled = !pause;
       this.videoPausedByNetwork = pause;
-      this.emit({ cameraEnabled: !pause, cameraPaused: pause, statusText: pause ? '网络较弱，已暂停视频并保留语音' : '网络正在恢复，已恢复低画质视频' });
+      this.emit({ cameraEnabled: !pause, cameraPaused: pause, statusText: pause ? uiLiteral('网络较弱，已暂停视频并保留语音') : uiLiteral('网络正在恢复，已恢复低画质视频') });
       await this.sendMediaState(context);
       if (!this.valid(context)) return;
     }
-    if (this.qualityLevel === 0 && this.current.phase === 'connected') this.emit({ statusText: this.connected ? '' : '信令连接中断，正在重连…' });
+    if (this.qualityLevel === 0 && this.current.phase === 'connected') this.emit({ statusText: this.connected ? '' : uiLiteral('信令连接中断，正在重连…') });
     try {
       const parameters = sender.getParameters();
       if (!parameters.encodings?.length) parameters.encodings = [{}];
@@ -1023,7 +1024,7 @@ export class CallController {
     this.generation += 1;
     if (invalidateReceives) this.receiveEpoch += 1;
     // Transport state belongs to RoomSocket; teardown only cancels this call's work.
-    this.lifetime.abort(new DOMException('通话已结束', 'AbortError'));
+    this.lifetime.abort(new DOMException(uiLiteral('通话已结束'), 'AbortError'));
     this.stages?.clear();
     this.stages = null;
     if (this.current.callId) this.options.cancelSignals?.(this.current.callId);
@@ -1064,7 +1065,7 @@ export class CallController {
   destroy() {
     if (this.disposed) return;
     // finish synchronously stops tracks and closes the connection before its first await.
-    void this.finish('通话已结束', 'locked', true);
+    void this.finish(uiLiteral('通话已结束'), 'locked', true);
     this.disposed = true;
     this.replay.clear();
     this.terminalCalls.clear();

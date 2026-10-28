@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 /** Inspect container structure, never compressed pixel data or file extensions. */
 export async function detectImageAnimation(blob: Blob, signal?: AbortSignal): Promise<boolean> {
   let start = -1;
@@ -85,14 +86,14 @@ export async function prepareImageMotion(image: HTMLImageElement, blob: Blob, si
   canvas.width = Math.max(1, Math.round(width * ratio));
   canvas.height = Math.max(1, Math.round(height * ratio));
   const context = canvas.getContext('2d');
-  if (!context) throw new Error('无法准备静态画面');
+  if (!context) throw new Error(uiLiteral('无法准备静态画面'));
   let still: Blob | null;
   try {
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
     still = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
   } finally { canvas.width = canvas.height = 0; }
   signal.throwIfAborted();
-  if (!still) throw new Error('无法准备静态画面');
+  if (!still) throw new Error(uiLiteral('无法准备静态画面'));
   const stillUrl = URL.createObjectURL(still);
   let destroyed = false;
   let playing = true;

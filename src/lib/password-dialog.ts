@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate, t } from './language';
 import {uiNotice} from './ui-notice';
 import { layoutViewport } from './form-input';
 import { mountDialog } from './dialog';
@@ -24,32 +25,32 @@ export function requestPassword<T>(root: HTMLElement, options: PasswordRequestOp
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, ...(options.signal ? [options.signal] : [])]);
     const fullPage = options.create || options.presentation === 'page';
-    const submitLabel = options.submitLabel ?? (options.create ? '设置密码并继续' : options.operation === '查看我的恢复码' ? '验证并查看恢复码' : options.operation === '导出聊天备份' ? '验证并下载备份' : options.operation === '导入聊天备份' ? '验证并恢复记录' : '验证并继续');
+    const submitLabel = options.submitLabel ?? (options.create ? uiLiteral('设置密码并继续') : options.operation === uiLiteral('查看我的恢复码') ? uiLiteral('验证并查看恢复码') : options.operation === uiLiteral('导出聊天备份') ? uiLiteral('验证并下载备份') : options.operation === uiLiteral('导入聊天备份') ? uiLiteral('验证并恢复记录') : uiLiteral('验证并继续'));
     const sheet = document.createElement('section'); sheet.className = `confirm-overlay password-sheet ${fullPage ? `password-page ${options.create ? 'password-create' : 'password-return'}` : 'password-operation-sheet'}`;
     sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-labelledby', 'password-title');
-    sheet.innerHTML = `<form class="confirm-dialog password-form" novalidate>
-      ${fullPage && !options.create ? '<button class="icon-button password-page-back" type="button" data-password-cancel aria-label="返回"></button>' : ''}
+    sheet.innerHTML = uiTemplate`<form class="confirm-dialog password-form" novalidate>
+      ${fullPage && !options.create ? uiLiteral('<button class="icon-button password-page-back" type="button" data-password-cancel aria-label="返回"></button>') : ''}
       ${fullPage ? '<div class="password-page-content"><div class="password-mark" aria-hidden="true"></div>' : '<div class="sheet-handle" aria-hidden="true"></div><div class="password-page-content">'}
       <h2 id="password-title"></h2>${!options.create && fullPage ? '<strong class="password-space-name" data-password-space></strong>' : ''}
       <p data-password-context class="${options.create ? 'password-reason' : 'password-description'}"></p>
-      ${options.create ? '<p class="password-description">以后打开此密室时输入这个密码。它不是手机锁屏密码。</p>' : ''}
-      ${!fullPage && options.spaceName ? '<div class="password-operation"><small>本次操作的密室</small><strong data-password-space></strong><span data-password-operation></span></div>' : ''}
+      ${options.create ? uiLiteral('<p class="password-description">以后打开此密室时输入这个密码。它不是手机锁屏密码。</p>') : ''}
+      ${!fullPage && options.spaceName ? uiLiteral('<div class="password-operation"><small>本次操作的密室</small><strong data-password-space></strong><span data-password-operation></span></div>') : ''}
       <div class="password-fields">
         <label>密室密码<input name="password" type="password" autocomplete="${options.create ? 'new-password' : 'current-password'}" autocapitalize="none" spellcheck="false" aria-describedby="password-error password-help" required></label>
-        ${options.create ? '<label>再次输入<input name="confirmation" type="password" autocomplete="new-password" autocapitalize="none" spellcheck="false" aria-describedby="password-error" required></label>' : ''}
+        ${options.create ? uiLiteral('<label>再次输入<input name="confirmation" type="password" autocomplete="new-password" autocapitalize="none" spellcheck="false" aria-describedby="password-error" required></label>') : ''}
         <p class="form-error" id="password-error" role="alert"></p>
         <label class="password-show"><input type="checkbox" name="show">显示密码</label>
-        ${options.create ? '<p class="field-hint" id="password-help">使用 12–128 个字符。可使用密码管理器生成、填写或保存。</p><p class="field-hint">忘记密码时，需要双方参与找回。</p>' : '<span id="password-help" class="sr-only">输入此密室已有的密码</span>'}
+        ${options.create ? uiLiteral('<p class="field-hint" id="password-help">使用 12–128 个字符。可使用密码管理器生成、填写或保存。</p><p class="field-hint">忘记密码时，需要双方参与找回。</p>') : uiLiteral('<span id="password-help" class="sr-only">输入此密室已有的密码</span>')}
       </div></div>
       <div class="password-actions"><button class="primary-button" type="submit"></button>
-        ${options.help ? '<button class="text-button" type="button" data-password-help>忘记密码？</button>' : options.forgot ? '<button class="text-button" type="button" data-password-forgot>忘记密码？使用恢复码找回</button><p class="field-hint">需要双方参与，旧记录另行恢复。</p>' : ''}
-        ${fullPage && !options.create ? '' : `<button class="text-button" type="button" data-password-cancel>${fullPage ? '返回' : '取消操作'}</button>`}
+        ${options.help ? uiLiteral('<button class="text-button" type="button" data-password-help>忘记密码？</button>') : options.forgot ? uiLiteral('<button class="text-button" type="button" data-password-forgot>忘记密码？使用恢复码找回</button><p class="field-hint">需要双方参与，旧记录另行恢复。</p>') : ''}
+        ${fullPage && !options.create ? '' : `<button class="text-button" type="button" data-password-cancel>${fullPage ? uiLiteral('返回') : uiLiteral('取消操作')}</button>`}
       </div></form>`;
     sheet.querySelector('h2')!.textContent = options.title;
     sheet.querySelector('[data-password-context]')!.textContent = options.context;
     sheet.querySelector('[type=submit]')!.textContent = submitLabel;
-    sheet.querySelector('[data-password-space]')?.append(document.createTextNode(options.spaceName ?? '密室'));
-    sheet.querySelector('[data-password-operation]')?.append(document.createTextNode(options.operation ?? '继续此操作'));
+    sheet.querySelector('[data-password-space]')?.append(document.createTextNode(options.spaceName ?? uiLiteral('密室')));
+    sheet.querySelector('[data-password-operation]')?.append(document.createTextNode(options.operation ?? uiLiteral('继续此操作')));
     const mark = sheet.querySelector('.password-mark'); if (mark) mark.append(createElement(LockKeyhole));
     sheet.querySelector('.password-page-back')?.append(createElement(ArrowLeft));
     root.append(sheet);
@@ -65,7 +66,7 @@ export function requestPassword<T>(root: HTMLElement, options: PasswordRequestOp
     const error = form.querySelector<HTMLElement>('.form-error')!, button = form.querySelector<HTMLButtonElement>('[type=submit]')!;
     let settled = false, busy = false;
     const active = () => !signal.aborted && sheet.isConnected && options.isActive() && !document.hidden;
-    const cancel = () => { if (!settled) { settled = true; reject(new DOMException('验证已取消', 'AbortError')); } controller.abort(); };
+    const cancel = () => { if (!settled) { settled = true; reject(new DOMException(uiLiteral('验证已取消'), 'AbortError')); } controller.abort(); };
     const dialog = mountDialog(sheet, { signal, initialFocus: password, isActive: active, onClose: cancel, presentation: fullPage ? undefined : 'sheet' });
     signal.addEventListener('abort', () => { password.value = ''; if (confirmation) confirmation.value = ''; cancel(); }, { once: true });
     document.addEventListener('visibilitychange', () => { if (document.hidden) cancel(); }, { signal });
@@ -79,17 +80,17 @@ export function requestPassword<T>(root: HTMLElement, options: PasswordRequestOp
     form.addEventListener('submit', async event => {
       event.preventDefault(); if (busy || !active()) return;
       let secret = password.value;
-      const validation = options.create ? passwordValidation(secret, confirmation?.value) : secret ? '' : '请输入此密室已有的密码';
+      const validation = options.create ? passwordValidation(secret, confirmation?.value) : secret ? '' : uiLiteral('请输入此密室已有的密码');
       if (validation) {uiNotice(root,validation); const invalid = options.create && Array.from(secret).length >= 12 && Array.from(secret).length <= 128 ? confirmation ?? password : password; invalid.setAttribute('aria-invalid', 'true'); invalid.focus(); return; }
       password.removeAttribute('aria-invalid'); confirmation?.removeAttribute('aria-invalid');
-      busy = true; button.disabled = true; button.textContent = options.create ? '正在设置本机保护…' : '正在验证…'; form.setAttribute('aria-busy', 'true');
+      busy = true; button.disabled = true; button.textContent = options.create ? uiLiteral('正在设置本机保护…') : uiLiteral('正在验证…'); form.setAttribute('aria-busy', 'true');
       password.value = ''; if (confirmation) confirmation.value = '';
       try {
         const proof = await options.verify(secret); secret = '';
         if (!active()) { cancel(); return; }
         settled = true; resolve(proof); dialog.close(); controller.abort();
       } catch (cause) {
-        if (active()) { uiNotice(root,cause instanceof Error ? cause.message : '验证失败，请重试'); password.setAttribute('aria-invalid', 'true'); password.focus(); }
+        if (active()) { uiNotice(root,cause instanceof Error ? t(cause.message) : uiLiteral('验证失败，请重试')); password.setAttribute('aria-invalid', 'true'); password.focus(); }
         else cancel();
       } finally { secret = ''; busy = false; if (active()) { button.disabled = false; button.textContent = submitLabel; form.removeAttribute('aria-busy'); } }
     });

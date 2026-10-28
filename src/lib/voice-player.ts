@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate } from './language';
 import { motion, retargetMotion } from './motion';
 import { releaseSystemMediaSession } from './system-media-session';
 import { VoiceNetworkError, VOICE_FAILURE_TEXT } from './voice-network';
@@ -38,8 +39,8 @@ export class VoicePlayer {
     this.element.className = 'voice-player';
     this.element.style.setProperty('--voice-message-width', `${voiceMessageWidth(payload.durationMs)}px`);
     this.element.setAttribute('role', 'group');
-    this.element.setAttribute('aria-label', `语音消息，${voiceTime(payload.durationMs)}`);
-    this.element.innerHTML = `
+    this.element.setAttribute('aria-label', uiTemplate`语音消息，${voiceTime(payload.durationMs)}`);
+    this.element.innerHTML = uiTemplate`
       <button class="voice-control voice-play" type="button" aria-label="播放语音">
         <span class="voice-sound">${voiceIcons.sound}</span>
         <time class="voice-time" aria-label="${voiceMessageSeconds(payload.durationMs)}秒">${voiceMessageSeconds(payload.durationMs)}″</time>
@@ -86,7 +87,7 @@ export class VoicePlayer {
       if (request.signal.aborted) return;
       this.release();
       this.error = cause instanceof Error && cause.name === 'NotAllowedError'
-        ? '请再次点击播放语音' : cause instanceof VoiceNetworkError ? cause.message : VOICE_FAILURE_TEXT.VOICE_DECODE_FAILED;
+        ? uiLiteral('请再次点击播放语音') : cause instanceof VoiceNetworkError ? cause.message : VOICE_FAILURE_TEXT.VOICE_DECODE_FAILED;
       this.element.dataset.errorCode = cause instanceof VoiceNetworkError ? cause.code : cause instanceof Error && cause.name === 'NotAllowedError' ? 'PLAYBACK_GESTURE_REQUIRED' : 'VOICE_DECODE_FAILED';
     } finally {
       if (!request.signal.aborted) this.loading = false;
@@ -105,8 +106,8 @@ export class VoicePlayer {
     }
     this.element.dataset.playing = String(this.playing);
     this.element.setAttribute('aria-busy', String(this.loading));
-    this.button.setAttribute('aria-label', this.loading ? '取消加载语音' : this.error ? '重试播放语音' : this.audio.paused ? '播放语音' : '暂停语音');
-    this.button.setAttribute('aria-description', `已播放${voiceTime(this.positionMs)}，共${voiceTime(this.payload.durationMs)}`);
+    this.button.setAttribute('aria-label', this.loading ? uiLiteral('取消加载语音') : this.error ? uiLiteral('重试播放语音') : this.audio.paused ? uiLiteral('播放语音') : uiLiteral('暂停语音'));
+    this.button.setAttribute('aria-description', uiTemplate`已播放${voiceTime(this.positionMs)}，共${voiceTime(this.payload.durationMs)}`);
     const status = this.error;
     if (this.status.textContent !== status) this.status.textContent = status;
   }

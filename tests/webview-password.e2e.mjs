@@ -21,7 +21,7 @@ try {
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   for (const [name, fallback] of cases) {
     console.log(`WEBVIEW_CASE ${name}`);
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, userAgent: name.startsWith('unknown-') ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Version/27.0 Mobile/15E148 Safari/604.1' : 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0.65' });
+    const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, hasTouch: true, userAgent: name.startsWith('unknown-') ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Version/27.0 Mobile/15E148 Safari/604.1' : 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0.65' });
     await context.addInitScript(name => {
       if (['missing-constructor', 'insecure-context', 'missing-crypto', 'missing-storage', 'storage-quota'].includes(name)) delete window.PublicKeyCredential;
       if (name === 'missing-container') Object.defineProperty(navigator, 'credentials', { configurable: true, value: undefined });

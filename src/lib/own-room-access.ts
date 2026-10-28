@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { authorizedFetch } from './api';
 import { canonicalStringify } from './canonical';
 import { openJson, sealJson } from './backup-crypto';
@@ -26,19 +27,19 @@ export function validOwnRoomAccess(value:unknown):value is OwnRoomAccess {
 export async function ownRoomAccessMessages(session:VaultSession):Promise<OwnRoomAccess[]> {
   const sealed=await readLocalSpaceDirectory(keyId(session));if(!sealed)return [];
   const data=await openJson(sealed as Parameters<typeof openJson>[0],await spaceCapability(session.vault.spaceRecoveryCode!,'encryption'),keyId(session));
-  if(!Array.isArray(data)||data.length>64||!data.every(validOwnRoomAccess))throw new Error('设备授权记录校验失败');
+  if(!Array.isArray(data)||data.length>64||!data.every(validOwnRoomAccess))throw new Error(uiLiteral('设备授权记录校验失败'));
   return data.filter(m=>Date.parse(m.expiresAt)>Date.now());
 }
 export async function saveOwnRoomAccess(session:VaultSession,message:OwnRoomAccess,signal:AbortSignal):Promise<void> {
-  if(!validOwnRoomAccess(message))throw new Error('设备授权内容不正确');
+  if(!validOwnRoomAccess(message))throw new Error(uiLiteral('设备授权内容不正确'));
   await withVaultMutation(session,async mutation=>{
     signal.throwIfAborted();const messages=await ownRoomAccessMessages(session),previous=messages.find(m=>m.id===message.id);
     if(previous&&canonicalStringify(previous)===canonicalStringify(message))return;
     if(previous){
       const {status:_s,invite:_i,...a}=previous,{status:_t,invite:_j,...b}=message;
-      if(canonicalStringify(a)!==canonicalStringify(b)||previous.status!=='requested'&&canonicalStringify(previous)!==canonicalStringify(message))throw new Error('设备授权状态冲突');
+      if(canonicalStringify(a)!==canonicalStringify(b)||previous.status!=='requested'&&canonicalStringify(previous)!==canonicalStringify(message))throw new Error(uiLiteral('设备授权状态冲突'));
     }
-    const next=[...messages.filter(m=>m.id!==message.id),message];if(next.length>64)throw new Error('设备申请过多，请稍后重试');
+    const next=[...messages.filter(m=>m.id!==message.id),message];if(next.length>64)throw new Error(uiLiteral('设备申请过多，请稍后重试'));
     const sealed=await sealJson(next,await spaceCapability(session.vault.spaceRecoveryCode!,'encryption'),keyId(session));
     signal.throwIfAborted();await writeLocalSpaceDirectory(session,keyId(session),sealed,mutation);
   });
@@ -64,17 +65,17 @@ export async function syncOwnRoomAccess(session:VaultSession,signal:AbortSignal)
   const peers=session.vault.members.filter(m=>m.role===session.vault.role&&m.status==='active'&&m.deviceId!==own);if(!peers.length)return;
   const url=`/api/rooms/${session.vault.roomId}/own-admission`,options={signal:AbortSignal.any([signal,AbortSignal.timeout(15000)]),cache:'no-store' as const};
   const data=await(await authorizedFetch(url,session.vault.accessToken,options)).json() as {incoming:OwnEnvelope[];outgoing:{recipientId:string;revision:number}[]};
-  if(!Array.isArray(data.incoming)||data.incoming.length>2||!Array.isArray(data.outgoing)||data.outgoing.length>2)throw new Error('授权来源不正确');
+  if(!Array.isArray(data.incoming)||data.incoming.length>2||!Array.isArray(data.outgoing)||data.outgoing.length>2)throw new Error(uiLiteral('授权来源不正确'));
   for(const envelope of data.incoming){
     const messages=await openOwnEnvelope(session.vault,envelope,purpose);
-    if(!Array.isArray(messages)||messages.length>64)throw new Error('授权内容不正确');
+    if(!Array.isArray(messages)||messages.length>64)throw new Error(uiLiteral('授权内容不正确'));
     for(const message of messages){
       if(!validOwnRoomAccess(message)||message.carrierRoomId!==session.vault.roomId||
-        (message.status==='requested'?(message.requesterId!==envelope.senderId||message.authorizerId!==own):(message.authorizerId!==envelope.senderId||message.requesterId!==own)))throw new Error('授权设备不匹配');
+        (message.status==='requested'?(message.requesterId!==envelope.senderId||message.authorizerId!==own):(message.authorizerId!==envelope.senderId||message.requesterId!==own)))throw new Error(uiLiteral('授权设备不匹配'));
       if(Date.parse(message.expiresAt)<=Date.now())continue;
       const previous=(await ownRoomAccessMessages(session)).find(m=>m.id===message.id);
       // An authorization can answer only a request already persisted by this device.
-      if(message.status!=='requested'&&!previous)throw new Error('没有对应的设备申请');
+      if(message.status!=='requested'&&!previous)throw new Error(uiLiteral('没有对应的设备申请'));
       if(previous&&previous.status!=='requested'&&message.status==='requested')continue;
       await saveOwnRoomAccess(session,message,signal);
     }

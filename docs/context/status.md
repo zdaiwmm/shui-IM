@@ -1,5 +1,10 @@
 # Quiet Room 当前状态
 
+## 语言与反馈 V1.1：实施与验收中（2026-10-28）
+
+用户确认 V1.1 静态原型并明确授权实施、测试与合并，要求移除新增页解释性提示。独占树 `language-feedback-prototype-20261028` 基于实时 main `be615e3`；11 种用户端语言、设备匹配／English 兜底、必填邮箱反馈以及后台读取／标记已读已实现。[需求记录](../requirements/2026-10-28-language-feedback/README.md)拥有确认、边界及最终验收证据。当前仅开发阶段定向验证通过，完整门禁与 CI 尚待完成；无生产发布授权，不替换下方生产事实。
+
+
 ## 部署效率 V1 已发布（2026-10-27 20:19）
 
 [第一批PR #439](https://github.com/zdaiwmm/shui-IM/pull/439)合并为`da6f7d6`，补按耗时分片与精确本地验证复用；[第二批PR #440](https://github.com/zdaiwmm/shui-IM/pull/440)合并为候选`69b437c2f016aecde5063fff1be7070ebf1ac0cf`，补10秒启动期探针及最长6分钟的独立回读观察。原健康判定、宽限期、备份／回滚边界、全部浏览器及精确CI门槛保留。

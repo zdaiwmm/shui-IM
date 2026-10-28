@@ -24,8 +24,8 @@ try {
   await vite.listen();
   browser = await chromium.launch(process.env.CHROME_PATH ? {executablePath:process.env.CHROME_PATH} : process.env.CI ? {} : {channel:'chrome'});
   const origin = `http://127.0.0.1:${vite.httpServer.address().port}`;
-  const contextA = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
-  const contextB = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+  const contextA = await browser.newContext({ locale: 'zh-CN', permissions: ['clipboard-read', 'clipboard-write'] });
+  const contextB = await browser.newContext({ locale: 'zh-CN', permissions: ['clipboard-read', 'clipboard-write'] });
   const a = await contextA.newPage(), b = await contextB.newPage();
   const errors = [];
   for (const page of [a, b]) page.on('pageerror', e => errors.push(e.message));

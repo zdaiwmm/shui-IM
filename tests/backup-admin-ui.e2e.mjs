@@ -42,7 +42,7 @@ try {
     } }] });
   await vite.listen();
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 390, height: 844 } });
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('WebAuthn.enable');
   await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal', hasResidentKey: true,
@@ -186,7 +186,7 @@ try {
     return innerHeight - box.bottom >= 20 && innerHeight - box.bottom <= 32 && error.bottom <= box.top - 8;
   }), true, 'unlock button stays at the bottom and the neutral retry state cannot overlap it');
   await snapshot(page, 'unlock-minimal-cancel-mobile', false);
-  const admin = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const admin = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1280, height: 900 } });
   const errors = []; admin.on('pageerror', error => errors.push(error.message));
   await admin.goto(`http://localhost:${port}`);
   await admin.getByRole('heading', { name: '登录管理工作区' }).waitFor();

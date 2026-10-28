@@ -400,7 +400,7 @@ export async function startServer(options = {}) {
   const memes = createExpressionCatalog({ dataDir });
   const admin = await createAdminConsole({ config: options.adminConfig, configFile: options.adminConfigFile ?? process.env.ADMIN_CONFIG_FILE,
     origin: adminOrigin, data: store.cloudBackups, expressions: memes, json, readJson, clientAddress,
-    readModel: store.adminData,
+    readModel: store.adminData, feedback: store.feedback,
     diagnostics: async () => {
       let calls={configured:false,relayConfigured:false,valid:false};
       try {const value=callIceConfiguration(options);calls={configured:true,relayConfigured:value.relayConfigured,valid:true};}catch { /* Never expose config values or credentials. */ }
@@ -432,6 +432,26 @@ export async function startServer(options = {}) {
       const scopedRoom = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})(?:/|$)`));
       if (scopedRoom && store.chamberLifecycle.closed(scopedRoom[1]) && !pathname.endsWith('/chamber-lifecycle')) throw new Error('ROOM_CLOSED');
       if (await admin(request, response, pathname)) return;
+
+      if (pathname === '/api/feedback') {
+        if (request.method !== 'POST') { json(request,response,405,{code:'METHOD_NOT_ALLOWED'}); return; }
+        let sameOrigin = false;
+        try { const origin = new URL(request.headers.origin); sameOrigin = ['https:','http:'].includes(origin.protocol) && origin.host === request.headers.host; } catch { /* Fail closed. */ }
+        if (!sameOrigin || request.headers['sec-fetch-site'] === 'cross-site' || !/^application\/json(?:;|$)/i.test(request.headers['content-type'] ?? '')) { json(request,response,403,{code:'INVALID_ORIGIN'}); return; }
+        const rate = rateLimits.take(JSON.stringify(['feedback',clientAddress(request)]),5,10*60_000);
+        if (!rate.allowed) { response.setHeader('Retry-After',String(rate.retryAfter)); json(request,response,429,{code:'RATE_LIMITED'}); return; }
+        try {
+          const body = JSON.parse((await readBody(request,32*1024)).toString('utf8'));
+          store.feedback.submit(body);
+          json(request,response,200,{accepted:true});
+        } catch (error) {
+          const code = error.message;
+          const invalid = error instanceof SyntaxError || ['INVALID_FEEDBACK','INVALID_FEEDBACK_EMAIL','INVALID_FEEDBACK_MESSAGE'].includes(code);
+          const status = code === 'FEEDBACK_CAPACITY' ? 503 : code === 'FEEDBACK_CONFLICT' ? 409 : code === 'BODY_TOO_LARGE' ? 413 : invalid ? 400 : 500;
+          json(request,response,status,{code: ['FEEDBACK_CAPACITY','FEEDBACK_CONFLICT','INVALID_FEEDBACK_EMAIL','INVALID_FEEDBACK_MESSAGE','BODY_TOO_LARGE'].includes(code) ? code : invalid ? 'INVALID_FEEDBACK' : 'FEEDBACK_UNAVAILABLE'});
+        }
+        return;
+      }
 
       const memeMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/memes/(search|media|pack)$`));
       if (request.method === 'POST' && memeMatch) {

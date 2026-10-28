@@ -20,7 +20,7 @@ try {
   browser = process.env.QUIET_ROOM_TEST_BROWSER === 'webkit' ? await webkit.launch() : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   const evidence = process.env.MOTION_EVIDENCE_DIR;
   if (evidence) await mkdir(evidence, { recursive: true });
-  const page = await browser.newPage({ ...(evidence ? { recordVideo: { dir: evidence, size: { width: 393, height: 695 } } } : {}), viewport: { width: 393, height: 695 }, isMobile: true, hasTouch: true,
+  const page = await browser.newPage({ locale: 'zh-CN', ...(evidence ? { recordVideo: { dir: evidence, size: { width: 393, height: 695 } } } : {}), viewport: { width: 393, height: 695 }, isMobile: true, hasTouch: true,
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1' });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));

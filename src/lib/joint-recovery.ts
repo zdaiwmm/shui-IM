@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { randomBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
 import { generateIdentity } from './crypto';
@@ -29,7 +30,7 @@ export type PendingJointRecovery = {
 };
 const roles: Role[] = ['creator', 'joiner'];
 const same = (a: unknown, b: unknown) => canonicalStringify(a) === canonicalStringify(b);
-const invalid = () => new Error('恢复身份或双方确认内容不一致，已停止恢复');
+const invalid = () => new Error(uiLiteral('恢复身份或双方确认内容不一致，已停止恢复'));
 export function jointRecoveryUrl(link: JointLink): string {
   const url = new URL(location.pathname, location.origin); url.hash = `recover=${encodeURIComponent(JSON.stringify(link))}`; return url.href;
 }
@@ -58,7 +59,7 @@ export async function jointRequest(link: JointLink, signal: AbortSignal, action?
   });
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.code === 'RECOVERY_EXPIRED' ? '恢复邀请已过期，请重新发起' : error.code === 'MLS_EVENT_STALE' ? '设备列表已变化，请重新发起恢复' : error.error ?? '恢复连接暂时不可用，请重试');
+    throw new Error(error.code === 'RECOVERY_EXPIRED' ? uiLiteral('恢复邀请已过期，请重新发起') : error.code === 'MLS_EVENT_STALE' ? uiLiteral('设备列表已变化，请重新发起恢复') : error.error ?? uiLiteral('恢复连接暂时不可用，请重试'));
   }
   return response.json();
 }
@@ -104,11 +105,11 @@ export async function prepareJointRecovery(code: string, requestedScope: 'me' | 
         offer.recover !== offer.scope[peer] || !await verifyEcdsa(signer.signingKey, signature, unsigned)) throw invalid();
     scope[peer] = offer.recover; scope[source.role] = resolvedScope !== 'peer';
   }
-  if (!scope.creator && !scope.joiner) throw new Error('双方密室均可正常使用，无需重建。请返回原密室继续聊天');
-  if (!scope[source.role] && !helper) throw new Error('协助恢复需要先解锁自己的现有密室');
+  if (!scope.creator && !scope.joiner) throw new Error(uiLiteral('双方密室均可正常使用，无需重建。请返回原密室继续聊天'));
+  if (!scope[source.role] && !helper) throw new Error(uiLiteral('协助恢复需要先解锁自己的现有密室'));
   const preserveHistory = Boolean(helper && !scope[source.role]);
-  if (preserveHistory && (helper!.vault.mls?.lastEventSeq ?? 0) !== (state.nextMlsEventSeq ?? 0)) throw new Error('设备变更尚未同步，请回到密室完成同步后重试');
-  if (preserveHistory && ((await loadOutbox(helper!)).length || (await loadUploadPlans(helper!)).length)) throw new Error('请先完成或取消待发送内容，再协助恢复');
+  if (preserveHistory && (helper!.vault.mls?.lastEventSeq ?? 0) !== (state.nextMlsEventSeq ?? 0)) throw new Error(uiLiteral('设备变更尚未同步，请回到密室完成同步后重试'));
+  if (preserveHistory && ((await loadOutbox(helper!)).length || (await loadUploadPlans(helper!)).length)) throw new Error(uiLiteral('请先完成或取消待发送内容，再协助恢复'));
   const identity = await generateIdentity(), accessToken = randomBase64Url(32);
   const actualLink = link ?? { roomId: source.roomId, requestId: crypto.randomUUID(), capability: randomBase64Url(32) };
   const unsigned: Omit<JointOffer, 'signature'> = { v: 1, roomId: source.roomId, requestId: actualLink.requestId,
@@ -130,7 +131,7 @@ export async function prepareJointRecovery(code: string, requestedScope: 'me' | 
     session = helper!;
     await withVaultMutation(session, async mutation => { signal.throwIfAborted(); session.vault.pendingJointRecovery = pending; session.vault.recoveryExperience = recoveryExperience; await saveVault(session, mutation); });
   } else {
-    if (!credential) throw new Error('请先为本机创建通行密钥');
+    if (!credential) throw new Error(uiLiteral('请先为本机创建通行密钥'));
     const vault = { ...source, spaceRecoveryCode: retainedCollection, recoveryExperience, identity, accessToken, pendingJointRecovery: pending, pairingState: 'ready' as const,
       mls: { protocol: 'mls-rfc9420' as const, phase: 'awaiting-welcome' as const }, lastSeq: 0, lastReceiptSeq: 0 };
     delete vault.backup; delete vault.pendingRecovery; delete vault.recoverySource;
@@ -218,9 +219,9 @@ export async function completeJointRecovery(session: VaultSession, snapshot: Joi
       const response = await fetch(`/api/rooms/${pending.link.roomId}/joint-recovery/${pending.link.requestId}/catch-up?after=${session.vault.lastSeq}`, {
         headers: { Authorization: `Bearer ${pending.accessToken}` }, signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]),
       });
-      if (!response.ok) throw new Error('协助期间的消息尚未同步，请重试完成恢复');
+      if (!response.ok) throw new Error(uiLiteral('协助期间的消息尚未同步，请重试完成恢复'));
       const { messages } = await response.json() as { messages: ServerMessage[] };
-      if (!Array.isArray(messages) || !messages.length || messages.length > 100) throw new Error('协助期间的消息不完整，已保留本机恢复状态');
+      if (!Array.isArray(messages) || !messages.length || messages.length > 100) throw new Error(uiLiteral('协助期间的消息不完整，已保留本机恢复状态'));
       for (const message of messages) await withVaultMutation(session, async mutation => {
         signal.throwIfAborted();
         if (message.seq !== session.vault.lastSeq + 1 || message.seq > snapshot.result!.nextSeq || message.envelope.v !== 2) throw invalid();

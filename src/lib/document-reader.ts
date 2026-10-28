@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate } from './language';
 import { motion, retargetMotion } from './motion';
 import { mountDialog } from './dialog';
 import { createElement, X, Search, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Plus, Minus, RotateCcw, Maximize, ArrowDownUp, ArrowLeftRight, Send, List, Settings2 } from 'lucide';
@@ -85,19 +86,19 @@ export class DocumentReader {
     el.className = 'document-reader';
     el.setAttribute('role', 'dialog');
     el.setAttribute('aria-modal', 'true');
-    el.setAttribute('aria-label', '文件阅读器');
-    el.innerHTML = `<header class="reader-header"><div class="reader-title"><strong></strong><span></span></div></header>
+    el.setAttribute('aria-label', uiLiteral('文件阅读器'));
+    el.innerHTML = uiLiteral(`<header class="reader-header"><div class="reader-title"><strong></strong><span></span></div></header>
       <form class="reader-search" hidden><input type="search" aria-label="搜索文档" placeholder="搜索文档" maxlength="120"><output aria-live="polite"></output></form>
       <div class="reader-stage" tabindex="0" aria-label="文档内容"><div class="reader-content"></div></div>
       <p class="reader-status" role="status">正在读取</p>
-      <footer class="reader-toolbar" hidden><div class="reader-paging"><input type="number" min="1" value="1" aria-label="页码"><span></span></div><div class="reader-zoom"><output>100%</output></div></footer>`;
+      <footer class="reader-toolbar" hidden><div class="reader-paging"><input type="number" min="1" value="1" aria-label="页码"><span></span></div><div class="reader-zoom"><output>100%</output></div></footer>`);
     el.querySelector('strong')!.textContent = filename;
-    el.querySelector('.reader-title > span')!.textContent = mimeType === 'application/pdf' ? 'PDF' : mimeType === 'application/epub+zip' ? 'EPUB' : '文本';
+    el.querySelector('.reader-title > span')!.textContent = mimeType === 'application/pdf' ? 'PDF' : mimeType === 'application/epub+zip' ? 'EPUB' : uiLiteral('文本');
     this.directory = document.createElement('div');
     this.directory.className = 'reader-directory'; this.directory.hidden = true;
     this.directory.id = 'reader-directory';
     this.directory.setAttribute('role', 'menu');
-    this.directory.setAttribute('aria-label', '章节目录');
+    this.directory.setAttribute('aria-label', uiLiteral('章节目录'));
     const button = (label: string, icon: typeof X, action: () => void) => {
       const node = document.createElement('button');
       node.type = 'button'; node.className = 'reader-control'; node.title = label; node.setAttribute('aria-label', label);
@@ -107,8 +108,8 @@ export class DocumentReader {
       node.addEventListener('click', action, { signal: this.signal });
       return node;
     };
-    const close = button('关闭阅读器', X, () => this.onClose());
-    const search = button('搜索', Search, () => {
+    const close = button(uiLiteral('关闭阅读器'), X, () => this.onClose());
+    const search = button(uiLiteral('搜索'), Search, () => {
       this.searchPresentation++;
       const previous = this.searchAnimation;
       this.searchForm.hidden = false;
@@ -131,7 +132,7 @@ export class DocumentReader {
     this.query = el.querySelector('.reader-search input')!;
     this.searchForm = el.querySelector('form')!;
     el.querySelector('header')!.append(this.searchForm);
-    this.searchForm.prepend(button('关闭搜索', X, () => {
+    this.searchForm.prepend(button(uiLiteral('关闭搜索'), X, () => {
       const presentation = ++this.searchPresentation;
       this.searchVersion++;
       const finish = () => {
@@ -144,20 +145,20 @@ export class DocumentReader {
       if (this.searchAnimation) void this.searchAnimation.finished.then(finish, () => {});
       else finish();
     }));
-    this.previous = button('上一页', ChevronLeft, () => this.step(-1));
-    this.next = button('下一页', ChevronRight, () => this.step(1));
+    this.previous = button(uiLiteral('上一页'), ChevronLeft, () => this.step(-1));
+    this.next = button(uiLiteral('下一页'), ChevronRight, () => this.step(1));
     el.querySelector('.reader-paging')!.prepend(this.previous);
     el.querySelector('.reader-paging')!.append(this.next);
     const pdfControls=mimeType==='application/pdf';
-    this.zoomOut = button(pdfControls?'缩小':'减小字号', pdfControls?ZoomOut:Minus, () => this.scale(-0.25));
-    this.zoomIn = button(pdfControls?'放大':'增大字号', pdfControls?ZoomIn:Plus, () => this.scale(0.25));
+    this.zoomOut = button(pdfControls?uiLiteral('缩小'):uiLiteral('减小字号'), pdfControls?ZoomOut:Minus, () => this.scale(-0.25));
+    this.zoomIn = button(pdfControls?uiLiteral('放大'):uiLiteral('增大字号'), pdfControls?ZoomIn:Plus, () => this.scale(0.25));
     this.zoomLabel = el.querySelector('.reader-zoom output')!;
     el.querySelector('.reader-zoom')!.prepend(this.zoomOut);
-    el.querySelector('.reader-zoom')!.append(this.zoomIn, button(pdfControls?'适合宽度':'默认字号', pdfControls?Maximize:RotateCcw, () => { this.zoom = 1; void this.render(); }));
-    this.searchForm.append(button('下一个搜索结果', Send, () => void this.find()));
+    el.querySelector('.reader-zoom')!.append(this.zoomIn, button(pdfControls?uiLiteral('适合宽度'):uiLiteral('默认字号'), pdfControls?Maximize:RotateCcw, () => { this.zoom = 1; void this.render(); }));
+    this.searchForm.append(button(uiLiteral('下一个搜索结果'), Send, () => void this.find()));
     const mode = document.createElement('div'); mode.className = 'reader-mode';
-    mode.setAttribute('role','group'); mode.setAttribute('aria-label','阅读方式');
-    for (const [value,label,glyph] of [['pages','左右翻页',ArrowLeftRight],['scroll','上下滚动',ArrowDownUp]] as const) {
+    mode.setAttribute('role','group'); mode.setAttribute('aria-label',uiLiteral('阅读方式'));
+    for (const [value,label,glyph] of [['pages',uiLiteral('左右翻页'),ArrowLeftRight],['scroll',uiLiteral('上下滚动'),ArrowDownUp]] as const) {
       const choice = button(label,glyph,()=>{
         if (this.mode === value) return;
         this.mode=value; el.dataset.mode=value;
@@ -167,7 +168,7 @@ export class DocumentReader {
       choice.dataset.mode=value; choice.setAttribute('aria-pressed',String(this.mode===value));
       choice.append(document.createTextNode(label)); mode.append(choice);
     }
-    this.directoryButton = button('章节目录', List, () => this.toggleDirectory());
+    this.directoryButton = button(uiLiteral('章节目录'), List, () => this.toggleDirectory());
     this.directoryButton.hidden = true;
     this.directoryButton.setAttribute('aria-expanded', 'false');
     this.directoryButton.setAttribute('aria-controls', this.directory.id);
@@ -178,15 +179,15 @@ export class DocumentReader {
       const heading = document.createElement('h3'); heading.textContent = label;
       group.append(heading,control); return group;
     };
-    this.pageControls=optionGroup('页码',el.querySelector('.reader-paging')!) as HTMLElement;
+    this.pageControls=optionGroup(uiLiteral('页码'),el.querySelector('.reader-paging')!) as HTMLElement;
     this.pageControls.hidden=true;
-    this.readerOptions.append(optionGroup(mimeType==='application/pdf'?'缩放':'字号',el.querySelector('.reader-zoom')!),optionGroup('阅读方式',mode));
+    this.readerOptions.append(optionGroup(mimeType==='application/pdf'?uiLiteral('缩放'):uiLiteral('字号'),el.querySelector('.reader-zoom')!),optionGroup(uiLiteral('阅读方式'),mode));
     this.pageIndicator = document.createElement('button'); this.pageIndicator.type = 'button';
-    this.pageIndicator.className = 'reader-page-entry'; this.pageIndicator.textContent = '第 1 页';
-    this.pageIndicator.setAttribute('aria-label','跳转页码'); this.pageIndicator.setAttribute('aria-haspopup','dialog');
-    const settings = button('阅读设置', Settings2, () => this.openOptions(settings));
-    settings.classList.add('reader-footer-link'); settings.append(document.createTextNode('阅读设置'));
-    this.directoryButton.classList.add('reader-footer-link'); this.directoryButton.append(document.createTextNode('目录'));
+    this.pageIndicator.className = 'reader-page-entry'; this.pageIndicator.textContent = uiLiteral('第 1 页');
+    this.pageIndicator.setAttribute('aria-label',uiLiteral('跳转页码')); this.pageIndicator.setAttribute('aria-haspopup','dialog');
+    const settings = button(uiLiteral('阅读设置'), Settings2, () => this.openOptions(settings));
+    settings.classList.add('reader-footer-link'); settings.append(document.createTextNode(uiLiteral('阅读设置')));
+    this.directoryButton.classList.add('reader-footer-link'); this.directoryButton.append(document.createTextNode(uiLiteral('目录')));
     this.pageIndicator.addEventListener('click',()=>this.openOptions(this.pageIndicator,true),{signal:this.signal});
     this.toolbar.replaceChildren(this.directoryButton,this.pageIndicator,settings);
     el.append(this.readerOptions,this.pageControls);
@@ -268,7 +269,7 @@ export class DocumentReader {
     }, { signal: this.signal, passive: true });
   }
 
-  progress(ratio: number): void { if (!this.signal.aborted) this.status.textContent = `正在读取 ${Math.round(ratio * 100)}%`; }
+  progress(ratio: number): void { if (!this.signal.aborted) this.status.textContent = uiTemplate`正在读取 ${Math.round(ratio * 100)}%`; }
 
   async load(blob: Blob): Promise<void> {
     if (this.signal.aborted) return;
@@ -277,9 +278,9 @@ export class DocumentReader {
       const isPdf = this.mimeType === 'application/pdf';
       const isEpub = this.mimeType === 'application/epub+zip';
       if (blob.size > documentReaderLimit(this.mimeType)) {
-        this.fail(`文件过大，阅读上限为 ${documentReaderLimit(this.mimeType) / 1024 / 1024} MB`); return;
+        this.fail(uiTemplate`文件过大，阅读上限为 ${documentReaderLimit(this.mimeType) / 1024 / 1024} MB`); return;
       }
-      this.deadline = window.setTimeout(() => this.fail('文档读取超时，请关闭后重试'), 30_000);
+      this.deadline = window.setTimeout(() => this.fail(uiLiteral('文档读取超时，请关闭后重试')), 30_000);
       const bytes = await blob.arrayBuffer();
       if (this.signal.aborted || version !== this.loadVersion) return;
       if (isPdf) {
@@ -308,16 +309,16 @@ export class DocumentReader {
       this.toolbar.hidden = false;
       this.element.dataset.kind = isPdf ? 'pdf' : isEpub ? 'epub' : 'text';
       await this.render();
-    } catch { if (!this.signal.aborted) this.fail('无法阅读此文件，文件可能损坏、加密或格式不受支持'); }
+    } catch { if (!this.signal.aborted) this.fail(uiLiteral('无法阅读此文件，文件可能损坏、加密或格式不受支持')); }
   }
 
   private toggleDirectory(open = this.directory.hidden, focus = true): void {
     if (!open) { this.directoryDialog?.close({restoreFocus:focus}); return; }
     if (this.signal.aborted || this.directoryDialog) return;
     const sheet=document.createElement('section');sheet.className='confirm-overlay reader-directory-sheet';
-    sheet.setAttribute('role','dialog');sheet.setAttribute('aria-modal','true');sheet.setAttribute('aria-label','章节目录');
+    sheet.setAttribute('role','dialog');sheet.setAttribute('aria-modal','true');sheet.setAttribute('aria-label',uiLiteral('章节目录'));
     const panel=document.createElement('div');panel.className='confirm-dialog reader-directory-panel';
-    const title=document.createElement('h2');title.textContent='目录';
+    const title=document.createElement('h2');title.textContent=uiLiteral('目录');
     this.directory.hidden=false;panel.append(title,this.directory);sheet.append(panel);this.element.append(sheet);
     this.directoryButton.setAttribute('aria-expanded','true');
     this.directoryDialog=mountDialog(sheet,{presentation:'sheet',signal:this.signal,isActive:()=>!this.signal.aborted,returnFocus:this.directoryButton,
@@ -343,7 +344,7 @@ export class DocumentReader {
     else this.go(chapter + 1, undefined, false, page - 1);
   }
 
-  fail(message = '文件读取失败，请关闭后重试'): void {
+  fail(message = (uiLiteral('文件读取失败，请关闭后重试') as string)): void {
     if (this.signal.aborted) return;
     this.toggleDirectory(false,false);
     this.ready = false;
@@ -395,7 +396,7 @@ export class DocumentReader {
     const pages = this.pdf?.pages ?? (this.epub ? this.chapterPages.reduce((sum, count) => sum + count, 0) : this.screens);
     const offset = this.epub ? this.chapterPages.slice(0, this.page - 1).reduce((sum, count) => sum + count, 0) : 0;
     this.pageInput.value = String(this.pdf ? this.page : offset + this.screen + 1);
-    this.pageInput.max = String(pages); this.pageCount.textContent = `/ ${pages}`; this.pageIndicator.textContent = `第 ${this.pageInput.value} / ${pages} 页`;
+    this.pageInput.max = String(pages); this.pageCount.textContent = `/ ${pages}`; this.pageIndicator.textContent = uiTemplate`第 ${this.pageInput.value} / ${pages} 页`;
     this.directory.dataset.chapter = String(this.page);
     for (const item of this.directory.querySelectorAll<HTMLElement>('[data-chapter]')) item.setAttribute('aria-current', String(item.dataset.chapter === String(this.page)));
     this.previous.disabled = this.pdf ? this.page <= 1 : this.screen === 0 && (!this.epub || this.page === 1);
@@ -542,10 +543,10 @@ export class DocumentReader {
     this.zoomIn.disabled = this.zoom >= (this.pdf ? 3 : 1.5);
     this.zoomLabel.textContent = this.pdf?`${Math.round(this.zoom * 100)}%`:`${Math.round(this.zoom*16)}px`;
     this.status.hidden = false;
-    this.status.textContent = '正在排版';
+    this.status.textContent = uiLiteral('正在排版');
     this.element.dataset.state = 'loading';
     clearTimeout(this.deadline);
-    this.deadline = window.setTimeout(() => this.fail('文档排版超时，请关闭后重试'), 20_000);
+    this.deadline = window.setTimeout(() => this.fail(uiLiteral('文档排版超时，请关闭后重试')), 20_000);
     try {
       await this.paginateBook(version);
       if (this.signal.aborted || version !== this.renderVersion) return;
@@ -554,7 +555,7 @@ export class DocumentReader {
         this.pdfSlots = Array.from({ length: this.pdf.pages }, (_, index) => {
           const slot = document.createElement('div'); slot.className = 'reader-pdf-slot';
           slot.style.height = `${Math.max(240, (this.stage.clientWidth - 32) * 1.414 * this.zoom)}px`;
-          slot.setAttribute('aria-label', `第 ${index + 1} 页`); this.content.append(slot); return slot;
+          slot.setAttribute('aria-label', uiTemplate`第 ${index + 1} 页`); this.content.append(slot); return slot;
         });
         this.stage.scrollTop = this.pdfSlots[this.page - 1]!.offsetTop - this.content.offsetTop;
         await this.renderPdfWindow();
@@ -585,7 +586,7 @@ export class DocumentReader {
     if (!query) { output.textContent = ''; return; }
     const same = query === this.lastQuery;
     this.lastQuery = query;
-    output.textContent = '搜索中';
+    output.textContent = uiLiteral('搜索中');
     if (this.pdf || this.epub) {
       const pdf = (this.pdf ?? this.epub)!;
       const start = same ? this.page % pdf.pages + 1 : this.page;
@@ -593,21 +594,21 @@ export class DocumentReader {
       try {
         for (let offset = 0; offset < pdf.pages; offset++) {
           if (this.signal.aborted || version !== this.searchVersion) return;
-          if (performance.now() - started > 15_000) { output.textContent = '搜索超时'; return; }
+          if (performance.now() - started > 15_000) { output.textContent = uiLiteral('搜索超时'); return; }
           const page = (start - 1 + offset) % pdf.pages + 1;
           const text = await pdf.text(page);
           if (this.signal.aborted || version !== this.searchVersion) return;
-          if (text.toLocaleLowerCase().includes(query)) { output.textContent = `第 ${page} ${this.epub ? '章' : '页'}`; this.go(page); return; }
+          if (text.toLocaleLowerCase().includes(query)) { output.textContent = uiTemplate`第 ${page} ${this.epub ? uiLiteral('章') : uiLiteral('页')}`; this.go(page); return; }
           await new Promise<void>(resolve => window.setTimeout(resolve, 0));
         }
-        output.textContent = '无结果';
-      } catch { if (!this.signal.aborted && version === this.searchVersion) output.textContent = '搜索失败'; }
+        output.textContent = uiLiteral('无结果');
+      } catch { if (!this.signal.aborted && version === this.searchVersion) output.textContent = uiLiteral('搜索失败'); }
     } else {
       const lower = this.text.toLocaleLowerCase();
       let index = lower.indexOf(query, same ? this.searchOffset + 1 : 0);
       if (index < 0) index = lower.indexOf(query);
       this.searchOffset = index;
-      output.textContent = index < 0 ? '无结果' : '已找到';
+      output.textContent = index < 0 ? uiLiteral('无结果') : uiLiteral('已找到');
       const pre = this.content.querySelector('pre');
       if (!pre) return;
       pre.textContent = this.text;
@@ -625,10 +626,10 @@ export class DocumentReader {
     this.toggleDirectory(false,false);
     if(!page)this.rememberReadingPosition();else this.readingAnchor=undefined;
     const sheet = document.createElement('section'); sheet.className = 'confirm-overlay reader-options-sheet';
-    sheet.setAttribute('role','dialog'); sheet.setAttribute('aria-modal','true'); sheet.setAttribute('aria-label',page?'跳转页码':'阅读设置');
+    sheet.setAttribute('role','dialog'); sheet.setAttribute('aria-modal','true'); sheet.setAttribute('aria-label',page?uiLiteral('跳转页码'):uiLiteral('阅读设置'));
     const panel = document.createElement('div'); panel.className = 'confirm-dialog reader-options-panel';
-    const title = document.createElement('h2'); title.textContent = page ? '跳转页码' : '阅读设置';
-    const done = document.createElement('button'); done.type = 'button'; done.className = 'primary-button'; done.textContent = '完成';
+    const title = document.createElement('h2'); title.textContent = page ? uiLiteral('跳转页码') : uiLiteral('阅读设置');
+    const done = document.createElement('button'); done.type = 'button'; done.className = 'primary-button'; done.textContent = uiLiteral('完成');
     const content=page?this.pageControls:this.readerOptions;
     content.hidden = false;
     panel.append(title,content,done); sheet.append(panel); this.element.append(sheet);

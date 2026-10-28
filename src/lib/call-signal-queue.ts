@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import type { CallEnvelope } from './call-types';
 import { NetworkOperationError } from './network-operation';
 type Pending = { envelope: CallEnvelope; resolve: () => void; reject: (error: Error) => void; promise: Promise<void>; attempts: number; nextAt: number; deadline: number };
@@ -12,7 +13,7 @@ export class CallSignalQueue {
     const key = `${envelope.callId}:${envelope.eventId}`;
     if (this.confirmed.has(key)) return Promise.resolve();
     if (this.pending.has(key)) return this.pending.get(key)!.promise;
-    if (this.pending.size >= 256) return Promise.reject(new NetworkOperationError('WS_BACKPRESSURE', '信令发送队列已满'));
+    if (this.pending.size >= 256) return Promise.reject(new NetworkOperationError('WS_BACKPRESSURE', uiLiteral('信令发送队列已满')));
     let resolve!: () => void, reject!: (error: Error) => void;
     const promise = new Promise<void>((a, b) => { resolve = a; reject = b; });
     this.pending.set(key, { envelope, promise, resolve, reject, attempts: 0, nextAt: 0, deadline: Math.min(envelope.expiresAt, Date.now() + 30_000) });
@@ -33,14 +34,14 @@ export class CallSignalQueue {
     if (!pending) return;
     if (['CALL_PEER_RECONNECTING', 'CALL_BACKPRESSURE', 'CALL_RATE_LIMITED'].includes(code)) { pending.nextAt = Date.now() + 2000; return; }
     this.pending.delete(key);
-    pending.reject(new NetworkOperationError(code, '服务端拒绝通话信令'));
+    pending.reject(new NetworkOperationError(code, uiLiteral('服务端拒绝通话信令')));
     this.schedule();
   }
   flush(reconnected = false) {
     for (const [key, pending] of this.pending) {
       if (Date.now() >= pending.deadline) {
         this.pending.delete(key);
-        pending.reject(new NetworkOperationError('SIGNAL_ACK_TIMEOUT', '通话信令确认超时'));
+        pending.reject(new NetworkOperationError('SIGNAL_ACK_TIMEOUT', uiLiteral('通话信令确认超时')));
       } else if (reconnected || Date.now() >= pending.nextAt) {
         let sent = false;
         try { sent = this.write(pending.envelope); } catch { /* Retry the same envelope after transport recovery. */ }
@@ -52,7 +53,7 @@ export class CallSignalQueue {
   }
   cancel(callId: string) {
     for (const [key, pending] of this.pending) if (pending.envelope.callId === callId) {
-      this.pending.delete(key); pending.reject(new DOMException('通话已结束', 'AbortError'));
+      this.pending.delete(key); pending.reject(new DOMException(uiLiteral('通话已结束'), 'AbortError'));
     }
     this.schedule();
   }

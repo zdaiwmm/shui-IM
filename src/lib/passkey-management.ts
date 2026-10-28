@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate } from './language';
 import { mountDialog } from './dialog';
 import { fitViewport } from './space-drawer';
 import { normalizePasskeyName, passkeyNamingSupported, signalPasskeyName, isPlatformVaultCancellation, type PlatformCredentialResult } from './platform-vault';
@@ -12,17 +13,17 @@ export async function openPasskeyManagement(root: HTMLElement, options: {
 }): Promise<void> {
   // Invoked directly in the settings click stack, before storage or rendering.
   const entry = root.querySelector('#passkey-management');
-  const requireEntry = () => { options.signal.throwIfAborted(); if (!entry?.isConnected) throw new DOMException('设置已关闭', 'AbortError'); };
+  const requireEntry = () => { options.signal.throwIfAborted(); if (!entry?.isConnected) throw new DOMException(uiLiteral('设置已关闭'), 'AbortError'); };
   let userId = await options.verify(options.signal);
   requireEntry();
   let name = await readPasskeyName(options.credential.record);
   requireEntry();
   const lifetime = new AbortController(), signal = AbortSignal.any([options.signal, lifetime.signal]);
   const page = document.createElement('section');
-  page.className = 'passkey-manager chamber-settings-page'; page.setAttribute('role', 'dialog'); page.setAttribute('aria-modal', 'true'); page.setAttribute('aria-label', '通行密钥管理');
+  page.className = 'passkey-manager chamber-settings-page'; page.setAttribute('role', 'dialog'); page.setAttribute('aria-modal', 'true'); page.setAttribute('aria-label', uiLiteral('通行密钥管理'));
   const supported = passkeyNamingSupported() && Boolean(userId);
-  const blocked = !supported ? (!userId ? '未能取得这把密钥的用户标识，暂时无法改名。' : '当前浏览器不支持修改系统通行密钥名称，请升级浏览器后再试。') : '';
-  page.innerHTML = `<header class="subpage-header"><h1>通行密钥名称</h1></header><main class="device-content"><p class="preference-intro">设置一个容易辨认的名称，方便在系统中找到这把通行密钥。</p><section class="passkey-name-summary"><span class="field-hint">当前名称</span><h2 id="passkey-current-name">${escape(name ?? '尚未设置名称')}</h2></section><p class="preference-note">修改名称不会影响密室和聊天记录。</p><p class="form-error" role="status" id="passkey-feedback">${escape(blocked)}</p></main><footer class="chamber-page-footer"><button class="primary-button" id="passkey-rename" ${supported ? '' : 'disabled'}>修改名称</button><button class="text-button page-back-button" id="passkey-back" type="button">返回</button></footer>`;
+  const blocked = !supported ? (!userId ? uiLiteral('未能取得这把密钥的用户标识，暂时无法改名。') : uiLiteral('当前浏览器不支持修改系统通行密钥名称，请升级浏览器后再试。')) : '';
+  page.innerHTML = uiTemplate`<header class="subpage-header"><h1>通行密钥名称</h1></header><main class="device-content"><p class="preference-intro">设置一个容易辨认的名称，方便在系统中找到这把通行密钥。</p><section class="passkey-name-summary"><span class="field-hint">当前名称</span><h2 id="passkey-current-name">${escape(name ?? uiLiteral('尚未设置名称'))}</h2></section><p class="preference-note">修改名称不会影响密室和聊天记录。</p><p class="form-error" role="status" id="passkey-feedback">${escape(blocked)}</p></main><footer class="chamber-page-footer"><button class="primary-button" id="passkey-rename" ${supported ? '' : 'disabled'}>修改名称</button><button class="text-button page-back-button" id="passkey-back" type="button">返回</button></footer>`;
   root.append(page);
   const manager = mountDialog(page, { signal, isActive: () => !signal.aborted, onClose: () => lifetime.abort() });
   page.querySelector('#passkey-back')!.addEventListener('click', () => manager.close({ animate: false }));
@@ -33,7 +34,7 @@ export async function openPasskeyManagement(root: HTMLElement, options: {
     if (!supported || signal.aborted) return;
     const overlay = document.createElement('div'); overlay.className = 'space-modal-overlay passkey-name-overlay';
     overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-labelledby', 'passkey-name-title');
-    overlay.innerHTML = `<form class="space-name-dialog"><h2 id="passkey-name-title">修改通行密钥名称</h2><label class="sr-only" for="passkey-name">通行密钥名称</label><input id="passkey-name" value="${escape(name ?? '')}" autocomplete="off" spellcheck="false"><p class="field-hint">使用方便辨认的名称，1–40 个字符。不要填写聊天隐私。</p><p class="form-error" role="alert"></p><div class="space-dialog-actions"><button type="button" class="text-button" id="passkey-cancel">取消</button><button type="submit" class="primary-button">验证并保存</button></div></form>`;
+    overlay.innerHTML = uiTemplate`<form class="space-name-dialog"><h2 id="passkey-name-title">修改通行密钥名称</h2><label class="sr-only" for="passkey-name">通行密钥名称</label><input id="passkey-name" value="${escape(name ?? '')}" autocomplete="off" spellcheck="false"><p class="field-hint">使用方便辨认的名称，1–40 个字符。不要填写聊天隐私。</p><p class="form-error" role="alert"></p><div class="space-dialog-actions"><button type="button" class="text-button" id="passkey-cancel">取消</button><button type="submit" class="primary-button">验证并保存</button></div></form>`;
     root.append(overlay);
     const resize = new AbortController(), input = overlay.querySelector<HTMLInputElement>('input')!, error = overlay.querySelector<HTMLElement>('.form-error')!;
     let saving = false, pendingName: string | undefined;
@@ -55,7 +56,7 @@ export async function openPasskeyManagement(root: HTMLElement, options: {
       try {
         userId = await verification;
         signal.throwIfAborted();
-        if (!userId) throw new Error('未能取得通行密钥用户标识');
+        if (!userId) throw new Error(uiLiteral('未能取得通行密钥用户标识'));
         await signalPasskeyName(options.credential.record, userId, next, signal);
         submitted = true; pendingName = next;
         signal.throwIfAborted();
@@ -68,8 +69,8 @@ export async function openPasskeyManagement(root: HTMLElement, options: {
         options.onRenamed?.();
       } catch (cause) {
         if (!signal.aborted) error.textContent = submitted
-          ? '结果待确认：已通知系统更新，但应用名称未保存。请再次验证，重试保存同一名称。'
-          : isPlatformVaultCancellation(cause) ? '验证已取消，名称未修改。' : cause instanceof Error ? cause.message : '名称未保存，请重试';
+          ? uiLiteral('结果待确认：已通知系统更新，但应用名称未保存。请再次验证，重试保存同一名称。')
+          : isPlatformVaultCancellation(cause) ? uiLiteral('验证已取消，名称未修改。') : cause instanceof Error ? cause.message : uiLiteral('名称未保存，请重试');
       } finally {
         saving = false; input.readOnly = Boolean(pendingName);
         overlay.querySelectorAll<HTMLButtonElement>('button').forEach(b => b.disabled = false);

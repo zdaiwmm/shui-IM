@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { canonicalStringify } from './canonical';
 import { toBase64Url } from './base64';
 import { isMessagePayload } from './message-payload';
@@ -13,7 +14,7 @@ const identity = (item: PrivateArchiveItem) => `${item.originRoomId}:${item.mess
 const hash = async (item: PrivateArchiveItem) => toBase64Url(await crypto.subtle.digest('SHA-256', encoder.encode(canonicalStringify(item))));
 export const comparePrivateEntries = (a: PrivateIndexEntry,b: PrivateIndexEntry) => a.time.localeCompare(b.time)||a.origin.localeCompare(b.origin)||a.seq-b.seq||a.messageId.localeCompare(b.messageId);
 const contentKinds=new Set(['text','image','image-album','audio','file']);
-function fail():never{throw new Error('私有历史完整性检查失败，请保留本机数据后重试');}
+function fail():never{throw new Error(uiLiteral('私有历史完整性检查失败，请保留本机数据后重试'));}
 
 /** Metadata-only external merge. At most eight 128-entry pages are decoded at once. */
 async function* readRun(session:VaultSession,pages:string[],signal:AbortSignal):AsyncGenerator<PrivateIndexEntry>{
@@ -104,6 +105,6 @@ export async function readPrivateHistoryPage(session:VaultSession,meta:PrivateCa
   }
   if(reverse){items.reverse();start=end-items.length;}else end=start+items.length;
   await withVaultMutation(session,async()=>{signal.throwIfAborted();});
-  if(canonicalStringify(await readPrivateCatalogMeta(session,signal))!==canonicalStringify(meta))throw new DOMException('私有历史已更新','AbortError');
+  if(canonicalStringify(await readPrivateCatalogMeta(session,signal))!==canonicalStringify(meta))throw new DOMException(uiLiteral('私有历史已更新'),'AbortError');
   return {items,start,end,total:catalog.visibleCount,revision:meta.revision};
 }

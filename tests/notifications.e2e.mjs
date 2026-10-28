@@ -15,7 +15,7 @@ try {
   const url = `http://localhost:${vite.httpServer.address().port}/__notifications`;
   for (const engine of [chromium, webkit]) {
     browser = await engine.launch(engine === chromium && !process.env.CI ? process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' } : {});
-    const context = await browser.newContext({ viewport: { width: 393, height: 852 } });
+    const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 393, height: 852 } });
     const page = await context.newPage(); page.setDefaultTimeout(10000);
     if (engine === chromium) {
       const cdp = await context.newCDPSession(page); await cdp.send('WebAuthn.enable');

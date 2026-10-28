@@ -24,8 +24,8 @@ try {
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   const origin = `http://127.0.0.1:${vite.httpServer.address().port}`;
   async function scenario(oldCount, freshCount) {
-    const ca = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
-    const cb = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
+    const ca = await browser.newContext({ locale: 'zh-CN', permissions: ['clipboard-read', 'clipboard-write'] });
+    const cb = await browser.newContext({ locale: 'zh-CN', permissions: ['clipboard-read', 'clipboard-write'] });
     const a = await ca.newPage(), b = await cb.newPage();
     try {
       const errors = [];
