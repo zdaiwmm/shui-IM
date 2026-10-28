@@ -146,6 +146,42 @@ describe('RoomSocket membership ordering', () => {
     expect(socket.sendReceipt({ clientMsgId: 'same-id' } as DeliveryReceipt)).toBe(true);
     expect(next.sent.some(value => JSON.parse(value).type === 'receipt')).toBe(true); socket.close();
   });
+  it('coalesces catch-up requests through page persistence and resumes from the durable cursor', async () => {
+    environment(); const callbacks = handlers(); let cursor = 7, finish!: () => void;
+    callbacks.sync.mockImplementation(async () => {
+      await new Promise<void>(resolve => { finish = resolve; });
+      cursor = 8; socket.requestSync(cursor);
+    });
+    const socket = new RoomSocket('room', 'token', () => cursor, () => 0, callbacks);
+    try {
+      socket.connect(); const transport = FakeWebSocket.instances[0]!; transport.emit('open');
+      transport.emit('message', JSON.stringify({ type: 'ready', state: {} }));
+      const requests = () => transport.sent.map(value => JSON.parse(value)).filter(frame => frame.type === 'sync');
+      for (let index = 0; index < 64; index++) socket.requestSync(7);
+      expect(requests()).toEqual([{ type: 'sync', afterSeq: 7 }]);
+      transport.emit('message', JSON.stringify({ type: 'sync', messages: [{ seq: 8 }], hasMore: true }));
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+      for (let index = 0; index < 64; index++) socket.requestSync(7);
+      expect(requests()).toHaveLength(1);
+      finish();
+      await vi.waitFor(() => expect(requests()).toEqual([{ type: 'sync', afterSeq: 7 }, { type: 'sync', afterSeq: 8 }]));
+    } finally { socket.close(); }
+  });
+  it('does not let an old page completion release a reconnect generation catch-up request', async () => {
+    environment(); const callbacks = handlers(); let finish!: () => void;
+    callbacks.sync.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    const socket = new RoomSocket('room', 'token', () => 4, () => 0, callbacks);
+    try {
+      socket.connect(); const first = FakeWebSocket.instances[0]!; first.emit('open');
+      socket.requestSync(4); first.emit('message', JSON.stringify({ type: 'sync', messages: [] }));
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+      first.emit('close', undefined, 4413); socket.connect();
+      const second = FakeWebSocket.instances[1]!; second.emit('open'); socket.requestSync(4);
+      finish(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+      socket.requestSync(4);
+      expect(second.sent.map(value => JSON.parse(value)).filter(frame => frame.type === 'sync')).toHaveLength(1);
+    } finally { socket.close(); }
+  });
   it('uses explicit hasMore and falls back to the legacy 500-count rule', async () => {
     environment(); const callbacks = handlers();
     const socket = new RoomSocket('room', 'token', () => 7, () => 4, callbacks);

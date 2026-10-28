@@ -35,6 +35,19 @@ try {
       const link = await a.evaluate(() => navigator.clipboard.readText());
       await b.goto(link);
       for (const page of [a, b]) await page.waitForFunction(() => reviewApp.connectionState === 'connected' && reviewApp.session?.vault.mls?.phase === 'active' && document.querySelector('#message-input')?.disabled === false);
+      await b.evaluate(() => {
+        const room=reviewApp.socket,seen=new WeakSet();
+        globalThis.reviewTransport={syncCalls:0,syncFrames:0,capacityCloses:0,closeCodes:[]};
+        const observe=()=>{
+          const ws=room.socket;if(!ws||seen.has(ws))return;seen.add(ws);
+          ws.addEventListener('close',event=>{reviewTransport.closeCodes.push(event.code);reviewTransport.closeCodes=reviewTransport.closeCodes.slice(-8);});
+          const send=ws.send.bind(ws);ws.send=raw=>{if(typeof raw==='string'&&JSON.parse(raw).type==='sync')reviewTransport.syncFrames++;return send(raw);};
+        };
+        const connect=room.connect.bind(room);room.connect=()=>{connect();observe();};
+        const sync=room.requestSync.bind(room);room.requestSync=after=>{reviewTransport.syncCalls++;return sync(after);};
+        const capacity=room.reconnectForBackpressure.bind(room);room.reconnectForBackpressure=()=>{reviewTransport.capacityCloses++;capacity();};
+        observe();
+      });
       await b.evaluate(() => reviewApp.enqueuePayload({ v: 1, kind: 'text', text: 'epoch-control', sentAt: new Date().toISOString() }));
       await b.waitForFunction(() => reviewApp.outbox.size === 0 && reviewApp.session.vault.lastSeq >= 1);
       await a.getByText('epoch-control', { exact: true }).waitFor();
@@ -96,7 +109,9 @@ try {
       const runtime = await b.evaluate(() => ({ queued: reviewApp.outbox.size, connection: reviewApp.connectionState,
         localLastSeq: reviewApp.session?.vault.lastSeq, generated: reviewApp.session?.vault.mls?.window?.generated,
         senderSequence: reviewApp.session?.vault.mls?.sendSequence, accessFailure: reviewApp.accessFailure,
-        fatal:globalThis.reviewFatal,body:document.querySelector('#fatal-message')?.textContent,notice: [...document.querySelectorAll('.app-toast')].map(element => element.textContent) }));
+        fatal:globalThis.reviewFatal,body:document.querySelector('#fatal-message')?.textContent,notice: [...document.querySelectorAll('.app-toast')].map(element => element.textContent),
+        transport:globalThis.reviewTransport,serverQueue:reviewApp.serverQueue.size,sending:reviewApp.sending.size,draining:!!reviewApp.outboxDrain,
+        syncWaiting:{request:reviewApp.socket.syncRequestInFlight,pages:reviewApp.socket.syncResponsesPending},retryTimers:reviewApp.retryTimers.size }));
       if(accepted === oldCount + freshCount) await a.waitForFunction(count => [...reviewApp.messages.values()].filter(x=>x.payload.kind==='text' && /^(old|fresh)-/.test(x.payload.text)).length===count,oldCount+freshCount,{timeout:15000});
       const receiver = await a.evaluate(() => [...reviewApp.messages.values()].filter(x => x.payload.kind === 'text' && /^(old|fresh)-/.test(x.payload.text)).length);
       const { ids, ...queueSummary } = queued;

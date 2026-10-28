@@ -419,6 +419,9 @@ export class RoomSocket {
   private membershipBarrier: Promise<void> = Promise.resolve();
   private queuedFrameBytes = 0;
   private queuedFrames = 0;
+  private syncRequestInFlight = false;
+  private syncResponsesPending = 0;
+  private queuedSyncAfter: number | null = null;
   private desiredPresenceView: 'chat' | 'away' = 'away';
   private authenticated = false;
   private lastSentPresenceView: 'chat' | 'away' | null = null;
@@ -447,6 +450,7 @@ export class RoomSocket {
 
   connect(): void {
     if (this.closed || this.socket?.readyState === WebSocket.OPEN || this.socket?.readyState === WebSocket.CONNECTING) return;
+    this.resetSyncRequests();
     this.handlers.connection('connecting');
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const socket = this.socket = new WebSocket(`${scheme}//${location.host}/ws`);
@@ -488,6 +492,7 @@ export class RoomSocket {
       this.stopHeartbeat();
       this.clearPendingSends();
       this.sentEnvelopes.clear();
+      this.resetSyncRequests();
       this.authenticated = false;
       this.lastSentPresenceView = null;
       this.socket = null;
@@ -527,7 +532,25 @@ export class RoomSocket {
       } else if (frame.type === 'message') {
         this.runAfterMembershipUpdate(() => this.handlers.message(frame as unknown as ServerMessage & { type: string }), frameBytes);
       } else if (frame.type === 'sync') {
-        this.runAfterMembershipUpdate(() => this.handlers.sync((frame.messages ?? []) as ServerMessage[], typeof frame.hasMore === 'boolean' ? frame.hasMore : (frame.messages as unknown[])?.length === 500), frameBytes);
+        const generation = this.socket;
+        this.syncRequestInFlight = false;
+        this.syncResponsesPending += 1;
+        this.runAfterMembershipUpdate(async () => {
+          try {
+            await this.handlers.sync((frame.messages ?? []) as ServerMessage[], typeof frame.hasMore === 'boolean' ? frame.hasMore : (frame.messages as unknown[])?.length === 500);
+          } finally {
+            if (!this.closed && this.socket === generation) {
+              this.syncResponsesPending -= 1;
+              const after = this.queuedSyncAfter;
+              if (!this.syncResponsesPending && !this.syncRequestInFlight && after !== null) {
+                this.queuedSyncAfter = null;
+                // ACKs may have requested the same old page while it was
+                // decrypting. Resume at the contiguous durable cursor only.
+                this.requestSync(Math.max(after, this.afterSeq()));
+              }
+            }
+          }
+        }, frameBytes);
       } else if (frame.type === 'receipt') {
         this.runAfterMembershipUpdate(() => this.handlers.receipt(frame as unknown as ServerReceipt), frameBytes);
       } else if (frame.type === 'receiptSync') {
@@ -705,8 +728,20 @@ export class RoomSocket {
 
   requestSync(afterSeq: number): void {
     if (this.socket?.readyState === WebSocket.OPEN) {
-      this.socket.send(JSON.stringify({ type: 'sync', afterSeq }));
+      if (this.syncRequestInFlight || this.syncResponsesPending) {
+        this.queuedSyncAfter = this.queuedSyncAfter === null ? afterSeq : Math.min(afterSeq, this.queuedSyncAfter);
+        return;
+      }
+      this.syncRequestInFlight = true;
+      try { this.socket.send(JSON.stringify({ type: 'sync', afterSeq })); }
+      catch (cause) { this.syncRequestInFlight = false; throw cause; }
     }
+  }
+
+  private resetSyncRequests(): void {
+    this.syncRequestInFlight = false;
+    this.syncResponsesPending = 0;
+    this.queuedSyncAfter = null;
   }
 
   requestReceiptSync(afterReceiptSeq: number): void {
@@ -741,6 +776,7 @@ export class RoomSocket {
     this.desiredPresenceView = 'away';
     this.flushChatPresence();
     this.closed = true;
+    this.resetSyncRequests();
     this.callSignals.close();
     if (this.connectionDeadline) clearTimeout(this.connectionDeadline);
     this.connectionDeadline = null;
