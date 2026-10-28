@@ -15,7 +15,7 @@ try {
     server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${backend.port}`,'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});await vite.listen();
   browser=await engine.launch(engine===webkit||process.env.CI?{}:process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{channel:'chrome'});
   const url=`http://127.0.0.1:${vite.httpServer.address().port}/`,errors=[],pages=[];
-  for(let i=0;i<2;i++){const context=await browser.newContext(i===0?{viewport:{width:390,height:844},isMobile:true,deviceScaleFactor:3,hasTouch:true,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0'}:{viewport:{width:1440,height:900}});const page=await context.newPage();page.setDefaultTimeout(25_000);page.on('pageerror',e=>errors.push(e.message));await page.goto(url);pages.push(page);}
+  for(let i=0;i<2;i++){const context=await browser.newContext(i===0?{locale:'zh-CN',viewport:{width:390,height:844},isMobile:true,deviceScaleFactor:3,hasTouch:true,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0'}:{locale:'zh-CN',viewport:{width:1440,height:900}});const page=await context.newPage();page.setDefaultTimeout(25_000);page.on('pageerror',e=>errors.push(e.message));await page.goto(url);pages.push(page);}
   const [a,b]=pages;
   const chamberRequests=[];
   for(const page of pages)page.on('request',r=>{if(/\/(?:chamber-(?:migration|history|lifecycle)|personal-devices|personal-directory)(?:[/?]|$)/.test(new URL(r.url()).pathname))chamberRequests.push(r.method()+' '+new URL(r.url()).pathname);});

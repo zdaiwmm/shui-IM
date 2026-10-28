@@ -115,7 +115,7 @@ try {
   database = new DatabaseSync(path.join(dataDir, 'quiet-room.sqlite'), { readOnly: true });
   for (const engine of process.env.QUIET_ROOM_TEST_BROWSER ? [process.env.QUIET_ROOM_TEST_BROWSER] : ['chromium', 'webkit']) {
     browser = engine === 'webkit' ? await webkit.launch() : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-    const options = { viewport: { width: 390, height: 844 }, hasTouch: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0.65' };
+    const options = { locale: 'zh-CN', viewport: { width: 390, height: 844 }, hasTouch: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0.65' };
     const [ac, bc] = await Promise.all([browser.newContext(options), browser.newContext(options)]);
     await ac.addInitScript(prepareParticipant); await bc.addInitScript(prepareParticipant);
     const [a, b] = await Promise.all([ac.newPage(), bc.newPage()]); a.setDefaultTimeout(15000); b.setDefaultTimeout(15000);
