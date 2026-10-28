@@ -127,6 +127,7 @@ it('authenticates, checks origin, rejects local targets and limits requests befo
     const call=(extra:Record<string,string>={})=>fetch(endpoint,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json',Authorization:`Bearer ${token}`,...extra},body:JSON.stringify({url:'http://127.0.0.1/internal'})});
     expect((await call({Authorization:'Bearer wrong'})).status).toBe(401);
     expect((await call({Origin:'https://foreign.example'})).status).toBe(403);
+    expect((await call({Origin:origin.replace('http:','ftp:')})).status).toBe(403);
     for(let index=0;index<20;index++)expect((await call()).status).toBe(400);
     expect((await call()).status).toBe(429);
   }finally{await server.close();await rm(dataDir,{recursive:true,force:true});}

@@ -462,7 +462,7 @@ export async function startServer(options = {}) {
         if (request.method !== 'POST') { json(request,response,405,{code:'METHOD_NOT_ALLOWED'});return; }
         const device = requireActiveDevice(request,previewMatch[1]);
         let sameOrigin=false;
-        try {sameOrigin=new URL(request.headers.origin).host===request.headers.host;}catch {/* Fail closed. */}
+        try {const source=new URL(request.headers.origin);sameOrigin=['https:','http:'].includes(source.protocol)&&source.host===request.headers.host;}catch {/* Fail closed. */}
         if(!sameOrigin || request.headers['sec-fetch-site']==='cross-site' || !/^application\/json(?:;|$)/i.test(request.headers['content-type']??'')) {
           json(request,response,403,{code:'INVALID_ORIGIN'});return;
         }

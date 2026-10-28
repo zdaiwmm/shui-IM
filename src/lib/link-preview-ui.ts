@@ -55,6 +55,10 @@ export class ComposerLinkPreview {
     signal: AbortSignal; active: () => boolean; changed: () => void}) {
     this.row.className='link-preview-draft'; this.row.hidden=true;
     options.host.before(this.row);
+    this.row.addEventListener('pointerdown',event=>{
+      if(event.isPrimary&&event.button===0&&document.activeElement===options.input
+        &&event.target instanceof Element&&event.target.closest('button'))event.preventDefault();
+    },{signal:options.signal});
     options.input.addEventListener('input',()=>{if(!this.composing)this.update();},{signal:options.signal});
     options.input.addEventListener('compositionstart',()=>{this.composing=true;},{signal:options.signal});
     options.input.addEventListener('compositionend',()=>{this.composing=false;this.update();},{signal:options.signal});
@@ -86,10 +90,10 @@ export class ComposerLinkPreview {
     copy.setAttribute('role','status');copy.setAttribute('aria-live','polite');copy.append(title,detail);this.row.append(copy);
     if(state==='failed'){
       const retry=document.createElement('button');retry.type='button';retry.className='link-preview-retry';retry.textContent=uiLiteral('重试');
-      retry.addEventListener('click',()=>void this.load());this.row.append(retry);
+      retry.addEventListener('click',()=>{void this.load();if(this.options.active())this.options.input.focus({preventScroll:true});});this.row.append(retry);
     }
     const close=document.createElement('button');close.type='button';close.className='link-preview-close';close.textContent='×';close.setAttribute('aria-label',uiLiteral('移除链接预览'));
-    close.addEventListener('click',()=>{this.version++;clearTimeout(this.timer);this.request?.abort();this.dismissed=true;this.preview=undefined;this.row.hidden=true;this.row.replaceChildren();this.options.changed();});
+    close.addEventListener('click',()=>{this.version++;clearTimeout(this.timer);this.request?.abort();this.dismissed=true;this.preview=undefined;this.row.hidden=true;this.row.replaceChildren();this.options.changed();if(this.options.active())this.options.input.focus({preventScroll:true});});
     this.row.append(close);this.options.changed();
   }
   private async load():Promise<void> {

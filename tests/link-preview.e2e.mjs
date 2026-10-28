@@ -44,7 +44,7 @@ try{
       await input.fill('https://preview.example/article');await row.filter({hasText:'Preview title'}).waitFor();
       if(process.env.QUIET_ROOM_PREVIEW_QA){await mkdir(process.env.QUIET_ROOM_PREVIEW_QA,{recursive:true});await source.screenshot({path:path.join(process.env.QUIET_ROOM_PREVIEW_QA,`${name}-input.png`)});}
       assert.equal(requests,1);
-      await row.locator('.link-preview-close').click();await input.fill('https://preview.example/article 还有一些文字');await source.waitForTimeout(650);
+      await row.locator('.link-preview-close').click();assert.equal(await input.evaluate(n=>document.activeElement===n),true,'Closing a preview keeps editing focus');await input.fill('https://preview.example/article 还有一些文字');await source.waitForTimeout(650);
       assert.equal(requests,1,'Dismissed URL must not reopen');assert.equal(await row.isVisible(),false);
       await input.fill('https://preview.example/slow-old');await row.filter({hasText:'正在获取'}).waitFor();
       await input.fill('https://preview.example/new');await row.filter({hasText:'New title'}).waitFor();await source.waitForTimeout(1500);
