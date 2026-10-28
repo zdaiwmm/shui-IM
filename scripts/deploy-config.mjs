@@ -32,6 +32,13 @@ export function publicOrigin(config) {
   return value;
 }
 
+export function assertInitializationTarget(environment, config) {
+  if (!environment || environment === 'production' || config.environment !== environment ||
+      !config.publicOrigin || publicOrigin(config) === 'https://ai.shui.click') {
+    throw new Error('Initialization requires an explicit, independent named environment');
+  }
+}
+
 export function userConfigPath(environment = deploymentEnvironment()) {
   const configured = process.env.QUIET_ROOM_DEPLOY_CONFIG;
   if (configured) {

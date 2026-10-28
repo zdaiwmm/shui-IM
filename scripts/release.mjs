@@ -5,7 +5,7 @@ import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { createReleaseTimer, isMainModule } from './release-runtime.mjs';
 import { verifySuccessfulCI } from './release-ci.mjs';
-import { assertKeyFiles, loadConfig, publicOrigin, targetArguments, validateConfig } from './deploy-config.mjs';
+import { assertInitializationTarget, assertKeyFiles, loadConfig, publicOrigin, targetArguments, validateConfig } from './deploy-config.mjs';
 import { downloadCIImage } from './ci-image.mjs';
 
 export { requireSuccessfulCI } from './release-ci.mjs';
@@ -23,7 +23,9 @@ function command(program, args, options = {}) {
 
 async function main() {
   const target = targetArguments(process.argv.slice(2));
-  const args = target.args;
+  const initialize = target.args.includes('--initialize');
+  if (target.args.filter(value => value === '--initialize').length > 1) throw new Error('Duplicate initialization flag');
+  const args = target.args.filter(value => value !== '--initialize');
   if (args.length === 1 && args[0] === '--help') {
     console.log('Production: https://ai.shui.click\nUsage: npm run deploy:doctor\n       npm run deploy:production -- --sha <exact 40-character main SHA>\n       node scripts/release.mjs --sha <exact 40-character main SHA>\nConfig: .deploy.local.json or QUIET_ROOM_* environment settings.\n--sha confirms only that exact commit; all safety checks still run.');
     return;
@@ -31,12 +33,14 @@ async function main() {
   const doctor = args.length === 1 && args[0] === '--doctor';
   const approved = args.length === 2 && args[0] === '--sha' && /^[0-9a-f]{40}$/.test(args[1]) ? args[1] : null;
   if (args.length && !doctor && !approved) throw new Error('Invalid arguments; use --help.');
+  if (initialize && !doctor && !approved) throw new Error('Initialization requires an exact approved SHA');
   const receipt = process.env.QUIET_ROOM_PUBLISH_RECEIPT;
   if (receipt && path.resolve(receipt) !== path.join(root, '.git/quiet-room-verified-sha')) throw new Error('Invalid isolated release receipt path.');
   const { config } = loadConfig(root, target.environment);
   validateConfig(config);
   assertKeyFiles(config);
   const origin = publicOrigin(config);
+  if (initialize) assertInitializationTarget(target.environment, config);
   const ssh = ['-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3', '-i', config.serverKey, `${config.serverUser}@${config.serverHost}`];
   const env = { ...process.env };
   if (config.githubKey) {
@@ -52,10 +56,12 @@ async function main() {
   check('GitHub code access', 'github-code-access', () => { git('ls-remote', '--exit-code', 'origin', 'refs/heads/main'); });
   check('GitHub CI access', 'github-ci-access', () => { command('gh', ['api', `repos/${repo}/actions/workflows/ci.yml`]); });
   check('Production connection and helper', 'server-preflight', () => command('ssh', [...ssh,
-    'sudo -n test -x /usr/local/sbin/quiet-room-deploy && sudo -n cat /opt/quiet-room/deploy-state/current-sha']));
+    initialize ? 'sudo -n /usr/local/sbin/quiet-room-deploy --check-initialization' :
+      'sudo -n test -x /usr/local/sbin/quiet-room-deploy && sudo -n cat /opt/quiet-room/deploy-state/current-sha']));
   check('Environment identity and CI image support', 'target-preflight', () => {
     const descriptor = JSON.parse(command('ssh', [...ssh, 'sudo', '-n', '/usr/local/sbin/quiet-room-deploy', '--describe']));
     if (descriptor.imageProtocol !== 1 || descriptor.publicOrigin !== origin) throw new Error('Installed helper or public origin does not match the selected environment');
+    if (initialize && descriptor.initializationProtocol !== 1) throw new Error('Installed helper does not allow first initialization');
   });
   if (doctor) {
     console.log('Read-only: no merge, deployment, installation, or firewall change.');
@@ -81,16 +87,20 @@ async function main() {
     if (answer !== 'DEPLOY') throw new Error('Deployment cancelled.');
   }
   // Main may advance after batch freeze; production must not move backwards.
-  const liveBefore = command('ssh', [...ssh, 'sudo -n cat /opt/quiet-room/deploy-state/current-sha']);
-  if (!/^[a-f0-9]{40}$/.test(liveBefore)) throw new Error('Invalid production SHA.');
-  if (liveBefore === sha) throw new Error('This SHA is already deployed; run independent readback only.');
-  git('merge-base', '--is-ancestor', liveBefore, sha);
+  if (initialize) {
+    command('ssh', [...ssh, 'sudo', '-n', '/usr/local/sbin/quiet-room-deploy', '--check-initialization']);
+  } else {
+    const liveBefore = command('ssh', [...ssh, 'sudo -n cat /opt/quiet-room/deploy-state/current-sha']);
+    if (!/^[a-f0-9]{40}$/.test(liveBefore)) throw new Error('Invalid production SHA.');
+    if (liveBefore === sha) throw new Error('This SHA is already deployed; run independent readback only.');
+    git('merge-base', '--is-ancestor', liveBefore, sha);
+  }
   const image = timed('ci-image', () => downloadCIImage(command, sha, path.join(root, '.git/quiet-room-image'), config.imagePlatform ?? 'linux/amd64'));
   // Never automatically retry a cutover after an ambiguous disconnect.
   timed('server-deploy', () => {
     const descriptor = openSync(image.archive, 'r');
     try {
-      command('ssh', [...ssh, 'sudo', '-n', '/usr/local/sbin/quiet-room-deploy', sha, image.imageId, image.archiveSha256], { stdio: [descriptor, 'inherit', 'inherit'], timeout: 0 });
+      command('ssh', [...ssh, 'sudo', '-n', '/usr/local/sbin/quiet-room-deploy', sha, image.imageId, image.archiveSha256, ...(initialize ? ['--initialize'] : [])], { stdio: [descriptor, 'inherit', 'inherit'], timeout: 0 });
     } finally { closeSync(descriptor); }
   });
   timed('readback', () => {

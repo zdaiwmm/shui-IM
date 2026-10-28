@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createReleaseTimer, isMainModule } from './release-runtime.mjs';
 import { readCIRuns, selectRun, verifySuccessfulCI } from './release-ci.mjs';
-import { loadConfig, localConfigPath, targetArguments } from './deploy-config.mjs';
+import { assertInitializationTarget, loadConfig, localConfigPath, targetArguments } from './deploy-config.mjs';
 
 export { selectRun } from './release-ci.mjs';
 
@@ -40,16 +40,23 @@ function publishApproved(args, run, timed) {
   const prepare = args.includes('--prepare');
   const readbackOnly = args.includes('--readback-only');
   const withReadback = args.includes('--with-readback');
+  const initialize = args.includes('--initialize');
+  if (args.filter(value => value === '--initialize').length > 1) throw new Error('Duplicate initialization flag');
   const resumeIndex = args.indexOf('--resume');
   const resume = resumeIndex < 0 ? undefined : args[resumeIndex + 1];
   if (resumeIndex >= 0) {
     if (!/^[1-9][0-9]*$/.test(resume ?? '')) throw new Error('Exact workflow run ID required');
     args = args.filter((_value, index) => index !== resumeIndex && index !== resumeIndex + 1);
   }
-  args = args.filter(value => !['--cloud', '--prepare', '--readback-only', '--with-readback'].includes(value));
+  args = args.filter(value => !['--cloud', '--prepare', '--readback-only', '--with-readback', '--initialize'].includes(value));
   const { environment } = targetArguments(args);
   const targetArgs = environment ? ['--environment', environment] : [];
   const sha = approvedCommit(args);
+  if (initialize) {
+    if (cloud || prepare || readbackOnly || withReadback || resume) throw new Error('Initialization requires direct, standalone publishing');
+    assertInitializationTarget(environment, loadConfig(root, environment).config);
+  }
+  const initializationArgs = initialize ? ['--initialize'] : [];
   if (prepare && (!cloud || readbackOnly || withReadback) || readbackOnly && (cloud || resume || withReadback) || resume && !cloud || withReadback && !cloud) {
     throw new Error('Prepare/resume/with-readback require cloud; readback-only is standalone');
   }
@@ -68,7 +75,7 @@ function publishApproved(args, run, timed) {
     return receipt;
   }
   // Read-only preflight first. Never try browser login or edit network rules here.
-  timed('preflight', () => run(process.execPath, [path.join(root, 'scripts/release.mjs'), '--doctor', ...targetArgs], { stdio: 'inherit', timeout: 120000 }));
+  timed('preflight', () => run(process.execPath, [path.join(root, 'scripts/release.mjs'), '--doctor', ...targetArgs, ...initializationArgs], { stdio: 'inherit', timeout: 120000 }));
   timed('verify-main', () => {
     const remoteSHA = run('gh', ['api', `repos/${repo}/commits/main`, '--jq', '.sha']);
     if (!/^[a-f0-9]{40}$/.test(remoteSHA)) throw new Error('Invalid GitHub main identity.');
@@ -121,7 +128,7 @@ function publishApproved(args, run, timed) {
   timed('deploy-and-readback', () => {
     const receipt = path.join(directory, '.git/quiet-room-verified-sha');
     if (existsSync(receipt)) throw new Error('Unexpected pre-existing release receipt. Nothing deployed.');
-    run(process.execPath, [path.join(directory, 'scripts/release.mjs'), '--sha', sha, ...targetArgs], {
+    run(process.execPath, [path.join(directory, 'scripts/release.mjs'), '--sha', sha, ...targetArgs, ...initializationArgs], {
       cwd: directory, env: { ...env, QUIET_ROOM_PUBLISH_RECEIPT: receipt }, stdio: 'inherit', timeout: 0,
     });
     if (!existsSync(receipt) || readFileSync(receipt, 'utf8') !== `${sha}\n`) {
