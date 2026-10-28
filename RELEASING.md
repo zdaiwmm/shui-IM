@@ -1,5 +1,18 @@
 # Quiet Room 固定发布流程
 
+<a id="release-aws-tokyo-mijiu-20261028"></a>
+## 东京独立对外环境首次发布（2026-10-28）
+
+- 目标仅为命名环境 `tokyo-public`／`https://mijiu.cloud`，东京 Lightsail 24 美元套餐；原自用 `production`／`https://ai.shui.click` 未执行发布、配置、数据或 DNS 变更。根域名来源确认及采购边界见[本需求 V1.1](docs/requirements/2026-10-27-aws-tokyo-public/README.md)。
+- 用户在本聊天精确确认版本 `2026.10.27.4`、提交 `39af219c330b9348aa7b0d2162e5c7c5336340db` 首发至新来源，回答「确认发布这个版本」；无独立消息 permalink。精确 main [CI 40632891528](https://github.com/zdaiwmm/shui-IM/actions/runs/40632891528) attempt 1 完整成功，包括全部浏览器、通话及同轮双架构镜像。新主机 helper 来自同一提交，安装后三方校验 SHA-256 为 `f88adfedfc7af4b4c014526ff1133e4fc6d4d0fcd893447ad1ea3d110ead3f44`。
+- 第一次固定入口在镜像 ID 比对时失败关闭，尚未启动项目容器、建立数据卷或写入初始化标记。Docker 29 新装的 containerd 存储后端返回 OCI manifest ID `sha256:1eb37f1a8b6c71ad61588926f48258644c157ee84bafb018292daf6087839679`，与 CI 记录的 config ID 不同；归档、版本标签和平台匹配。核验真实空状态后，在部署锁内将失败源保留至 `/opt/quiet-room/failed-initializations/20261028T061747Z-39af219c330b`，仅新空主机切换经典 `overlay2` 并验证配置／重启 Docker。未减弱镜像检查，未删除业务数据；有数据主机不能照搬此恢复步骤。
+- 同一获批 SHA 的一次针对性重试经固定 `publish.mjs --environment tokyo-public --initialize --sha <上述完整SHA>` 取得 `DEPLOY_VERIFIED`。批次 `20261028T063740Z` 是切换前生成的批次标识，容器实际于约 `06:45:48Z` 启动；不是把批次时间当作上线完成时间。AMD64 镜像 ID `sha256:f2f556fcd31e7b20a1383435166239cd6663f419fff729de5fed0b9a5deb5304`，归档 SHA-256 `369c42aabf8c6e771ba1d98889e9d2d18d9af43360905656f49d72606b976a8a`、210172090 字节。首发无前版备份／回滚，不宣称 `ROLLBACK_OK`。
+- 独立 `deploy:readback -- --environment tokyo-public --sha <上述完整SHA>` 于 `2026-10-28T06:52:29.431Z` 取得 `READBACK_OK`，22573ms。实际 SHA、来源、镜像、公开及容器资源一致，应用／备份 running 且 healthy，TURN running（无健康探针），维护门 absent，HTTPS／数据库／存储及新 WebSocket 通过。管理员关闭，通话开启；TURN 运行不等于媒体已验收。此后不再初始化、切换或还原线上数据库。
+- 首份 `2026-10-28T06:45:56.624Z` 快照已复制至维护 Mac 的独立新环境目录，校验校验和与 SQLite 后，在空目录恢复并再次校验成功（`06:55:06.828Z`）。这是一次已验证的离机副本，不能称为自动复制、不可变存储或整站 RTO。新服务器本地备份继续每天运行、保留三个 UTC 日期；原 Mac 备份任务未改。容量与备份新鲜度定时检查、保守产物保留定时器已启用，监督清理实际删除零项，容量检查无问题；未配置外部告警送达渠道。
+- `06:58Z` 的[真实站点 HTTPS 采样](https://api.globalping.io/v1/measurements/272mX3XIfRW2BD5IN00021Ol8)实际 14 个探针（大陆三网 8、海外 6）均为 HTTP 200、证书可信和健康字段通过。大陆 TCP 72–189ms／中位92ms，海外6–259ms／中位174ms；一次采样不证明长期稳定。后台浏览器首页加载成功，未创建真实房间或取得设备媒体权限。
+- 公网强制中继的合成原生媒体测试 UDP、TCP、TLS 均失败；独立认证分配成功，CREATE_PERMISSION 返回403。隔离回归复现 `denied-peer-ip=::` 被 coturn 当作任意地址范围：删除该重复项后公网地址允许，内网／回环／元数据／未指定地址仍拒绝。正在独立修复并补充不受实验室白名单掩盖的回归；当前线上仍为上述获批 SHA，不能把修复草稿写成已上线。真实双设备／跨网络验收与外审仍缺证据。
+- 脱敏回执摘要保存在公共 Git 目录 `quiet-room-deliveries/evidence/aws-tokyo-public-20261028/production-summary.json`，原始独立回读在发布工作树 Git 元数据的 `quiet-room-readback/20261028T065206854Z-39af219c330b-success.json`。本记录使用第二个不含部署配置的工作树维护，文档提交不替换线上应用 SHA。
+
 <a id="release-deploy-efficiency-v1-20261027"></a>
 ## 部署效率 V1：已发布（2026-10-27 20:19）
 

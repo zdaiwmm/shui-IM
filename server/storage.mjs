@@ -86,6 +86,13 @@ export async function createStore({
       PRIMARY KEY(room_id, device_id)
     );
 
+    CREATE TABLE IF NOT EXISTS chat_presence (
+      room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK(role IN ('creator', 'joiner')),
+      last_seen_at INTEGER NOT NULL CHECK(last_seen_at > 0),
+      PRIMARY KEY(room_id, role)
+    );
+
     CREATE TABLE IF NOT EXISTS messages (
       room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
       server_seq INTEGER NOT NULL,
@@ -370,6 +377,12 @@ export async function createStore({
     if(chamberInvitations.exists(roomId))throw new Error('PERSONAL_IDENTITY_REQUIRED');
   }, roomState });
   const statements = {
+    chatLastSeen: db.prepare('SELECT role, last_seen_at FROM chat_presence WHERE room_id = ?'),
+    recordChatPresence: db.prepare(`INSERT INTO chat_presence(room_id, role, last_seen_at)
+      SELECT room_id, role, ? FROM members WHERE room_id = ? AND device_id = ? AND status = 'active'
+      ON CONFLICT(room_id, role) DO UPDATE SET last_seen_at = excluded.last_seen_at
+      WHERE excluded.last_seen_at > chat_presence.last_seen_at
+        AND excluded.last_seen_at - chat_presence.last_seen_at >= ?`),
     insertRoom: db.prepare('INSERT INTO rooms(room_id, access_hash, created_at, protocol) VALUES (?, ?, ?, ?)'),
     insertMember: db.prepare(`INSERT INTO members(
       room_id, device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof, access_hash,
@@ -553,6 +566,19 @@ export async function createStore({
     if (!row || deviceRecoveryPending(roomId, row.device_id)) return null;
     statements.touchMember.run(nowIso(), roomId, row.device_id);
     return getMember(roomId, row.device_id);
+  }
+
+  // Keep one server-observed chat timestamp per participant, never a visit log.
+  // Authentication timestamps also include background requests, so cannot seed it.
+  function chatLastSeen(roomId) {
+    const result = { creator: null, joiner: null };
+    for (const row of statements.chatLastSeen.all(roomId)) result[row.role] = row.last_seen_at;
+    return result;
+  }
+
+  function recordChatPresence(roomId, deviceId, minIntervalMs = 0) {
+    if (deviceRecoveryPending(roomId, deviceId)) return;
+    statements.recordChatPresence.run(Date.now(), roomId, deviceId, minIntervalMs);
   }
 
   function updateMemberCapabilities(roomId, deviceId, capabilities) {
@@ -1655,6 +1681,8 @@ export async function createStore({
 
   return {
     adminData,
+    chatLastSeen,
+    recordChatPresence,
     ownSpaceDirectory,
     ownDeviceAdmission,
     chamberInvitations,

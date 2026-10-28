@@ -353,18 +353,20 @@ export async function startServer(options = {}) {
     return roles;
   }
 
-  // Only the latest transition per role is kept in process memory. Restarting
-  // the service intentionally clears this behavioral metadata.
-  const presenceHistory = new Map();
+  function recordChatPresence(session, minIntervalMs = 0) {
+    if (session?.view !== 'chat') return;
+    try {
+      store.recordChatPresence(session.roomId, session.deviceId, minIntervalMs);
+    } catch {
+      // A failed write must not take down the socket close/pong handlers.
+      // Preserve the last durable observation rather than inventing a new time.
+      console.error('Chat presence persistence failed');
+    }
+  }
+
   function presenceFrame(roomId) {
     const roles = presenceForRoom(roomId);
-    const previous = presenceHistory.get(roomId);
-    const lastSeen = { ...(previous?.lastSeen ?? { creator: null, joiner: null }) };
-    for (const role of ['creator', 'joiner']) {
-      if (previous?.roles[role] && !roles[role]) lastSeen[role] = Date.now();
-    }
-    presenceHistory.set(roomId, { roles, lastSeen });
-    if (presenceHistory.size > 10_000) presenceHistory.delete(presenceHistory.keys().next().value);
+    const lastSeen = store.chatLastSeen(roomId);
     return { type: 'presence', roles, lastSeen };
   }
 
@@ -378,6 +380,7 @@ export async function startServer(options = {}) {
     socketSessions.set(socket, session);
     clientsByRoom.set(session.roomId, clients);
     socket.once('close', (code, reason) => {
+      recordChatPresence(session);
       callService.disconnect(socket, code, reason.toString());
       delete session.callIdentity;
       clients.delete(socket);
@@ -414,7 +417,6 @@ export async function startServer(options = {}) {
     onDelete: async roomId => {
       for (const socket of clientsByRoom.get(roomId) ?? []) socket.close(4403, 'Room removed');
       callService.sweep();
-      presenceHistory.delete(roomId);
       await store.cleanupDeletedRooms();
     } });
   await store.cleanupDeletedRooms();
@@ -1528,7 +1530,10 @@ export async function startServer(options = {}) {
     let frameWindowStartedAt = Date.now();
     let frameCount = 0;
     socket.isAlive = true;
-    socket.on('pong', () => { socket.isAlive = true; });
+    socket.on('pong', () => {
+      socket.isAlive = true;
+      if (socket.readyState === WebSocket.OPEN) recordChatPresence(session, 30_000);
+    });
     const authTimeout = setTimeout(() => socket.close(4401, 'Authentication required'), 5000);
 
     socket.on('message', (raw) => {
@@ -1624,7 +1629,9 @@ export async function startServer(options = {}) {
               return;
             }
             if (session.view !== message.view) {
+              recordChatPresence(session);
               session.view = message.view;
+              recordChatPresence(session);
               broadcastPresence(session.roomId);
             }
             return;
