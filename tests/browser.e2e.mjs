@@ -306,6 +306,9 @@ try {
   });
   await installLegacyCreationFixture(creator);
   await creator.locator('#create-room').click(); await completeSpaceProfile(creator);
+  await creator.locator('.new-protection-choice').waitFor();
+  invariant(await creator.locator('.numeric-password-page').count() === 0, 'Canceled setup silently selected a password');
+  await creator.locator('[data-protection-cancel]').click();
   await creator.locator('[data-device-verify]:not(:disabled)').waitFor();
   invariant((await creator.locator('.form-error').textContent()) === '', 'Closing the passkey dialog left a cancellation message');
   invariant(await creator.locator('#new-passkey-name').count() === 1, 'First-device protection must remain configurable');
