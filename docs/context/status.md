@@ -1,5 +1,9 @@
 # Quiet Room 当前状态
 
+## 新消息与本人设备接入 V2：验收中，未发布（2026-10-28）
+
+[本次需求](../requirements/2026-10-28-chat-entry-device-access/README.md)已获直接实施授权，[PR #461](https://github.com/zdaiwmm/shui-IM/pull/461)包含居中新消息胶囊与锁定避让、接收解除待发网络等待、稳定授权卡片及双密室独立本机接入。实时／补拉计数、卡片／toast、双密室往返和组件定向检查通过；首轮完整门禁的草稿夹具失败及单次修正由需求记录拥有，完整复验与精确CI尚待完成。未合并、未发布，物理iPhone未验证。
+
 ## 浏览器创建密室数量限制 V1：已合并，未发布（2026-10-28）
 
 当前浏览器最多创建3个密室，加入不占名额；原始创建身份核验、同房间去重、移除释放名额和跨标签页保存复核已实施。超限保留来源并显示指定toast；恢复凭证页删去完成三步后显示已设置的说明，原流程保留。Chromium／WebKit创建限制及既有邀请／凭证回归均通过；最终候选 `83ae3085298c2d3473d182abc1be13edb6fc983c` 的[完整PR CI40659338970](https://github.com/zdaiwmm/shui-IM/actions/runs/40659338970) attempt1全部通过，含155文件／1184项测试、87个浏览器入口、通话及双架构镜像，verify成功。[PR #457](https://github.com/zdaiwmm/shui-IM/pull/457)已合并为 `c423647bd17ae85608cf8217a89815c41e8c9ef9`／`2026.10.28.4`；[需求V1](../requirements/2026-10-28-browser-created-room-limit/README.md)持有本地整轮限制与确认边界。未执行生产发布，物理iPhone仍未验证。
