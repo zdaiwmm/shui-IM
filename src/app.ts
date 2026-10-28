@@ -13,7 +13,7 @@ import { ROOM_LINK_TTL_MS, formatRoomLinkRemaining } from './lib/room-link-lifet
 import { privateArchiveRow } from './lib/private-archive-view';
 import { mountArchiveSettings } from './lib/archive-settings';
 import { browserRoomKey, automaticRoomCredential, unlockBrowserRoomKey, clearBrowserRoomKey, protectBrowserRoomKey, unlockBrowserRoomPlatform, removeBrowserRoomProtection } from './lib/browser-room-key';
-import { readRoomProtection, readStoredRoom, deleteNewRoomLocal } from './lib/vault';
+import { readRoomProtection, readStoredRoom, deleteNewRoomLocal, assertRoomCreationCapacity, ROOM_CREATION_LIMIT_MESSAGE } from './lib/vault';
 import { syncRoomArchive, restoreRoomArchive, type PrivateArchiveItem } from './lib/room-archive';
 import { newArchiveKey } from './lib/room-archive-crypto';
 import { isChamberVault } from './lib/chamber-space';
@@ -3271,7 +3271,8 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     if (button) button.disabled = true;
     const timer = window.setTimeout(() => { if (button?.isConnected&&!button.classList.contains('room-creation-indicator')) button.textContent = '创建中…'; }, 300);
     void (async () => {
-      await this.requireBrowserRoomKey();
+      const browserSecret = await this.requireBrowserRoomKey();
+      await assertRoomCreationCapacity(browserSecret, () => !lifetime.signal.aborted && !this.privacyCovered);
       const credential = await automaticRoomCredential();
       if (lifetime.signal.aborted || this.privacyCovered) return;
       const code = origin?.vault.spaceRecoveryCode;
@@ -3296,7 +3297,16 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
         this.newSpaceCollectionCode = code;
         await this.handleCreate(credential, () => !lifetime.signal.aborted && !this.privacyCovered, initialProfile);
       } finally { observer?.disconnect();cover?.remove(); }
-    })().catch(cause => { if (!this.privacyCovered) { if(!this.session&&this.root.querySelector('.room-creation-page'))this.renderFirstRun(null);this.showNotice(cause instanceof Error ? cause.message : '创建失败，请重试', 'error'); } })
+    })().catch(async cause => {
+      if (this.privacyCovered) return;
+      // Another tab may take the final place after the entry check. Reopen the
+      // original authenticated room instead of stranding its user at first run.
+      if (cause instanceof Error && cause.message === ROOM_CREATION_LIMIT_MESSAGE && origin && !this.session && !lifetime.signal.aborted) {
+        try { await this.switchPrivateSpace({ roomId: origin.vault.roomId, localId: vaultSpaceId(origin.stored), name: '密室' }); }
+        catch { if (!this.privacyCovered) this.renderFirstRun(null); }
+      }
+      if (!this.privacyCovered) { if(!this.session&&this.root.querySelector('.room-creation-page'))this.renderFirstRun(null);this.showNotice(cause instanceof Error ? cause.message : '创建失败，请重试', 'error'); }
+    })
       .finally(() => { window.clearTimeout(timer); if (button?.isConnected) { button.disabled = false; button.textContent = '创建聊天密室'; } if (this.spaceCreationAbort === lifetime) this.spaceCreationAbort = null; });
   }
 
@@ -3541,7 +3551,9 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
       identity.mlsPrivatePackage = undefined;
       vault.spaceRecoveryCode = this.newSpaceCollectionCode;
       creation.step('save','正在加密保存密室');
-      const createdSession = await createVault(vault, '', 'platform', platformResult, active);
+      const browserSecret = await browserRoomKey();
+      if (!browserSecret) throw new Error('请先解锁本机');
+      const createdSession = await createVault(vault, '', 'platform', platformResult, active, { browserSecret });
       if (!active()) return;
       if (profile) await rememberLocalSpace(createdSession, this.newSpaceCollectionCode, { roomId: vault.roomId, ...profile });
       if (!active()) return;
