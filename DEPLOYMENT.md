@@ -389,6 +389,17 @@ state. Failure after traffic opens retains the database and is handled like a
 normal post-open failure. Subsequent updates use the normal command without
 `--initialize`, with its prior-release health, backup and rollback requirements.
 
+Docker 29 fresh installations use the containerd image store by default
+([upstream storage documentation](https://docs.docker.com/engine/storage/containerd/)).
+The fixed publisher compares the CI image config ID exactly; a backend returning
+the OCI manifest ID must fail closed. On a proven empty, uninitialized host,
+preserve the failed source and inspect containers, volumes and initialization
+state under the deployment lock before considering a validated switch to the
+classic `overlay2` store. Switching stores hides existing images/containers and
+retains their disk data. Never apply this empty-host recovery to an initialized
+or data-bearing host, bypass the ID comparison, or delete initialization state
+to repeat a deployment. Such hosts require a separately reviewed maintenance plan.
+
 ## First-time `ai.shui.click` provisioning
 
 The canonical origin must be healthy before installing a deployment helper
