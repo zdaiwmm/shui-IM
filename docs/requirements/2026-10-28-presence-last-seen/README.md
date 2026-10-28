@@ -2,7 +2,7 @@
 
 ## 身份与授权
 
-- 阶段：已授权实施，验证与交付进行中；生产发布明确排除。
+- 阶段：代码已合并；本地与 PR 完整验证通过；生产发布明确排除。
 - 规则来源：本机 main `f3c16204b19bfae876af400651461c1849a1f1e6`；基线：已核实 GitHub main 与 origin/main `be615e37bb504a4d15c74c1bfa069b15c7c93ec6`。
 - 分支：`codex/presence-last-seen-20261028`；本任务独占目录：`/Users/zhouding/ss-worktrees/presence-last-seen-20261028`。
 - 用户于 2026-10-28 在本次会话确认：“确认，按 V1 方案实施，保持现有胶囊样式，完成测试并合并，先不发布。”未提供独立消息定位。
@@ -22,8 +22,12 @@
 2. 多设备聚合、非聊天连接、无效状态上报、撤销／恢复暂停、空间隔离与删除边界保持。
 3. 胶囊仍按现有文案显示时间／未知／连接中，现有视觉与动效不变。
 
-定向测试：`tests/presence-persistence.test.ts`、`tests/server.test.ts`、`tests/storage.test.ts`；浏览器：`tests/presence-circuit.e2e.mjs`。最终按跨生命周期变更执行 `npm run check:full`，PR 完整 CI 通过后合并。
+定向测试：`tests/presence-persistence.test.ts`、`tests/server.test.ts`、`tests/storage.test.ts`；浏览器：`tests/presence-circuit.e2e.mjs`。最终按跨生命周期变更执行 `npm run check:full`，完成后通过 PR 完整 CI 合并。
 
 首轮定向测试：新持久化及存储测试通过；已有 server 主流程因新工作树尚未 build、缺少 dist 页面返回 500，属于准备顺序错误。先构建再定向复验，不修改产品断言。
 
-构建后定向复验 3 文件／15 项通过，包含 SIGKILL 后从同一数据库启动新服务进程的持久性验证。WebKit 胶囊定向浏览器测试通过，文档检查通过。最终全量、PR 与合并证据待回填。真机未验证；未发布。材料仅源码及必要文本，无凭据、真实消息、二进制或测试产物。
+构建后定向复验 3 文件／15 项通过，包含 SIGKILL 后从同一数据库启动新服务进程的持久性验证。WebKit 胶囊定向浏览器测试通过，文档检查通过。最终候选 `e39e9fb982d47e4d0d748b1d5b4912c2c27a2cbb` 的干净文件树 `87b52ea6dd242cee524fe5f7d0f98f6abc00c7b6` 本地 `check:full` 通过：155 文件／1184 单元集成测试、86/86 浏览器入口，0 失败／未运行，1773518ms。专用证据入口记录与候选绑定，未将模拟验证记为真机通过。
+
+[PR #448](https://github.com/zdaiwmm/shui-IM/pull/448)已合并为 `2094c62889751fef48490a117eccb963b87b8930`，与上述已验证文件树相同，版本 `2026.10.28.1`。[精确 PR 完整 CI 40645667138](https://github.com/zdaiwmm/shui-IM/actions/runs/40645667138) attempt 1 成功，包含浏览器分片、通话、双架构构建、依赖审计和凭据扫描。合并提交的主线结果由[精确 main CI 40648744613](https://github.com/zdaiwmm/shui-IM/actions/runs/40648744613)独立提供；PR 与本地结果不替代 main CI 或生产证据。
+
+本文档收尾仅更新需求与状态，不修改应用文件。用户明确先不发布，未执行生产预检、切换或回读；真实 iPhone 未新增验证。已经丢失的旧时间仍需该参与者下一次进入聊天后建立。任务工作树和分支保留至后续发布收尾。材料仅源码及必要文本，无凭据、真实消息、二进制或测试产物。
