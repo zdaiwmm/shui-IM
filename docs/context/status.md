@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 东京独立对外环境已首发，通话验收未通过（2026-10-28）
+
+`tokyo-public`／`https://mijiu.cloud` 已按用户精确确认首发应用 `39af219c330b9348aa7b0d2162e5c7c5336340db`／`2026.10.27.4`，完整 CI、固定 `DEPLOY_VERIFIED` 和 `06:52:29Z` 独立 `READBACK_OK` 均通过。应用、备份、HTTPS、资源及新 WebSocket 一致；管理员关闭，TURN 仅确认运行。新 Lightsail 东京 24 美元实例、来源、凭据、数据及备份均独立；原自用 `production`／`ai.shui.click` 未执行变更，下方旧环境发布记录不被新环境 SHA 替代。
+
+首份快照已离机复制并在空目录恢复校验；容量及本地备份新鲜度检查与保守产物保留定时器已启用。14 个大陆／海外探针 HTTPS 采样全通过，但合成强制中继媒体测试失败：已隔离复现 `::` 拒绝项产生拒绝所有地址的问题，修复及其新版本发布尚未完成。单次 Mac 副本不代表持续自动离机备份或不可变存储，外部告警、真实双设备／跨网络及独立外审仍缺证据。[发布记录](../../RELEASING.md#release-aws-tokyo-mijiu-20261028)和[需求 V1.1](../requirements/2026-10-27-aws-tokyo-public/README.md)持有证据及失败恢复过程；对账不再次部署。
+
 ## 最近在线时间 V1：实施与验证中（2026-10-28，未发布）
 
 用户明确授权实施、测试和合并，先不发布。每空间／参与者仅保存最近一次确认聊天在线时间；当前在线状态仍实时计算，胶囊样式不变。范围、取舍与实际验证证据由[需求记录](../requirements/2026-10-28-presence-last-seen/README.md)拥有；此状态不代表已合并或上线。
@@ -63,7 +69,7 @@
 本页是带时间的接手摘要，不是实时监控。历史详情保存在 [发布记录](../../RELEASING.md)、
 对应需求和 Git；[治理前完整状态快照](https://github.com/zdaiwmm/shui-IM/blob/bc329979e232d16a238190bc069eae32a85af4c9/docs/context/status.md)保留原证据和失败历史。
 
-## 最近已验证生产：2026-10-27 20:19
+## 自用环境最近已验证生产：2026-10-27 20:19
 
 - 应用 `11ecacf422e794a102e958ec810ad31afe38c16c`，版本 `2026.10.27.4`；部署效率 [PR #439](https://github.com/zdaiwmm/shui-IM/pull/439)／[PR #440](https://github.com/zdaiwmm/shui-IM/pull/440)及此前审计整改均包含。实际前版 `7516e8e49959f7b24a5bfb305e5aa820191c4931`；后续纯文档 main 不替换线上应用 SHA。
 - 精确 main 完整 CI40499312268 attempt 1、固定只读预检通过。唯一[发布40502197172](https://github.com/zdaiwmm/shui-IM/actions/runs/40502197172)取得 DEPLOY_VERIFIED，请求 `eb95c678-cd59-422d-b2bb-688789ff3820`，批次 `20261027T121607Z`；工作流来源464322d，应用与工作流 SHA 分别核对。
