@@ -2,7 +2,7 @@
 
 ## 2026-10-28 链接预览 V1.1
 
-`tests/link-preview.test.ts` 覆盖网址／中文标点、秘密与能力链接、私网与保留地址、DNS固定及混合回答、重定向、响应体／图片尺寸、超时、并发及认证／来源／频率；`tests/crypto.test.ts` 检查最大文字与有界卡片的密文回读及原 envelope 限额。`tests/link-preview.e2e.mjs` 在Chromium和WebKit的双端真实聊天中验证输入获取、关闭、迟到结果、加载中发送、大图／缩略图、旧端降级、历史不回抓、新标签保留原页及遮蔽／锁定回收，纳入完整浏览器门禁。外部网页返回使用合成fixture，真实公开网页连接另记证据；两者均不等于任意网站兼容或物理iPhone验收。分层结果由[需求记录](docs/requirements/2026-10-28-chat-link-preview/README.md)拥有。
+`tests/link-preview.test.ts` 覆盖网址／中文标点、秘密与能力链接、私网与保留地址、DNS固定及混合回答、重定向、响应体／图片尺寸、超时、并发及认证／来源／频率；`tests/crypto.test.ts` 检查最大文字与有界卡片的密文回读及原 envelope 限额。`tests/link-preview.e2e.mjs` 在Chromium和WebKit的双端真实聊天中验证输入获取、关闭、迟到结果、加载中发送、大图／缩略图、旧端降级、历史不回抓、新标签保留原页及遮蔽／锁定回收，由既有browser主入口顺序执行并纳入完整浏览器门禁。外部网页返回使用合成fixture，真实公开网页连接另记证据；两者均不等于任意网站兼容或物理iPhone验收。分层结果由[需求记录](docs/requirements/2026-10-28-chat-link-preview/README.md)拥有。
 
 ## 2026-10-23 媒体播放与查看器 V1
 

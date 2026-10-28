@@ -1613,3 +1613,7 @@ try {
   await backend.close();
   await rm(dataDir, { recursive: true, force: true });
 }
+
+// Run webpage-preview integration in the established main browser entry.
+// This preserves the operational shard inventory and executes the new coverage sequentially.
+await import('./link-preview.e2e.mjs');

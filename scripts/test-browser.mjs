@@ -11,7 +11,6 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 export const browserGroups = Object.freeze({
   '1': Object.freeze(['tests/browser.e2e.mjs']),
   '2': Object.freeze([
-    'tests/link-preview.e2e.mjs',
     'tests/mobile-debug.e2e.mjs',
     'tests/mobile-safari-feedback.e2e.mjs',
     'tests/mobile-space-voice.e2e.mjs',
