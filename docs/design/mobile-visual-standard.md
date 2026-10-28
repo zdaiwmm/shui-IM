@@ -6,6 +6,10 @@
 
 样例及差异验收复用`tests/chat-bottom-control.e2e.mjs`的真实组件、数量／明暗／视口／键盘及取消检查，`tests/privacy-surface.e2e.mjs`的闲置／硬期限／弹窗归属，`tests/pc-room-access.e2e.mjs`的卡片节点／几何／toast／双密室往返。浏览器、物理iPhone、CI和生产证据分开记录，不以模拟通过推断真机通过。
 
+## 2026-10-28 网页链接预览 V1.1
+
+输入预览沿用连续输入底色与编辑行，网站名13px、标题14px最多两行，关闭／重试至少44px；新增高度交由原布局与键盘控制器。消息卡片宽度最多320px且不超出气泡，内容图保持比例且最高300px，小图66px，标题16px／1.375、摘要14px／1.45最多三行。颜色使用accent、ink、on-accent等现有语义角色，链接带下划线，键盘焦点可见；不采用截图中Telegram的独立紫色竖线。浅深与大字按共享变量适配，隐私清理同步撤销卡片内存图片。行为与静态对照见[需求V1.1](../requirements/2026-10-28-chat-link-preview/README.md)。本节不把自动浏览器模拟记作物理iPhone通过。
+
 ## 2026-10-28 媒体发送连续性（V1.35）
 
 用户查看V1.1动效后授权正式实施，参数由[DESIGN V1.35](../../DESIGN.md#2026-10-28-媒体发送连续性v135)维护。[需求与验收](../requirements/2026-10-28-media-send-continuity/README.md)记录实现及证据。

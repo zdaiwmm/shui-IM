@@ -301,11 +301,12 @@ export type ReplyReference = {
 };
 
 export type TextPayload = {
-  v: 1 | 2;
+  v: 1 | 2 | 3;
   kind: 'text';
   text: string;
   sentAt: string;
   replyTo?: ReplyReference;
+  preview?: import('./link-preview-data').LinkPreview;
 };
 
 export type ImageManifest = {

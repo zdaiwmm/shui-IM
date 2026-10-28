@@ -56,6 +56,11 @@ final class ChamberApp: NSObject, NSApplicationDelegate, WKNavigationDelegate, W
         guard let url = action.request.url else { decisionHandler(.cancel); return }
         if smoke && url.absoluteString == "about:blank" { decisionHandler(.allow); return }
         if action.shouldPerformDownload && (isHome(url) || url.scheme == "blob") { decisionHandler(.download); return }
+        if action.navigationType == .linkActivated && action.targetFrame == nil && ["https", "http"].contains(url.scheme ?? "") {
+            NSWorkspace.shared.open(url)
+            decisionHandler(.cancel)
+            return
+        }
         if isHome(url) {
             if action.targetFrame == nil { webView.load(action.request); decisionHandler(.cancel) }
             else { decisionHandler(.allow) }

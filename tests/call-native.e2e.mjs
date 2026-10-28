@@ -118,9 +118,17 @@ try {
       await wait(() => [caller, callee].every((controller) => controller.state.remoteStream?.getVideoTracks().some((track) => track.readyState === 'live' && !track.muted)), () => `Initial video tracks missing: ${JSON.stringify([caller, callee].map((controller) => ({ phase: controller.state.phase, localVideo: controller.state.cameraEnabled, remoteVideo: controller.state.remoteVideoEnabled, transceivers: controller.pc?.getTransceivers().map((item) => ({ direction: item.currentDirection, senderKind: item.sender.track?.kind, senderState: item.sender.track?.readyState, receiverKind: item.receiver.track.kind, receiverMuted: item.receiver.track.muted })) })))}`);
       if (relayConfiguration) {
         for (const endpoint of [caller, callee]) {
-          const stats = await endpoint.pc.getStats();
-          const pairs = [...stats.values()].filter(item => item.type === 'candidate-pair' && item.state === 'succeeded' && item.nominated);
-          check(pairs.some(pair => stats.get(pair.localCandidateId)?.candidateType === 'relay' && pair.bytesReceived > 0 && pair.bytesSent > 0), 'Actual encrypted media did not cross an authenticated TURN allocation');
+          // A live remote track can precede the next WebRTC statistics sample.
+          // Keep the real bidirectional relay predicate and the existing 10s budget.
+          const deadline=Date.now()+10000;
+          let relayMedia=false;
+          do {
+            const stats = await endpoint.pc.getStats();
+            const pairs = [...stats.values()].filter(item => item.type === 'candidate-pair' && item.state === 'succeeded' && item.nominated);
+            relayMedia=pairs.some(pair => stats.get(pair.localCandidateId)?.candidateType === 'relay' && pair.bytesReceived > 0 && pair.bytesSent > 0);
+            if(!relayMedia)await new Promise(resolve=>setTimeout(resolve,25));
+          }while(!relayMedia&&Date.now()<deadline);
+          check(relayMedia, 'Actual encrypted media did not cross an authenticated TURN allocation');
         }
       }
       const videoStreams = [caller.state.localStream, callee.state.localStream];

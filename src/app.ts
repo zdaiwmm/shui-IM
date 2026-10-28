@@ -1,3 +1,6 @@
+import { ComposerLinkPreview, renderPreviewCard, concealLinkPreviews, revealLinkPreviews } from './lib/link-preview-ui';
+import { LINK_PREVIEW_CAPABILITY } from './lib/link-preview-data';
+import { renderLinkedText } from './lib/web-links';
 import { uiLiteral, uiTemplate, t, currentLanguage, matchesSourceText } from './lib/language';
 import { renderLanguagePage, renderFeedbackPage } from './lib/language-feedback-ui';
 import { roomBusinessState } from './lib/room-business-state';
@@ -315,7 +318,7 @@ import { recoverFromCloud, syncCloudBackup, fetchRecoveryBundle, cloudBackupPref
 import './backup.css';
 import './motion.css';
 
-const CLIENT_CAPABILITIES = [MESSAGE_WINDOW_CAPABILITY, 'joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'expression-kind-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
+const CLIENT_CAPABILITIES = [LINK_PREVIEW_CAPABILITY, MESSAGE_WINDOW_CAPABILITY, 'joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'expression-kind-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
 const NEW_ROOM_CAPABILITIES = [...CLIENT_CAPABILITIES, 'room-archive-v2'];
 const PASSKEY_UNAVAILABLE_NOTICE = uiLiteral('当前浏览器无法获取到本设备的通行密钥信息，建议使用系统浏览器');
 const SPACE_DEVICE_LIMIT_NOTICE = uiLiteral('该密室接入设备已达上限。');
@@ -573,6 +576,7 @@ export class QuietRoomApp {
   private idleTimer: number | null = null;
   private sendingTextDrafts = new Set<number>();
   private composerDraftVersion = 0;
+  private composerLinkPreview: ComposerLinkPreview | null = null;
   private chatPinnedToBottom = true;
   // User navigation invalidates older asynchronous send positioning. Content
   // may still commit, but only the newest explicit action owns the viewport.
@@ -1405,14 +1409,17 @@ export class QuietRoomApp {
   }
 
   private showPrivacyCurtain(): void {
+    this.composerLinkPreview?.clear();
     document.title = 'Chamber';
     cancelFormInput();
     this.queuedNotice = null;
+    concealLinkPreviews();
     document.documentElement.classList.add('privacy-obscured');
     this.root.setAttribute('aria-hidden', 'true');
   }
 
   private obscurePrivacySurface(): void {
+    this.composerLinkPreview?.clear();
     this.root.dispatchEvent(new Event('tooltipdismiss'));
     this.closeMemePicker();
     this.showPrivacyCurtain();
@@ -1426,6 +1433,7 @@ export class QuietRoomApp {
     document.title = this.session && !this.privacyCovered ? this.currentSpaceName : 'Chamber';
     document.documentElement.classList.remove('privacy-obscured');
     this.root.removeAttribute('aria-hidden');
+    revealLinkPreviews();
   }
 
   private renderCover(preserveFilePicker = false): void {
@@ -4952,6 +4960,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       window.addEventListener('storage',event=>{if(event.key==='quiet-room:private-archive-change')refresh();},{signal:runtime.signal});
       window.addEventListener('quiet-room:archive-progress',()=>{if(runtime.isCurrent())this.updateBackupStatus();},{signal:runtime.signal});
     }
+    this.composerLinkPreview?.destroy();this.composerLinkPreview=null;
     this.composerCheckpoint?.dispose(); this.composerCheckpoint = null;
     const checkpoint = await prepareComposerDraft(session, preferences.composerDraft ?? '', () => runtime.isCurrent());
     if (!runtime.isCurrent()) { checkpoint.dispose(); return; }
@@ -7928,6 +7937,11 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       this.scheduleUiPreferencesSave();
       this.syncComposerMode();
     });
+    this.composerLinkPreview?.destroy();
+    this.composerLinkPreview = new ComposerLinkPreview({input:textarea,host:this.root.querySelector<HTMLElement>('.composer-field')!,
+      roomId:this.session!.vault.roomId,token:this.session!.vault.accessToken,signal:this.runtimeAbort!.signal,
+      active:()=>ownsActiveChat()&&!this.privacyCovered,
+      changed:()=>{if(ownsActiveChat())this.syncChatLayout();}});
     textarea.value = this.uiPreferences.composerDraft ?? '';
     resizeTextarea(false);
     let editorWidth = textarea.clientWidth;
@@ -9155,6 +9169,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   }
 
   private setActiveSurface(surface: 'away' | 'chat', preservePresence = false): boolean {
+    if (surface === 'away') this.composerLinkPreview?.clear();
     if (surface === 'away' && this.activeSurface === 'chat') this.captureChatAnchor(true);
     if (surface !== this.activeSurface) this.chatScrollRevision += 1;
     if (surface === 'away') { this.privateHistory?.pauseMedia();this.privateArchiveRows.clear();this.closeMemePicker(); this.memeCache.view = undefined; }
@@ -10014,6 +10029,10 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           replyTo: this.replyReference(replyTarget),
         }
       : { v: 1, kind: 'text', text, sentAt: new Date().toISOString() };
+    if (payload.kind === 'text' && this.activeDevicesSupport(LINK_PREVIEW_CAPABILITY)) {
+      const preview = this.composerLinkPreview?.snapshot(text);
+      if (preview) { payload.v=3;payload.preview=preview; }
+    }
     this.sendingTextDrafts.add(draftVersion);
     try {
       this.composerCheckpoint?.write(originalDraft);
@@ -10284,10 +10303,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
 
   private expiredOutboxIds = new Set<string>();
   private outboxDrain: Promise<void> | null = null;
+  private outboxResumeRequested = false;
   private async resumeOutbox(): Promise<void> {
-    if (this.outboxDrain) return this.outboxDrain;
+    if (this.outboxDrain) { this.outboxResumeRequested = true; return this.outboxDrain; }
     const session = this.session, epoch = this.runtimeEpoch;
     if (!session || this.connectionState !== 'connected' || this.accessFailure) return;
+    this.outboxResumeRequested = false;
     const operation = (async () => {
       for (const item of [...this.outbox.values()].sort(compareOutboxItems)) {
         if (!this.isRuntimeActive(epoch, session) || this.connectionState !== 'connected') return;
@@ -10299,7 +10320,16 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       }
     })();
     this.outboxDrain = operation;
-    try { await operation; } finally { if (this.outboxDrain === operation) this.outboxDrain = null; }
+    try { await operation; } finally {
+      if (this.outboxDrain === operation) {
+        this.outboxDrain = null;
+        const requested = this.outboxResumeRequested;
+        this.outboxResumeRequested = false;
+        // ACK, re-encryption or enqueue may request a refill before this send
+        // unwinds. Coalesce that request instead of losing its only wake-up.
+        if (requested && this.isRuntimeActive(epoch, session)) void this.resumeOutbox();
+      }
+    }
   }
 
   private sendPendingReceipt(receipt: DeliveryReceipt): void {
@@ -11122,6 +11152,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (media.some(item => item.width !== undefined) && !this.activeDevicesSupport('media-dimensions-v1')) {
       return uiLiteral('请先让所有已授权设备打开一次最新版，再发送带稳定占位的媒体');
     }
+    if(payload.kind==='text' && payload.preview && !this.activeDevicesSupport(LINK_PREVIEW_CAPABILITY)) return uiLiteral('链接预览等待设备更新');
     if (payload.kind === 'message-read' && !this.activeDevicesSupport('message-read-v1')) return uiLiteral('已读同步等待设备更新');
     if (payload.kind === 'media-read' && !this.activeDevicesSupport('media-read-v1')) return uiLiteral('已读同步等待设备更新');
     if (payload.kind === 'reaction' && !this.activeDevicesSupport('message-reactions-v1')) {
@@ -11270,7 +11301,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   private mountMessageActions(article: HTMLElement, message: DecryptedMessage): void {
     article.addEventListener('selectstart', event => { if (!matchMedia('(any-pointer: fine)').matches && !article.classList.contains('is-selecting-text')) event.preventDefault(); });
     article.addEventListener('dragstart', event => { if (!article.classList.contains('is-selecting-text')) event.preventDefault(); });
-    article.addEventListener('contextmenu', event => { if (!article.classList.contains('is-selecting-text')) event.preventDefault(); });
+    article.addEventListener('contextmenu', event => { if (!(event.target instanceof Element && event.target.closest('a')) && !article.classList.contains('is-selecting-text')) event.preventDefault(); });
     article.addEventListener('click', event => {
       // A completed hold on the voice play control may be followed by a
       // synthesized click. Consume only that click so opening Delete never
@@ -11300,7 +11331,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       const insideVoicePlayer = Boolean(target?.closest('.voice-player'));
       const excludedButton = target?.closest(insideVoicePlayer
         ? 'button:not(.voice-control)'
-        : 'input, button:not(.image-preview):not(.album-cell):not(.file-attachment):not(.voice-control)');
+        : 'a, input, button:not(.image-preview):not(.album-cell):not(.file-attachment):not(.voice-control)');
       if (event.button !== 0 || event.pointerType === 'mouse' || excludedButton) return;
       this.cancelMessageHold();
       this.messageHoldStart = { x: event.clientX, y: event.clientY };
@@ -11321,6 +11352,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       article.addEventListener(eventName, () => this.cancelMessageHold());
     }
     article.addEventListener('contextmenu', (event) => {
+      if(event.target instanceof Element && event.target.closest('a'))return;
       selectImage(event.target);
       if (article.classList.contains('is-selecting-text')) return;
       event.preventDefault();
@@ -11360,7 +11392,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           && Number.isSafeInteger(current.seq) && current.seq > 0 && current.seq < Number.MAX_SAFE_INTEGER;
       },
       exclude: target => target instanceof Element && Boolean(target.closest(
-        'input, textarea, audio, video, .message-reactions, .message-reply-quote, button:not(.image-preview):not(.album-cell):not(.file-attachment)',
+        'a, input, textarea, audio, video, .message-reactions, .message-reply-quote, button:not(.image-preview):not(.album-cell):not(.file-attachment)',
       )),
       maxOffset: () => replySwipeMaxOffset(layoutViewport()?.width ?? window.innerWidth),
       currentOffset: () => swipeOffset,
@@ -11869,7 +11901,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (selected) {
       const text = document.createElement('p');
       text.className = 'message-text';
-      text.textContent = selected.value;
+      renderLinkedText(text, selected.value);
       selected.replaceWith(text);
     }
     article?.classList.remove('is-selecting-text');
@@ -12543,8 +12575,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       bubble.classList.add('text-bubble');
       const text = document.createElement('p');
       text.className = 'message-text';
-      text.textContent = message.payload.text;
+      renderLinkedText(text, message.payload.text);
       bubble.append(text);
+      if(message.payload.preview) {
+        bubble.classList.add('link-preview-bubble');
+        bubble.append(renderPreviewCard(message.payload.preview,this.runtimeAbort?.signal ?? AbortSignal.abort()));
+      }
     } else if (message.payload.kind === 'audio') {
       bubble.classList.add('voice-bubble');
       const payload = message.payload;
@@ -16998,6 +17034,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   }
 
   private cleanupRuntime(preserveFilePicker = false, preserveIdle = false, preserveCreation?:AbortController): void {
+    this.composerLinkPreview?.destroy();this.composerLinkPreview=null;
     this.ownDeviceInvite=null;this.ownDeviceAdmissionPolling?.abort();this.archiveRepairPolling?.abort();
     document.title = 'Chamber';
     const finalAnchor = this.captureChatAnchor(false);
@@ -17090,6 +17127,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     this.runtimeAbort?.abort();
     this.runtimeAbort = null;
     this.outboxDrain = null;
+    this.outboxResumeRequested = false;
     this.imageLoadStatus.clear();
     this.gesturePad?.destroy();
     this.gesturePad = null;
