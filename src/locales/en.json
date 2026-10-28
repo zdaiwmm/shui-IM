@@ -3122,5 +3122,7 @@
   "管理员密码须为 16–256 个字符": "The administrator password must be 16–256 characters.",
   "没有可入库的资源，请重试或选择其他资源": "No resource in the library, try again or select other resources.",
   "密码或动态验证码不正确，已使用的动态码不能重复使用": "The password or dynamic verification code is incorrect, the used dynamic code cannot be repeated.",
-  "操作可能已完成，但审计记录失败。请刷新确认结果，不要重复提交。": "The operation may have been completed, but the audit record fails. update confirm results and don’t repeat submission."
+  "操作可能已完成，但审计记录失败。请刷新确认结果，不要重复提交。": "The operation may have been completed, but the audit record fails. update confirm results and don’t repeat submission.",
+  "凭证密码仅用于本浏览器加密，不上传服务器。": "The credential password encrypts data only in this browser and is never uploaded to the server.",
+  "密室数量已达上限，如需更多请联系客服": "Room limit reached. Contact support if you need more rooms."
 }

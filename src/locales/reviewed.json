@@ -91,7 +91,9 @@
     "张 ·": "images ·",
     "项": "items",
     "赞": "Like",
-    "已选择": "Selected"
+    "已选择": "Selected",
+    "凭证密码仅用于本浏览器加密，不上传服务器。": "The credential password encrypts data only in this browser and is never uploaded to the server.",
+    "密室数量已达上限，如需更多请联系客服": "Room limit reached. Contact support if you need more rooms."
   },
   "zh-Hant": {
     "语言 / Language": "語言 / Language",
@@ -116,7 +118,9 @@
     "在线状态样式": "線上狀態樣式",
     "隐私保护": "隱私保護",
     "密室与设备": "密室與裝置",
-    "备份与恢复": "備份與復原"
+    "备份与恢复": "備份與復原",
+    "凭证密码仅用于本浏览器加密，不上传服务器。": "憑證密碼僅用於本瀏覽器加密，不上傳伺服器。",
+    "密室数量已达上限，如需更多请联系客服": "密室數量已達上限，如需更多請聯絡客服"
   },
   "es": {
     "语言 / Language": "Idioma / Language",
@@ -174,7 +178,9 @@
     "项": "elementos",
     "个": "elementos",
     "赞": "Me gusta",
-    "已选择": "Seleccionado"
+    "已选择": "Seleccionado",
+    "凭证密码仅用于本浏览器加密，不上传服务器。": "La contraseña de la credencial solo cifra los datos en este navegador y no se sube al servidor.",
+    "密室数量已达上限，如需更多请联系客服": "Se ha alcanzado el límite de salas. Contacta con soporte si necesitas más."
   },
   "fr": {
     "语言 / Language": "Langue / Language",
@@ -232,7 +238,9 @@
     "项": "éléments",
     "个": "éléments",
     "赞": "J’aime",
-    "已选择": "Sélectionné"
+    "已选择": "Sélectionné",
+    "凭证密码仅用于本浏览器加密，不上传服务器。": "Le mot de passe du justificatif chiffre les données uniquement dans ce navigateur et reste hors du serveur.",
+    "密室数量已达上限，如需更多请联系客服": "Limite de salons atteinte. Contactez le support pour en obtenir davantage."
   },
   "de": {
     "语言 / Language": "Sprache / Language",
@@ -290,7 +298,9 @@
     "项": "Einträge",
     "个": "Einträge",
     "赞": "Gefällt mir",
-    "已选择": "Ausgewählt"
+    "已选择": "Ausgewählt",
+    "凭证密码仅用于本浏览器加密，不上传服务器。": "Das Passwort verschlüsselt Daten nur in diesem Browser und wird nicht auf den Server hochgeladen.",
+    "密室数量已达上限，如需更多请联系客服": "Raumlimit erreicht. Wende dich an den Support, wenn du weitere Räume benötigst."
   },
   "pt": {
     "语言 / Language": "Idioma / Language",
@@ -348,7 +358,9 @@
     "项": "itens",
     "个": "itens",
     "赞": "Gostar",
-    "已选择": "Selecionado"
+    "已选择": "Selecionado",
+    "凭证密码仅用于本浏览器加密，不上传服务器。": "A senha da credencial criptografa os dados apenas neste navegador e não é enviada ao servidor.",
+    "密室数量已达上限，如需更多请联系客服": "Limite de salas atingido. Entre em contato com o suporte se precisar de mais salas."
   },
   "ru": {
     "语言 / Language": "Язык / Language",
@@ -406,7 +418,9 @@
     "项": "элементов",
     "个": "элементов",
     "赞": "Нравится",
-    "已选择": "Выбрано"
+    "已选择": "Выбрано",
+    "凭证密码仅用于本浏览器加密，不上传服务器。": "Пароль учётных данных шифрует данные только в этом браузере и не передаётся на сервер.",
+    "密室数量已达上限，如需更多请联系客服": "Достигнут лимит комнат. Если нужно больше комнат, обратитесь в поддержку."
   },
   "ar": {
     "语言 / Language": "اللغة / Language",
@@ -464,7 +478,9 @@
     "项": "عناصر",
     "个": "عناصر",
     "赞": "إعجاب",
-    "已选择": "تم اختيار"
+    "已选择": "تم اختيار",
+    "凭证密码仅用于本浏览器加密，不上传服务器。": "تُستخدم كلمة مرور بيانات الاعتماد لتشفير البيانات في هذا المتصفح فقط، ولا تُرسل إلى الخادم.",
+    "密室数量已达上限，如需更多请联系客服": "تم بلوغ الحد الأقصى للغرف. تواصل مع الدعم إذا كنت بحاجة إلى المزيد."
   },
   "ja": {
     "语言 / Language": "言語 / Language",
@@ -522,7 +538,9 @@
     "项": "件",
     "个": "件",
     "赞": "いいね",
-    "已选择": "選択済み"
+    "已选择": "選択済み",
+    "凭证密码仅用于本浏览器加密，不上传服务器。": "認証情報のパスワードはこのブラウザ内での暗号化にのみ使用され、サーバーには送信されません。",
+    "密室数量已达上限，如需更多请联系客服": "ルーム数の上限に達しました。追加が必要な場合はサポートにお問い合わせください。"
   },
   "hi": {
     "语言 / Language": "भाषा / Language",
@@ -580,6 +598,8 @@
     "项": "आइटम",
     "个": "आइटम",
     "赞": "पसंद",
-    "已选择": "चयनित"
+    "已选择": "चयनित",
+    "凭证密码仅用于本浏览器加密，不上传服务器。": "क्रेडेंशियल पासवर्ड केवल इस ब्राउज़र में डेटा एन्क्रिप्ट करता है और सर्वर पर अपलोड नहीं होता।",
+    "密室数量已达上限，如需更多请联系客服": "कमरों की सीमा पूरी हो गई है। अधिक कमरों के लिए सहायता से संपर्क करें।"
   }
 }

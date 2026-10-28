@@ -103,7 +103,20 @@ try {
     if(queued.length!==130 || !queued.some(item=>!item.envelope && item.intent))throw new Error('Boundary intents were not durably saved');
   });
   await b.goto('about:blank'); await contextB.setOffline(false); await b.goto(origin); await ready(b);
-  await b.waitForFunction(()=>auditApp.outbox.size===0,undefined,{timeout:90000});
+  try {
+    await b.waitForFunction(()=>auditApp.outbox.size===0,undefined,{timeout:90000});
+  } catch (error) {
+    // Synthetic fixture metadata only: no credentials, payloads or ciphertext.
+    console.error('OFFLINE_WINDOW_TIMEOUT', JSON.stringify(await b.evaluate(() => ({
+      queued: auditApp.outbox.size, sending: auditApp.sending.size, draining: !!auditApp.outboxDrain,
+      retries: auditApp.retryTimers.size, connection: auditApp.connectionState,
+      covered: auditApp.privacyCovered, errors: [...auditApp.pending.values()].filter(x => x.status === 'failed').length,
+      lastSeq: auditApp.session?.vault.lastSeq, window: auditApp.session?.vault.mls?.window,
+      lastEventSeq: auditApp.session?.vault.mls?.lastEventSeq,
+      intentCount: [...auditApp.outbox.values()].filter(x => !x.envelope).length,
+    }))));
+    throw error;
+  }
   await a.getByText('WINDOW offline 129',{exact:true}).waitFor({timeout:30000});
   const received=await a.evaluate(()=>[...auditApp.messages.values()].filter(m=>m.payload.kind==='text'&&m.payload.text.startsWith('WINDOW offline')).map(m=>m.payload.text));
   assert.equal(received.length,130); assert.deepEqual(received,Array.from({length:130},(_,i)=>`WINDOW offline ${i}`));
