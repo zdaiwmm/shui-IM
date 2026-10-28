@@ -1,5 +1,11 @@
 # Quiet Room P1 移动端视觉规范
 
+## 2026-10-28 新消息胶囊与锁定避让（V1.36）
+
+[用户确认V2](../requirements/2026-10-28-chat-entry-device-access/README.md)直接实施。参数由[DESIGN V1.36](../../DESIGN.md#2026-10-28-新消息与锁定提示v136)拥有：新消息28px表面／44px热区在输入栏上方8px、屏幕居中；锁定提示在其热区上方8px。无新消息保留原右侧回到底部入口。两个提示不占文档流，键盘和视口仍使用原聊天控制器，延期不移动阅读锚点。原设备卡片稳定复用，三台上限错误用toast。
+
+样例及差异验收复用`tests/chat-bottom-control.e2e.mjs`的真实组件、数量／明暗／视口／键盘及取消检查，`tests/privacy-surface.e2e.mjs`的闲置／硬期限／弹窗归属，`tests/pc-room-access.e2e.mjs`的卡片节点／几何／toast／双密室往返。浏览器、物理iPhone、CI和生产证据分开记录，不以模拟通过推断真机通过。
+
 ## 2026-10-28 媒体发送连续性（V1.35）
 
 用户查看V1.1动效后授权正式实施，参数由[DESIGN V1.35](../../DESIGN.md#2026-10-28-媒体发送连续性v135)维护。[需求与验收](../requirements/2026-10-28-media-send-continuity/README.md)记录实现及证据。

@@ -245,7 +245,15 @@ export async function auditUiDetails(page, out) {
   await setup('tools');await page.locator('#message-input').fill('第一行\n第二行\n第三行');
   const transitions=await page.locator('.composer-input-stack,.composer-field').evaluateAll(es=>es.map(e=>({property:getComputedStyle(e).transitionProperty,duration:getComputedStyle(e).transitionDuration})));
   assert.ok(transitions.every(value=>value.duration==='0s'||!/(margin|padding|width|height|all)/.test(value.property)),`layout animation: ${JSON.stringify(transitions)}`);
-  await page.evaluate(()=>window.app.lockNow());
-  assert.equal(await page.locator('.chat-shell,.message-actions,.password-sheet,.space-drawer').count(),0,'privacy cleanup stays immediate');
+  // Cover-off may asynchronously open a fresh password gateway. Sample the
+  // private teardown in the locking turn, before that legitimate new page.
+  const cleared=await page.evaluate(()=>{
+    window.app.lockNow();
+    return {nodes:document.querySelectorAll('.chat-shell,.message-actions,.password-sheet,.space-drawer').length,session:!!window.app.session};
+  });
+  assert.deepEqual(cleared,{nodes:0,session:false},'privacy cleanup stays immediate');
+  await page.locator('.password-return').waitFor();
+  assert.equal(await page.locator('.chat-shell,.message-actions,.space-drawer,.password-operation-sheet').count(),0,'new unlock page must not restore private UI');
+  assert.equal(await page.evaluate(()=>!!window.app.session),false,'new unlock page must remain unauthenticated');
   console.log(`PASS UI detail audit: ${checked} actual page/dialog/menu presentations, four palettes, reduced motion, menu exit and composer geometry.`);
 }

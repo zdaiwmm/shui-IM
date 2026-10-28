@@ -3117,5 +3117,6 @@
   "先查看曾保存恢复码的密码管理器、文件或纸质副本。若仍有正常入口，请先解锁并同步原密室；任一方缺少恢复码，无法共同恢复。": "Siehe zuerst die Passwortverwalter, Datei oder Papierkopie, die wiederherstellungscode gespeichert wurden.Wenn es noch eine normale Eingabe gibt, öffnen Sie die Original-Passwort-Kamera und synchronisieren Sie sie zuerst; jede Partei fehlt auf der Wiederherstellungcode und kann nicht gemeinsam wiederherstellen.",
   "本地文件需自行保存，新聊天要重新导出。云备份默认关闭，开启后只在页面打开、已解锁且联网时运行；关闭不删除已有云备份。缺少的原文件不会凭空恢复。": "Die lokalen Dateien müssen selbst gespeichert werden, die neuen Chats müssen neu exportiert werden.Cloud-Backup ist vorgehend geschlossen, nur dann, wenn die Seite geöffnet, abgeschlossen und verknüpft wird, nachdem sie geöffnt wird; Schließen und löschen Sie keine vorhandene Cloud-Barkup.",
   "凭证密码仅用于本浏览器加密，不上传服务器。": "Das Passwort verschlüsselt Daten nur in diesem Browser und wird nicht auf den Server hochgeladen.",
-  "密室数量已达上限，如需更多请联系客服": "Raumlimit erreicht. Wende dich an den Support, wenn du weitere Räume benötigst."
+  "密室数量已达上限，如需更多请联系客服": "Raumlimit erreicht. Wende dich an den Support, wenn du weitere Räume benötigst.",
+  "条新消息": "neue Nachrichten"
 }

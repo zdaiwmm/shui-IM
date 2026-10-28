@@ -1,5 +1,9 @@
 # Quiet Room 当前状态
 
+## 新消息与本人设备接入 V2：验证收尾，未合并／未发布（2026-10-28）
+
+[本次需求](../requirements/2026-10-28-chat-entry-device-access/README.md)已获直接实施及恢复阻塞续修授权，[PR #461](https://github.com/zdaiwmm/shui-IM/pull/461)包含居中新消息胶囊与锁定避让、接收解除待发网络等待、稳定授权卡片、双密室独立接入及拒绝后旧密文重发循环修复。组合版本2026.10.28.7的bf8b应用源1198项及[完整CI40680343706](https://github.com/zdaiwmm/shui-IM/actions/runs/40680343706)通过，Linux129条恢复为195次发送、待发0；本地第一分片43项通过，第二分片36项后出现新认证页被误计为残留的夹具问题。仅修夹具采样及文档，待剩余9项与最终精确CI，未合并、未发布，物理iPhone未验证。需求记录拥有历史失败与限制。
+
 ## 媒体发送连续性 V1.1：已合并，未发布（2026-10-28）
 
 上传至正式消息复用同一行、媒体外框与固定状态槽；时间在服务确认后才显示，表情底行保持24px，聊天接管发送后清除表情面板的重复过程提示。最终源 `b7ba7fc93c9032f7b22daddc8cb0307e4757be13` 的本地完整1192项测试、88个浏览器入口及[完整PR CI40673111733](https://github.com/zdaiwmm/shui-IM/actions/runs/40673111733) attempt1通过。[PR #464](https://github.com/zdaiwmm/shui-IM/pull/464)已合并为 `6198839a16c9bc79d7b23da599d13daa952f7d0d`／2026.10.28.6，文件树与验证源一致；本机main已快进，无运行中的本项目局域网服务，真机及生产未验证。[需求记录](../requirements/2026-10-28-media-send-continuity/README.md)拥有确认、原型、资源失败后一次有界重跑及正式交付证据。

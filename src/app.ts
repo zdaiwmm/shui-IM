@@ -3974,6 +3974,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
 
   private waitingOwnRoom:string|null=null;
   private ownRoomAccessBusy=false;
+  private ownRoomAccessPaintVersion=0;
   private async renderOwnRoomAccess(space:PrivateSpace):Promise<void> {
     const session=this.session,signal=this.runtimeAbort?.signal,epoch=this.runtimeEpoch;
     if(!session||!signal||this.privacyCovered)return;
@@ -4004,8 +4005,9 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   private async paintOwnRoomAccess():Promise<void> {
     const session=this.session,signal=this.runtimeAbort?.signal,epoch=this.runtimeEpoch;
     if(!session?.vault.roomArchiveV2||!signal||this.privacyCovered)return;
+    const version=++this.ownRoomAccessPaintVersion;
     const messages=await ownRoomAccessMessages(session);
-    if(!this.isRuntimeActive(epoch,session))return;
+    if(!this.isRuntimeActive(epoch,session)||version!==this.ownRoomAccessPaintVersion)return;
     const waiting=this.root.querySelector('.own-room-access-shell');
     if(waiting&&this.waitingOwnRoom){
       const request=[...messages].reverse().find(m=>m.roomId===this.waitingOwnRoom);
@@ -4013,7 +4015,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       waiting.setAttribute('data-room-stage',roomBusinessState({catalogOnly:true,request}).stage);
       if(request?.status==='approved'&&request.invite&&!this.ownRoomAccessBusy){
         this.ownRoomAccessBusy=true;
-        try{const invite=request.invite;this.waitingOwnRoom=null;if(await this.leaveSpace())this.renderJoinDevice(invite);}
+        try{const invite=request.invite;this.waitingOwnRoom=null;await this.beginNewSpace({kind:'device',invite});}
         finally{this.ownRoomAccessBusy=false;}return;
       }
       if(status){const business=roomBusinessState({catalogOnly:true,request});waiting.setAttribute('data-room-stage',business.stage);status.textContent=request?business.label:uiLiteral('申请已结束，请重新申请。');(waiting.querySelector('[data-own-room-retry]') as HTMLButtonElement).hidden=Boolean(request&&request.status!=='rejected');}
@@ -4024,13 +4026,13 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     for(const request of messages.filter(m=>m.status==='requested'&&m.roomId===session.vault.roomId)){
       if(list.querySelector(`[data-own-authorization="${request.id}"]`))continue;
       const card=document.createElement('section');card.className='room-connection-card own-device-authorization';card.dataset.ownAuthorization=request.id;
-      card.innerHTML=uiTemplate`<h2>你的新设备申请进入</h2><p>${accessEscape(request.deviceName)}</p><p>允许后，这台设备可收发本密室的新消息。加入前的记录不会同步。</p><p class="form-error" role="status"></p><div class="own-device-actions"><button class="secondary-button" data-reject>拒绝</button><button class="primary-button" data-approve>允许进入</button></div>`;
+      card.innerHTML=uiTemplate`<h2>你的新设备申请进入</h2><p>${accessEscape(request.deviceName)}</p><p>允许后，这台设备可收发本密室的新消息。加入前的记录不会同步。</p><div class="own-device-actions"><button class="secondary-button" data-reject>拒绝</button><button class="primary-button" data-approve>允许进入</button></div>`;
       const follow=this.chatPinnedToBottom&&this.chatScrollIntent!=='up';
       list.append(card);
       if(follow)this.scrollChatToBottom();else this.updateChatBottomControl();
       for(const [selector,approved] of [['[data-reject]',false],['[data-approve]',true]] as const)card.querySelector(selector)!.addEventListener('click',()=>{
         if(this.ownRoomAccessBusy)return;this.ownRoomAccessBusy=true;card.querySelectorAll('button').forEach(b=>b.disabled=true);
-        void this.answerOwnRoomAccess(request,approved,session,signal).then(()=>{if(this.isRuntimeActive(epoch,session)){card.remove();this.showNotice(approved?uiLiteral('已授权，等待新设备完成连接'):uiLiteral('已拒绝本次申请'));}}).catch(cause=>{if(card.isConnected){card.querySelector('.form-error')!.textContent=cause instanceof Error?t(cause.message):uiLiteral('操作未完成，请重试');card.querySelectorAll('button').forEach(b=>b.disabled=false);}}).finally(()=>{this.ownRoomAccessBusy=false;});
+        void this.answerOwnRoomAccess(request,approved,session,signal).then(()=>{if(this.isRuntimeActive(epoch,session)){this.ownRoomAccessPaintVersion++;card.remove();this.showNotice(approved?uiLiteral('已授权，等待新设备完成连接'):uiLiteral('已拒绝本次申请'));}}).catch(cause=>{if(card.isConnected&&this.isRuntimeActive(epoch,session)){this.showNotice(cause instanceof Error?t(cause.message):uiLiteral('操作未完成，请重试'),'error');card.querySelectorAll('button').forEach(b=>b.disabled=false);}}).finally(()=>{this.ownRoomAccessBusy=false;});
       });
     }
   }
@@ -5826,10 +5828,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
             try {
               await this.membershipChain.catch(() => undefined);
               await this.reencryptOutboxItem(clientMsgId, rejectedEnvelope, code === 'MLS_UPDATE_REQUIRED');
-              return;
+              return true;
             } catch (cause) {
+              if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return false;
               this.operationalError(cause, uiLiteral('设备状态已更新，但待发消息重新加密失败'));
-              return;
+              this.scheduleRetry(clientMsgId);
+              return false;
             }
           }
           this.showNotice(message, 'error');
@@ -5944,7 +5948,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       }
       await this.drainServerQueue();
       await this.drainReceiptQueue();
-      await this.resumeOutbox();
+      // The authenticated membership barrier must not wait for an outgoing
+      // intent's HTTP window refresh. Incoming sync/message frames need this
+      // barrier too; the durable outbox already owns its own ordering/lease.
+      void this.resumeOutbox().catch(cause => {
+        if (this.isRuntimeActive(epoch, session)) this.operationalError(cause);
+      });
       await this.resendPendingReceipts();
       this.updatePeerStatus();
     } catch (cause) {
@@ -6202,7 +6211,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           }
           if (!this.isRuntimeActive(epoch, session)) return;
           this.messages.set(message.seq, message);
-          if (!ownRole && this.livePresenceMessages.has(serverMessage) && this.activeSurface === 'chat'
+          if (!ownRole && this.activeSurface === 'chat'
             && !this.chatPinnedToBottom && ['text', 'image', 'image-album', 'file', 'audio'].includes(payload.kind)) {
             this.chatNewMessageIds.add(message.clientMsgId);
           }
@@ -7425,7 +7434,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           `}</ol></details>` : ''}</section>
         <form class="composer" id="composer" autocomplete="off">
           ${(isChamberVault(this.session.vault) || Boolean(this.session.vault.roomArchiveV2)) && !cryptoReady ? `<p class="chamber-waiting-footer" role="status">${this.session.vault.role === 'creator' ? this.session.vault.roomArchiveV2 ? uiLiteral('对方进入聊天页面后，即可开始聊天。') : uiLiteral('对方完成验证码确认后，即可开始聊天。') : uiLiteral('正在建立加密连接，请等待邀请方进入聊天页面。')}</p>` : ''}
-          <button class="chat-bottom-control" id="chat-bottom-control" type="button" aria-label="回到最新消息" aria-hidden="true" tabindex="-1"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
+          <button class="chat-bottom-control" id="chat-bottom-control" type="button" aria-label="回到最新消息" aria-hidden="true" tabindex="-1"><span class="chat-bottom-capsule"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg><span class="chat-new-count" hidden></span></span></button>
           <input id="image-input" type="file" accept="image/*,video/*" multiple ${cryptoReady ? '' : 'disabled'} hidden />
           <input id="camera-input" type="file" accept="image/*,video/*" capture="environment" ${cryptoReady ? '' : 'disabled'} hidden />
           <input id="file-input" type="file" multiple ${cryptoReady ? '' : 'disabled'} hidden />
@@ -9490,24 +9499,36 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       this.setChatScrollTop(0); this.updateChatBottomControl(); return;
     }
     this.chatPinnedToBottom = true;
-    this.chatNewMessageIds.clear();
     this.alignChatBottom();
     this.updateChatBottomControl();
     if (this.chatBottomFollowPending) this.trackChatViewport();
   }
 
   private updateChatBottomControl(): void {
-    if (this.chatPinnedToBottom && this.chatScrollIntent !== 'up') this.chatNewMessageIds.clear();
+    if (this.chatNewMessageIds.size && this.chatPinnedToBottom && this.chatScrollIntent !== 'up'
+      && !this.historyHasNewer && !this.chatViewportMotion?.moving && !this.privacyCovered
+      && !document.hidden && this.activeSurface === 'chat') {
+      const latest = this.chatLatestTimelineRow(), composer = this.chatLayoutElements?.composer;
+      if (latest && composer && latest.getBoundingClientRect().bottom <= this.chatComposerLayoutTop(composer) - 4) this.chatNewMessageIds.clear();
+    }
     const bottom = this.root.querySelector<HTMLButtonElement>('#chat-bottom-control');
     if (bottom) {
       const count = this.chatNewMessageIds.size;
-      let badge = bottom.querySelector<HTMLElement>('.chat-new-count');
-      if (count && !badge) { badge = document.createElement('span'); badge.className = 'chat-new-count'; bottom.append(badge); }
-      if (badge) { badge.hidden = count === 0; badge.textContent = count > 99 ? '99+' : String(count); }
+      const badge = bottom.querySelector<HTMLElement>('.chat-new-count');
+      bottom.dataset.newMessages = String(count > 0);
+      const owner = bottom.offsetParent;
+      if (count && owner instanceof HTMLElement) {
+        const viewport = layoutViewport();
+        const center = (viewport?.offsetLeft ?? 0) + (viewport?.width ?? innerWidth) / 2;
+        const left = `${center - owner.getBoundingClientRect().left - owner.clientLeft}px`;
+        if (bottom.style.left !== left) bottom.style.left = left;
+      } else bottom.style.removeProperty('left');
+      if (badge) { badge.hidden = count === 0; badge.textContent = count ? uiTemplate`${count > 99 ? '99+' : count} 条新消息` : ''; }
       bottom.setAttribute('aria-label', count ? uiTemplate`${count} 条新消息，回到最新消息` : uiLiteral('回到最新消息'));
     }
     if (this.chatViewportMotion?.moving) return;
     this.chatBottomControl?.update();
+    if (!this.idlePrompt.element.hidden) this.updateIdlePrompt();
   }
 
   private async prepareChatBottomScroll(list: HTMLElement, signal: AbortSignal, scrollRevision?: number): Promise<boolean> {
@@ -11992,12 +12013,28 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     timer = window.setInterval(paint, 250); paint(); sheet.querySelectorAll('[data-info-done]').forEach(button => button.addEventListener('click', () => dialog.close()));
   }
 
+  private reconcileChatRows(list: HTMLElement, rows: HTMLElement[]): void {
+    let next = list.firstElementChild;
+    for (const row of rows) {
+      if (row === next) next = next.nextElementSibling;
+      else list.insertBefore(row, next);
+    }
+    while (next) {
+      const stale = next;
+      next = next.nextElementSibling;
+      stale.remove();
+    }
+  }
+
   private renderMessages({ scroll = 'preserve' }: { scroll?: 'preserve' | 'position' | 'bottom' | 'send' | 'restore' } = {}): void {
     const list = this.root.querySelector<HTMLElement>('#message-list');
     // Navigation retains an inert chat for its exit animation. Late socket
     // acknowledgements still update the model, but only the active chat may
     // consume the saved reading position or change document scrolling.
     if (!list || !this.session || this.activeSurface !== 'chat' || list.closest('.page-transition-outgoing')) return;
+    // Locally authenticated system cards belong to the same stable timeline,
+    // but never participate in message read cursors or message animations.
+    const authorizationCards = [...list.querySelectorAll<HTMLElement>(':scope > [data-own-authorization]')];
     void this.paintOwnRoomAccess().catch(() => undefined);
     const guide = this.root.querySelector<HTMLElement>('.chamber-privacy-guide');
     const continuingMotion = this.chatMessageAnimations.size > 0;
@@ -12082,6 +12119,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
 
 
     const visibleMessageIds = new Set(messages.map(message => message.clientMsgId));
+    for (const id of this.chatNewMessageIds) if (!visibleMessageIds.has(id)) this.chatNewMessageIds.delete(id);
     const openActions = this.root.querySelector<HTMLElement>('.message-actions');
     if (openActions?.dataset.sourceId && !visibleMessageIds.has(openActions.dataset.sourceId)) {
       // A remote tombstone can arrive while the source menu is open. Remove
@@ -12143,12 +12181,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       empty.append(guidance);
       const mountedInvite = list.querySelector<HTMLElement>(':scope > .chamber-invite-hero');
       const preserveInvite = Boolean(mountedInvite && isChamberVault(this.session.vault) && !this.peerHasJoined(this.session));
-      if (guide && !preserveInvite) list.replaceChildren(...(this.peerHasJoined(this.session) ? [guide, ...privateRows, ...(privateRows.length?[]:[empty])] : [empty, guide, ...privateRows]));
+      if (guide && !preserveInvite) this.reconcileChatRows(list, [...(this.peerHasJoined(this.session) ? [guide, ...privateRows, ...(privateRows.length?[]:[empty])] : [empty, guide, ...privateRows]), ...authorizationCards]);
       this.renderedMessages.clear();
       this.renderedMessageOrder = [];
       this.renderedMessageDates.clear();
       this.renderedMessageSeq.clear();
-      if (!preserveInvite && !guide) list.replaceChildren(...privateRows,...(privateRows.length?[]:[empty]));
+      if (!preserveInvite && !guide) this.reconcileChatRows(list, [...privateRows,...(privateRows.length?[]:[empty]), ...authorizationCards]);
       this.paintInviteProgress(this.invitationStage);
       this.paintInlineInviteCountdown();
     } else {
@@ -12266,16 +12304,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       }
       // Keep unchanged nodes in place so focus, image decode state, selection
       // and compositing survive incoming messages and delivery receipts.
-      let next = list.firstElementChild;
-      for (const element of timeline) {
-        if (element === next) next = next.nextElementSibling;
-        else list.insertBefore(element, next);
-      }
-      while (next) {
-        const stale = next;
-        next = next.nextElementSibling;
-        stale.remove();
-      }
+      this.reconcileChatRows(list, [...timeline, ...authorizationCards]);
       // Upload tiles participate in scrolling/geometry, never in read cursors.
       for (const [id] of this.mediaUploads) if (!visibleMessageIds.has(id)) sequences.set(id, Number.MAX_SAFE_INTEGER);
       this.renderedMessageOrder = this.mediaUploads.size ? timeline.filter(element => element.classList.contains('message')) : elements;

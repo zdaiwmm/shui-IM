@@ -38,6 +38,9 @@ async function waitForState(page, stage, predicate) {
       inputPresent: Boolean(document.querySelector('#message-input')),
       inputDisabled: document.querySelector('#message-input')?.disabled,
       sending: app.sendingTextDrafts.size, fault: Boolean(window.draftFault?.injected),
+      outbox: app.outbox.size, draining: Boolean(app.outboxDrain),
+      barrierObserved: Boolean(window.durableSend), barrierQueued: app.outbox.has(window.durableSend),
+      barrierFirstKind: window.barrierFirstKind ?? null,
       welcome: Boolean(document.querySelector('#welcome-chat')),
       overlays: document.querySelectorAll('.confirm-overlay').length,
     })).catch(() => ({ unavailable: true })));
@@ -89,13 +92,24 @@ async function barrier(page) {
   await page.evaluate(() => {
     const originalSend = app.sendOutboxItem.bind(app);
     const originalEnqueue = app.enqueuePayload.bind(app);
+    window.durableSend = undefined; window.barrierFirstKind = undefined;
+    let submittedPayload;
     let release;
     const gate = new Promise(resolve => { release = resolve; });
     // Local durable submission now completes independently of network sending.
     // Hold the actual transport boundary and the UI submit continuation, while
     // keeping the real outbox/draft transaction and ratchet untouched.
-    app.sendOutboxItem = async id => { window.durableSend = id; await gate; return originalSend(id); };
-    app.enqueuePayload = async (...args) => { await originalEnqueue(...args); await gate; };
+    // Read/control traffic can legitimately finish reconnecting after the UI
+    // mounts. Gate only this user submission, never a previous control item.
+    app.sendOutboxItem = async id => {
+      const item=app.outbox.get(id);window.barrierFirstKind??=item?.payload.kind;
+      if(item?.payload!==submittedPayload)return originalSend(id);
+      window.durableSend = id; await gate; return originalSend(id);
+    };
+    app.enqueuePayload = async (...args) => {
+      if(args[0].kind!=='text')return originalEnqueue(...args);
+      submittedPayload=args[0];await originalEnqueue(...args);await gate;
+    };
     window.releaseSend = async () => {
       app.sendOutboxItem = originalSend; app.enqueuePayload = originalEnqueue;
       release(); await app.outboxDrain;
