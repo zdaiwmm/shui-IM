@@ -1,5 +1,28 @@
 # Quiet Room 固定发布流程
 
+<a id="release-aws-tokyo-turn-config-20261028"></a>
+## 东京独立通话配置例外已完成（2026-10-28 17:52）
+
+- 用户在本聊天明确回答「确认，仅更新通话配置」，批准配置源 `01a5dfeb42e0b44042d09ba0f03f09fd176c3671` 的独立配置更新例外，只重建东京通话组件，网页保持 `054d868eff8bfc6575721a5e4cd16145864d1362`／`2026.10.28.2`，原自用环境不动。[PR #459](https://github.com/zdaiwmm/shui-IM/pull/459) 的[完整PR CI40663238208](https://github.com/zdaiwmm/shui-IM/actions/runs/40663238208)成功，含NAT持久策略库、十项地址检查、非中继私网UDP拒绝及UDP／TCP加密媒体；已合并为 `5c55a2fdcdf5857aa2041d2752b68b187cddec22`，配置Git blob与获批源相同。后续主线网页功能未部署。
+- 获批 `deploy/turnserver.conf` SHA-256 `a4749ac2ad490f5634368def9daf50e3ee644f1c3775471d689606887e73c167`，仅明确 `userdb=/var/lib/coturn/turndb`。独立root只读副本 `/opt/quiet-room/shared/turnserver-nat-v1.conf` 和 root Compose覆盖 `/opt/quiet-room/shared/turn-nat.override.yaml` 于09:38:24Z生效；未改已发布Git源或网页镜像。仅 `quiet-room-turn` 重建，应用与备份容器ID、完整应用SHA及原策略数据卷保持一致；仅该次获批例外使用单服务配置更新，未再次调用整站发布入口。
+- 启用前已校验realm仅为mijiu.cloud、本机别名为172.26.1.2、UID65534、固定镜像4.18.0和49160–49200中继范围。UFW保护在loopback／established之前，其他本机UDP／TCP目标拒绝；库内用户、管理员和认证密钥表为空，只含realm级本机别名。真实内核及东京临时隔离实验已验证允许中继互通、拒绝其他内网／元数据与本机非中继端口；未放开整个私网。Docker在UFW之后启动，数据库卷保留。
+- 09:43:04Z至09:43:44Z，Mac无头原生浏览器经实际公网中继的UDP／TCP／TLS三条路径全部通过：实际双向加密媒体、语音升级视频、双向初始视频、ICE重启、关摄像头和挂断停止采集。使用合成身份与媒体、进程内信令，不创建真实房间；这不是双方不同接入网络或真实手机验收。
+- 配置后两次独立回读停在公开资源读取，服务器状态与HTTPS健康均通过，失败证据保留；未改超时或断言，未重发。单独逐资源诊断均200；加入只读请求计时日志后，原回读入口按相同10秒单请求阈值、资源摘要与WebSocket断言取得 `READBACK_OK`，09:52:01.401Z开始、19346ms，公开与容器产物一致。未断言已定位前两次中断根因。应用与备份healthy、TURN running／无健康探针、维护门absent，管理员关闭、通话开启。
+- 原应用更新后的08:24:58Z快照已于08:27:38Z离机复制和隔离恢复校验；本次配置操作未重建应用／备份或恢复数据库。容量与备份新鲜度检查无问题，容量／保留／Certbot定时器active。只有已验证Mac副本，没有持续不可变离机存储或外部告警送达保证。
+- 配置、授权、guard、应用回读与媒体脱敏证据位于公共Git目录 `quiet-room-deliveries/evidence/aws-tokyo-turn-policy-20261028/`。最后回读原件为发布工作树Git元数据 `quiet-room-readback/20261028T095201401Z-054d868eff8b-success.json`。未来正常发布必须审阅这项临时覆盖及上一版回退，确认新源含同样DB路径、保留策略卷和UID／端口保护；旧helper不自动继承覆盖，不得直接假定回滚会保留它。详见[运行配置需求](docs/requirements/2026-10-28-turn-nat-runtime/README.md)。活动工作树、依赖及专属回执保留，清理不触发重新发布。
+
+<a id="release-aws-tokyo-turn-policy-20261028"></a>
+## 东京权限修复应用已发布，公网通话待运行配置补齐（2026-10-28 16:25）
+
+- 用户在本聊天对完整提交 `054d868eff8bfc6575721a5e4cd16145864d1362`／`2026.10.28.2` 明确回答「确认，仅更新东京新环境」。确认列明通话权限修复和最近在线时间保存，仅 `tokyo-public`／`https://mijiu.cloud`；原自用环境未操作。精确 [main CI40651713869](https://github.com/zdaiwmm/shui-IM/actions/runs/40651713869) attempt1完整成功，固定核验器通过；[需求记录](docs/requirements/2026-10-28-turn-public-peer-policy/README.md)保留本机超时与 CI 完整绿色的区别。
+- 唯一正常 `publish.mjs --environment tokyo-public --sha <上述完整SHA>` 取得精确 `DEPLOY_VERIFIED`；没有再次初始化。批次 `20261028T081842Z` 是导入镜像前生成的标识，实际容器在约08:24:56Z启动；冷备份 `data-20261028T081842Z-054d868eff8b.tar.gz` 已校验。前版为 `39af219c330b9348aa7b0d2162e5c7c5336340db`，root helper源未变。镜像 linux/amd64 `sha256:c9349ab5394c7756987bf89259020b2772c274e42d3630707f901c323eb4c041`，归档SHA-256 `156b6ea916654c780433a597190f2a8bf105a1e5ca42ddf4c3697263d6c76f41`、210193321字节，绑定上述CI／attempt1。
+- 本次镜像下载538166ms、服务器导入365000ms，服务器全程378000ms，外层合计974472ms；主要耗时在传输，不据此承诺固定速度。main随后推进不改变已确认批次，未带入后续主线网页功能。
+- 独立回读 `2026-10-28T08:25:11.163Z` 开始，9913ms后取得 `READBACK_OK`。完整SHA、来源／镜像、公开及容器资源一致，应用与备份running且healthy，TURN仅running／无健康探针，维护门absent；HTTPS／数据库／存储和新WebSocket通过，管理员关闭、通话开启。
+- 新启动快照 `2026-10-28T08:24:58.615Z` 已复制到维护Mac独立目录，并在空目录恢复与再次校验，于08:27:38.283Z完成，569791字节。私有复制脚本首轮遇到已存在目录，在复制前停止；补充目录归属／非符号链接检查后只重跑复制校验，没有再次部署。该副本及首发副本均保留；仍不是自动或不可变离机存储，也不把局部恢复11ms称为整站RTO。
+- 随后公网UDP／TCP／TLS合成原生媒体均失败；应用发布与回读仍成立，不回滚或恢复开放流量后的数据。进一步隔离复现：coturn将自己的公网地址映回本机172私网后被拒绝；普通公网地址允许，其他私网与元数据拒绝。新主机准备了realm级本机别名策略与先于loopback放行的UID／端口防护，真实内核允许中继端口、拒绝非中继UDP及私网TCP；但被替换的镜像入口没有选择实际持久策略库，因此线上仍未读取它。
+- 新启动配置的东京回环隔离实验已验证：相同固定镜像、独立临时容器与合成凭据下，双方NAT中继数据成功，其他私网／回环／元数据继续403，实际TURN向本机非中继UDP端口转发被防护拦截；该实验不是三条公网媒体验收通过。候选配置由[PR #459](https://github.com/zdaiwmm/shui-IM/pull/459)提供，需精确配置源和独立配置更新例外确认；未热改已发布Git源或擅自启用该配置。
+- 脱敏证据在公共Git目录 `quiet-room-deliveries/evidence/aws-tokyo-turn-policy-20261028/production-summary.json`，原始回读在发布工作树Git元数据 `quiet-room-readback/20261028T082511163Z-054d868eff8b-success.json`。独立文档工作树对账，不再运行发布入口；当前应用保持本次获批SHA，活动发布／修复／文档资源和专属证据保留。真实双设备／跨网络、独立外审、持续不可变离机备份和外部告警仍未验收。
+
 <a id="release-aws-tokyo-mijiu-20261028"></a>
 ## 东京独立对外环境首次发布（2026-10-28）
 
