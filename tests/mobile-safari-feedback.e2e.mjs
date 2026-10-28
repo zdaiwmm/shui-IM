@@ -4,6 +4,7 @@ import { createServer } from 'vite';
 import { verifyComposerRefine } from './fixtures/composer-voice-refine.mjs';
 import { verifyMobileTenFixes } from './fixtures/mobile-ten-fixes.mjs';
 import { verifyComposerHandoff, verifyHandoffEntryPages } from './fixtures/composer-handoff.mjs';
+import { verifySafariKeyboardHitArea } from './fixtures/safari-keyboard-hit-area.mjs';
 
 const server = await createServer({ configFile:false, appType:'custom', root:process.cwd(), logLevel:'error',
   server:{host:'127.0.0.1',port:0,hmr:false}, plugins:[{name:'mobile-feedback-fixture',configureServer(vite) {
@@ -83,6 +84,13 @@ try {
       app.messages=new Map(Array.from({length:30},(_,i)=>[i+1,{seq:i+1,clientMsgId:`feedback-${i}`,senderId:'feedback-peer',payload:{v:1,kind:'text',text:`合成消息 ${i}`,sentAt:'2026-10-14T00:00:00Z'},acceptedAt:'2026-10-14T00:00:00Z',status:'delivered'}]));
       app.renderChat();window.fixture={app,session};
     });
+    await verifySafariKeyboardHitArea(page);
+    if(process.env.SAFARI_KEYBOARD_HIT_AREA_ONLY) {
+      assert.deepEqual(errors,[]);
+      await page.evaluate(()=>{fixture.app.lockNow();stopChrome();});
+      console.log(`SAFARI_KEYBOARD_HIT_AREA_OK ${engine.name()}: bounded hit target, trusted tap, retained focus rearm, non-cancelable release, scale, IME, draft and selection. Synthetic viewport, not native iPhone evidence.`);
+      await browser.close();browser=null;continue;
+    }
     if(process.env.COMPOSER_HANDOFF_ONLY) {
       await verifyComposerHandoff(page);
       await verifyHandoffEntryPages(page);
