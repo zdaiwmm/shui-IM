@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>媒体发送连续性 V1.1</title>
+<link rel="stylesheet" href="../../../../src/design-tokens.css">
+<link rel="stylesheet" href="prototype.css">
+<main id="board">
+  <header class="board-header"><p class="eyebrow">QUIET ROOM / 交互方案 V1.1</p><h1>发送完成，再显示时间</h1><p class="intro">媒体与状态原位保留，整个过程不挤动消息。</p></header>
+  <div class="stage">
+    <section class="chat" aria-label="聊天演示">
+      <header class="chat-header"><span class="avatar" data-icon="UserRound"></span><div><strong>chamber1</strong><small>在线</small></div><span data-icon="Settings"></span></header>
+      <div class="timeline">
+        <div class="received">发给你看看</div>
+        <article class="message photo" data-media="photo"><div class="media"><img class="photo-source" src="assets/demo-photo.jpg" alt="公开样例的模糊图片预览"></div><div class="status"><time>13:42</time><span class="activity"><span class="progress-ring" data-icon="LoaderCircle"></span><span class="percentage">0%</span></span><span class="success" data-icon="Check"></span><button class="retry" aria-label="重试发送图片"><span data-icon="CircleAlert"></span>重试</button></div></article>
+        <article class="message video" data-media="video"><div class="media"><video muted playsinline preload="auto" src="assets/demo-video.mp4" aria-label="公开样例的视频模糊封面"></video><span class="video-marker" data-icon="Video"></span></div><div class="status"><time>13:43</time><span class="activity"><span class="progress-ring" data-icon="LoaderCircle"></span><span class="percentage">0%</span></span><span class="success" data-icon="Check"></span><button class="retry" aria-label="重试发送视频"><span data-icon="CircleAlert"></span>重试</button></div></article>
+        <article class="message sticker" data-media="sticker"><div class="media"><img src="../../../../public/space-avatars/fluent-koala-still.webp" alt="考拉表情"></div><div class="status"><time>13:44</time><span class="activity"><span class="progress-ring" data-icon="LoaderCircle"></span><span class="percentage">0%</span></span><span class="success" data-icon="Check"></span><button class="retry" aria-label="重试发送表情"><span data-icon="CircleAlert"></span>重试</button></div></article>
+        <div class="following">晚点一起看<span data-icon="Check"></span></div>
+      </div>
+      <footer class="composer"><span data-icon="CirclePlus"></span><div class="input">消息<span data-icon="Smile"></span></div><span data-icon="Mic"></span></footer>
+    </section>
+    <aside class="explanation">
+      <div class="current-step"><p class="eyebrow" id="cycle-label">正常发送</p><h2 id="phase">准备发送</h2><p id="phase-note" aria-live="polite">先保留媒体与状态位置</p></div>
+      <ol><li data-step="upload"><span>01</span><div>准备、上传<small>不显示时间</small></div></li><li data-step="confirm"><span>02</span><div>等待服务确认<small>100% 也不提前显示时间</small></div></li><li data-step="done"><span>03</span><div>发送成功<small>单勾与时间原位淡入</small></div></li></ol>
+      <div class="principles"><p><span data-icon="Check"></span>媒体框尺寸固定</p><p><span data-icon="Check"></span>状态槽位置固定</p><p><span data-icon="Check"></span>相邻消息保持原位</p></div>
+      <p class="note">公开样例 · 模拟进度与回执<br>时间取消息发送时间，不是确认时刻</p>
+    </aside>
+  </div>
+  <footer class="board-footer"><span id="progress-caption">图片 · 视频 · 表情</span><span>V1.1 · 动效示意</span></footer>
+</main>
+<nav class="controls" aria-label="演示控制"><button id="toggle">暂停</button><button id="replay">重播</button><label>定位<select id="frame"><option value="auto">自动播放</option></select></label><output id="frame-label">0.0s</output></nav>
+<script type="module" src="prototype.js"></script>
+</html>

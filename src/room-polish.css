@@ -484,6 +484,91 @@ html:has(#app > :is(.room-unlock-page,.numeric-password-page)):has(#app > .confi
 @keyframes expression-wait { to { rotate:360deg; } }
 @media (prefers-reduced-motion:reduce) { #app .expression-bubble .media-send-pending svg { animation:none; } }
 
+/* V1.1: uploading and committed messages share one media shell and one fixed
+   status slot. A receipt changes decoration, never the surrounding geometry. */
+#app .message.outgoing .media-upload-tile:not(.file-upload-tile) { aspect-ratio:auto; max-height:none; }
+#app .media-upload-previews:not(.image-album) {
+  position:relative; inset:auto; width:100%; height:auto;
+  aspect-ratio:var(--chat-media-aspect, 4 / 3); border-radius:inherit;
+}
+#app .media-upload-previews:not(.image-album) > .media-upload-preview { position:absolute; inset:0; }
+#app .message.outgoing:has(.expression-bubble) { padding-bottom:0; }
+#app :is(.message,.message-action-preview).outgoing .expression-bubble {
+  position:relative; padding-bottom:28px; box-sizing:border-box;
+}
+#app :is(.message,.message-action-preview).outgoing .expression-bubble[data-media-dimensions='known'] {
+  width:min(var(--chat-expression-natural-width), 192px, var(--chat-expression-height-width), 100%);
+}
+#app :is(.message,.message-action-preview).outgoing .expression-bubble.gif-expression[data-media-dimensions='known'] {
+  width:min(var(--chat-media-natural-width), var(--chat-media-max-width), var(--chat-media-width-at-max-height), 100%);
+}
+#app :is(.message,.message-action-preview).outgoing .expression-bubble > :is(.image-preview,.media-upload-previews)[data-media-dimensions='known'] { width:100%; }
+#app :is(.message,.message-action-preview).outgoing .image-bubble > .media-send-status {
+  position:absolute; top:auto; left:auto; right:7px; bottom:7px; translate:none;
+  display:block; width:max(136px,12em); max-width:none; height:24px; min-height:24px;
+  margin:0; padding:0; border:0; border-radius:12px; background:transparent;
+  color:var(--media-foreground); font-size:.6875rem; line-height:24px;
+  white-space:nowrap; overflow:visible; z-index:5; pointer-events:none;
+}
+#app .media-send-status::before {
+  content:''; position:absolute; inset:0; border-radius:12px; background:#242124b3;
+}
+#app .media-send-status[data-confirmed='true']::before { top:2px; bottom:2px; border-radius:10px; }
+#app .media-send-status[data-state='failed']::before { background:var(--danger-soft); }
+#app .media-send-status[data-state='failed'] { color:var(--danger); }
+#app :is(.message,.message-action-preview).outgoing .expression-bubble > .media-send-status { right:0; bottom:0; }
+#app :is(.message,.message-action-preview).outgoing .expression-bubble > .media-send-status,
+#app :is(.message,.message-action-preview).outgoing .expression-bubble > .media-send-status time { color:var(--message-time-on-wall); }
+#app .expression-bubble > .media-send-status::before { display:none; }
+#app .media-send-status > .media-capsule-content {
+  position:relative; width:100%; height:24px; min-height:24px; padding:0;
+  display:block; font-size:inherit; line-height:24px;
+}
+#app .media-send-status time,
+#app .media-send-status.media-send-meta > .media-capsule-content > time {
+  display:block; position:absolute; left:8px; right:auto; top:0; height:24px;
+  max-width:calc(100% - 72px); margin:0; font-size:inherit; line-height:24px; color:inherit;
+}
+#app .media-send-status time[hidden] { display:none; }
+#app .media-send-status :is(.message-pending,.message-delivery) {
+  position:absolute; right:8px; top:0; display:flex; align-items:center; justify-content:center;
+  width:16px; height:24px; margin:0; padding:0;
+}
+#app .media-send-status :is(.message-pending,.message-delivery) svg { width:16px; height:13px; color:inherit; }
+#app .media-send-status .media-send-pending svg { animation:expression-wait 1.1s linear infinite; }
+#app .media-send-status[data-waiting='true'] .media-send-pending svg { animation:none; }
+#app .media-send-status .media-upload-ring { position:absolute; right:10px; top:6px; color:inherit; }
+#app .media-send-status .media-upload-copy { position:static; display:block; }
+#app .media-send-status .media-upload-copy > strong {
+  position:absolute; right:30px; top:0; width:4ch; min-width:4ch; height:24px;
+  font-size:inherit; line-height:24px; text-align:right; font-weight:400;
+}
+#app .media-send-status .media-upload-copy > strong::before { content:none; }
+#app .media-send-status .media-upload-copy > [role='status'] {
+  position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+  overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
+}
+#app .media-send-status :is(.media-upload-retry,.message-retry) {
+  position:absolute; right:0; top:-20px; display:flex; flex-direction:row-reverse;
+  align-items:flex-end; justify-content:flex-start; gap:6px; width:78px; min-width:44px;
+  height:44px; min-height:44px; padding:0 8px 4px; margin:0; border:0;
+  background:transparent; color:var(--danger); font:inherit; line-height:16px; pointer-events:auto;
+}
+#app .media-send-status :is(.media-upload-retry,.message-retry) svg { width:16px; height:16px; }
+#app .media-send-status :is(.media-upload-retry,.message-retry) > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+#app .media-send-status[data-new-send='true'] { animation:media-send-appear 180ms 200ms both; }
+#app .media-send-status:is([data-confirmed='true'],[data-state='failed']) { animation:none; }
+#app .media-upload-handoff > .media-upload-previews { position:absolute; inset:0; width:100%; height:100%; aspect-ratio:auto; }
+#app .outgoing .image-preview:has(> .media-upload-handoff) > .media-load-capsule { display:none; }
+@keyframes media-send-appear { from { opacity:0; } to { opacity:1; } }
+@media(prefers-reduced-motion:reduce) {
+  #app .media-send-status, #app .media-send-status .media-send-pending svg { animation:none; }
+}
+@media(forced-colors:active) {
+  #app .media-send-status { color:CanvasText; }
+  #app .media-send-status::before { background:Canvas; border:1px solid CanvasText; }
+}
+
 @media (min-width:1024px) {
   /* Desktop drawers use a quiet navigation rail with an even row hierarchy. */
   #app .space-drawer-overlay:not(.is-settings-sheet):not(.is-space-list-page) > .space-drawer { inset:12px auto 12px 12px; width:344px; border-radius:16px; padding:0 16px 16px; background:var(--paper); border:1px solid var(--line-subtle); box-shadow:0 12px 36px color-mix(in srgb,var(--ink) 12%,transparent); }

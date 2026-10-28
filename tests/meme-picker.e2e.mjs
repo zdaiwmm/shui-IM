@@ -90,9 +90,12 @@ try {
     app.messages = new Map([[1,msg]]);
     app.imageCache.set(manifest.blobId,{blob:files[0],url:URL.createObjectURL(files[0]),bytes:files[0].size,lastUsedAt:Date.now()});
     const sent = [];
+    const sendGate = {hold:false,release:null};
     app.processImageBatch = async (files, destination, signal, expression) => {
       if (destination !== 'chat' || expression !== true) throw new Error('Expression send lost its encrypted presentation intent');
-      sent.push(await files[0].arrayBuffer()); return true;
+      sent.push(await files[0].arrayBuffer());
+      if(sendGate.hold)await new Promise(resolve=>{sendGate.release=resolve;});
+      return true;
     };
     app.renderChat();
     document.querySelector('#message-input').value = '保留这份草稿';
@@ -114,7 +117,7 @@ try {
       if (url.pathname.startsWith('/stickers/') || url.pathname.startsWith('/gifs/')) throw new Error('Bundled media requested');
       return realFetch(input,init);
     };
-    window.fixture = { app, vault, session, controller, files, sent, packSettings, msg, requests, mediaRequests, networkGif };
+    window.fixture = { app, vault, session, controller, files, sent, sendGate, packSettings, msg, requests, mediaRequests, networkGif };
   }, [...animatedWebp]);
   await page.locator('#open-memes').click();
   await page.locator('.fluent-emoji-tile').first().waitFor();
@@ -126,8 +129,13 @@ try {
   const draft=await page.locator('#message-input').inputValue();
   await page.locator('.emoji-grid:not(.fluent-emoji-grid) .emoji-tile').first().click();
   assert.ok((await page.locator('#message-input').inputValue()).includes(draft),'Unicode insertion lost the chat draft');
+  await page.evaluate(()=>{window.fixture.sendGate.hold=true;});
   await page.locator('.fluent-emoji-tile').first().click();
   await page.waitForFunction(()=>window.fixture.sent.length===1);
+  assert.equal(await page.locator('.meme-status').innerText(),'','The chat alone owns the submitted expression progress');
+  await page.evaluate(()=>{window.fixture.sendGate.hold=false;window.fixture.sendGate.release();});
+  await page.waitForFunction(()=>!window.fixture.app.memePicker.busy);
+  assert.equal(await page.locator('.meme-status').innerText(),'','Completed expression sends leave no stale sending notice');
   assert.ok(await page.evaluate(async()=>{
     const bytes=await (await fetch('/space-avatars/fluent-slightly_smiling_face.webp')).arrayBuffer();
     return JSON.stringify([...new Uint8Array(bytes)])===JSON.stringify([...new Uint8Array(window.fixture.sent[0])]);

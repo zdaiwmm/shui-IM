@@ -90,11 +90,16 @@ try {
   await page.waitForFunction(() => document.querySelector('.video-upload')?.dataset.poster === 'ready');
   const id = await draft.getAttribute('data-client-msg-id');
   const uploadBox = await draft.locator('.message-bubble').boundingBox();
-  await page.evaluate(() => { window.uploadFixture.row = document.querySelector('.video-upload'); window.uploadFixture.app.renderMessages(); });
+  await page.evaluate(() => {
+    const f=window.uploadFixture; f.row = document.querySelector('.video-upload');
+    f.shell=f.row.querySelector('.message-bubble');f.status=f.row.querySelector('.media-send-status');
+    f.app.renderMessages();
+  });
   assert.equal(await page.evaluate(() => document.querySelector('.video-upload') === window.uploadFixture.row), true);
   await page.evaluate(() => { const gate = window.uploadFixture.gate; gate.release(); gate.release = null; });
   await page.waitForFunction(() => window.uploadFixture.gate.requests === 2 && window.uploadFixture.gate.release);
   await draft.locator('.media-upload-status > .media-capsule-content').filter({hasText:/33%[\s\S]*上传中/}).waitFor();
+  await page.waitForFunction(()=>getComputedStyle(document.querySelector('.video-upload .media-send-status')).opacity==='1');
   assert.match(await draft.innerText(), /33%[\s\S]*上传中/);
   await page.waitForFunction(() => {
     const rect = document.querySelector('.video-upload').getBoundingClientRect();
@@ -121,6 +126,10 @@ try {
   const message = page.locator(`.message[data-client-msg-id="${id}"]`);
   await message.locator('.image-preview[data-image-state="loaded"]').waitFor();
   const loadedBox = await message.locator('.message-bubble').boundingBox();
+  assert.deepEqual(await message.evaluate(node=>({row:node===window.uploadFixture.row,
+    shell:node.querySelector('.message-bubble')===window.uploadFixture.shell,
+    status:node.querySelector('.media-send-status')===window.uploadFixture.status})),{row:true,shell:true,status:true});
+  assert.equal(await message.locator('.message-meta > .media-capsule-content > time').isVisible(),false,'Uploaded video has no time before server confirmation');
   assert.ok(Math.abs(uploadBox.width - loadedBox.width) < 1 && Math.abs(uploadBox.height - loadedBox.height) < 1, `Video upload and final bubble share geometry: ${JSON.stringify(uploadBox)} -> ${JSON.stringify(loadedBox)}`);
   await page.waitForFunction(id => !document.querySelector(`[data-client-msg-id="${id}"] .media-upload-handoff`), id);
   await message.dispatchEvent('contextmenu');
@@ -130,6 +139,8 @@ try {
   assert.ok(Math.abs(loadedBox.width - liftedBox.width) < 1 && Math.abs(loadedBox.height - liftedBox.height) < 1, 'Long press keeps the full video height');
   assert.equal(await lifted.evaluate(node => { const s = getComputedStyle(node); return new Set([s.borderTopLeftRadius, s.borderTopRightRadius, s.borderBottomLeftRadius, s.borderBottomRightRadius]).size; }), 1);
   await page.evaluate(() => window.uploadFixture.app.closeMessageActions(false, false));
+  await page.evaluate(id=>{const f=window.uploadFixture;f.app.pending.get(id).status='stored';f.app.renderMessages();},id);
+  assert.equal(await message.locator('.message-meta > .media-capsule-content > time').isVisible(),true,'Video time appears only when the server has saved the message');
   // Retry restores feedback after the failure removed the original ring.
   await page.evaluate(async id => {
     const f = window.uploadFixture, manifest = f.app.pending.get(id).payload.file;

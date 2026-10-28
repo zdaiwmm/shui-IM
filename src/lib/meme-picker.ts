@@ -1058,6 +1058,9 @@ export class MemePicker {
             const remoteItem = detail.items.find(candidate => candidate.id === item.id);
             autoHide = Boolean(remoteItem?.autoHide ?? detail.autoHide ?? item.autoHide);
           }
+          // The chat now owns progress and errors for this selected file.
+          // Do not leave a second, stale "sending" notice in the open picker.
+          this.say('');
           await this.options.send(file, autoHide, this.signal, item.pack ? 'stickers' : item.animatedOnly ? 'gifs' : undefined); this.recordUsage(item.id);
         } else this.say(await this.options.save(file, this.signal) ? uiLiteral('已收藏到本机') : uiLiteral('已在收藏中'));
       }
