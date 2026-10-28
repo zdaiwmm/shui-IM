@@ -4,6 +4,10 @@
 
 [本次需求](../requirements/2026-10-28-inapp-lock-first-chat/README.md)已获免原型实施、验证及合并授权，任务分支`codex/inapp-lock-first-chat-20261028`基于实时main `be615e3`。新保护统一能力判断和明确密码选择；新格式首次连接改为原位激活输入框。当前为本地定向验证阶段，完整门禁、PR及CI尚待完成；未部署、未新增iPhone真机证据。最终证据与复现限制由需求记录拥有。
 
+## 东京通话中继权限修复 V1：已合并，未发布（2026-10-28）
+
+[PR #451](https://github.com/zdaiwmm/shui-IM/pull/451) 修复重复未指定地址拒绝项造成的公网中继403，保留内网／回环／云元数据保护；新增九项白名单外权限回归，避免实验室白名单掩盖错误。完整精确 PR CI 通过，候选为 `054d868eff8bfc6575721a5e4cd16145864d1362`／`2026.10.28.2`，精确主线完整 CI40651713869 attempt1与固定核验器均通过，新环境普通更新 doctor 通过。它还包含主线最近在线保存修复；此候选尚无本聊天精确发布确认，不更新新站或原自用环境。下方东京当前应用仍是已获批首发 SHA。[需求与验证](../requirements/2026-10-28-turn-public-peer-policy/README.md)保留隔离复现、CI 原生媒体及本机两轮超时的区别。
+
 ## 东京独立对外环境已首发，通话验收未通过（2026-10-28）
 
 `tokyo-public`／`https://mijiu.cloud` 已按用户精确确认首发应用 `39af219c330b9348aa7b0d2162e5c7c5336340db`／`2026.10.27.4`，完整 CI、固定 `DEPLOY_VERIFIED` 和 `06:52:29Z` 独立 `READBACK_OK` 均通过。应用、备份、HTTPS、资源及新 WebSocket 一致；管理员关闭，TURN 仅确认运行。新 Lightsail 东京 24 美元实例、来源、凭据、数据及备份均独立；原自用 `production`／`ai.shui.click` 未执行变更，下方旧环境发布记录不被新环境 SHA 替代。
