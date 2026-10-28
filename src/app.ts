@@ -1217,6 +1217,7 @@ export class QuietRoomApp {
       if (tools && !tools.hidden && event.target instanceof Element && !event.target.closest('#chat-tools,#open-chat-tools,#open-memes')) this.closeChatTools(true, Boolean(event.target.closest('#message-input')));
       const composer = this.root.querySelector<HTMLElement>('#composer');
       const textarea = this.root.querySelector<HTMLTextAreaElement>('#message-input');
+      if (this.retainKeyboardUnderlayFocus(event)) return;
       const keyboardGesture = event.pointerType === 'touch' && event.target instanceof Element
         && this.root.contains(event.target) && !!event.target.closest('.chat-shell') && !event.target.closest('#composer')
         && this.chatKeyboardGesture?.start(event);
@@ -2275,6 +2276,20 @@ export class QuietRoomApp {
   private prepareKeyboardOpening(input: HTMLTextAreaElement | HTMLInputElement, event: PointerEvent): boolean {
     return !this.desktopBrowser && event.isTrusted && event.button === 0 && event.isPrimary && input.isConnected && !input.disabled
       && !this.privacyCovered && !document.hidden && !this.expireIdleSession();
+  }
+
+  private retainKeyboardUnderlayFocus(event: Event): boolean {
+    const chat = this.chatLayoutElements;
+    // Only the existing page-painted strip below the input bar owns this
+    // exception. Native Safari controls never dispatch a DOM event here.
+    if (!chat?.shell.isConnected || event.target !== chat.underlay || !this.visualClientCoordinates
+      || this.activeSurface !== 'chat' || this.privacyCovered || document.hidden
+      || document.documentElement.dataset.keyboardOpen !== 'true') return false;
+    const input = chat.composer.querySelector<HTMLTextAreaElement>('#message-input');
+    if (!input || input.disabled || input.readOnly || document.activeElement !== input) return false;
+    if (event.cancelable) event.preventDefault();
+    event.stopPropagation();
+    return true;
   }
 
   private beginNativeHandoff(kind: 'picker' | 'microphone' | 'camera', timeout: number): boolean {
@@ -7631,22 +7646,28 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     textarea.addEventListener('touchend', event => {
       const tap = focusTap;
       focusTap = null;
-      if (!ownsActiveChat() || event.touches.length || !tap || !event.cancelable) return;
+      if (!ownsActiveChat() || event.touches.length || !tap || document.hidden || textarea.disabled || textarea.readOnly) return;
       const expressionHandoff = Boolean(this.memePicker);
       const viewport = layoutViewport();
-      const keyboardClosed = (document.documentElement.clientHeight || innerHeight) - (viewport?.height ?? innerHeight) <= 120;
+      // Use the sampler's layout baseline and scale. Native toolbar operations
+      // can retain DOM focus even after the software keyboard has disappeared.
+      const layoutHeight = Math.max(document.documentElement.clientHeight || innerHeight,
+        this.visualClientCoordinates && document.activeElement === textarea ? this.listKeyboardLayout.closedHeight ?? 0 : 0);
+      const keyboardClosed = layoutHeight - (viewport ? viewport.height * viewport.scale : innerHeight) <= 120;
       const rearm = document.activeElement === textarea && keyboardClosed
         && (!this.nativeKeyboardOpening || performance.now() - this.nativeKeyboardOpeningAt >= 900) && textarea.dataset.composing !== 'true';
       if (!expressionHandoff && (!this.usesListScrolling || document.activeElement === textarea && !rearm)) return;
       // Native tap focus pans Safari's root even when the list owns scrolling.
       // Keep focus in the trusted touch gesture and suppress only that root pan.
-      event.preventDefault();
+      if (event.cancelable) event.preventDefault();
       if (expressionHandoff) this.closeMemePicker(true, true);
       else {
+        const selection = rearm ? [textarea.selectionStart, textarea.selectionEnd, textarea.selectionDirection] as const : null;
         if (rearm) textarea.blur();
         this.cancelNativeKeyboardDismiss();
         delete composer.dataset.keyboardDismissReveal;
         textarea.focus({ preventScroll: true });
+        if (selection) textarea.setSelectionRange(...selection);
       }
     }, { passive: false });
     textarea.addEventListener('focus', () => {
@@ -8223,6 +8244,7 @@ ${this.returnSpaceId ? '<button class="text-button" id="entry-return">返回密�
     const underlay = document.createElement('div');
     underlay.className = 'chat-keyboard-underlay';
     underlay.setAttribute('aria-hidden', 'true');
+    underlay.addEventListener('touchstart', event => { this.retainKeyboardUnderlayFocus(event); }, { passive: false });
     shell.append(fixedOrigin, fixedBottom, underlay);
     this.nativeChatFollow = null;
     this.chatLayoutElements = { shell, list, header, fixedOrigin, fixedBottom, underlay, composer, notices, notice };
