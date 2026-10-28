@@ -17,6 +17,10 @@ export function clearMediaCapsule(host: HTMLElement): void {
  * updates to the newest state without an empty frame. */
 export function transitionMediaCapsule(host: HTMLElement, paint: () => void, contentChanged = true, signal?: AbortSignal): void {
   if (signal?.aborted) return;
+  if (host.classList.contains('media-send-status')) {
+    transitionSendStatus(host, paint, contentChanged, signal);
+    return;
+  }
   const running=effects.get(host);
   if(running&&(contentChanged||running.pending)&&!reducedMotion()&&!document.hidden&&host.isConnected){
     running.pending=()=>transitionMediaCapsule(host,paint,true,signal);
@@ -96,6 +100,44 @@ export function transitionMediaCapsule(host: HTMLElement, paint: () => void, con
   void Promise.allSettled([...animations.map(animation=>animation.finished),minimum]).then(()=>{
     effect.cleanup?.();
     retiring.remove(); if(effects.get(host)===effect){effects.delete(host);effect.pending?.();}
+  });
+}
+
+/** Sending owns a fixed slot. Commit the latest fact immediately; only its
+ * decoration crossfades. Never queue receipts behind a visible upload stage. */
+function transitionSendStatus(host: HTMLElement, paint: () => void, contentChanged: boolean, signal?: AbortSignal): void {
+  let content = host.querySelector<HTMLElement>(':scope > .media-capsule-content');
+  if (!content) {
+    content = document.createElement('div'); content.className = 'media-capsule-content';
+    content.append(...host.childNodes); host.append(content);
+  }
+  if (!contentChanged) { paint(); return; }
+  const retiring = document.createElement('div'); retiring.className = 'media-capsule-retiring';
+  retiring.inert = true; retiring.setAttribute('aria-hidden', 'true');
+  const clone = content.cloneNode(true) as HTMLElement;
+  clone.style.opacity = '1';
+  clone.style.width = `${content.offsetWidth}px`;
+  clone.style.height = `${content.offsetHeight}px`;
+  clone.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+  retiring.append(clone);
+  clearMediaCapsule(host);
+  paint();
+  if (!host.isConnected || reducedMotion() || document.hidden || host.dataset.state === 'failed') return;
+  host.append(retiring);
+  const animations = [retiring.animate([{opacity:1},{opacity:0}], {duration:motion.local,fill:'both'}),
+    content.animate([{opacity:0},{opacity:1}], {duration:motion.local,fill:'backwards'})];
+  const effect: Effect = {animations,widths:[],duration:motion.local}; effects.set(host,effect);
+  const preference = matchMedia('(prefers-reduced-motion: reduce)');
+  const cancel = () => clearMediaCapsule(host);
+  const finish = () => { if (preference.matches || document.hidden) cancel(); };
+  signal?.addEventListener('abort',cancel,{once:true});
+  preference.addEventListener('change',finish); document.addEventListener('visibilitychange',finish);
+  effect.cleanup = () => {
+    signal?.removeEventListener('abort',cancel);
+    preference.removeEventListener('change',finish); document.removeEventListener('visibilitychange',finish);
+  };
+  void Promise.allSettled(animations.map(animation => animation.finished)).then(() => {
+    if (effects.get(host) === effect) { effect.cleanup?.(); retiring.remove(); effects.delete(host); }
   });
 }
 

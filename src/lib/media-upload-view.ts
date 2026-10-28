@@ -1,8 +1,8 @@
 import { uiLiteral, uiTemplate } from './language';
 import { motion, retargetMotion } from './motion';
-import { transitionMediaCapsule, clearMediaCapsule, retireMediaCapsule } from './media-capsule';
-import { createElement, Image as ImageIcon, Video } from 'lucide';
-import { setChatMediaDimensions } from './chat-media-geometry';
+import { transitionMediaCapsule, clearMediaCapsule } from './media-capsule';
+import { createElement, Image as ImageIcon, Video, CircleAlert } from 'lucide';
+import { applyGifDisplayGeometry, setChatMediaDimensions } from './chat-media-geometry';
 import { readMediaDimensions, type MediaDimensions } from './media-dimensions';
 import { createVideoPoster } from './video-poster';
 import { createConcealedImage } from './concealed-image';
@@ -23,28 +23,33 @@ export class MediaUploadView {
   private readonly cancel = document.createElement('button');
   private readonly status = document.createElement('div');
   private readonly tile = document.createElement('div');
+  private readonly previews = document.createElement('div');
+  private readonly plainFile: boolean;
   private readonly kind: string;
   private readonly actions = document.createElement('div');
+  private readonly startedAt = performance.now();
   private uploadState?: UploadState;
 
   constructor(id: string, files: File[], expression: boolean, autoHide: boolean,
-    retry: () => void, remove: () => void, changed: () => void, gif = false) {
+    retry: () => void, remove: () => void, changed: () => void, gif = false, quote?: HTMLElement) {
     const video = isVideoFile({ mimeType: files[0]!.type, originalName: files[0]!.name });
     const plainFile = !video && !files[0]!.type.startsWith('image/');
+    this.plainFile = plainFile;
     this.kind = plainFile ? uiLiteral('文件') : video ? uiLiteral('视频') : expression ? uiLiteral('表情') : files.length > 1 ? uiLiteral('图片相册') : uiLiteral('图片');
     this.element.className = `message outgoing has-media media-upload${video ? ' video-upload' : plainFile ? ' file-upload' : ''}`;
     this.element.dataset.clientMsgId = id;
     this.element.dataset.concealed = String(!expression || autoHide);
     this.element.setAttribute('aria-label', uiTemplate`正在发送${this.kind}`);
-    this.tile.className = `message-bubble media-upload-tile${expression ? ' media-upload-expression' : ''}`;
+    this.tile.className = `message-bubble image-bubble media-upload-tile${expression ? ' expression-bubble media-upload-expression' : ''}`;
     this.tile.classList.toggle('gif-expression', gif);
     if (plainFile) this.tile.className = 'message-bubble file-bubble file-upload-tile';
-    const previews = document.createElement('div');
+    const previews = this.previews;
     previews.className = files.length > 1
       ? `media-upload-previews image-album album-count-${files.length <= 4 ? files.length : 'many'}`
       : 'media-upload-previews';
     this.tile.classList.toggle('media-upload-album', files.length > 1);
-    this.status.className = 'media-upload-status';
+    this.status.className = `media-upload-status${plainFile ? '' : ' media-send-status'}`;
+    if (!plainFile) this.status.dataset.newSend = 'true';
     this.ring.className = 'media-upload-ring';
     this.ring.setAttribute('role', 'progressbar');
     this.ring.setAttribute('aria-label', uiTemplate`${this.kind}上传进度`);
@@ -59,7 +64,8 @@ export class MediaUploadView {
     this.retry.className = 'media-upload-retry';
     this.retry.setAttribute('aria-label',uiLiteral('重试'));
     const retryText = document.createElement('span');
-    retryText.textContent = uiLiteral('· 重试');
+    retryText.textContent = plainFile ? uiLiteral('· 重试') : uiLiteral('重试');
+    if (!plainFile) this.retry.append(createElement(CircleAlert));
     this.retry.append(retryText);
     this.retry.addEventListener('click', retry);
     this.cancel.type = 'button';
@@ -83,12 +89,12 @@ export class MediaUploadView {
       size.textContent = bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${(bytes / 1024).toFixed(1)} KiB` : `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
       copy.append(name, size); attachment.append(createFileFormatIcon(files[0]!.type, files[0]!.name), copy);
       this.tile.append(attachment, this.status);
-    } else this.tile.append(previews, this.status);
+    } else this.tile.append(...(quote ? [quote] : []), previews, this.status);
     this.element.append(this.tile, this.actions);
     this.element.tabIndex = 0;
     const showActions = () => { if (this.uploadState === 'failed') { this.actions.hidden = false; this.cancel.focus({preventScroll:true}); } };
-    this.element.addEventListener('contextmenu', event => { if (this.uploadState === 'failed') { event.preventDefault(); showActions(); } });
-    this.element.addEventListener('keydown', event => { if (event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey) { event.preventDefault(); showActions(); } if (event.key === 'Escape') this.actions.hidden = true; });
+    this.element.addEventListener('contextmenu', event => { if (this.uploadState === 'failed') { event.preventDefault(); showActions(); } }, {signal:this.abort.signal});
+    this.element.addEventListener('keydown', event => { if (event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey) { event.preventDefault(); showActions(); } if (event.key === 'Escape') this.actions.hidden = true; }, {signal:this.abort.signal});
     let hold: ReturnType<typeof setTimeout> | undefined;
     this.tile.addEventListener('pointerdown', event => { if (!(event.target instanceof Element && event.target.closest('button')) && event.isPrimary && event.button === 0 && this.uploadState === 'failed') hold = setTimeout(showActions,500); },{signal:this.abort.signal});
     for(const event of ['pointerup','pointercancel','pointermove'])this.tile.addEventListener(event,()=>clearTimeout(hold),{signal:this.abort.signal});
@@ -100,12 +106,17 @@ export class MediaUploadView {
     const source = video ? new Blob([files[0]!], { type: videoMimeType({ mimeType: files[0]!.type, originalName: files[0]!.name })! }) : files[0]!;
     this.ready = !plainFile && files.length === 1 ? readMediaDimensions(source, this.abort.signal).then(dimensions => {
       this.geometryReady = true;
-      if (!dimensions || this.abort.signal.aborted) return;
+      if (this.abort.signal.aborted) return;
+      // A failed metadata read gets a local display box for this attempt.
+      // It never changes the original manifest or jumps when decode finishes.
+      dimensions ??= expression ? {width:192,height:192} : {width:288,height:216};
       this.dimensions = dimensions;
       const ratio = dimensions.width / dimensions.height;
-      this.tile.style.aspectRatio = String(ratio);
       this.tile.style.setProperty('--media-upload-ratio', String(ratio));
       this.tile.style.setProperty('--media-upload-natural-width', `${dimensions.width * (expression ? (gif ? 0.4 : 2 / 3) : 1)}px`);
+      setChatMediaDimensions(this.tile, dimensions);
+      setChatMediaDimensions(previews, dimensions);
+      if (gif) { applyGifDisplayGeometry(this.tile); applyGifDisplayGeometry(previews); }
     }) : Promise.resolve();
     this.preparation = this.ready.catch(() => {});
     for (const [index, file] of (plainFile ? [] : files).entries()) {
@@ -152,6 +163,7 @@ export class MediaUploadView {
     this.retry.disabled = this.uploadState !== 'failed';
     }, contentChanged, this.abort.signal);
     this.element.setAttribute('aria-busy', String(state !== 'failed'));
+    this.status.setAttribute('aria-label', this.label.textContent ?? '');
     this.element.setAttribute('aria-label', state === 'failed' ? uiTemplate`${this.kind}${this.element.dataset.failureStage === 'message' ? uiLiteral('发送失败') : uiLiteral('上传失败')}，可重试或打开操作菜单移除未发送媒体` : uiTemplate`正在发送${this.kind}`);
   }
 
@@ -219,21 +231,35 @@ export class MediaUploadView {
       setChatMediaDimensions(bubble, this.dimensions);
       const preview = bubble.querySelector<HTMLElement>(':scope > .image-preview');
       if (preview) setChatMediaDimensions(preview, this.dimensions);
+      if (bubble.classList.contains('gif-expression')) {
+        applyGifDisplayGeometry(bubble); if (preview) applyGifDisplayGeometry(preview);
+      }
+    }
+    // Retain the original status node as the upload becomes a durable message.
+    // The old previews are presentation only; they must not own send feedback.
+    const meta = bubble.querySelector<HTMLElement>(':scope > .message-meta');
+    if (meta && !this.plainFile) {
+      // Reattaching the same node must not restart its initial feedback delay.
+      this.status.style.animationDelay = `${200 - (performance.now() - this.startedAt)}ms`;
+      transitionMediaCapsule(this.status, () => {
+        this.status.className = meta.className;
+        for (const name of ['title', 'aria-label', 'data-state', 'data-confirmed', 'data-waiting']) {
+          const value = meta.getAttribute(name);
+          if (value === null) this.status.removeAttribute(name); else this.status.setAttribute(name,value);
+        }
+        this.status.querySelector('.media-capsule-content')!.replaceChildren(...meta.childNodes);
+      }, true, signal);
+      meta.replaceWith(this.status);
     }
     const overlay = document.createElement('div');
     overlay.className = 'media-upload-handoff';
     overlay.inert = true;
     overlay.setAttribute('aria-hidden', 'true');
-    const previews = this.tile.querySelector('.media-upload-previews')!;
+    const previews = this.previews;
     overlay.append(previews);
-    // Expressions already have the live message's time and send state below
-    // their image. Moving the old status here loses its expression styles and
-    // paints a second progress label over that same footer.
-    if (this.tile.classList.contains('media-upload-expression')) {
-      clearMediaCapsule(this.status);
-      this.status.remove();
-    } else overlay.append(this.status);
-    bubble.append(overlay);
+    const livePreviews = [...bubble.querySelectorAll(':scope > .image-preview, :scope > .image-album > .image-preview')];
+    const body = bubble.querySelector(':scope > .image-preview, :scope > .image-album') ?? bubble;
+    body.append(overlay);
     const cleanup = () => {
       observer.disconnect();
       window.clearTimeout(timeout);
@@ -243,11 +269,9 @@ export class MediaUploadView {
       this.destroy(true);
     };
     const settle = () => {
-      if (![...bubble.querySelectorAll('.image-preview')].every(node => node.getAttribute('data-image-state') === 'loaded')) return;
+      if (!livePreviews.every(node => node.getAttribute('data-image-state') === 'loaded')) return;
       observer.disconnect();
-      previews.remove();
-      if (this.tile.classList.contains('media-upload-expression')) cleanup();
-      else retireMediaCapsule(this.status,signal,cleanup);
+      cleanup();
     };
     // Observe only this short-lived handoff, never the timeline or document.
     const observer = new MutationObserver(settle);
@@ -259,12 +283,12 @@ export class MediaUploadView {
   }
 
   destroy(force = false): void {
-    if (this.handedOff && !force) { this.element.remove(); return; }
+    if (this.handedOff && !force) return;
     clearMediaCapsule(this.status);
     this.abort.abort();
-    for (const image of this.element.querySelectorAll('img')) image.removeAttribute('src');
+    for (const image of (this.handedOff ? this.previews : this.element).querySelectorAll('img')) image.removeAttribute('src');
     for (const url of this.urls) URL.revokeObjectURL(url);
     this.urls.clear();
-    this.element.remove();
+    if (!this.handedOff) this.element.remove();
   }
 }

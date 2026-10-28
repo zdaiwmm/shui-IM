@@ -4,6 +4,10 @@
 
 [本次需求](../requirements/2026-10-28-chat-entry-device-access/README.md)已获直接实施授权，[PR #461](https://github.com/zdaiwmm/shui-IM/pull/461)包含居中新消息胶囊与锁定避让、接收解除待发网络等待、稳定授权卡片及双密室独立本机接入。旧源111448本地1195项／88入口完整通过，但29a926的Linux批量恢复再次失败；用户已明确允许继续修复。新证据确认MLS拒绝在持久化修复前过早释放发送位置，129条队列实际发送936次；保留预留至拒绝处理完成后，定向降至195次、129条全部接收且队列归零，API26项及离线专项通过。新候选仍须完整本地覆盖与精确CI，未合并、未发布，物理iPhone未验证；历史失败及安全边界由需求记录拥有。
 
+## 媒体发送连续性 V1.1：已合并，未发布（2026-10-28）
+
+上传至正式消息复用同一行、媒体外框与固定状态槽；时间在服务确认后才显示，表情底行保持24px，聊天接管发送后清除表情面板的重复过程提示。最终源 `b7ba7fc93c9032f7b22daddc8cb0307e4757be13` 的本地完整1192项测试、88个浏览器入口及[完整PR CI40673111733](https://github.com/zdaiwmm/shui-IM/actions/runs/40673111733) attempt1通过。[PR #464](https://github.com/zdaiwmm/shui-IM/pull/464)已合并为 `6198839a16c9bc79d7b23da599d13daa952f7d0d`／2026.10.28.6，文件树与验证源一致；本机main已快进，无运行中的本项目局域网服务，真机及生产未验证。[需求记录](../requirements/2026-10-28-media-send-continuity/README.md)拥有确认、原型、资源失败后一次有界重跑及正式交付证据。
+
 ## 浏览器创建密室数量限制 V1：已合并，未发布（2026-10-28）
 
 当前浏览器最多创建3个密室，加入不占名额；原始创建身份核验、同房间去重、移除释放名额和跨标签页保存复核已实施。超限保留来源并显示指定toast；恢复凭证页删去完成三步后显示已设置的说明，原流程保留。Chromium／WebKit创建限制及既有邀请／凭证回归均通过；最终候选 `83ae3085298c2d3473d182abc1be13edb6fc983c` 的[完整PR CI40659338970](https://github.com/zdaiwmm/shui-IM/actions/runs/40659338970) attempt1全部通过，含155文件／1184项测试、87个浏览器入口、通话及双架构镜像，verify成功。[PR #457](https://github.com/zdaiwmm/shui-IM/pull/457)已合并为 `c423647bd17ae85608cf8217a89815c41e8c9ef9`／`2026.10.28.4`；[需求V1](../requirements/2026-10-28-browser-created-room-limit/README.md)持有本地整轮限制与确认边界。未执行生产发布，物理iPhone仍未验证。
@@ -105,11 +109,11 @@
 - 原治理交付时的独占目录为治理树，文档分支 `codex/project-governance-evidence-20261025`，起点为已核实合并SHA；没有复制部署配置。公共Git证据位于 `quiet-room-deliveries/evidence/project-governance-20261025/reviewed-summary.json`，包含本地、只读回读、隔离修复和CI定位。
 - 该批提交现已包含于本次固定应用；本轮不修改或清理其任务现场。纯文档对账 SHA 不替代线上应用 SHA。
 
-## 语言与反馈 V1.1：CI 阻塞，未合并（2026-10-28）
+## 语言与反馈 V1.1：功能已合并，后续回归修复阻塞（2026-10-28）
 
-用户确认 V1.1 静态原型并明确授权实施、测试与合并，要求移除新增页解释性提示。独占树 `language-feedback-prototype-20261028` 基于实时 main `be615e3`；11 种用户端语言、设备匹配／English 兜底、必填邮箱反馈以及后台读取／标记已读已实现。[需求记录](../requirements/2026-10-28-language-feedback/README.md)拥有确认、边界及最终验收证据。本地完整浏览器回归 87／87 通过，最终组合专项通过；已保留主线 Safari 键盘修复，候选 `e764df7a`／版本 `2026.10.28.4`。PR #454 的 CI 40659566862 再次在 130 条离线消息恢复检查中超时，按重复失败停止规则保留阻塞，未合并。应用远端 head 不变，结果记录暂存任务提交并同步 PR 描述；无生产发布授权，不替换下方生产事实。
+11 种语言（含繁体）、设备匹配／English 兜底、必填邮箱反馈、后台查看／标记已读，已由 [PR #454](https://github.com/zdaiwmm/shui-IM/pull/454) 合入 main `b784f5a4e70426b33c4f59c1165fd8267f55fdce`，版本 `2026.10.28.5`，新增页面已去掉解释性段落。精确 PR head `c9a42910` 的[完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/40661942829)通过，含 88 个浏览器入口；本地完整单元 1,192 项与组合专项通过。生产尚未发布，无新增真机／全量母语审校结论。
 
-
+合并后主线复跑暴露离线恢复耗时与续发请求遗漏；[PR #460](https://github.com/zdaiwmm/shui-IM/pull/460) 的后续修复（候选 .6）有旧行为失败／新行为通过的确定性回归和真实离线／129 条跨纪元专项证据，但[最终组合 CI 40667038514](https://github.com/zdaiwmm/shui-IM/actions/runs/40667038514)在反应插入 FLIP 动画断言重复失败，本地原样复核通过，原因未知。依重复失败停止规则保留草稿 PR，不绕过门禁；该修复未进入 main，.6 未发布。主线当前不能记为完整 CI 全绿，发布前仍需精确目标完整 CI。[需求记录](../requirements/2026-10-28-language-feedback/README.md)保留全部阶段和证据；工作树保留。
 
 ## 仍开放的边界与证据缺口
 
