@@ -79,6 +79,11 @@ function record(space: PrivateSpace, revision: number, writer: string, removed =
   return { roomId: space.roomId, name: space.name, ...(space.avatar ? { avatar: space.avatar } : {}),
     ...(space.createdAt ? { createdAt: space.createdAt } : {}), ...(space.waiting !== undefined ? { waiting: space.waiting } : {}), revision, writer, removed };
 }
+/** Read only: capacity checks already hold the vault lifecycle lease. */
+export async function isOwnSpaceRemoved(session: VaultSession, roomId: string): Promise<boolean> {
+  return Boolean(session.vault.spaceRecoveryCode && (await read(session)).entries.find(entry => entry.roomId === roomId)?.removed);
+}
+
 export async function changeOwnSpace(session: VaultSession, space: PrivateSpace, removed = false): Promise<void> {
   await update(session, state => {
     state.clock = Math.max(state.clock, ...state.entries.map(entry => entry.revision)) + 1;

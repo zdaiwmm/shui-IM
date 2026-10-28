@@ -1,5 +1,9 @@
 # Quiet Room 当前状态
 
+## 浏览器创建密室数量限制 V1：已合并，未发布（2026-10-28）
+
+当前浏览器最多创建3个密室，加入不占名额；原始创建身份核验、同房间去重、移除释放名额和跨标签页保存复核已实施。超限保留来源并显示指定toast；恢复凭证页删去完成三步后显示已设置的说明，原流程保留。Chromium／WebKit创建限制及既有邀请／凭证回归均通过；最终候选 `83ae3085298c2d3473d182abc1be13edb6fc983c` 的[完整PR CI40659338970](https://github.com/zdaiwmm/shui-IM/actions/runs/40659338970) attempt1全部通过，含155文件／1184项测试、87个浏览器入口、通话及双架构镜像，verify成功。[PR #457](https://github.com/zdaiwmm/shui-IM/pull/457)已合并为 `c423647bd17ae85608cf8217a89815c41e8c9ef9`／`2026.10.28.4`；[需求V1](../requirements/2026-10-28-browser-created-room-limit/README.md)持有本地整轮限制与确认边界。未执行生产发布，物理iPhone仍未验证。
+
 ## Safari 底部网页区域与键盘重开 V2：已合并，未发布（2026-10-28）
 
 用户确认本次免原型直接修复。[PR #452](https://github.com/zdaiwmm/shui-IM/pull/452)已合并为应用 `e970de778d4b95d40cd22da76acd6ddc76d2601f`／`2026.10.28.3`，与最终精确候选完整文件树一致。仅既有网页衬底在编辑时保留键盘，原生操作收起后可再次点按重开；其他区域保持原规则。干净源完整 86／86 浏览器入口通过，最终精确 PR 完整 CI40654313238 attempt1 通过；本机首轮单元超时、有界复验、旧候选 CI 超时及真机通道缺口由[需求记录](../requirements/2026-10-28-safari-keyboard-hit-area/README.md)拥有。未发布生产，不替换任一环境已有应用 SHA。
