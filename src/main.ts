@@ -42,7 +42,7 @@ void mountLanguage().then(() => {
   mountGatewayIntros(root);
   mountSettingsLayout(root);
   const app = new QuietRoomApp(root);
-  return app.start();
+  void app.start();
 });
 
 if ('serviceWorker' in navigator && window.isSecureContext && import.meta.env.PROD) {

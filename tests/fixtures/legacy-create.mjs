@@ -3,7 +3,7 @@
  * Chamber browser suites. No test hook is shipped in the production bundle. */
 export const legacyCreationPlugin = {
   name:'legacy-creation-observer',enforce:'pre',
-  transform(code,id){if(id.endsWith('/src/main.ts'))return code.replace('const app = new QuietRoomApp(root);',"import { installLegacyApp } from '/tests/fixtures/legacy-create.mjs';\nconst app = new QuietRoomApp(root); window.__legacyApp=app; installLegacyApp(app);");},
+  transform(code,id){if(id.endsWith('/src/main.ts'))return "import { installLegacyApp } from '/tests/fixtures/legacy-create.mjs';\n"+code.replace('const app = new QuietRoomApp(root);',"const app = new QuietRoomApp(root); window.__legacyApp=app; installLegacyApp(app);");},
 };
 export function installLegacyApp(app) {
     if(!app)throw new Error('Legacy fixture requires its explicit test observer');
