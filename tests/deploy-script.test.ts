@@ -78,7 +78,7 @@ describe('production deployment rollback safety contract', () => {
 
   it('marks the volume for restoration before the new image can start', async () => {
     const source = await readFile(DEPLOY_SCRIPT, 'utf8');
-    const cutover = source.slice(source.indexOf('backup_name="data-'));
+    const cutover = source.slice(source.indexOf('  backup_name="data-'));
     const restoreRequired = cutover.indexOf('data_restore_required=1');
     const startNew = cutover.indexOf('QUIET_ROOM_IMAGE="$new_image" docker compose');
 
@@ -106,7 +106,7 @@ describe('production deployment rollback safety contract', () => {
     const source = await readFile(DEPLOY_SCRIPT, 'utf8');
     const preflight = source.indexOf('if ! wait_for_public_health 3');
     const cutover = source.indexOf('cutover_started=1\nstop_project_containers');
-    const startNew = source.indexOf('data_restore_required=1\nQUIET_ROOM_IMAGE="$new_image"');
+    const startNew = source.indexOf('if (( ! ${INITIALIZE:-0} )); then data_restore_required=1; fi\nQUIET_ROOM_IMAGE="$new_image"');
     const publicHealth = source.indexOf('wait_for_public_health 10', startNew);
     const publicWebSocket = source.indexOf('wait_for_public_websocket', publicHealth);
     const publishRelease = source.indexOf('ln -sfn "$release_dir" "$APP_ROOT/current"');

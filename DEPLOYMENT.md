@@ -354,6 +354,41 @@ switch. The local development environment used for this change has no Docker,
 so the checked-in TURN image/configuration still needs this server-side check.
 See `CALLS.md` for application behavior and the call acceptance checklist.
 
+## First deployment to an independent empty environment
+
+Use an explicit named environment with its own origin, SSH key, secrets,
+certificate, data and backup paths. The personal `production` target and
+`https://ai.shui.click` cannot use initialization. Configure the new host's
+root-owned, non-writable `/etc/quiet-room/deployment.json` with its exact
+`publicHost` and `"allowInitialization": true`. Install reviewed helpers by the
+atomic process below; do not write a placeholder `current-sha` or serve fake
+application health.
+
+After preparing the public DNS/TLS/Nginx route and real business-traffic gate:
+
+```bash
+node scripts/release.mjs --environment tokyo-public --doctor --initialize
+npm run deploy:production -- --environment tokyo-public --initialize --sha <approved-main-SHA>
+```
+
+The read-only doctor and locked server initialization require no prior release
+state, release directories, project containers (including stopped containers)
+or project volumes. Missing/erroring Docker evidence fails closed. The fixed
+publisher still verifies exact main ancestry, complete successful CI, isolated
+source and the matching architecture/image/archive. First initialization
+verifies real public TLS and three gated business routes before starting the
+application, then checks real local/public health and the local WebSocket
+before publishing state and opening traffic. The public WebSocket and separate
+independent readback remain mandatory.
+
+An initialization attempt writes a durable marker before the first cutover.
+Failure retains the traffic gate and any newly created data and stops project
+containers; there is no prior data to restore or `ROLLBACK_OK` to claim. A
+repeat initialization is refused until an administrator investigates the actual
+state. Failure after traffic opens retains the database and is handled like a
+normal post-open failure. Subsequent updates use the normal command without
+`--initialize`, with its prior-release health, backup and rollback requirements.
+
 ## First-time `ai.shui.click` provisioning
 
 The canonical origin must be healthy before installing a deployment helper

@@ -70,20 +70,73 @@ readonly GIT_SSH_COMMAND_VALUE='ssh -o BatchMode=yes -o IdentitiesOnly=yes -i /h
 readonly RELEASE_RETENTION_COUNT="${QUIET_ROOM_RELEASE_RETENTION_COUNT:-3}"
 readonly PREDEPLOY_BACKUP_RETENTION_COUNT="${QUIET_ROOM_PREDEPLOY_BACKUP_RETENTION_COUNT:-3}"
 
+initialization_is_allowed() {
+  [[ "$PUBLIC_HOST" != ai.shui.click && -f /etc/quiet-room/deployment.json ]] || return 1
+  python3 -c '
+import json, os, stat
+p="/etc/quiet-room/deployment.json"
+s=os.lstat(p)
+if s.st_uid != 0 or s.st_mode & 0o022 or not stat.S_ISREG(s.st_mode): raise ValueError("Unsafe initialization configuration")
+c=json.load(open(p))
+raise SystemExit(0 if c.get("allowInitialization") is True else 1)
+'
+}
+
+# Read-only checks are repeated under the deployment lock for the actual
+# initialization. A stopped container or an existing volume is still data.
+check_initialization() {
+  local entry containers volumes releases
+  initialization_is_allowed || { printf 'Initialization is not enabled for this independent origin.\n' >&2; return 66; }
+  for entry in "$APP_ROOT/current" "$STATE_DIR/current-sha" "$STATE_DIR/deployed-at" \
+      "$STATE_DIR/calls-enabled" "$STATE_DIR/admin-enabled" "$STATE_DIR/initialization-attempted" \
+      "$MAINTENANCE_FILE"; do
+    if [[ -e "$entry" || -L "$entry" ]]; then
+      printf 'Initialization requires a new empty environment; deployment state exists.\n' >&2
+      return 75
+    fi
+  done
+  if [[ -s "$MAINTENANCE_DIR/successful-releases" ]]; then
+    printf 'Initialization refuses an existing release registry.\n' >&2; return 75
+  fi
+  if [[ -d "$RELEASES" ]]; then
+    releases="$(find "$RELEASES" -mindepth 1 -maxdepth 1 -print -quit)" || return 1
+    [[ -z "$releases" ]] || { printf 'Initialization refuses existing release directories.\n' >&2; return 75; }
+  fi
+  containers="$(docker ps --all --format '{{.Names}}' --filter "label=com.docker.compose.project=$PROJECT")" || return 1
+  [[ -z "$containers" ]] || { printf 'Initialization refuses existing project containers.\n' >&2; return 75; }
+  containers="$(docker ps --all --format '{{.Names}}')" || return 1
+  volumes="$(docker volume ls --format '{{.Name}}')" || return 1
+  if grep -q '^quiet-room-' <<< "$containers" || grep -q '^quiet-room_' <<< "$volumes"; then
+    printf 'Initialization refuses existing project containers or volumes.\n' >&2; return 75
+  fi
+  printf 'INITIALIZATION_READY origin=%s\n' "$PUBLIC_ORIGIN"
+}
+
 if [[ $# -eq 1 && "$1" == --describe ]]; then
-  printf '{"imageProtocol":1,"expectedPreviousProtocol":1,"publicOrigin":"%s"}\n' "$PUBLIC_ORIGIN"
+  initialization_protocol=0
+  if initialization_is_allowed; then initialization_protocol=1; fi
+  printf '{"imageProtocol":1,"expectedPreviousProtocol":1,"initializationProtocol":%s,"publicOrigin":"%s"}\n' "$initialization_protocol" "$PUBLIC_ORIGIN"
+  exit 0
+fi
+if [[ $# -eq 1 && "$1" == --check-initialization ]]; then
+  check_initialization
   exit 0
 fi
 
 readonly REQUESTED_SHA="${1:-}"
 readonly REQUESTED_IMAGE_ID="${2:-}"
 readonly REQUESTED_ARCHIVE_SHA="${3:-}"
-readonly EXPECTED_PREVIOUS_SHA="${4:-}"
+INITIALIZE=0
+if [[ "${4:-}" == --initialize ]]; then INITIALIZE=1; fi
+readonly INITIALIZE
+expected_previous_value="${4:-}"
+if (( INITIALIZE )); then expected_previous_value=''; fi
+readonly EXPECTED_PREVIOUS_SHA="$expected_previous_value"
 if [[ ! "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
   printf 'A lowercase 40-character Git commit is required.\n' >&2
   exit 64
 fi
-if [[ ( $# -ne 3 && $# -ne 4 ) || ! "$REQUESTED_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ || ! "$REQUESTED_ARCHIVE_SHA" =~ ^[0-9a-f]{64}$ || ( $# -eq 4 && ! "$EXPECTED_PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ) ]]; then
+if [[ ( $# -ne 3 && $# -ne 4 ) || ! "$REQUESTED_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ || ! "$REQUESTED_ARCHIVE_SHA" =~ ^[0-9a-f]{64}$ || ( $# -eq 4 && "$INITIALIZE" == 0 && ! "$EXPECTED_PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ) ]]; then
   printf 'An exact CI image ID and archive checksum are required; server builds are disabled.\n' >&2
   exit 64
 fi
@@ -115,6 +168,8 @@ for required in docker git runuser curl tar flock stat python3; do
     exit 69
   }
 done
+
+if (( INITIALIZE )); then check_initialization; fi
 
 [[ -d "$REPOSITORY" ]] || {
   printf 'Missing deployment repository: %s\n' "$REPOSITORY" >&2
@@ -591,6 +646,20 @@ prune_successful_deployments() {
   done
 }
 
+initialization_failed() {
+  local exit_code="$1"
+  trap - ERR
+  deploy_phase_finish failure
+  # There is no prior deployment to restore. Preserve the new volume and keep
+  # the real proxy gate closed; do not manufacture a rollback success receipt.
+  if ! stop_project_containers || ! ensure_data_volume_quiescent; then
+    printf 'INITIALIZATION_FAILED original_exit=%s; could not confirm stopped containers; inspect manually.\n' "$exit_code" >&2
+    exit 70
+  fi
+  printf 'INITIALIZATION_FAILED original_exit=%s; service stopped, data retained, traffic gated; inspect before retrying.\n' "$exit_code" >&2
+  exit "$exit_code"
+}
+
 rollback() {
   local exit_code="$1"
   local rollback_image="${previous_image:-$new_image}"
@@ -667,7 +736,7 @@ rollback() {
   exit "$exit_code"
 }
 
-trap 'exit_code=$?; if (( cutover_started )); then rollback "$exit_code"; else exit "$exit_code"; fi' ERR
+trap 'exit_code=$?; if (( cutover_started )); then if (( ${INITIALIZE:-0} )); then initialization_failed "$exit_code"; else rollback "$exit_code"; fi; else exit "$exit_code"; fi' ERR
 
 running_container_listing="$(project_container_ids)"
 if [[ -n "$running_container_listing" && ( -z "$previous_image" || ! -f "$previous_compose" ) ]]; then
@@ -677,7 +746,7 @@ fi
 
 # Refuse to begin downtime when DNS/TLS/reverse-proxy routing for the canonical
 # origin is already broken. The same probe is retried after cutover below.
-if ! wait_for_public_health 3; then
+if (( ! ${INITIALIZE:-0} )) && ! wait_for_public_health 3; then
   printf 'Refusing cutover: canonical public health check is unavailable: %s\n' "$PUBLIC_HEALTH_URL" >&2
   exit 69
 fi
@@ -686,11 +755,22 @@ fi
 # has stopped or changed data yet, so a missing gate aborts without downtime.
 deploy_phase_start gate-traffic
 /usr/local/sbin/quiet-room-capacity preflight
-close_business_traffic
-if ! probe_public_maintenance || ! wait_for_public_health 3; then
-  open_business_traffic
-  printf 'Refusing cutover: install and validate the Nginx traffic gate first.\n' >&2
-  exit 69
+if (( ${INITIALIZE:-0} )); then
+  # From this point any failure requires inspection. The marker cannot be
+  # cleared to turn a failed first attempt into an apparently empty host.
+  printf '%s\n' "$REQUESTED_SHA" > "$STATE_DIR/initialization-attempted"
+  close_business_traffic
+  if ! probe_public_maintenance; then
+    printf 'Refusing initialization: DNS/TLS or the real Nginx traffic gate is unavailable.\n' >&2
+    exit 69
+  fi
+else
+  close_business_traffic
+  if ! probe_public_maintenance || ! wait_for_public_health 3; then
+    open_business_traffic
+    printf 'Refusing cutover: install and validate the Nginx traffic gate first.\n' >&2
+    exit 69
+  fi
 fi
 
 deploy_phase_start stop-containers
@@ -698,15 +778,17 @@ cutover_started=1
 stop_project_containers
 ensure_data_volume_quiescent
 
-deploy_phase_start cold-backup
-backup_name="data-$stamp-$short_sha.tar.gz"
-backup_path="$BACKUP_DIR/$backup_name"
-backup_image="${previous_image:-$new_image}"
-create_data_archive "$backup_image" "$backup_name"
-backup_ready=1
+if (( ! ${INITIALIZE:-0} )); then
+  deploy_phase_start cold-backup
+  backup_name="data-$stamp-$short_sha.tar.gz"
+  backup_path="$BACKUP_DIR/$backup_name"
+  backup_image="${previous_image:-$new_image}"
+  create_data_archive "$backup_image" "$backup_name"
+  backup_ready=1
+fi
 
 deploy_phase_start start-containers
-data_restore_required=1
+if (( ! ${INITIALIZE:-0} )); then data_restore_required=1; fi
 QUIET_ROOM_IMAGE="$new_image" docker compose "${new_compose_args[@]}" \
   up --detach --no-build --remove-orphans
 
@@ -749,4 +831,4 @@ prune_successful_deployments || {
 deploy_phase_finish success
 
 printf 'DEPLOY_OK sha=%s release=%s backup=%s\n' \
-  "$REQUESTED_SHA" "$release_dir" "$BACKUP_DIR/$backup_name"
+  "$REQUESTED_SHA" "$release_dir" "${backup_path:-not-required-initialization}"
