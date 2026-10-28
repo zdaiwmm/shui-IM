@@ -465,3 +465,14 @@ Mac目录与同一Mac上的另一个APFS卷都不等于独立物理备份盘；�
 本次只读核查：Mac代理已加载，300秒检查、reserve策略、最近退出0；最近实际快照创建2026-10-25T04:44:07.823Z、校验04:45:02.956Z，三个保留点。固定入口对既有应用24c89baa25865fd4bb256851597351e421ce7190重新取得READBACK_OK，未切换生产。此为时点证据，后续必须重新测量新鲜度。
 
 TLS实际有效期仍到2026-12-02T22:54:18Z；续期认证器为manual，没有manual_auth_hook配置，certbot-renew.timer已启用且active。无人值守续期保持未完成；需先具备已授权的DNS验证条件或验证可用HTTP-01路径，再执行真实续期演练。仅有定时器或健康回读不能关闭该项。外部告警送达及不可变异地存储的既有缺口保留。
+
+
+## Tokyo named environment: TURN NAT configuration exception (2026-10-28)
+
+`tokyo-public` / `https://mijiu.cloud` keeps application SHA `054d868eff8bfc6575721a5e4cd16145864d1362`. The user separately approved the configuration-only source `01a5dfeb42e0b44042d09ba0f03f09fd176c3671`; the web and backup containers were not recreated. The root-owned read-only public configuration is `/opt/quiet-room/shared/turnserver-nat-v1.conf`, selected by `/opt/quiet-room/shared/turn-nat.override.yaml`. Its receipt, explicit approval, original configuration, policy DB backup and UFW checks are under `/var/lib/quiet-room-deploy/turn-nat-policy/`. No secret is stored in the public configuration.
+
+Before a normal whole-application update, review this temporary override and the previous-release rollback path. Confirm the new source selects `/var/lib/coturn/turndb`, the existing policy volume is retained, and the UID/private-alias/relay-port protection still matches the pinned image and host. The existing helper does not automatically inherit the extra override for rollback. Do not blindly drop it, edit immutable Git releases, renew anonymous volumes, prune the policy volume, or claim a rollback preserves this configuration without checking.
+
+The realm-scoped own-host NAT alias is protected **before** loopback/established acceptance: UID65534 may return TURN control responses on UDP source3478 and TCP source3478/5349 and relay UDP49160–49200 only to the same range; other access to its own private address is rejected. Other private, loopback and metadata peers remain denied by coturn, with TCP relay disabled. Check the guard, process UID, private IP, exact port range, empty account/secret tables and actual relay data after any change. A fresh host needs the guard before its own alias is added. Application snapshots do not back up the TURN policy DB; the policy is separately recorded and backed up.
+
+This environment has daily local snapshots, verified operator-Mac copies and isolated restore evidence. The legacy Mac backup installer targets the personal environment and must not be reused here. Continuous immutable off-host replication, external alert delivery and real-device/cross-access-network acceptance are not established by these receipts. See [the exact delivery](RELEASING.md#release-aws-tokyo-turn-config-20261028).

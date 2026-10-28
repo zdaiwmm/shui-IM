@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+<a id="release-aws-tokyo-turn-config-20261028"></a>
+## 东京独立通话配置例外已完成（2026-10-28 17:52）
+
+- 用户在本聊天明确回答「确认，仅更新通话配置」，批准配置源 `01a5dfeb42e0b44042d09ba0f03f09fd176c3671` 的独立配置更新例外，只重建东京通话组件，网页保持 `054d868eff8bfc6575721a5e4cd16145864d1362`／`2026.10.28.2`，原自用环境不动。[PR #459](https://github.com/zdaiwmm/shui-IM/pull/459) 的[完整PR CI40663238208](https://github.com/zdaiwmm/shui-IM/actions/runs/40663238208)成功，含NAT持久策略库、十项地址检查、非中继私网UDP拒绝及UDP／TCP加密媒体；已合并为 `5c55a2fdcdf5857aa2041d2752b68b187cddec22`，配置Git blob与获批源相同。后续主线网页功能未部署。
+- 获批 `deploy/turnserver.conf` SHA-256 `a4749ac2ad490f5634368def9daf50e3ee644f1c3775471d689606887e73c167`，仅明确 `userdb=/var/lib/coturn/turndb`。独立root只读副本 `/opt/quiet-room/shared/turnserver-nat-v1.conf` 和 root Compose覆盖 `/opt/quiet-room/shared/turn-nat.override.yaml` 于09:38:24Z生效；未改已发布Git源或网页镜像。仅 `quiet-room-turn` 重建，应用与备份容器ID、完整应用SHA及原策略数据卷保持一致；仅该次获批例外使用单服务配置更新，未再次调用整站发布入口。
+- 启用前已校验realm仅为mijiu.cloud、本机别名为172.26.1.2、UID65534、固定镜像4.18.0和49160–49200中继范围。UFW保护在loopback／established之前，其他本机UDP／TCP目标拒绝；库内用户、管理员和认证密钥表为空，只含realm级本机别名。真实内核及东京临时隔离实验已验证允许中继互通、拒绝其他内网／元数据与本机非中继端口；未放开整个私网。Docker在UFW之后启动，数据库卷保留。
+- 09:43:04Z至09:43:44Z，Mac无头原生浏览器经实际公网中继的UDP／TCP／TLS三条路径全部通过：实际双向加密媒体、语音升级视频、双向初始视频、ICE重启、关摄像头和挂断停止采集。使用合成身份与媒体、进程内信令，不创建真实房间；这不是双方不同接入网络或真实手机验收。
+- 配置后两次独立回读停在公开资源读取，服务器状态与HTTPS健康均通过，失败证据保留；未改超时或断言，未重发。单独逐资源诊断均200；加入只读请求计时日志后，原回读入口按相同10秒单请求阈值、资源摘要与WebSocket断言取得 `READBACK_OK`，09:52:01.401Z开始、19346ms，公开与容器产物一致。未断言已定位前两次中断根因。应用与备份healthy、TURN running／无健康探针、维护门absent，管理员关闭、通话开启。
+- 原应用更新后的08:24:58Z快照已于08:27:38Z离机复制和隔离恢复校验；本次配置操作未重建应用／备份或恢复数据库。容量与备份新鲜度检查无问题，容量／保留／Certbot定时器active。只有已验证Mac副本，没有持续不可变离机存储或外部告警送达保证。
+- 配置、授权、guard、应用回读与媒体脱敏证据位于公共Git目录 `quiet-room-deliveries/evidence/aws-tokyo-turn-policy-20261028/`。最后回读原件为发布工作树Git元数据 `quiet-room-readback/20261028T095201401Z-054d868eff8b-success.json`。未来正常发布必须审阅这项临时覆盖及上一版回退，确认新源含同样DB路径、保留策略卷和UID／端口保护；旧helper不自动继承覆盖，不得直接假定回滚会保留它。详见[运行配置需求](docs/requirements/2026-10-28-turn-nat-runtime/README.md)。活动工作树、依赖及专属回执保留，清理不触发重新发布。
+
 <a id="release-aws-tokyo-turn-policy-20261028"></a>
 ## 东京权限修复应用已发布，公网通话待运行配置补齐（2026-10-28 16:25）
 
