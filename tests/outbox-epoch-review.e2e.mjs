@@ -90,12 +90,19 @@ try {
       // IndexedDB speed varies on shared CI hosts; a stuck queue still fails fast.
       const deadline = Date.now() + 180_000;
       let progressAt = Date.now(), lastAccepted = 0;
+      const preparedIds=new Set();
       let final, accepted;
       while (Date.now() < deadline) {
         final = backend.store.roomState(roomId);
         accepted = queued.ids.filter(id => backend.store.getMessageByClientId(roomId, id)).length;
         if (accepted === oldCount + freshCount) break;
-        if (accepted > lastAccepted) { lastAccepted = accepted; progressAt = Date.now(); }
+        // Stale generated ciphertext must first become a durable intent. Those
+        // authenticated preparations can advance before the first acceptance.
+        const preparing=await b.evaluate(ids=>ids.filter(id=>{const item=reviewApp.outbox.get(id);return item?.intent&&!item.envelope;}),queued.ids);
+        let advanced=accepted>lastAccepted;
+        for(const id of preparing)if(!preparedIds.has(id)){preparedIds.add(id);advanced=true;}
+        if(advanced)progressAt=Date.now();
+        lastAccepted=Math.max(lastAccepted,accepted);
         if (Date.now() - progressAt >= 30_000) break;
         // Several signed self-updates with zero accepted application progress
         // prove the bounded-window scheduling cycle without a long stress run.
@@ -113,7 +120,7 @@ try {
       if(accepted === oldCount + freshCount) await a.waitForFunction(count => [...reviewApp.messages.values()].filter(x=>x.payload.kind==='text' && /^(old|fresh)-/.test(x.payload.text)).length===count,oldCount+freshCount,{timeout:15000});
       const receiver = await a.evaluate(() => [...reviewApp.messages.values()].filter(x => x.payload.kind === 'text' && /^(old|fresh)-/.test(x.payload.text)).length);
       const { ids, ...queueSummary } = queued;
-      const result = { oldCount, freshCount, before: { nextSeq: start.nextSeq, eventSeq: start.nextMlsEventSeq }, queued: queueSummary,
+      const result = { oldCount, freshCount, preparedCount:preparedIds.size, before: { nextSeq: start.nextSeq, eventSeq: start.nextMlsEventSeq }, queued: queueSummary,
         after: { nextSeq: final.nextSeq, eventSeq: final.nextMlsEventSeq, accepted }, runtime, receiver, errors };
       console.log(JSON.stringify(result));
       assert.deepEqual(errors, []);
