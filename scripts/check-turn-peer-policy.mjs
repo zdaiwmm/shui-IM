@@ -7,7 +7,7 @@ import { callIceConfiguration } from '../server/calls.mjs';
 
 assert(process.env.CI === 'true' && process.platform === 'linux', 'TURN policy check requires the isolated Linux CI lab');
 assert(process.env.TURN_REALM === 'quiet-room-test', 'Unexpected TURN lab realm');
-const host = process.env.TURN_PUBLIC_IP;
+const host = process.env.TURN_TEST_CONTROL_IP ?? process.env.TURN_PUBLIC_IP;
 assert(/^\d{1,3}(\.\d{1,3}){3}$/.test(host ?? ''), 'TURN lab IPv4 required');
 const { username, credential } = callIceConfiguration({ turnUrls: `turn:${host}:3478`, callRelayOnly: true }).iceServers.find(server => server.username);
 const socket = dgram.createSocket('udp4');
@@ -16,6 +16,11 @@ function attribute(type, value) {
   const result = Buffer.alloc(4 + Math.ceil(value.length / 4) * 4);
   result.writeUInt16BE(type); result.writeUInt16BE(value.length, 2); value.copy(result, 4);
   return result;
+}
+function peerAttribute(ip, port) {
+  const address = Buffer.from([0, 1, 0, 0, ...ip.split('.').map((part, index) => Number(part) ^ [0x21, 0x12, 0xa4, 0x42][index])]);
+  address.writeUInt16BE(port ^ 0x2112, 2);
+  return attribute(0x12, address);
 }
 function attributes(message) {
   const result = new Map();
@@ -56,13 +61,11 @@ try {
   auth = [attribute(6, Buffer.from(username)), attribute(0x14, realm), attribute(0x15, challenge.get(0x15))];
   assert.equal((await request(message(3, [transport, ...auth], key))).readUInt16BE(0), 0x103, 'Authenticated TURN allocation failed');
   allocated = true;
-  const cases = [['203.0.113.1', true], ['198.51.100.1', true], ['0.0.0.0', false], ['127.0.0.1', false],
+  const cases = [['203.0.113.1', true], ['198.51.100.1', true], ...(process.env.TURN_TEST_NAT_IP ? [[process.env.TURN_TEST_NAT_IP, true]] : []), ['0.0.0.0', false], ['127.0.0.1', false],
     ['169.254.169.254', false], ['10.255.255.254', false], ['172.16.0.1', false], ['192.168.1.1', false], ['100.64.0.1', false]];
   for (const [peer, allowed] of cases) {
     assert(peer !== host, 'Policy probe must be outside the lab whitelist');
-    const address = Buffer.from([0, 1, 0, 0, ...peer.split('.').map((part, index) => Number(part) ^ [0x21, 0x12, 0xa4, 0x42][index])]);
-    address.writeUInt16BE(49160 ^ 0x2112, 2);
-    const response = await request(message(8, [attribute(0x12, address), ...auth], key));
+    const response = await request(message(8, [peerAttribute(peer, 49160), ...auth], key));
     if (allowed) assert.equal(response.readUInt16BE(0), 0x108, `Public TURN peer denied: ${peer}`);
     else {
       const error = attributes(response).get(9);
@@ -70,7 +73,29 @@ try {
       assert(error && (error[2] & 7) * 100 + error[3] === 403, `Expected peer denial: ${peer}`);
     }
   }
-  console.log(`PASS TURN peer policy: ${cases.length} public/forbidden addresses outside the lab whitelist`);
+  console.log(`PASS TURN peer policy: ${cases.length} public/forbidden addresses including NAT self relay`);
+  if (process.env.TURN_TEST_NAT_IP) {
+    const listener = dgram.createSocket('udp4');
+    try {
+      await new Promise((resolve, reject) => { listener.once('error', reject); listener.bind(0, host, resolve); });
+      const port = listener.address().port;
+      assert(port !== 3478 && (port < 49160 || port > 49200), 'Guard target must be outside relay/control ports');
+      const direct = randomBytes(16), guarded = randomBytes(16);
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Private synthetic receiver was not reachable')), 2000);
+        listener.once('message', bytes => { clearTimeout(timer); bytes.equals(direct) ? resolve() : reject(new Error('Unexpected synthetic datagram')); });
+        listener.send(direct, port, host);
+      });
+      const peer = peerAttribute(process.env.TURN_TEST_NAT_IP, port);
+      assert.equal((await request(message(8, [peer, ...auth], key))).readUInt16BE(0), 0x108, 'NAT alias permission must reach the data guard');
+      let leaked = false;
+      listener.on('message', bytes => { if (bytes.equals(guarded)) leaked = true; });
+      await new Promise((resolve, reject) => socket.send(message(0x16, [peer, attribute(0x13, guarded)]), 3478, host, error => error ? reject(error) : resolve()));
+      await new Promise(resolve => setTimeout(resolve, 750));
+      assert.equal(leaked, false, 'TURN reached a private non-relay UDP service');
+      console.log('PASS TURN self-alias data guard blocks private non-relay UDP');
+    } finally { listener.close(); }
+  }
 } finally {
   try { if (allocated) await request(message(4, [attribute(0x0d, Buffer.alloc(4)), ...auth], key)); }
   finally { socket.close(); }
