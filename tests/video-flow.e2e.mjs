@@ -19,7 +19,7 @@ let browser;
 try {
   await server.listen();
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true, acceptDownloads: true });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, hasTouch: true, acceptDownloads: true });
   const errors = [];
   let downloadCount = 0;
   page.on('pageerror', error => errors.push(error.message));

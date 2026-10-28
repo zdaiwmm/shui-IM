@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 /** One opening owns all asynchronous projections, even when the VaultSession is reused. */
 export class RoomRuntime<T> {
   readonly id = Symbol('room-runtime');
@@ -11,7 +12,7 @@ export class RoomRuntime<T> {
     if(this.identity()!==this.owner||!this.current()){this.dispose();return false;}
     return true;
   }
-  assertCurrent(): void { if (!this.isCurrent()) throw new DOMException('会话已经结束', 'AbortError'); }
+  assertCurrent(): void { if (!this.isCurrent()) throw new DOMException(uiLiteral('会话已经结束'), 'AbortError'); }
   commit(update: () => void): boolean { if (!this.isCurrent()) return false; update(); return true; }
   own(release: () => void): void { if (this.signal.aborted) release(); else this.releases.add(release); }
   dispose(): void {

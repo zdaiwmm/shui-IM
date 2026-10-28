@@ -183,8 +183,8 @@ try {
         : { headless: true, channel: 'chrome' },
   );
 
-  const creatorContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  const joinerContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const creatorContext = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 } });
+  const joinerContext = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 } });
   const creator = await creatorContext.newPage();
   const joiner = await joinerContext.newPage();
   await Promise.all([enableDeviceVault(creator), enableDeviceVault(joiner, true)]);

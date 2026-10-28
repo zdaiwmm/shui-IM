@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate } from './language';
 import { CallSignalQueue } from './call-signal-queue';
 import { validateCallConfiguration } from './call-configuration';
 import { boundedOperation, networkDelay, NetworkOperationError } from './network-operation';
@@ -63,9 +64,9 @@ export function responseRetryAfterMs(response: Response): number {
 export async function responseError(response: Response): Promise<ApiError> {
   try {
     const body = await response.json() as { error?: string; code?: string };
-    return new ApiError(body.error || `请求失败（${response.status}）`, response.status, body.code ?? 'REQUEST_FAILED', responseRetryAfterMs(response));
+    return new ApiError(body.error || uiTemplate`请求失败（${response.status}）`, response.status, body.code ?? 'REQUEST_FAILED', responseRetryAfterMs(response));
   } catch {
-    return new ApiError(`请求失败（${response.status}）`, response.status, 'REQUEST_FAILED', responseRetryAfterMs(response));
+    return new ApiError(uiTemplate`请求失败（${response.status}）`, response.status, 'REQUEST_FAILED', responseRetryAfterMs(response));
   }
 }
 
@@ -90,7 +91,7 @@ export async function createRoom(
   creatorBundle: unknown,
   accessToken: string,
   inviteToken = accessToken,
-  deviceName = '此设备',
+  deviceName = (uiLiteral('此设备') as string),
   capabilities: string[] = [],
   personalBinding?: import('./personal-device-binding').PersonalDeviceBinding,
   roomId?: string,
@@ -130,7 +131,7 @@ export async function getCallConfiguration(roomId: string, accessToken: string, 
         let body: unknown;
         try { body = await response.json(); } catch (error) {
           requestSignal.throwIfAborted();
-          if (error instanceof SyntaxError) throw new NetworkOperationError('CALL_CONFIG_INVALID', '通话网络配置无效');
+          if (error instanceof SyntaxError) throw new NetworkOperationError('CALL_CONFIG_INVALID', uiLiteral('通话网络配置无效'));
           throw error;
         }
         return validateCallConfiguration(body);
@@ -177,7 +178,7 @@ export async function joinRoom(
   bundle: unknown,
   proof: string,
   deviceAccessToken?: string,
-  deviceName = '此设备',
+  deviceName = (uiLiteral('此设备') as string),
   capabilities: string[] = [],
   chamber?: { secret: string; code: string; codeRevision?: number; binding: import('./personal-device-binding').PersonalDeviceBinding },
 ): Promise<RoomState> {
@@ -554,14 +555,14 @@ export class RoomSocket {
         if (clientMsgId && sent?.length === 0) this.sentEnvelopes.delete(clientMsgId);
         if (clientMsgId) this.releaseSend(`message:${clientMsgId}`, false);
         this.runAfterMembershipUpdate(() => this.handlers.error(
-          String(frame.message ?? '实时连接发生错误'),
+          String(frame.message ?? uiLiteral('实时连接发生错误')),
           String(frame.code ?? 'SOCKET_ERROR'),
           clientMsgId,
           rejectedEnvelope,
         ));
       }
     } catch {
-      this.runAfterMembershipUpdate(() => this.handlers.error('收到无法识别的实时数据', 'INVALID_SERVER_FRAME'));
+      this.runAfterMembershipUpdate(() => this.handlers.error(uiLiteral('收到无法识别的实时数据'), 'INVALID_SERVER_FRAME'));
     }
   }
 
@@ -596,7 +597,7 @@ export class RoomSocket {
   private reportHandlerFailure(cause: unknown): void {
     const message = cause instanceof Error && cause.message
       ? cause.message
-      : '会话成员状态处理失败';
+      : uiLiteral('会话成员状态处理失败');
     this.handlers.error(message, 'INVALID_CLIENT_STATE');
   }
 
@@ -617,7 +618,7 @@ export class RoomSocket {
   }
 
   sendCall(envelope: CallEnvelope): Promise<void> {
-    if (this.closed) return Promise.reject(new NetworkOperationError('WS_CLOSED', '通话连接已关闭'));
+    if (this.closed) return Promise.reject(new NetworkOperationError('WS_CLOSED', uiLiteral('通话连接已关闭')));
     return this.callSignals.send(envelope);
   }
   cancelCallSignals(callId: string) { this.callSignals.cancel(callId); }
@@ -657,7 +658,7 @@ export class RoomSocket {
 
   private sendDurable(key: string, frame: unknown): boolean {
     const socket = this.socket;
-    if (socket?.readyState !== WebSocket.OPEN) throw new Error('实时连接尚未恢复');
+    if (socket?.readyState !== WebSocket.OPEN) throw new Error(uiLiteral('实时连接尚未恢复'));
     if (this.pendingSends.has(key)) return true;
     const serialized = JSON.stringify(frame);
     const bytes = new TextEncoder().encode(serialized).byteLength;

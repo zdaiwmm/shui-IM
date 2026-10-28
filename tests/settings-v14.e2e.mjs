@@ -14,7 +14,7 @@ try{
   service=await startServer({port:0,host:'127.0.0.1',dataDir,quiet:true});
   vite=await createServer({root:process.cwd(),cacheDir:path.join(dataDir,'vite-cache'),configFile:false,logLevel:'error',plugins:[{name:'settings-v14-observer',enforce:'pre',transform(code,id){if(id.endsWith('/src/main.ts'))return code.replace('void app.start();','window.app=app;void app.start();');}}],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${service.port}`,'/ws':{target:`ws://127.0.0.1:${service.port}`,ws:true}}}});await vite.listen();
   browser=await chromium.launch(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
-  const context=await browser.newContext({permissions:['clipboard-read','clipboard-write'],viewport:{width:393,height:852},isMobile:true,hasTouch:true,deviceScaleFactor:3,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1'});
+  const context=await browser.newContext({ locale: 'zh-CN',permissions:['clipboard-read','clipboard-write'],viewport:{width:393,height:852},isMobile:true,hasTouch:true,deviceScaleFactor:3,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1'});
   page=await context.newPage();page.setDefaultTimeout(20_000);page.on('pageerror',error=>errors.push(error.message));
   const capture=async name=>{if(process.env.QR_VISUAL_DIR){await page.waitForFunction(()=>!document.querySelector('.local-page-outgoing,.page-transition-outgoing'));await mkdir(process.env.QR_VISUAL_DIR,{recursive:true});await page.screenshot({path:path.join(process.env.QR_VISUAL_DIR,name+'.png')});}};
   const origin=`http://localhost:${vite.httpServer.address().port}`;
@@ -30,7 +30,7 @@ try{
   assert.equal(await page.locator('.release-update-reminder,.release-history-page').count(),0);
   await page.locator('#copy-invite').click();await page.locator('.app-toast').filter({hasText:'已复制'}).waitFor();
   const participantLink=await page.evaluate(()=>navigator.clipboard.readText());
-  const peerContext=await browser.newContext({viewport:{width:393,height:852},isMobile:true,hasTouch:true}),peer=await peerContext.newPage();peer.on('pageerror',error=>errors.push(error.message));
+  const peerContext=await browser.newContext({ locale: 'zh-CN',viewport:{width:393,height:852},isMobile:true,hasTouch:true}),peer=await peerContext.newPage();peer.on('pageerror',error=>errors.push(error.message));
   await peer.goto(participantLink);await peer.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);await page.bringToFront();await page.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);
   assert.equal(await page.title(),'chamber1');
   await page.locator('#chat-settings').click();await page.locator('#chamber-switch-space').click();
@@ -123,7 +123,7 @@ try{
   let creates=0;page.on('request',request=>{if(request.method()==='POST'&&/\/device-links$/.test(new URL(request.url()).pathname))creates++;});
   await page.locator('#copy-device-join').click();await page.locator('.numeric-password-page').waitFor();assert.equal(creates,0,'No link exists before local verification');await page.locator('[data-numeric-left]').click();await page.locator('.numeric-password-page').waitFor({state:'detached'});assert.equal(creates,0,'Cancellation must not mint a link');
   await page.locator('#copy-device-join').click();await submitPassword(page,'654321');await page.locator('.app-toast').filter({hasText:'密码'}).waitFor();assert.equal(creates,0);await page.waitForTimeout(400);await submitPassword(page,'123456');await page.locator('.app-toast').filter({hasText:'设备链接已复制'}).waitFor();assert.equal(creates,1);
-  const link=await page.evaluate(()=>navigator.clipboard.readText());const otherContext=await browser.newContext({viewport:{width:1200,height:850}}),other=await otherContext.newPage();other.on('pageerror',error=>errors.push(error.message));
+  const link=await page.evaluate(()=>navigator.clipboard.readText());const otherContext=await browser.newContext({ locale: 'zh-CN',viewport:{width:1200,height:850}}),other=await otherContext.newPage();other.on('pageerror',error=>errors.push(error.message));
   await other.goto(origin);await other.locator('#create-room').waitFor();
   const oldSlot=await other.evaluate(async()=>{
     const {automaticRoomCredential}=await import('/src/lib/browser-room-key.ts');const v=await import('/src/lib/vault.ts');const {generateIdentity}=await import('/src/lib/crypto.ts');

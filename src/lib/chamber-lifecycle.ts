@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { canonicalStringify } from './canonical';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { randomBase64Url, toBase64Url } from './base64';
@@ -54,8 +55,8 @@ export async function inspectChamber(entry:PersonalDirectoryEntry,stored:StoredP
   const proof=await personalChallenge(stored.identity.id,{action:'read-directory',roomId:entry.roomId,deviceId:randomBase64Url(24),version:1,payloadHash:hash({purpose:'chamber-inspect-v1',roomId:entry.roomId})},signal);
   const signature=await usePersonalIdentity(stored,credential,entropy=>signPersonalProof(entropy,proof));
   const result=await api<ChamberLifecycle>(entry.roomId,undefined,'inspect',signal,{proof,signature});
-  if(result.version<(entry.lifecycle?.version??1)||result.generation<(entry.lifecycle?.generation??1))throw new Error('密室生命周期较本人的已确认目录更旧');
-  if(result.closed&&!verifyChamberClosure(result,entry))throw new Error('关闭密室的原参与者签名无法验证'); return result;
+  if(result.version<(entry.lifecycle?.version??1)||result.generation<(entry.lifecycle?.generation??1))throw new Error(uiLiteral('密室生命周期较本人的已确认目录更旧'));
+  if(result.closed&&!verifyChamberClosure(result,entry))throw new Error(uiLiteral('关闭密室的原参与者签名无法验证')); return result;
 }
 export const readChamberLifecycle=(session:VaultSession,signal:AbortSignal)=>api<ChamberLifecycle>(session.vault.roomId,session.vault.accessToken,undefined,signal);
 export async function closeChamber(session:VaultSession,stored:StoredPersonalIdentity,entropy:Uint8Array,signal:AbortSignal):Promise<ChamberLifecycle> {
@@ -71,7 +72,7 @@ export async function closeChamber(session:VaultSession,stored:StoredPersonalIde
 export async function prepareChamberReopen(entry:PersonalDirectoryEntry,lifecycle:ChamberLifecycle,stored:StoredPersonalIdentity,credential:LocalCredentialResult,
   deviceName:string,capabilities:string[],signal:AbortSignal,joint=false) {
   const recover=!lifecycle.closed&&(joint||lifecycle.pending?.purpose==='chamber-recovery-offer-v1');
-  if((!recover&&!verifyChamberClosure(lifecycle,entry)) || !same(rootFor(entry,entry.role),stored.identity))throw new Error('此密室的状态或本人恢复验证不正确');
+  if((!recover&&!verifyChamberClosure(lifecycle,entry)) || !same(rootFor(entry,entry.role),stored.identity))throw new Error(uiLiteral('此密室的状态或本人恢复验证不正确'));
   const identity=await generateIdentity();signal.throwIfAborted();
   const binding=await usePersonalIdentity(stored,credential,entropy=>bindPersonalDevice(entropy,identity)),accessToken=randomBase64Url(32);
   const payload:ChamberReopenPayload={v:1,purpose:recover?'chamber-recovery-offer-v1':'chamber-reopen-offer-v1',roomId:entry.roomId,requestId:lifecycle.pending?.requestId??crypto.randomUUID(),role:entry.role,
@@ -86,15 +87,15 @@ function members(snapshot:ChamberReopenSnapshot):RoomMember[] {
 }
 export async function verifyChamberReopen(pending:PendingChamberReopen,snapshot:ChamberReopenSnapshot):Promise<void> {
   const own=pending.offer,entry=pending.entry;
-  if(!['chamber-reopen-offer-v1','chamber-recovery-offer-v1'].includes(own.payload.purpose))throw new Error('此申请类型已停用');
+  if(!['chamber-reopen-offer-v1','chamber-recovery-offer-v1'].includes(own.payload.purpose))throw new Error(uiLiteral('此申请类型已停用'));
   if(snapshot.requestId!==own.payload.requestId || snapshot.version!==own.payload.version || !same(snapshot.offers[entry.role],own) ||
-    !Number.isFinite(Date.parse(snapshot.expiresAt)) || Date.parse(snapshot.expiresAt)>Date.parse(own.proof.expiresAt))throw new Error('共同恢复申请发生变化');
+    !Number.isFinite(Date.parse(snapshot.expiresAt)) || Date.parse(snapshot.expiresAt)>Date.parse(own.proof.expiresAt))throw new Error(uiLiteral('共同恢复申请发生变化'));
   for(const role of roles) {
     const offer=snapshot.offers[role];if(!offer)continue;const p=offer.payload,root=rootFor(entry,role);
     if(p.purpose!==own.payload.purpose || p.role!==role || p.roomId!==entry.roomId || p.requestId!==snapshot.requestId || p.version!==snapshot.version || p.generation!==own.payload.generation ||
       !same(p.binding.identity,root) || !await verifyPersonalDeviceBinding(p.binding,p.bundle) || offer.proof.action!=='restore-room' ||
       offer.proof.roomId!==entry.roomId || offer.proof.deviceId!==p.bundle.deviceId || offer.proof.version!==snapshot.version || offer.proof.payloadHash!==hash(p) ||
-      !verifyPersonalProof(root,offer.proof,offer.signature,snapshot.result?Date.parse(snapshot.result.completedAt):Date.now()))throw new Error('共同恢复参与者签名无法验证');
+      !verifyPersonalProof(root,offer.proof,offer.signature,snapshot.result?Date.parse(snapshot.result.completedAt):Date.now()))throw new Error(uiLiteral('共同恢复参与者签名无法验证'));
   }
   if(snapshot.proposal) {
     const p=snapshot.proposal;
@@ -102,21 +103,21 @@ export async function verifyChamberReopen(pending:PendingChamberReopen,snapshot:
       p.roomId!==entry.roomId || p.requestId!==snapshot.requestId || p.version!==snapshot.version ||
       p.generation!==own.payload.generation || p.expiresAt!==snapshot.expiresAt || !same(p.offers,snapshot.offers) || !roles.every(role=>snapshot.offers[role]) ||
       p.welcome.senderId!==p.offers.creator.payload.bundle.deviceId || p.welcome.recipientId!==p.offers.joiner.payload.bundle.deviceId ||
-      pending.proposal&&!same(pending.proposal,p) || !await verifyEcdsa(p.offers.creator.payload.bundle.signingKey,p.welcome.signature,((({signature:_,...unsigned})=>unsigned)(p.welcome))))throw new Error('共同恢复聊天密钥提案无法验证');
+      pending.proposal&&!same(pending.proposal,p) || !await verifyEcdsa(p.offers.creator.payload.bundle.signingKey,p.welcome.signature,((({signature:_,...unsigned})=>unsigned)(p.welcome))))throw new Error(uiLiteral('共同恢复聊天密钥提案无法验证'));
     for(const role of roles) {
       const approval=snapshot.approvals[role];if(!approval)continue;
       if(approval.proof.action!=='restore-room' || approval.proof.roomId!==entry.roomId || approval.proof.deviceId!==p.offers[role].payload.bundle.deviceId ||
-        approval.proof.version!==snapshot.version || approval.proof.payloadHash!==hash(p) || !verifyPersonalProof(rootFor(entry,role),approval.proof,approval.signature,snapshot.result?Date.parse(snapshot.result.completedAt):Date.now()))throw new Error('双方共同恢复批准无法验证');
+        approval.proof.version!==snapshot.version || approval.proof.payloadHash!==hash(p) || !verifyPersonalProof(rootFor(entry,role),approval.proof,approval.signature,snapshot.result?Date.parse(snapshot.result.completedAt):Date.now()))throw new Error(uiLiteral('双方共同恢复批准无法验证'));
     }
-  } else if(snapshot.result || Object.keys(snapshot.approvals).length)throw new Error('共同恢复提案缺失');
+  } else if(snapshot.result || Object.keys(snapshot.approvals).length)throw new Error(uiLiteral('共同恢复提案缺失'));
   if(snapshot.result&&(!roles.every(role=>snapshot.approvals[role]) || snapshot.result.generation!==own.payload.generation || snapshot.result.version!==snapshot.version+1 ||
     !Number.isSafeInteger(snapshot.result.eventSeq) || snapshot.result.eventSeq<1 || !Number.isSafeInteger(snapshot.result.nextSeq) || snapshot.result.nextSeq<0 ||
-    !Number.isSafeInteger(snapshot.result.nextReceiptSeq) || snapshot.result.nextReceiptSeq<0))throw new Error('共同恢复回执不正确');
+    !Number.isSafeInteger(snapshot.result.nextReceiptSeq) || snapshot.result.nextReceiptSeq<0))throw new Error(uiLiteral('共同恢复回执不正确'));
 }
 export async function advanceChamberReopen(session:VaultSession,signal:AbortSignal):Promise<ChamberReopenSnapshot> {
-  const pending=session.vault.pendingChamberReopen;if(!pending)throw new Error('本机共同恢复状态缺失');
-  if(!['chamber-reopen-offer-v1','chamber-recovery-offer-v1'].includes(pending.offer.payload.purpose))throw new Error('此申请类型已停用');
-  if(pending.cancelled)throw new Error('本次共同恢复已取消，请重新发起');
+  const pending=session.vault.pendingChamberReopen;if(!pending)throw new Error(uiLiteral('本机共同恢复状态缺失'));
+  if(!['chamber-reopen-offer-v1','chamber-recovery-offer-v1'].includes(pending.offer.payload.purpose))throw new Error(uiLiteral('此申请类型已停用'));
+  if(pending.cancelled)throw new Error(uiLiteral('本次共同恢复已取消，请重新发起'));
   let snapshot:ChamberReopenSnapshot;
   try {snapshot=await api(session.vault.roomId,session.vault.accessToken,'status',signal);} catch {
     signal.throwIfAborted();snapshot=await api(session.vault.roomId,undefined,'offer',signal,pending.offer);
@@ -140,7 +141,7 @@ export async function advanceChamberReopen(session:VaultSession,signal:AbortSign
   return snapshot;
 }
 export async function approveChamberReopen(session:VaultSession,snapshot:ChamberReopenSnapshot,stored:StoredPersonalIdentity,credential:LocalCredentialResult,signal:AbortSignal) {
-  const pending=session.vault.pendingChamberReopen;if(!pending?.mls || !snapshot.proposal)throw new Error('请等待双方准备聊天密钥');
+  const pending=session.vault.pendingChamberReopen;if(!pending?.mls || !snapshot.proposal)throw new Error(uiLiteral('请等待双方准备聊天密钥'));
   await verifyChamberReopen(pending,snapshot);
   const proof=await personalChallenge(stored.identity.id,{action:'restore-room',roomId:session.vault.roomId,deviceId:session.vault.identity.publicBundle.deviceId,
     version:snapshot.version,payloadHash:hash(snapshot.proposal)},signal);
@@ -149,12 +150,12 @@ export async function approveChamberReopen(session:VaultSession,snapshot:Chamber
   return api<ChamberReopenSnapshot>(session.vault.roomId,session.vault.accessToken,'approve',signal,{proof,signature});
 }
 export async function completeChamberReopen(session:VaultSession,snapshot:ChamberReopenSnapshot,signal:AbortSignal):Promise<void> {
-  const pending=session.vault.pendingChamberReopen;if(!pending?.mls || !pending.approved || !snapshot.result || !snapshot.proposal)throw new Error('请先双方确认共同恢复');
+  const pending=session.vault.pendingChamberReopen;if(!pending?.mls || !pending.approved || !snapshot.result || !snapshot.proposal)throw new Error(uiLiteral('请先双方确认共同恢复'));
   await verifyChamberReopen(pending,snapshot);
   const state=await getRoomState(session.vault.roomId,session.vault.accessToken);signal.throwIfAborted();
   if(state.chamberLifecycle?.closed || state.chamberLifecycle?.generation!==snapshot.result.generation || state.chamberLifecycle?.version!==snapshot.result.version ||
-    !same(state.chamberLifecycle.receipt,{proposal:snapshot.proposal,approvals:snapshot.approvals}))throw new Error('共同恢复的状态回读签名不一致');
-  for(const role of roles) {const target=state.members.find(m=>m.deviceId===snapshot.offers[role]!.payload.bundle.deviceId);if(!target || target.status!=='active'||target.role!==role)throw new Error('共同恢复设备回读不一致');}
+    !same(state.chamberLifecycle.receipt,{proposal:snapshot.proposal,approvals:snapshot.approvals}))throw new Error(uiLiteral('共同恢复的状态回读签名不一致'));
+  for(const role of roles) {const target=state.members.find(m=>m.deviceId===snapshot.offers[role]!.payload.bundle.deviceId);if(!target || target.status!=='active'||target.role!==role)throw new Error(uiLiteral('共同恢复设备回读不一致'));}
   await withVaultMutation(session,async mutation=> {
     signal.throwIfAborted();const before=session.vault;
     session.vault={...before,members:state.members,mls:{...pending.mls!,pendingWelcome:undefined,lastEventSeq:snapshot.result!.eventSeq},pairingState:'ready',
@@ -165,7 +166,7 @@ export async function completeChamberReopen(session:VaultSession,snapshot:Chambe
   });
 }
 export async function cancelChamberReopen(session:VaultSession,stored:StoredPersonalIdentity,credential:LocalCredentialResult,signal:AbortSignal):Promise<void> {
-  const pending=session.vault.pendingChamberReopen;if(!pending)throw new Error('本次申请状态缺失');
+  const pending=session.vault.pendingChamberReopen;if(!pending)throw new Error(uiLiteral('本次申请状态缺失'));
   const payload={purpose:'chamber-recovery-cancel-v1',roomId:session.vault.roomId,requestId:pending.offer.payload.requestId,version:pending.offer.payload.version};
   const proof=await personalChallenge(stored.identity.id,{action:'restore-room',roomId:payload.roomId,deviceId:session.vault.identity.publicBundle.deviceId,version:payload.version,payloadHash:hash(payload)},signal);
   const signature=await usePersonalIdentity(stored,credential,entropy=>signPersonalProof(entropy,proof));

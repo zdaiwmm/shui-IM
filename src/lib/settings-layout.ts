@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 /** Shared Chamber settings chrome. Move existing controls, preserving their
  * listeners, form ownership and navigation; async content remains independent. */
 export function mountSettingsLayout(root:HTMLElement):()=>void {
@@ -18,7 +19,7 @@ export function mountSettingsLayout(root:HTMLElement):()=>void {
     if(save){save.classList.add('primary-button');footer.append(save);}
     const existing=page.querySelector<HTMLButtonElement>('.backup-help-return');
     existing?.remove();
-    back.className='text-button page-back-button';back.textContent='返回';footer.append(back);
+    back.className='text-button page-back-button';back.textContent=uiLiteral('返回');footer.append(back);
     page.append(footer);
   };
   const observer=new MutationObserver(discover);observer.observe(root,{childList:true});discover();

@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
 import type { Vault } from './types';
@@ -11,7 +12,7 @@ export function notificationPlatformCapability(): NotificationCapability {
   return Notification.permission === 'denied' ? 'blocked' : 'available';
 }
 async function responseError(response: Response): Promise<Error> {
-  return new Error(response.status === 401 || response.status === 403 ? '此密室的本机访问已失效，请重新打开密室确认' : response.status === 503 ? '通知服务暂不可用，请稍后重试' : response.status === 429 ? '操作过于频繁，请稍后重试' : '通知设置未能确认，请检查网络后重试');
+  return new Error(response.status === 401 || response.status === 403 ? uiLiteral('此密室的本机访问已失效，请重新打开密室确认') : response.status === 503 ? uiLiteral('通知服务暂不可用，请稍后重试') : response.status === 429 ? uiLiteral('操作过于频繁，请稍后重试') : uiLiteral('通知设置未能确认，请检查网络后重试'));
 }
 async function configuration(signal?: AbortSignal): Promise<PushConfiguration> {
   const response = await fetch('/api/push/public-key', { cache: 'no-store', signal: bounded(signal) });
@@ -60,9 +61,9 @@ export async function confirmedSpaceNotification(vault: Vault, endpoint: string,
 }
 /** Uses an already granted permission. The settings click owns the permission prompt. */
 export async function subscribeBrowserNotifications(signal: AbortSignal): Promise<{ subscription: PushSubscription; created: boolean }> {
-  if (notificationPlatformCapability() !== 'available' || Notification.permission !== 'granted') throw new Error('请先允许本机使用通知');
+  if (notificationPlatformCapability() !== 'available' || Notification.permission !== 'granted') throw new Error(uiLiteral('请先允许本机使用通知'));
   const config = await configuration(signal);
-  if (!config.enabled || !config.publicKey) throw new Error('通知服务暂不可用，请稍后重试');
+  if (!config.enabled || !config.publicKey) throw new Error(uiLiteral('通知服务暂不可用，请稍后重试'));
   const registration = await notificationRegistration(signal);
   signal.throwIfAborted();
   const existing = await registration.pushManager.getSubscription();
@@ -74,14 +75,14 @@ export async function subscribeBrowserNotifications(signal: AbortSignal): Promis
 }
 export async function registerSpaceNotification(vault: Vault, subscription: PushSubscription, signal: AbortSignal): Promise<void> {
   const serialized = subscription.toJSON();
-  if (!serialized.endpoint || !serialized.keys?.p256dh || !serialized.keys.auth) throw new Error('本机通知订阅不完整，请关闭后重新开启');
+  if (!serialized.endpoint || !serialized.keys?.p256dh || !serialized.keys.auth) throw new Error(uiLiteral('本机通知订阅不完整，请关闭后重新开启'));
   const response = await authorized(vault, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ subscription: { endpoint: serialized.endpoint, keys: { p256dh: serialized.keys.p256dh, auth: serialized.keys.auth } }, authorization: await createPushAuthorization(vault, 'subscribe', serialized.endpoint) }),
   }, signal);
   const value = await response.json() as { stored?: boolean };
   signal.throwIfAborted();
-  if (value.stored !== true) throw new Error('通知设置未能确认，请重试');
+  if (value.stored !== true) throw new Error(uiLiteral('通知设置未能确认，请重试'));
 }
 /** A space opt-out only removes that device's room row; the browser endpoint is shared. */
 export async function unregisterSpaceNotification(vault: Vault, endpoint: string, signal: AbortSignal): Promise<void> {
@@ -91,5 +92,5 @@ export async function unregisterSpaceNotification(vault: Vault, endpoint: string
   }, signal);
   const value = await response.json() as { removed?: boolean };
   signal.throwIfAborted();
-  if (value.removed !== true) throw new Error('通知设置未能确认，请重试');
+  if (value.removed !== true) throw new Error(uiLiteral('通知设置未能确认，请重试'));
 }

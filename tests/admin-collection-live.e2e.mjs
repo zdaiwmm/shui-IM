@@ -20,7 +20,7 @@ try {
   const port = reservation.address().port; await new Promise(r => reservation.close(r));
   service = await startServer({ port, host: '127.0.0.1', dataDir, adminConfig: config, adminOrigin: `http://localhost:${port}`, quiet: true });
   browser = await chromium.launch(process.env.CHROME_CHANNEL ? { channel: process.env.CHROME_CHANNEL } : {});
-  page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1280, height: 900 } });
   await page.goto(`http://localhost:${port}`);
   await page.locator('[name=password]').fill('synthetic-live-test-password');
   await page.locator('[name=code]').fill(totp(config.totpSecret));

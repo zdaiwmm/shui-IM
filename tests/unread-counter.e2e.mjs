@@ -29,7 +29,7 @@ let browser;
 try {
   await server.listen();
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 390, height: 844 } });
   const errors = [];
   const requests = [];
   page.on('pageerror', error => errors.push(error.message));

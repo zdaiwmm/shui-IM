@@ -6,7 +6,7 @@ import {createServer} from 'vite';
 const vite=await createServer({root:process.cwd(),configFile:false,appType:'custom',logLevel:'error',server:{host:'127.0.0.1',port:0,hmr:false},plugins:[{name:'backup-facts',configureServer(s){s.middlewares.use('/__backup_facts',(_q,r)=>{r.setHeader('Content-Type','text/html');r.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="app"></div>');});}}]});let browser;
 try{await vite.listen();for(const engine of [chromium,webkit]){
  browser=await engine.launch(engine===webkit?{}:process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
- const page=await browser.newPage({viewport:{width:390,height:844}});await page.goto(`http://localhost:${vite.httpServer.address().port}/__backup_facts`);
+ const page=await browser.newPage({ locale: 'zh-CN',viewport:{width:390,height:844}});await page.goto(`http://localhost:${vite.httpServer.address().port}/__backup_facts`);
  await page.evaluate(async()=>{
   await import('/src/styles.css');await import('/src/auth-recovery.css');await import('/src/room-polish.css');
   const v=await import('/src/lib/vault.ts'),c=await import('/src/lib/crypto.ts'),k=await import('/src/lib/browser-room-key.ts'),a=await import('/src/lib/room-archive-crypto.ts'),{mountArchiveSettings}=await import('/src/lib/archive-settings.ts'),{readArchiveBackupSnapshot}=await import('/src/lib/archive-backup-state.ts');

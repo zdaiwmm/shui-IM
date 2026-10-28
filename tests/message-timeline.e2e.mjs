@@ -141,7 +141,7 @@ try {
   browser = process.env.QUIET_ROOM_TEST_BROWSER === 'webkit' ? await webkit.launch()
     : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   const url = `http://localhost:${server.httpServer.address().port}/__message_timeline`;
-  const mobile = await browser.newPage({ viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Shanghai', hasTouch: true,
+  const mobile = await browser.newPage({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, timezoneId: 'Asia/Shanghai', hasTouch: true,
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
   mobile.on('pageerror', error => errors.push(error.message));
   await mobile.goto(url); await mobile.evaluate(initializeTimeline);
@@ -315,7 +315,7 @@ try {
     return { animations: 0 };
   });
 
-  const desktop = await browser.newPage({ viewport: { width: 1280, height: 900 }, timezoneId: 'Asia/Shanghai' });
+  const desktop = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1280, height: 900 }, timezoneId: 'Asia/Shanghai' });
   desktop.on('pageerror', error => errors.push(error.message));
   await desktop.goto(url); await desktop.evaluate(initializeTimeline);
   const configurations = [

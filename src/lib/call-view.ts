@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate } from './language';
 import '../page-back.css';
 import { layoutViewport } from './form-input';
 import { bindControlFeedback } from './control-feedback';
@@ -81,7 +82,7 @@ export class CallView {
     this.element.setAttribute('aria-modal', 'true');
     this.element.setAttribute('aria-labelledby', `${id}-name`);
     this.element.setAttribute('aria-describedby', `${id}-status`);
-    this.element.innerHTML = `
+    this.element.innerHTML = uiTemplate`
       <div class="call-backdrop" aria-hidden="true">
         <video class="call-background-video" autoplay muted playsinline disablepictureinpicture tabindex="-1"></video>
       </div>
@@ -171,11 +172,11 @@ export class CallView {
     this.element.classList.toggle('call-has-local-video', localVisible);
     this.element.classList.toggle('call-local-mirrored', state.facingMode === 'user');
     this.element.classList.toggle('call-poor-connection', state.quality !== 'good');
-    this.peerName.textContent = state.peerName || '对方';
-    this.callType.textContent = state.kind === 'video' ? '视频通话' : '语音通话';
+    this.peerName.textContent = state.peerName || uiLiteral('对方');
+    this.callType.textContent = state.kind === 'video' ? uiLiteral('视频通话') : uiLiteral('语音通话');
     const fallbackStatus = {
-      idle: '', outgoing: '正在呼叫…', incoming: '邀请你通话', connecting: '正在连接…',
-      connected: '通话中', reconnecting: '网络不稳定，正在重连…', ended: '通话已结束',
+      idle: '', outgoing: uiLiteral('正在呼叫…'), incoming: uiLiteral('邀请你通话'), connecting: uiLiteral('正在连接…'),
+      connected: uiLiteral('通话中'), reconnecting: uiLiteral('网络不稳定，正在重连…'), ended: uiLiteral('通话已结束'),
     }[state.phase];
     const statusText = state.statusText || fallbackStatus;
     if (this.status.textContent !== statusText) {
@@ -191,24 +192,24 @@ export class CallView {
     this.ended.hidden = state.phase !== 'ended';
     this.mic.disabled = !active || state.phase === 'incoming' || !state.localStream;
     this.mic.setAttribute('aria-pressed', String(state.micMuted));
-    this.mic.setAttribute('aria-label', state.micMuted ? '打开麦克风' : '关闭麦克风');
-    this.mic.querySelector('.call-control-label')!.textContent = state.micMuted ? '已静音' : '静音';
+    this.mic.setAttribute('aria-label', state.micMuted ? uiLiteral('打开麦克风') : uiLiteral('关闭麦克风'));
+    this.mic.querySelector('.call-control-label')!.textContent = state.micMuted ? uiLiteral('已静音') : uiLiteral('静音');
     setIcon(this.mic.querySelector('.call-control-disc')!, state.micMuted ? 'microphoneOff' : 'microphone');
     this.camera.disabled = !connected || !state.localStream;
     this.camera.setAttribute('aria-pressed', String(state.cameraEnabled));
-    this.camera.setAttribute('aria-label', state.cameraPaused ? '停用视频自动恢复' : state.cameraEnabled ? '关闭摄像头' : '打开摄像头');
-    this.camera.querySelector('.call-control-label')!.textContent = state.cameraPaused ? '视频已暂停' : state.cameraEnabled ? '摄像头' : '已关闭';
+    this.camera.setAttribute('aria-label', state.cameraPaused ? uiLiteral('停用视频自动恢复') : state.cameraEnabled ? uiLiteral('关闭摄像头') : uiLiteral('打开摄像头'));
+    this.camera.querySelector('.call-control-label')!.textContent = state.cameraPaused ? uiLiteral('视频已暂停') : state.cameraEnabled ? uiLiteral('摄像头') : uiLiteral('已关闭');
     setIcon(this.camera.querySelector('.call-control-disc')!, state.cameraEnabled ? 'camera' : 'cameraOff');
     this.flip.disabled = !connected || !state.cameraEnabled || !state.canSwitchCamera;
     this.flip.hidden = !state.canSwitchCamera;
-    this.answer.setAttribute('aria-label', state.kind === 'video' ? '接听视频通话' : '接听语音通话');
+    this.answer.setAttribute('aria-label', state.kind === 'video' ? uiLiteral('接听视频通话') : uiLiteral('接听语音通话'));
     setIcon(this.answer.querySelector('.call-control-disc')!, state.kind === 'video' ? 'camera' : 'answer');
     this.updateTimer();
 
     const remoteHint = connected ? [
-      state.remoteMuted ? '对方已静音' : '',
-      state.kind === 'video' && !state.remoteVideoEnabled ? '对方已关闭摄像头' : '',
-      state.quality !== 'good' && state.phase !== 'reconnecting' ? ({ good: '', degraded: '视频画质已降低', 'audio-only': '已暂停视频，语音保持连接', recovering: '视频画质逐步恢复中' }[state.quality]) : '',
+      state.remoteMuted ? uiLiteral('对方已静音') : '',
+      state.kind === 'video' && !state.remoteVideoEnabled ? uiLiteral('对方已关闭摄像头') : '',
+      state.quality !== 'good' && state.phase !== 'reconnecting' ? ({ good: '', degraded: uiLiteral('视频画质已降低'), 'audio-only': uiLiteral('已暂停视频，语音保持连接'), recovering: uiLiteral('视频画质逐步恢复中') }[state.quality]) : '',
     ].filter(Boolean).join(' · ') : '';
     this.remoteHint.textContent = remoteHint;
     this.remoteHint.hidden = !remoteHint;
@@ -282,7 +283,7 @@ export class CallView {
     if (visible) {
       const duration = formatDuration(state.startedAt!);
       this.timer.textContent = duration;
-      this.timer.setAttribute('aria-label', `通话时长 ${duration}`);
+      this.timer.setAttribute('aria-label', uiTemplate`通话时长 ${duration}`);
     }
   }
 

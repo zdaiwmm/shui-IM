@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { canonicalStringify } from './canonical';
 import { fromBase64Url, toBase64Url } from './base64';
 import { openJson, sealJson } from './backup-crypto';
@@ -37,14 +38,14 @@ export function validOwnSpaceRecords(value: unknown): value is OwnSpaceRecord[] 
 /** Logical revisions converge without clock assumptions. Retain removal records
  * so an offline endpoint cannot resurrect an entry with an older snapshot. */
 export function mergeOwnSpaceRecords(left: OwnSpaceRecord[], right: OwnSpaceRecord[]): OwnSpaceRecord[] {
-  if (!validOwnSpaceRecords(left) || !validOwnSpaceRecords(right)) throw new Error('本人密室目录不完整');
+  if (!validOwnSpaceRecords(left) || !validOwnSpaceRecords(right)) throw new Error(uiLiteral('本人密室目录不完整'));
   const entries = new Map(left.map(entry => [entry.roomId, entry]));
   for (const entry of right) {
     const previous = entries.get(entry.roomId);
     if (!previous || entry.revision > previous.revision || entry.revision === previous.revision && entry.writer > previous.writer) entries.set(entry.roomId, entry);
-    else if (entry.revision === previous.revision && entry.writer === previous.writer && canonicalStringify(entry) !== canonicalStringify(previous)) throw new Error('本人密室目录版本冲突');
+    else if (entry.revision === previous.revision && entry.writer === previous.writer && canonicalStringify(entry) !== canonicalStringify(previous)) throw new Error(uiLiteral('本人密室目录版本冲突'));
   }
-  if (entries.size > 256) throw new Error('本人密室目录超过上限');
+  if (entries.size > 256) throw new Error(uiLiteral('本人密室目录超过上限'));
   return [...entries.values()].sort((a,b) => a.roomId.localeCompare(b.roomId));
 }
 
@@ -54,7 +55,7 @@ async function read(session: VaultSession): Promise<Directory> {
   if (!sealed) return { v: 1, writer: crypto.randomUUID(), clock: 0, entries: [] };
   const state = await openJson(sealed as Parameters<typeof openJson>[0], await spaceCapability(session.vault.spaceRecoveryCode!, 'encryption'), localId(session)) as Directory;
   if (state?.v !== 1 || !uuid.test(state.writer) || !Number.isSafeInteger(state.clock) || state.clock < 0 ||
-    !validOwnSpaceRecords(state.entries) || state.entries.some(entry => entry.revision > state.clock)) throw new Error('本人密室目录校验失败');
+    !validOwnSpaceRecords(state.entries) || state.entries.some(entry => entry.revision > state.clock)) throw new Error(uiLiteral('本人密室目录校验失败'));
   return state;
 }
 async function update(session: VaultSession, apply: (state: Directory) => void, signal?: AbortSignal): Promise<Directory> {
@@ -67,7 +68,7 @@ async function update(session: VaultSession, apply: (state: Directory) => void, 
       if (!state.entries.some(entry => entry.roomId === space.roomId)) state.entries.push(record(space, ++state.clock, state.writer));
     }
     apply(state);
-    if (!validOwnSpaceRecords(state.entries)) throw new Error('本人密室目录超过上限');
+    if (!validOwnSpaceRecords(state.entries)) throw new Error(uiLiteral('本人密室目录超过上限'));
     signal?.throwIfAborted();
     if (canonicalStringify(state) !== before) await writeLocalSpaceDirectory(session, localId(session), await sealJson(state,
       await spaceCapability(session.vault.spaceRecoveryCode!, 'encryption'), localId(session)), mutation);
@@ -118,11 +119,11 @@ async function pairKey(vault: Vault, peer: RoomMember, context: ReturnType<typeo
   } finally { shared.fill(0); }
 }
 export async function sealOwnDirectory(vault: Vault, target: RoomMember, entries: OwnSpaceRecord[], revision: number): Promise<OwnEnvelope> {
-  if (!validOwnSpaceRecords(entries) || target.role !== vault.role || target.status !== 'active' || target.deviceId === vault.identity.publicBundle.deviceId) throw new Error('本人目录设备不正确');
+  if (!validOwnSpaceRecords(entries) || target.role !== vault.role || target.status !== 'active' || target.deviceId === vault.identity.publicBundle.deviceId) throw new Error(uiLiteral('本人目录设备不正确'));
   return sealOwnEnvelope(vault,target,{v:1,entries},revision,purpose);
 }
 export async function sealOwnEnvelope(vault: Vault,target: RoomMember,data: unknown,revision: number,mailPurpose: OwnEnvelope['purpose']): Promise<OwnEnvelope> {
-  if (target.role !== vault.role || target.status !== 'active' || target.deviceId === vault.identity.publicBundle.deviceId) throw new Error('本人设备不正确');
+  if (target.role !== vault.role || target.status !== 'active' || target.deviceId === vault.identity.publicBundle.deviceId) throw new Error(uiLiteral('本人设备不正确'));
   const context = header({v:1,purpose:mailPurpose,roomId:vault.roomId,senderId:vault.identity.publicBundle.deviceId,recipientId:target.deviceId,revision});
   const iv = crypto.getRandomValues(new Uint8Array(12)), raw = encoder.encode(JSON.stringify(data));
   try {
@@ -133,7 +134,7 @@ export async function sealOwnEnvelope(vault: Vault,target: RoomMember,data: unkn
 }
 export async function openOwnDirectory(vault: Vault, envelope: OwnEnvelope): Promise<OwnSpaceRecord[]> {
   const data = await openOwnEnvelope(vault,envelope,purpose) as {v:number;entries:OwnSpaceRecord[]};
-  if (data?.v !== 1 || Object.keys(data).sort().join(',') !== 'entries,v' || !validOwnSpaceRecords(data.entries)) throw new Error('本人目录内容不正确');
+  if (data?.v !== 1 || Object.keys(data).sort().join(',') !== 'entries,v' || !validOwnSpaceRecords(data.entries)) throw new Error(uiLiteral('本人目录内容不正确'));
   return data.entries;
 }
 export async function openOwnEnvelope(vault: Vault,envelope: OwnEnvelope,mailPurpose: OwnEnvelope['purpose']): Promise<unknown> {
@@ -141,10 +142,10 @@ export async function openOwnEnvelope(vault: Vault,envelope: OwnEnvelope,mailPur
   if (!peer || peer.role !== vault.role || peer.status !== 'active' || envelope.purpose !== mailPurpose || envelope.v !== 1 ||
     envelope.roomId !== vault.roomId || envelope.recipientId !== vault.identity.publicBundle.deviceId || envelope.senderId === envelope.recipientId ||
     !Number.isSafeInteger(envelope.revision) || envelope.revision < 1 || typeof envelope.ciphertext !== 'string' || envelope.ciphertext.length > 2 * 1024 ** 2 ||
-    Object.keys(envelope).sort().join(',') !== 'ciphertext,iv,purpose,recipientId,revision,roomId,senderId,signature,v') throw new Error('本人目录来源未通过验证');
+    Object.keys(envelope).sort().join(',') !== 'ciphertext,iv,purpose,recipientId,revision,roomId,senderId,signature,v') throw new Error(uiLiteral('本人目录来源未通过验证'));
   const {signature,...unsigned} = envelope;
   const key = await crypto.subtle.importKey('jwk',peer.signingKey,{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
-  if (!await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,fromBase64Url(signature),encoder.encode(canonicalStringify(unsigned)))) throw new Error('本人目录签名不正确');
+  if (!await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,fromBase64Url(signature),encoder.encode(canonicalStringify(unsigned)))) throw new Error(uiLiteral('本人目录签名不正确'));
   const context = header(envelope);
   const raw = new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:fromBase64Url(envelope.iv),additionalData:encoder.encode(canonicalStringify(context))},await pairKey(vault,peer,context),fromBase64Url(envelope.ciphertext)));
   try {
@@ -160,7 +161,7 @@ export async function syncOwnSpaceDirectory(session: VaultSession, signal: Abort
   const url = `/api/rooms/${session.vault.roomId}/own-directory`;
   const options = {signal:AbortSignal.any([signal,AbortSignal.timeout(15_000)]),cache:'no-store' as const};
   const data = await (await authorizedFetch(url,session.vault.accessToken,options)).json() as {incoming:OwnEnvelope[];outgoing:{recipientId:string;revision:number}[]};
-  if (!Array.isArray(data.incoming) || data.incoming.length > 2 || !Array.isArray(data.outgoing) || data.outgoing.length > 2) throw new Error('本人目录设备数不正确');
+  if (!Array.isArray(data.incoming) || data.incoming.length > 2 || !Array.isArray(data.outgoing) || data.outgoing.length > 2) throw new Error(uiLiteral('本人目录设备数不正确'));
   let incoming:OwnSpaceRecord[] = [];
   for (const envelope of data.incoming) incoming = mergeOwnSpaceRecords(incoming,await openOwnDirectory(session.vault,envelope));
   const state = await update(session,state => {

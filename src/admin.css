@@ -480,3 +480,5 @@ button:focus-visible,summary:focus-visible,a:focus-visible { outline: 2px solid 
 @media(max-width:700px) {
   .admin-main:has(.expression-bulk) #status:not(:empty) { bottom: calc(88px + env(safe-area-inset-bottom)); }
 }
+
+.feedback-admin-message { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 75ch; }

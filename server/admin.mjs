@@ -12,7 +12,7 @@ const secret = () => randomBytes(32).toString('base64url');
 const hash = value => createHash('sha256').update(value).digest('hex');
 
 export async function createAdminConsole({ config: suppliedConfig, configFile, origin = 'https://admin.mijiu.cloud',
-  data, readModel, diagnostics, expressions, json, readJson, readExpressionJson = readJson,
+  data, readModel, diagnostics, expressions, feedback, json, readJson, readExpressionJson = readJson,
   clientAddress = createClientAddress(), headers, staticDir, onDelete }) {
   let config = suppliedConfig;
   if (!config && configFile) {
@@ -105,6 +105,17 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
       sessions.delete(hash(token)); clearCookie(response); json(request, response, 200, { loggedOut: true }); return true;
     }
     const url = new URL(request.url, adminOrigin);
+    if (feedback && pathname.startsWith('/admin-api/feedback')) {
+      try {
+        if (pathname === '/admin-api/feedback' && request.method === 'GET') {
+          json(request,response,200,feedback.list({offset:Number(url.searchParams.get('offset')??0),status:url.searchParams.get('status')??'all'})); return true;
+        }
+        const match = pathname.match(/^\/admin-api\/feedback\/([0-9a-f-]{36})(\/read)?$/);
+        if (match && request.method === 'GET' && !match[2]) { const item=feedback.get(match[1]); json(request,response,item?200:404,item??{error:'反馈不存在'}); return true; }
+        if (match && request.method === 'POST' && match[2]) { const ok=feedback.markRead(match[1]); json(request,response,ok?200:404,ok?{read:true}:{error:'反馈不存在'}); return true; }
+        json(request,response,404,{error:'NOT_FOUND'}); return true;
+      } catch (error) { if (error.message !== 'INVALID_FEEDBACK_FILTER') throw error; json(request,response,400,{error:'筛选条件不正确'}); return true; }
+    }
     if (request.method === 'GET' && readModel) {
       try {
         const offset = Number(url.searchParams.get('offset') ?? 0);

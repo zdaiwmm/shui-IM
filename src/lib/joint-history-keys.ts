@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { Aes256Gcm, CipherSuite, DhkemP256HkdfSha256, HkdfSha256 } from '@hpke/core';
 import { DhkemX25519HkdfSha256 } from '@hpke/dhkem-x25519';
 import { ed25519 } from '@noble/curves/ed25519.js';
@@ -14,7 +15,7 @@ const encoder = new TextEncoder(), decoder = new TextDecoder('utf-8', { fatal: t
 const bytes = (value: unknown) => encoder.encode(canonicalStringify(value));
 const hash = (value: unknown) => toBase64Url(sha256(bytes(value)));
 const same = (a: unknown, b: unknown) => canonicalStringify(a) === canonicalStringify(b);
-const fail = () => new Error('双方历史恢复材料的身份、范围或有效期不一致');
+const fail = () => new Error(uiLiteral('双方历史恢复材料的身份、范围或有效期不一致'));
 type HpkeEnvelope = { enc: string; ciphertext: string };
 export type JointHistoryContext = {
   roomId: string; backupId: string; revision: number; contentDigest: string;

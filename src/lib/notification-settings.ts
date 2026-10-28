@@ -1,27 +1,28 @@
+import { uiLiteral, uiTemplate, t } from './language';
 import { readNotificationCopy } from './notification-copy';
 import { DeviceNotifications, type NotificationSnapshot, type SpaceNotificationState } from './device-notifications';
 import { spaceNotificationEnabled } from './notification-policy';
 import { type NotificationCapability } from './push';
 const copy: Record<NotificationCapability, [string, string]> = {
-  available: ['本机支持通知', '开启后，系统会在有新消息时提醒你。'],
-  'home-screen': ['添加到主屏幕后可用', '在 Safari 的分享菜单中选择“添加到主屏幕”，再从主屏幕打开 Chamber 并开启通知。'],
-  unsupported: ['当前环境不支持通知', '请使用支持 Web Push 的浏览器，并通过安全连接打开 Chamber。'],
-  blocked: ['系统已阻止通知', '请在浏览器或系统设置中允许 Chamber 使用通知，再回来开启。'],
-  unavailable: ['通知服务暂不可用', '本机可以使用通知，服务暂时无法提供通知。请稍后重试。'],
-  unknown: ['暂时无法确认', '请检查网络后重试。当前状态无法确认是否可以接收通知。'],
+  get available() { return [uiLiteral('本机支持通知'), uiLiteral('开启后，系统会在有新消息时提醒你。')] as [string,string]; },
+  get 'home-screen'() { return [uiLiteral('添加到主屏幕后可用'), uiLiteral('在 Safari 的分享菜单中选择“添加到主屏幕”，再从主屏幕打开 Chamber 并开启通知。')] as [string,string]; },
+  get unsupported() { return [uiLiteral('当前环境不支持通知'), uiLiteral('请使用支持 Web Push 的浏览器，并通过安全连接打开 Chamber。')] as [string,string]; },
+  get blocked() { return [uiLiteral('系统已阻止通知'), uiLiteral('请在浏览器或系统设置中允许 Chamber 使用通知，再回来开启。')] as [string,string]; },
+  get unavailable() { return [uiLiteral('通知服务暂不可用'), uiLiteral('本机可以使用通知，服务暂时无法提供通知。请稍后重试。')] as [string,string]; },
+  get unknown() { return [uiLiteral('暂时无法确认'), uiLiteral('请检查网络后重试。当前状态无法确认是否可以接收通知。')] as [string,string]; },
 };
 function errorCopy(error: unknown): string {
-  if (error instanceof DOMException && error.name === 'TimeoutError' || error instanceof TypeError) return '通知设置暂未确认，请检查网络后重试';
-  if (error instanceof DOMException && error.name === 'NotAllowedError') return '系统未允许此操作，请确认通知权限或重新验证';
-  return error instanceof Error ? error.message : '通知设置未保存，请重试';
+  if (error instanceof DOMException && error.name === 'TimeoutError' || error instanceof TypeError) return uiLiteral('通知设置暂未确认，请检查网络后重试');
+  if (error instanceof DOMException && error.name === 'NotAllowedError') return uiLiteral('系统未允许此操作，请确认通知权限或重新验证');
+  return error instanceof Error ? t(error.message) : uiLiteral('通知设置未保存，请重试');
 }
-const stateCopy: Record<SpaceNotificationState, string> = { on: '通知已开启', off: '通知已关闭', paused: '总开关已关闭，保留原有选择', unknown: '状态待确认，可重新开启总开关或稍后刷新', unavailable: '完成本机密室访问后即可设置' };
+const stateCopy: Record<SpaceNotificationState, string> = { get on() { return uiLiteral('通知已开启'); }, get off() { return uiLiteral('通知已关闭'); }, get paused() { return uiLiteral('总开关已关闭，保留原有选择'); }, get unknown() { return uiLiteral('状态待确认，可重新开启总开关或稍后刷新'); }, get unavailable() { return uiLiteral('完成本机密室访问后即可设置'); } };
 export function mountNotificationSettings(page: HTMLElement, manager: DeviceNotifications, options: {
   systemSurface: (operation: () => Promise<void>) => Promise<void>;
   openCopy?: () => void;
 }): void {
   const signal = manager.signal;
-  page.innerHTML = `<p class="notification-lead">统一管理本机所有密室的新消息提醒。</p>
+  page.innerHTML = uiTemplate`<p class="notification-lead">统一管理本机所有密室的新消息提醒。</p>
     <section class="notification-capability" aria-label="本机通知能力"><span>本机通知能力</span><strong id="notification-status" role="status">正在确认…</strong><p id="notification-explanation"></p><button class="notification-refresh" type="button">刷新状态</button></section>
     <section class="notification-controls" aria-label="通知总开关"><div class="notification-row"><div><strong id="notification-master-label">允许本机通知</strong><p>只影响当前浏览器或主屏幕应用。</p></div><button id="notification-master" class="notification-switch" role="switch" type="button" aria-checked="false" aria-labelledby="notification-master-label" disabled><span></span></button></div></section>
     <button id="notification-copy-entry" class="notification-copy-entry" type="button"><span><strong>通知文案</strong><span data-notification-copy-summary>标题与正文</span></span><span aria-hidden="true">›</span></button>
@@ -39,7 +40,7 @@ export function mountNotificationSettings(page: HTMLElement, manager: DeviceNoti
   const rows = manager.spaces.map((space, index) => {
     const row = document.createElement('div'); row.className = 'notification-row';
     const label = document.createElement('strong'); label.id = `notification-space-label-${index}`; label.textContent = space.name;
-    const detail = document.createElement('p'); detail.textContent = '正在确认…';
+    const detail = document.createElement('p'); detail.textContent = uiLiteral('正在确认…');
     const text = document.createElement('div'); text.append(label, detail);
     const button = document.createElement('button'); button.type = 'button'; button.className = 'notification-switch'; button.setAttribute('role', 'switch'); button.setAttribute('aria-checked', 'false'); button.setAttribute('aria-labelledby', label.id); button.dataset.notificationSpace = space.roomId; button.disabled = true; button.innerHTML = '<span></span>';
     row.append(text, button); list.append(row);
@@ -52,7 +53,7 @@ export function mountNotificationSettings(page: HTMLElement, manager: DeviceNoti
     master.setAttribute('aria-checked', String(snapshot?.policy.enabled ?? false));
     for (const { space, detail, button } of rows) {
       const state = snapshot?.spaces[space.roomId];
-      detail.textContent = space.unavailable ?? (state ? stateCopy[state] : '正在确认…');
+      detail.textContent = space.unavailable ?? (state ? stateCopy[state] : uiLiteral('正在确认…'));
       // While paused, preserve the preference visually; during uncertainty do not claim delivery.
       button.setAttribute('aria-checked', String(snapshot ? state === 'on' || (state !== 'off' && spaceNotificationEnabled(snapshot.policy, space.roomId)) : false));
       button.disabled = busy || !snapshot?.policy.enabled || snapshot.capability !== 'available' || !!space.unavailable;
@@ -68,12 +69,12 @@ export function mountNotificationSettings(page: HTMLElement, manager: DeviceNoti
       const value = await manager.snapshot();
       if (signal.aborted || !page.isConnected || request !== revision) return;
       snapshot = value; paint();
-    } catch (error) { if (!signal.aborted && page.isConnected && request === revision) { page.querySelector('#notification-status')!.textContent = '暂时无法确认'; feedback.textContent = errorCopy(error); } }
+    } catch (error) { if (!signal.aborted && page.isConnected && request === revision) { page.querySelector('#notification-status')!.textContent = uiLiteral('暂时无法确认'); feedback.textContent = errorCopy(error); } }
   }
   async function run(operation: () => Promise<void>) {
     if (busy || signal.aborted) return;
-    busy = true; feedback.textContent = '正在保存…'; paint();
-    try { await operation(); if (!signal.aborted && page.isConnected) feedback.textContent = '通知设置已保存'; }
+    busy = true; feedback.textContent = uiLiteral('正在保存…'); paint();
+    try { await operation(); if (!signal.aborted && page.isConnected) feedback.textContent = uiLiteral('通知设置已保存'); }
     catch (error) { if (!signal.aborted && page.isConnected) feedback.textContent = errorCopy(error); }
     finally { if (!signal.aborted && page.isConnected) { await load(); busy = false; paint(); } }
   }

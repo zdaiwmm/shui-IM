@@ -8,7 +8,7 @@ import {startServer} from '../server/index.mjs';
 
 // Real encrypted archives, browser persistence and native Chromium quota; synthetic data only.
 async function verifyCleanupGuards(browser,url){
- const context=await browser.newContext(),page=await context.newPage();await page.goto(url);
+ const context=await browser.newContext({locale: 'zh-CN'}),page=await context.newPage();await page.goto(url);
  try{return await page.evaluate(async()=>{
   const v=await import('/src/lib/vault.ts'),a=await import('/src/lib/room-archive.ts'),c=await import('/src/lib/crypto.ts'),k=await import('/src/lib/browser-room-key.ts'),files=await import('/src/lib/file-crypto.ts');
   const require=(condition,message)=>{if(!condition)throw Error(message);},signal=new AbortController().signal;
@@ -62,7 +62,7 @@ async function verifyCleanupGuards(browser,url){
 }
 
 async function verifyConcurrentRestores(browser,url,fixture){
- const context=await browser.newContext(),page=await context.newPage();await page.goto(url);
+ const context=await browser.newContext({locale: 'zh-CN'}),page=await context.newPage();await page.goto(url);
  try{return await page.evaluate(async fixture=>{
   const v=await import('/src/lib/vault.ts'),a=await import('/src/lib/room-archive.ts'),c=await import('/src/lib/crypto.ts'),k=await import('/src/lib/browser-room-key.ts'),files=await import('/src/lib/file-crypto.ts');
   const require=(value,message)=>{if(!value)throw Error(message);},identity=await c.generateIdentity(),roomId=crypto.randomUUID();await v.selectLocalSpace(crypto.randomUUID());
@@ -98,7 +98,7 @@ try{
   vite=await createServer({root:process.cwd(),configFile:false,appType:'custom',logLevel:'error',server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${service.port}`}},plugins:[{name:'local-restore-validation',configureServer(s){s.middlewares.use('/__restore_validation',(_q,r)=>{r.setHeader('Content-Type','text/html');r.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="app"></div>');});}}]});
   await vite.listen();const url=`http://127.0.0.1:${vite.httpServer.address().port}/__restore_validation`;
   browser=await engine.launch(engine===webkit?{}:process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
-  const sourceContext=await browser.newContext(),source=await sourceContext.newPage();await source.goto(url);
+  const sourceContext=await browser.newContext({locale: 'zh-CN'}),source=await sourceContext.newPage();await source.goto(url);
   const fixtures=await source.evaluate(async({withSmall})=>{
    const v=await import('/src/lib/vault.ts'),a=await import('/src/lib/room-archive.ts'),c=await import('/src/lib/room-archive-crypto.ts'),k=await import('/src/lib/browser-room-key.ts'),api=await import('/src/lib/api.ts'),cryptoLib=await import('/src/lib/crypto.ts'),files=await import('/src/lib/file-crypto.ts'),{randomBase64Url}=await import('/src/lib/base64.ts');
    const create=async()=>{const identity=await cryptoLib.generateIdentity(),token=randomBase64Url(32),roomId=crypto.randomUUID(),caps=['room-archive-v2'];const room=await api.createRoom(identity.publicBundle,token,randomBase64Url(32),'synthetic',caps,undefined,roomId);await v.selectLocalSpace(crypto.randomUUID());return v.createVault({v:3,roomId,accessToken:token,role:'creator',pairingSecret:'',creatorFingerprint:'synthetic',identity,members:[{...identity.publicBundle,role:'creator',status:'active',joinProof:null,capabilities:caps}],lastSeq:0,lastReceiptSeq:0,pairingState:'ready',createdAt:room.createdAt,protocol:'mls-rfc9420',roomArchiveV2:{key:c.newArchiveKey()}},'','platform',await k.automaticRoomCredential());};
@@ -113,7 +113,7 @@ try{
    // browser data do. Chromium's incognito in-memory backing store has different
    // compaction/close behavior; ordinary fault cases still cover that context.
    const nativeQuota=scenario.startsWith('real-quota');
-   const context=nativeQuota?await engine.launchPersistentContext(path.join(dataDir,`quota-${scenario}`),process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{headless:true}:{channel:'chrome',headless:true}):await browser.newContext(),page=nativeQuota?context.pages()[0]:await context.newPage();await page.goto(url);let cdp;
+   const context=nativeQuota?await engine.launchPersistentContext(path.join(dataDir,`quota-${scenario}`),process.env.CHROME_PATH?{locale:'zh-CN',executablePath:process.env.CHROME_PATH}:process.env.CI?{locale:'zh-CN',headless:true}:{locale:'zh-CN',channel:'chrome',headless:true}):await browser.newContext({locale: 'zh-CN'}),page=nativeQuota?context.pages()[0]:await context.newPage();await page.goto(url);let cdp;
    if(scenario.startsWith('real-quota')){cdp=await context.newCDPSession(page);await cdp.send('Storage.overrideQuotaForOrigin',{origin:new URL(url).origin,quotaSize:(scenario==='real-quota-fit'?8:5)*1024*1024});}
    const row=await page.evaluate(async({fixtures,scenario})=>{
     const v=await import('/src/lib/vault.ts'),a=await import('/src/lib/room-archive.ts'),c=await import('/src/lib/room-archive-crypto.ts'),k=await import('/src/lib/browser-room-key.ts'),api=await import('/src/lib/api.ts'),cryptoLib=await import('/src/lib/crypto.ts'),files=await import('/src/lib/file-crypto.ts'),catalog=await import('/src/lib/private-archive-catalog.ts'),{randomBase64Url}=await import('/src/lib/base64.ts');

@@ -1,17 +1,18 @@
+import { uiLiteral } from './language';
 import { galleryCurationKey, normalizeGalleryCurationRecord, type GalleryCurationTarget } from './gallery-curation';
 
 export type AttachmentFavorite = GalleryCurationTarget & { savedAt: number; pinnedAt: number | null };
 
 export function normalizeAttachmentFavorites(value: unknown): AttachmentFavorite[] {
-  if (!Array.isArray(value) || value.length > 20_000) throw new TypeError('收藏记录格式不正确');
+  if (!Array.isArray(value) || value.length > 20_000) throw new TypeError(uiLiteral('收藏记录格式不正确'));
   const seen = new Set<string>();
   return Array.from(value, item => {
     if (!item || typeof item !== 'object' || Object.keys(item).sort().join(',') !== 'assetIndex,category,clientMsgId,pinnedAt,savedAt' ||
-        !Number.isSafeInteger(item.savedAt) || item.savedAt < 0) throw new TypeError('收藏记录格式不正确');
+        !Number.isSafeInteger(item.savedAt) || item.savedAt < 0) throw new TypeError(uiLiteral('收藏记录格式不正确'));
     const target = normalizeGalleryCurationRecord({ v: 1, category: item.category, clientMsgId: item.clientMsgId,
       assetIndex: item.assetIndex, hidden: false, pinnedAt: item.pinnedAt });
     const key = galleryCurationKey(target);
-    if (seen.has(key)) throw new TypeError('收藏记录重复');
+    if (seen.has(key)) throw new TypeError(uiLiteral('收藏记录重复'));
     seen.add(key);
     return { category: target.category, clientMsgId: target.clientMsgId, assetIndex: target.assetIndex,
       pinnedAt: target.pinnedAt, savedAt: item.savedAt };

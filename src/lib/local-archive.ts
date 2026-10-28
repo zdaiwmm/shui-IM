@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { fromBase64Url } from './base64';
 
 /** Binary framing is independent of ZIP paths and never interprets filenames. */
@@ -13,9 +14,9 @@ export type ArchiveSink = { write: (bytes: Uint8Array<ArrayBuffer>) => Promise<v
 export type ArchiveRecord = { type: number; bytes: Uint8Array<ArrayBuffer> };
 export class LocalArchiveError extends Error {
   constructor(readonly code: 'FORMAT' | 'LIMIT' | 'AUTHENTICATION' | 'TRUNCATED' | 'VERSION') {
-    super(({ FORMAT: '聊天备份文件格式不正确', LIMIT: '聊天备份超过安全处理上限',
-      AUTHENTICATION: '聊天备份无法验证，文件可能已损坏或不属于此恢复身份',
-      TRUNCATED: '聊天备份不完整', VERSION: '此聊天备份版本暂不支持' })[code]);
+    super(({ FORMAT: uiLiteral('聊天备份文件格式不正确'), LIMIT: uiLiteral('聊天备份超过安全处理上限'),
+      AUTHENTICATION: uiLiteral('聊天备份无法验证，文件可能已损坏或不属于此恢复身份'),
+      TRUNCATED: uiLiteral('聊天备份不完整'), VERSION: uiLiteral('此聊天备份版本暂不支持') })[code]);
   }
 }
 

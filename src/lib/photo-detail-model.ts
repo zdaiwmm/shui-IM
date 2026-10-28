@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate, currentLanguage } from './language';
 import type { ImageManifest } from './types';
 
 export type PhotoTags = Record<string, unknown>;
@@ -27,15 +28,15 @@ export function boundedPhotoTags(input: unknown): PhotoTags {
 const text = (value: unknown): string | undefined => typeof value === 'string' && value.trim()
   ? value.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, '').trim().slice(0, 512) : undefined;
 const number = (value: unknown): number | undefined => typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-const decimal = (value: number) => new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 3 }).format(value);
+const decimal = (value: number) => new Intl.NumberFormat(currentLanguage(), { maximumFractionDigits: 3 }).format(value);
 export type PhotoDetailGroup = { title: string; rows: { label: string; value: string }[] };
 
 export function photoDetailGroups(manifest: ImageManifest, sentAt: string | undefined, tags: PhotoTags, dimensions?: { width: number; height: number }): PhotoDetailGroup[] {
-  const missing = '未记录';
+  const missing = uiLiteral('未记录');
   const localTime = (value: number | string | undefined) => {
     if (!value) return missing;
     const date = new Date(value);
-    return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat('zh-CN', {
+    return Number.isFinite(date.getTime()) ? new Intl.DateTimeFormat(currentLanguage(), {
       year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
     }).format(date) : missing;
   };
@@ -46,7 +47,7 @@ export function photoDetailGroups(manifest: ImageManifest, sentAt: string | unde
     const date = new Date(`${match[1]}-${match[2]}-${match[3]}T${match[4]}Z`);
     if (!Number.isFinite(date.getTime()) || date.getUTCMonth() + 1 !== Number(match[2]) || date.getUTCDate() !== Number(match[3])) return undefined;
     const zone = text(offset);
-    return `${match[1]}年${match[2]}月${match[3]}日 ${match[4]}${zone && /^[+-]\d{2}:\d{2}$/.test(zone) ? ` ${zone}` : ''}`;
+    return uiTemplate`${match[1]}年${match[2]}月${match[3]}日 ${match[4]}${zone && /^[+-]\d{2}:\d{2}$/.test(zone) ? ` ${zone}` : ''}`;
   };
   const row = (label: string, value: string | undefined) => ({ label, value: value || missing });
   const coordinate = (key: string, ref: string, max: number) => {
@@ -62,54 +63,54 @@ export function photoDetailGroups(manifest: ImageManifest, sentAt: string | unde
   const width = number(tags.ExifImageWidth) ?? number(tags.ImageWidth) ?? number(tags.width) ?? dimensions?.width;
   const height = number(tags.ExifImageHeight) ?? number(tags.ImageHeight) ?? number(tags.height) ?? dimensions?.height;
   const bytes = manifest.originalSize;
-  const mime = text(manifest.mimeType) ?? '未知格式';
+  const mime = text(manifest.mimeType) ?? uiLiteral('未知格式');
   const basics = [
-    row('拍摄时间', captureTime(tags.DateTimeOriginal, tags.OffsetTimeOriginal)),
-    row('拍摄地点', latitude && longitude ? `${latitude}, ${longitude}` : undefined),
-    row('格式 / 大小', `${mime.replace(/^image\//, '').toUpperCase()} · ${bytes >= 1048576 ? `${decimal(bytes / 1048576)} MiB` : `${decimal(bytes / 1024)} KiB`}`),
-    row('像素尺寸', width && height ? `${width} × ${height} · ${decimal(width * height / 1_000_000)} 百万像素` : undefined),
+    row(uiLiteral('拍摄时间'), captureTime(tags.DateTimeOriginal, tags.OffsetTimeOriginal)),
+    row(uiLiteral('拍摄地点'), latitude && longitude ? `${latitude}, ${longitude}` : undefined),
+    row(uiLiteral('格式 / 大小'), `${mime.replace(/^image\//, '').toUpperCase()} · ${bytes >= 1048576 ? `${decimal(bytes / 1048576)} MiB` : `${decimal(bytes / 1024)} KiB`}`),
+    row(uiLiteral('像素尺寸'), width && height ? uiTemplate`${width} × ${height} · ${decimal(width * height / 1_000_000)} 百万像素` : undefined),
   ];
   const camera: PhotoDetailGroup['rows'] = [];
   const add = (label: string, value: string | undefined) => { if (value) camera.push(row(label, value)); };
-  add('相机', [text(tags.Make), text(tags.Model)].filter(Boolean).join(' '));
-  add('镜头', [text(tags.LensMake), text(tags.LensModel)].filter(Boolean).join(' '));
-  const units = [['光圈', 'FNumber', 'ƒ/'], ['感光度', 'ISO', 'ISO '], ['焦距', 'FocalLength', ''], ['等效焦距', 'FocalLengthIn35mmFormat', '']] as const;
+  add(uiLiteral('相机'), [text(tags.Make), text(tags.Model)].filter(Boolean).join(' '));
+  add(uiLiteral('镜头'), [text(tags.LensMake), text(tags.LensModel)].filter(Boolean).join(' '));
+  const units = [[uiLiteral('光圈'), 'FNumber', 'ƒ/'], [uiLiteral('感光度'), 'ISO', 'ISO '], [uiLiteral('焦距'), 'FocalLength', ''], [uiLiteral('等效焦距'), 'FocalLengthIn35mmFormat', '']] as const;
   for (const [label, key, prefix] of units) {
     const value = number(tags[key]);
     if (value !== undefined && value > 0) add(label, `${prefix}${decimal(value)}${key.startsWith('Focal') ? ' mm' : ''}`);
   }
   const exposure = number(tags.ExposureTime);
-  if (exposure !== undefined && exposure > 0) add('快门', exposure < 1 ? `1/${decimal(1 / exposure)} 秒` : `${decimal(exposure)} 秒`);
+  if (exposure !== undefined && exposure > 0) add(uiLiteral('快门'), exposure < 1 ? uiTemplate`1/${decimal(1 / exposure)} 秒` : uiTemplate`${decimal(exposure)} 秒`);
   const compensation = number(tags.ExposureCompensation);
-  if (compensation !== undefined) add('曝光补偿', `${decimal(compensation)} EV`);
+  if (compensation !== undefined) add(uiLiteral('曝光补偿'), `${decimal(compensation)} EV`);
   const flash = number(tags.Flash);
-  if (flash !== undefined) add('闪光灯', flash & 1 ? '已闪光' : '未闪光');
+  if (flash !== undefined) add(uiLiteral('闪光灯'), flash & 1 ? uiLiteral('已闪光') : uiLiteral('未闪光'));
   const white = number(tags.WhiteBalance);
-  if (white === 0 || white === 1) add('白平衡', white === 0 ? '自动' : '手动');
+  if (white === 0 || white === 1) add(uiLiteral('白平衡'), white === 0 ? uiLiteral('自动') : uiLiteral('手动'));
   const program = number(tags.ExposureProgram);
-  if (program !== undefined) add('曝光程序', ['未定义', '手动', '程序自动', '光圈优先', '快门优先', '创意程序', '运动程序', '人像', '风景'][program]);
+  if (program !== undefined) add(uiLiteral('曝光程序'), [uiLiteral('未定义'), uiLiteral('手动'), uiLiteral('程序自动'), uiLiteral('光圈优先'), uiLiteral('快门优先'), uiLiteral('创意程序'), uiLiteral('运动程序'), uiLiteral('人像'), uiLiteral('风景')][program]);
   const metering = number(tags.MeteringMode);
-  if (metering !== undefined) add('测光模式', ({ 0: '未知', 1: '平均', 2: '中央重点', 3: '点测光', 4: '多点', 5: '分区', 6: '局部', 255: '其他' } as Record<number, string>)[metering]);
+  if (metering !== undefined) add(uiLiteral('测光模式'), ({ 0: uiLiteral('未知'), 1: uiLiteral('平均'), 2: uiLiteral('中央重点'), 3: uiLiteral('点测光'), 4: uiLiteral('多点'), 5: uiLiteral('分区'), 6: uiLiteral('局部'), 255: uiLiteral('其他') } as Record<number, string>)[metering]);
   const orientation = number(tags.Orientation);
-  const orientations = ['正常', '水平镜像', '旋转 180°', '垂直镜像', '转置', '顺时针 90°', '横向转置', '逆时针 90°'];
-  if (orientation !== undefined) add('方向', orientations[orientation - 1]);
+  const orientations = [uiLiteral('正常'), uiLiteral('水平镜像'), uiLiteral('旋转 180°'), uiLiteral('垂直镜像'), uiLiteral('转置'), uiLiteral('顺时针 90°'), uiLiteral('横向转置'), uiLiteral('逆时针 90°')];
+  if (orientation !== undefined) add(uiLiteral('方向'), orientations[orientation - 1]);
   const color = number(tags.ColorSpace);
-  if (color !== undefined) add('色彩密室', color === 1 ? 'sRGB' : color === 65535 ? '未校准' : String(color));
+  if (color !== undefined) add(uiLiteral('色彩密室'), color === 1 ? 'sRGB' : color === 65535 ? uiLiteral('未校准') : String(color));
   const altitude = number(tags.GPSAltitude);
-  if (altitude !== undefined) add('海拔', `${decimal(tags.GPSAltitudeRef === 1 ? -altitude : altitude)} m`);
+  if (altitude !== undefined) add(uiLiteral('海拔'), `${decimal(tags.GPSAltitudeRef === 1 ? -altitude : altitude)} m`);
   const depth = number(tags.bitDepth);
-  if (depth !== undefined) add('位深', `${depth} bit`);
-  if (Array.isArray(tags.BitsPerSample) && tags.BitsPerSample.every(v => number(v) !== undefined && v > 0 && v <= 64)) add('通道位深', `${tags.BitsPerSample.slice(0, 8).join(' / ')} bit`);
+  if (depth !== undefined) add(uiLiteral('位深'), `${depth} bit`);
+  if (Array.isArray(tags.BitsPerSample) && tags.BitsPerSample.every(v => number(v) !== undefined && v > 0 && v <= 64)) add(uiLiteral('通道位深'), `${tags.BitsPerSample.slice(0, 8).join(' / ')} bit`);
   const resolution = number(tags.XResolution);
-  if (resolution !== undefined) add('水平分辨率', `${decimal(resolution)}${tags.ResolutionUnit === 2 ? ' dpi' : tags.ResolutionUnit === 3 ? ' 点/厘米' : ''}`);
+  if (resolution !== undefined) add(uiLiteral('水平分辨率'), `${decimal(resolution)}${tags.ResolutionUnit === 2 ? ' dpi' : tags.ResolutionUnit === 3 ? uiLiteral(' 点/厘米') : ''}`);
   const vertical = number(tags.YResolution);
-  if (vertical !== undefined) add('垂直分辨率', `${decimal(vertical)}${tags.ResolutionUnit === 2 ? ' dpi' : tags.ResolutionUnit === 3 ? ' 点/厘米' : ''}`);
-  for (const [label, key] of [['描述', 'ImageDescription'], ['作者', 'Artist'], ['版权', 'Copyright'], ['处理软件', 'Software']] as const) add(label, text(tags[key]));
+  if (vertical !== undefined) add(uiLiteral('垂直分辨率'), `${decimal(vertical)}${tags.ResolutionUnit === 2 ? ' dpi' : tags.ResolutionUnit === 3 ? uiLiteral(' 点/厘米') : ''}`);
+  for (const [label, key] of [[uiLiteral('描述'), 'ImageDescription'], [uiLiteral('作者'), 'Artist'], [uiLiteral('版权'), 'Copyright'], [uiLiteral('处理软件'), 'Software']] as const) add(label, text(tags[key]));
   return [
-    { title: '基本信息', rows: basics },
-    ...(camera.length ? [{ title: '拍摄与其他属性', rows: camera }] : []),
-    { title: '文件信息', rows: [row('文件名', text(manifest.originalName)), row('MIME 类型', mime),
-      row('图像创建时间', captureTime(tags.CreateDate, tags.OffsetTimeDigitized)),
-      row('上传 / 发送时间', localTime(sentAt)), row('文件修改时间', localTime(manifest.lastModified))] },
+    { title: uiLiteral('基本信息'), rows: basics },
+    ...(camera.length ? [{ title: uiLiteral('拍摄与其他属性'), rows: camera }] : []),
+    { title: uiLiteral('文件信息'), rows: [row(uiLiteral('文件名'), text(manifest.originalName)), row(uiLiteral('MIME 类型'), mime),
+      row(uiLiteral('图像创建时间'), captureTime(tags.CreateDate, tags.OffsetTimeDigitized)),
+      row(uiLiteral('上传 / 发送时间'), localTime(sentAt)), row(uiLiteral('文件修改时间'), localTime(manifest.lastModified))] },
   ];
 }

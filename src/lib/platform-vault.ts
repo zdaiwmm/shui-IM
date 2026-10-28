@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate } from './language';
 import { fromBase64Url, toBase64Url } from './base64';
 import type { PlatformCredentialRecord } from './types';
 
@@ -45,7 +46,7 @@ export class PlatformVaultCancellationError extends Error {
   readonly code = 'PLATFORM_VAULT_CANCELLED';
 
   constructor() {
-    super('未完成设备安全验证');
+    super(uiLiteral('未完成设备安全验证'));
     this.name = 'PlatformVaultCancellationError';
   }
 }
@@ -57,7 +58,7 @@ export function isPlatformVaultCancellation(error: unknown): error is PlatformVa
 /** Only positive capability failures permit creating a new password wrapper. */
 export class PlatformVaultUnavailableError extends Error {
   readonly code = 'PLATFORM_VAULT_UNAVAILABLE';
-  constructor() { super('当前浏览器不支持通行密钥'); }
+  constructor() { super(uiLiteral('当前浏览器不支持通行密钥')); }
 }
 
 export const isPlatformVaultUnavailable = (error: unknown): error is PlatformVaultUnavailableError => error instanceof PlatformVaultUnavailableError;
@@ -152,7 +153,7 @@ export function platformVaultSetupState(): 'unsupported' | 'available' | 'unknow
 
 function requireWebAuthn(operation: 'create' | 'get' = 'get'): void {
   if (!window.isSecureContext) {
-    throw new Error('当前连接不是浏览器信任的 HTTPS 安全环境。局域网测试请先信任开发证书，再重新打开此页面');
+    throw new Error(uiLiteral('当前连接不是浏览器信任的 HTTPS 安全环境。局域网测试请先信任开发证书，再重新打开此页面'));
   }
   if (!window.PublicKeyCredential || typeof navigator.credentials?.get !== 'function' ||
       (operation === 'create' && typeof navigator.credentials?.create !== 'function')) {
@@ -178,16 +179,16 @@ function prfBytes(credential: PublicKeyCredential): Uint8Array<ArrayBuffer> | nu
 function authenticatorFlags(response: AuthenticatorAttestationResponse): number {
   const modern = response as AuthenticatorAttestationResponse & { getAuthenticatorData?: () => ArrayBuffer };
   if (typeof modern.getAuthenticatorData !== 'function') {
-    throw new Error('浏览器无法读取通行密钥的安全属性，请升级浏览器或使用硬件安全密钥');
+    throw new Error(uiLiteral('浏览器无法读取通行密钥的安全属性，请升级浏览器或使用硬件安全密钥'));
   }
   const data = new Uint8Array(modern.getAuthenticatorData());
-  if (data.length < 33) throw new Error('设备凭据返回的数据不完整');
+  if (data.length < 33) throw new Error(uiLiteral('设备凭据返回的数据不完整'));
   return data[32]!;
 }
 
 function assertionFlags(response: AuthenticatorAssertionResponse): number {
   const data = new Uint8Array(response.authenticatorData);
-  if (data.length < 33) throw new Error('通行密钥返回的数据不完整');
+  if (data.length < 33) throw new Error(uiLiteral('通行密钥返回的数据不完整'));
   return data[32]!;
 }
 
@@ -195,14 +196,14 @@ function requireUserVerification(flags: number): void {
   // UP (bit 0) and UV (bit 2) are required by the request. Do not trust a
   // browser that returns a PRF value without proving user verification.
   if ((flags & 0x01) === 0 || (flags & 0x04) === 0) {
-    throw new Error('通行密钥没有完成用户验证');
+    throw new Error(uiLiteral('通行密钥没有完成用户验证'));
   }
 }
 
 async function evaluatePrf(record: PlatformCredentialRecord, signal?: AbortSignal, newProtection = false, secondSalt = browserAccessPrfSalt()): Promise<Uint8Array<ArrayBuffer>> {
   const started = performance.now();
   const rpId = record.rpId ?? location.hostname;
-  if (rpId !== location.hostname) throw unlockStage('S1', `此保险库绑定到 ${rpId}，当前域名无法使用原设备凭据`, started);
+  if (rpId !== location.hostname) throw unlockStage('S1', uiTemplate`此保险库绑定到 ${rpId}，当前域名无法使用原设备凭据`, started);
   let assertion: Credential | null;
   try {
     assertion = await runWebAuthnCeremony(() => navigator.credentials.get({
@@ -223,35 +224,35 @@ async function evaluatePrf(record: PlatformCredentialRecord, signal?: AbortSigna
   } catch (error) {
     if (isPlatformVaultCancellation(error)) throw error;
     if (newProtection && error instanceof DOMException && error.name === 'NotSupportedError') throw new PlatformVaultUnavailableError();
-    throw unlockStage('S1', '系统通行密钥没有完成。请重试。', started);
+    throw unlockStage('S1', uiLiteral('系统通行密钥没有完成。请重试。'), started);
   }
   if (
     !(assertion instanceof PublicKeyCredential) ||
     assertion.type !== 'public-key' ||
     !(assertion.response instanceof AuthenticatorAssertionResponse)
   ) {
-    throw unlockStage('S3', '通行密钥验证没有返回有效凭据。请重试。', started);
+    throw unlockStage('S3', uiLiteral('通行密钥验证没有返回有效凭据。请重试。'), started);
   }
   if (toBase64Url(assertion.rawId) !== record.credentialId) {
-    throw unlockStage('S3', '这次验证的通行密钥与本机保险库不一致。请重试或一起恢复。', started);
+    throw unlockStage('S3', uiLiteral('这次验证的通行密钥与本机保险库不一致。请重试或一起恢复。'), started);
   }
   let flags: number;
   try {
     flags = assertionFlags(assertion.response);
   } catch {
-    throw unlockStage('S3', '通行密钥返回的数据不完整。请重试。', started);
+    throw unlockStage('S3', uiLiteral('通行密钥返回的数据不完整。请重试。'), started);
   }
   if ((flags & 0x01) === 0 || (flags & 0x04) === 0) {
-    throw unlockStage('S3', '通行密钥没有完成用户验证。请重试。', started);
+    throw unlockStage('S3', uiLiteral('通行密钥没有完成用户验证。请重试。'), started);
   }
   const backupEligible = Boolean(flags & 0x08);
   if (backupEligible !== record.backupEligible) {
-    throw unlockStage('S3', '通行密钥属性发生了变化。请重试或一起恢复。', started);
+    throw unlockStage('S3', uiLiteral('通行密钥属性发生了变化。请重试或一起恢复。'), started);
   }
   const output = prfBytes(assertion);
   if (!output && newProtection && extensionResults(assertion).prf?.enabled === false &&
       extensionResults(assertion).prf?.results?.first === undefined) throw new PlatformVaultUnavailableError();
-  if (!output) throw unlockStage('S3', '通行密钥没有返回可用的本机保护数据。请重试；若仍失败，使用一起恢复。', started);
+  if (!output) throw unlockStage('S3', uiLiteral('通行密钥没有返回可用的本机保护数据。请重试；若仍失败，使用一起恢复。'), started);
   const user = assertion.response.userHandle;
   if (user?.byteLength && user.byteLength <= 64) assertionUsers.set(output, toBase64Url(user));
   if (signal?.aborted) { output.fill(0); takeBrowserAccessPrf(output)?.fill(0); signal.throwIfAborted(); }
@@ -301,14 +302,14 @@ export async function createPlatformCredential(
       },
     } as PrfCredentialCreationOptions));
     if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAttestationResponse)) {
-      throw new Error('没有创建有效的设备安全凭据');
+      throw new Error(uiLiteral('没有创建有效的设备安全凭据'));
     }
     const flags = authenticatorFlags(credential.response);
     requireUserVerification(flags);
     const backupEligible = Boolean(flags & 0x08);
     if (extensionResults(credential).prf?.enabled !== true) {
       if (extensionResults(credential).prf?.enabled === false) throw new PlatformVaultUnavailableError();
-      throw new Error('设备未返回明确的 PRF 支持结果，请重试或升级浏览器');
+      throw new Error(uiLiteral('设备未返回明确的 PRF 支持结果，请重试或升级浏览器'));
     }
     const response = credential.response;
     const record: PlatformCredentialRecord = {
@@ -346,10 +347,10 @@ export async function unlockPlatformCredential(record: PlatformCredentialRecord,
 /** One fresh ceremony, two distinct operation-local outputs. Neither output is a rendezvous proof. */
 export async function unlockPlatformCredentialPair(root: PlatformCredentialRecord, daily: PlatformCredentialRecord, signal?: AbortSignal): Promise<{ root: PlatformCredentialResult; daily: PlatformCredentialResult }> {
   requireWebAuthn();
-  if (root.origin && root.origin !== location.origin || root.credentialId !== daily.credentialId || root.rpId !== daily.rpId || root.origin !== daily.origin || root.backupEligible !== daily.backupEligible || root.prfSalt === daily.prfSalt) throw new Error('身份与应用锁的凭据绑定不一致');
+  if (root.origin && root.origin !== location.origin || root.credentialId !== daily.credentialId || root.rpId !== daily.rpId || root.origin !== daily.origin || root.backupEligible !== daily.backupEligible || root.prfSalt === daily.prfSalt) throw new Error(uiLiteral('身份与应用锁的凭据绑定不一致'));
   const first = await evaluatePrf(root, signal, false, fromBase64Url(daily.prfSalt));
   const second = takeBrowserAccessPrf(first);
-  if (!second) { first.fill(0); throw new Error('通行密钥未返回本次邀请所需的独立保护数据，请重试'); }
+  if (!second) { first.fill(0); throw new Error(uiLiteral('通行密钥未返回本次邀请所需的独立保护数据，请重试')); }
   return { root: { record: root, prfOutput: first }, daily: { record: daily, prfOutput: second } };
 }
 
@@ -376,7 +377,7 @@ export async function browserAccessCredential(
   requireWebAuthn();
   const rpId = location.hostname;
   if (record?.rpId && record.rpId !== rpId || record?.origin && record.origin !== location.origin) {
-    throw new Error('此通行密钥绑定的来源与当前网站不一致');
+    throw new Error(uiLiteral('此通行密钥绑定的来源与当前网站不一致'));
   }
   const assertion = await runWebAuthnCeremony(() => navigator.credentials.get({
     signal,
@@ -394,16 +395,16 @@ export async function browserAccessCredential(
   if (!(assertion instanceof PublicKeyCredential) || assertion.type !== 'public-key' ||
     !(assertion.response instanceof AuthenticatorAssertionResponse) ||
     assertion.rawId.byteLength < 1 || assertion.rawId.byteLength > 1024) {
-    throw new Error('通行密钥验证没有返回有效凭据');
+    throw new Error(uiLiteral('通行密钥验证没有返回有效凭据'));
   }
   const credentialId = toBase64Url(assertion.rawId);
-  if (record && credentialId !== record.credentialId) throw new Error('设备安全凭据不匹配');
+  if (record && credentialId !== record.credentialId) throw new Error(uiLiteral('设备安全凭据不匹配'));
   const flags = assertionFlags(assertion.response);
   requireUserVerification(flags);
   const backupEligible = Boolean(flags & 0x08);
-  if (record && backupEligible !== record.backupEligible) throw new Error('通行密钥属性发生异常变化');
+  if (record && backupEligible !== record.backupEligible) throw new Error(uiLiteral('通行密钥属性发生异常变化'));
   const prfOutput = prfBytes(assertion);
-  if (!prfOutput) throw new Error('该通行密钥不支持安全接入，请在支持 WebAuthn PRF 的浏览器中重试');
+  if (!prfOutput) throw new Error(uiLiteral('该通行密钥不支持安全接入，请在支持 WebAuthn PRF 的浏览器中重试'));
   if (signal?.aborted) {
     prfOutput.fill(0);
     throw new PlatformVaultCancellationError();
@@ -412,19 +413,19 @@ export async function browserAccessCredential(
 }
 
 export function platformCredentialLabel(record: PlatformCredentialRecord): string {
-  if (record.authenticatorAttachment === 'cross-platform') return '硬件安全密钥';
-  if (record.backupEligible) return '可同步通行密钥';
-  if (record.authenticatorAttachment === 'platform') return '本机通行密钥';
-  return '通行密钥';
+  if (record.authenticatorAttachment === 'cross-platform') return uiLiteral('硬件安全密钥');
+  if (record.backupEligible) return uiLiteral('可同步通行密钥');
+  if (record.authenticatorAttachment === 'platform') return uiLiteral('本机通行密钥');
+  return uiLiteral('通行密钥');
 }
 
 
 export function normalizePasskeyName(value: string): string {
-  if (value.length > 4096) throw new Error('名称过长，请使用简短名称');
+  if (value.length > 4096) throw new Error(uiLiteral('名称过长，请使用简短名称'));
   const name = value.trim();
   const length = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(name)].length;
   if (!length || length > 40 || /[\p{Cc}\p{Zl}\p{Zp}\u200b\u202a-\u202e\u2066-\u2069]/u.test(value)) {
-    throw new Error('请输入 1–40 个字符的名称，不包含控制字符');
+    throw new Error(uiLiteral('请输入 1–40 个字符的名称，不包含控制字符'));
   }
   return name;
 }
@@ -436,7 +437,7 @@ export function defaultPasskeyName(): string {
   const date = new Date();
   // A readable local hint, never a device fingerprint or a uniqueness claim.
   const suffix = String(passkeySequence()).padStart(2, '0');
-  return `Chamber · ${String(date.getMonth() + 1).padStart(2, '0')}月${String(date.getDate()).padStart(2, '0')}日 · ${suffix}`;
+  return uiTemplate`Chamber · ${String(date.getMonth() + 1).padStart(2, '0')}月${String(date.getDate()).padStart(2, '0')}日 · ${suffix}`;
 }
 type UserDetailsApi = typeof PublicKeyCredential & {
   signalCurrentUserDetails?: (details: { rpId: string; userId: string; name: string; displayName: string }) => Promise<void>;
@@ -446,23 +447,23 @@ export function passkeyNamingSupported(): boolean {
 }
 /** Fresh assertion, bound to the credential AND the proof which unlocked the vault. */
 export async function verifyPasskeyDetails(current: PlatformCredentialResult, signal: AbortSignal): Promise<string | undefined> {
-  if (current.record.origin && current.record.origin !== location.origin) throw new Error('通行密钥来源不匹配');
+  if (current.record.origin && current.record.origin !== location.origin) throw new Error(uiLiteral('通行密钥来源不匹配'));
   const output = await unlockPlatformCredential(current.record, signal);
   try {
     signal.throwIfAborted();
     let difference = output.length ^ current.prfOutput.length;
     for (let i = 0; i < output.length; i++) difference |= output[i]! ^ (current.prfOutput[i] ?? 0);
-    if (difference) throw new Error('通行密钥验证结果不匹配');
+    if (difference) throw new Error(uiLiteral('通行密钥验证结果不匹配'));
     const userId = assertionUsers.get(output);
-    if (current.record.userId && userId && current.record.userId !== userId) throw new Error('通行密钥用户标识不匹配');
+    if (current.record.userId && userId && current.record.userId !== userId) throw new Error(uiLiteral('通行密钥用户标识不匹配'));
     return current.record.userId ?? userId;
   } finally { output.fill(0); takeBrowserAccessPrf(output)?.fill(0); assertionUsers.delete(output); }
 }
 export async function signalPasskeyName(record: PlatformCredentialRecord, userId: string, value: string, signal: AbortSignal): Promise<void> {
   const name = normalizePasskeyName(value);
-  if (!passkeyNamingSupported()) throw new Error('当前浏览器不支持修改系统通行密钥名称');
-  if (!userId || fromBase64Url(userId).length > 64) throw new Error('无法取得通行密钥用户标识');
-  if ((record.rpId ?? location.hostname) !== location.hostname || (record.origin && record.origin !== location.origin)) throw new Error('通行密钥来源不匹配');
+  if (!passkeyNamingSupported()) throw new Error(uiLiteral('当前浏览器不支持修改系统通行密钥名称'));
+  if (!userId || fromBase64Url(userId).length > 64) throw new Error(uiLiteral('无法取得通行密钥用户标识'));
+  if ((record.rpId ?? location.hostname) !== location.hostname || (record.origin && record.origin !== location.origin)) throw new Error(uiLiteral('通行密钥来源不匹配'));
   signal.throwIfAborted();
   await (PublicKeyCredential as UserDetailsApi).signalCurrentUserDetails!({ rpId: record.rpId ?? location.hostname, userId, name, displayName: name });
 }

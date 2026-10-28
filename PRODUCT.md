@@ -549,3 +549,9 @@ Palette and brightness are independent immediate preferences. Nine palettes are 
 ## Mobile form editing
 
 On touch phones, editable form text, search, password, numeric and multiline data fields open a titled draft editor over a translucent mask. The underlying page and actions keep their layout while only the editor follows the visible keyboard area. Done commits to the original field without submitting the business operation; Cancel, Escape and the mask preserve the original value. Single-line Enter and keyboard Done finish editing; multiline Enter remains a newline and composition must not submit early. Drafts have no extra persistence and are cleared on hidden/pagehide, locking, navigation or source invalidation. Existing field validation and exact password Unicode remain authoritative. Chat message input and message selection retain their existing interaction; desktop, read-only values and native file/date/choice controls keep their normal behavior. See the [confirmed requirement](docs/requirements/2026-10-14-mobile-debug-feedback/README.md).
+
+## 2026-10-28 语言与用户反馈 V1.1
+
+用户确认静态 V1.1 并授权正式实施、测试和合并，追加要求移除新增页面解释性提示。语言选择覆盖 English、简体中文、繁體中文、西班牙语、法语、德语、葡萄牙语、俄语、阿拉伯语、日语及印地语。首次按浏览器提供的设备语言偏好匹配，无匹配用 English；本机手动偏好优先，可恢复跟随系统。显式中文脚本优先，TW/HK/MO 无脚本时匹配繁体，其他中文使用简体。仅翻译静态产品文案，用户输入和聊天内容保持原样；语言偏好不跨设备同步。后台保持中文。
+
+设置的聊天体验分组新增语言，关于分组新增用户反馈。反馈邮箱和正文必填，正文最多5,000个Unicode码点。邮箱格式及空正文校验原位提示，提交期间禁用重复操作，失败保留当前页面输入并复用请求编号重试，成功后显示结果。离开清空草稿；锁定清空并禁止迟到结果回写。反馈仅包含用户主动填写的邮箱与正文，不附带聊天、房间或设备身份。管理员可按未读/已读分页查看和手动标记已读，无站内回复。范围、授权与证据由[本次记录](docs/requirements/2026-10-28-language-feedback/README.md)拥有。

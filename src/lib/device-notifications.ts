@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import type { Vault } from './types';
 import { confirmedSpaceNotification, notificationCapability, notificationRegistration, registerSpaceNotification, subscribeBrowserNotifications, unregisterSpaceNotification, type NotificationCapability } from './push';
 import { readNotificationPolicy, saveNotificationPolicy, setNotificationGate, spaceNotificationEnabled, withNotificationLock, type NotificationPolicy } from './notification-policy';
@@ -69,16 +70,16 @@ export class DeviceNotifications {
           const subscription = await registration.pushManager.getSubscription();
           this.signal.throwIfAborted();
           // The persisted gate also suppresses already queued wakes after opt-out.
-          if (subscription && !(await subscription.unsubscribe())) throw new Error('本机通知已关闭；系统订阅清理暂未完成');
+          if (subscription && !(await subscription.unsubscribe())) throw new Error(uiLiteral('本机通知已关闭；系统订阅清理暂未完成'));
           await Promise.all((await registration.getNotifications()).map(notification => notification.close()));
         }
         return;
       }
       const granted = await cancellablePermission(permission, this.signal);
       this.signal.throwIfAborted();
-      if (granted !== 'granted') throw new Error(granted === 'denied' ? '系统已阻止通知，请在浏览器或系统设置中允许后重试' : '尚未允许通知，可再次开启时选择允许');
+      if (granted !== 'granted') throw new Error(granted === 'denied' ? uiLiteral('系统已阻止通知，请在浏览器或系统设置中允许后重试') : uiLiteral('尚未允许通知，可再次开启时选择允许'));
       const available = this.spaces.filter(space => !space.unavailable);
-      if (!available.length) throw new Error('本机还没有可接收通知的密室');
+      if (!available.length) throw new Error(uiLiteral('本机还没有可接收通知的密室'));
       // Keep delivery closed until every selected space is server-confirmed.
       await setNotificationGate(false);
       let created: PushSubscription | undefined;
@@ -107,9 +108,9 @@ export class DeviceNotifications {
     return withNotificationLock(this.signal, async () => {
       const policy = this.scopedPolicy(readNotificationPolicy() ?? initial());
       const space = this.spaces.find(item => item.roomId === roomId);
-      if (!policy.enabled || !space || space.unavailable) throw new Error('请先开启本机通知并完成密室访问');
+      if (!policy.enabled || !space || space.unavailable) throw new Error(uiLiteral('请先开启本机通知并完成密室访问'));
       const subscription = await (await notificationRegistration(this.signal)).pushManager.getSubscription();
-      if (!subscription) throw new Error('本机通知订阅已失效，请重新开启总开关');
+      if (!subscription) throw new Error(uiLiteral('本机通知订阅已失效，请重新开启总开关'));
       await this.access(roomId, true, vault => enabled ? registerSpaceNotification(vault, subscription, this.signal) : unregisterSpaceNotification(vault, subscription.endpoint, this.signal));
       this.signal.throwIfAborted();
       saveNotificationPolicy({ ...policy, spaces: { ...policy.spaces, [roomId]: enabled } });

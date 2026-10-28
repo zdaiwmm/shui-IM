@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { argon2id } from 'hash-wasm';
 import { fromBase64Url, toBase64Url } from './base64';
 import type { VaultKdf, StoredPasswordVault } from './types';
@@ -15,15 +16,15 @@ const encoder = new TextEncoder();
 /** Passwords are used exactly as entered: no trimming or Unicode normalization. */
 export function passwordValidation(password: string, confirmation?: string): string {
   const length = Array.from(password).length;
-  if (length < 12) return '请至少使用 12 个字符';
-  if (length > 128) return '密码最多使用 128 个字符';
-  if (confirmation !== undefined && password !== confirmation) return '两次输入的密码不一致';
+  if (length < 12) return uiLiteral('请至少使用 12 个字符');
+  if (length > 128) return uiLiteral('密码最多使用 128 个字符');
+  if (confirmation !== undefined && password !== confirmation) return uiLiteral('两次输入的密码不一致');
   return '';
 }
 
 export function numericPasswordValidation(password: string, confirmation?: string): string {
-  if (!/^[0-9]{6}$/.test(password)) return '请输入 6 位数字密码';
-  return confirmation !== undefined && password !== confirmation ? '两次输入的密码不一致' : '';
+  if (!/^[0-9]{6}$/.test(password)) return uiLiteral('请输入 6 位数字密码');
+  return confirmation !== undefined && password !== confirmation ? uiLiteral('两次输入的密码不一致') : '';
 }
 
 export function validPasswordKdf(kdf: VaultKdf): boolean {
@@ -36,7 +37,7 @@ export async function derivePasswordCredential(password: string, existing?: Vaul
   if (!existing && invalid) throw new Error(invalid);
   const kdf: VaultKdf = existing ?? { name: 'argon2id', memorySize: 65_536, iterations: 3, parallelism: 1,
     salt: toBase64Url(crypto.getRandomValues(new Uint8Array(16))) };
-  if (!validPasswordKdf(kdf)) throw new Error('本机密码保护参数不受支持');
+  if (!validPasswordKdf(kdf)) throw new Error(uiLiteral('本机密码保护参数不受支持'));
   const output = await argon2id({ password, salt: fromBase64Url(kdf.salt), memorySize: kdf.memorySize,
     iterations: kdf.iterations, parallelism: kdf.parallelism, hashLength: 32, outputType: 'binary' });
   const bytes = Uint8Array.from(output as Uint8Array);
@@ -55,7 +56,7 @@ export const deriveNumericPasswordCredential = (password: string): Promise<Passw
 function aad(stored: Pick<StoredPasswordVault, 'kdf' | 'spaceId' | 'passwordFormat'>): Uint8Array<ArrayBuffer> {
   const { name, memorySize, iterations, parallelism, salt } = stored.kdf;
   if (stored.passwordFormat !== undefined) {
-    if (stored.passwordFormat !== 'numeric-6') throw new Error('本机密码格式不受支持');
+    if (stored.passwordFormat !== 'numeric-6') throw new Error(uiLiteral('本机密码格式不受支持'));
     return encoder.encode(JSON.stringify(['quiet-room-password-master-v3', stored.spaceId ?? 'current', name, memorySize, iterations, parallelism, salt, stored.passwordFormat]));
   }
   return encoder.encode(JSON.stringify(['quiet-room-password-master-v3', stored.spaceId ?? 'current', name, memorySize, iterations, parallelism, salt]));

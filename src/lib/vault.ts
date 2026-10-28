@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate } from './language';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { compareOutboxItems } from './outbox-order';
 import { isWindowMessage, expiredMessage } from './message-window';
@@ -63,7 +64,7 @@ let selectedSpace = savedSpace();
 export function currentSpaceId(): string { return selectedSpace; }
 export function vaultSpaceId(stored: StoredVault): string { return stored.spaceId ?? 'current'; }
 export async function selectLocalSpace(id: string): Promise<void> {
-  if (id !== 'current' && !/^[a-zA-Z0-9_-]{1,80}$/.test(id)) throw new Error('密室编号不正确');
+  if (id !== 'current' && !/^[a-zA-Z0-9_-]{1,80}$/.test(id)) throw new Error(uiLiteral('密室编号不正确'));
   await withVaultLifecycle(async () => { selectedSpace = id; });
 }
 function rememberSpace(id: string): void {
@@ -124,7 +125,7 @@ function sameStoredVault(left: unknown, right: unknown): boolean {
 }
 
 function staleVaultError(): Error {
-  return new Error('本机会话已在其它窗口或设备流程中更新，请锁定后重新解锁');
+  return new Error(uiLiteral('本机会话已在其它窗口或设备流程中更新，请锁定后重新解锁'));
 }
 
 function putCurrentVault(tx: IDBTransaction, next: StoredVault, expected?: StoredVault): void {
@@ -141,9 +142,9 @@ function putCurrentVault(tx: IDBTransaction, next: StoredVault, expected?: Store
 
 async function installStoredVault(next: StoredVault, expected?: StoredVault, roomProtectionRevision?: string,
   guards: StoredVault[] = [], isActive: () => boolean = () => true, signal?: AbortSignal): Promise<void> {
-  if (!validateStoredVault(next)) throw new Error('本机保险库格式不受支持，本次更改未保存');
+  if (!validateStoredVault(next)) throw new Error(uiLiteral('本机保险库格式不受支持，本次更改未保存'));
   const database = await openDatabase();
-  if (!isActive() || signal?.aborted) { database.close(); throw new DOMException('保险库创建流程已经结束', 'AbortError'); }
+  if (!isActive() || signal?.aborted) { database.close(); throw new DOMException(uiLiteral('保险库创建流程已经结束'), 'AbortError'); }
   await new Promise<void>((resolve, reject) => {
     const tx = database.transaction(roomProtectionRevision ? ['vault', 'security'] : ['vault'], 'readwrite');
     const abort = () => { try { tx.abort(); } catch { /* Already committed. */ } };
@@ -162,7 +163,7 @@ async function installStoredVault(next: StoredVault, expected?: StoredVault, roo
     } else putCurrentVault(tx, next, expected);
     tx.oncomplete = () => { release(); resolve(); };
     tx.onabort = () => { release(); reject(signal?.reason ?? tx.error ?? staleVaultError()); };
-    tx.onerror = () => { release(); reject(signal?.reason ?? tx.error ?? new Error('保险库写入失败')); };
+    tx.onerror = () => { release(); reject(signal?.reason ?? tx.error ?? new Error(uiLiteral('保险库写入失败'))); };
   });
 }
 
@@ -249,7 +250,7 @@ function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     let blocked=false;
-    request.onblocked=()=>{blocked=true;reject(new Error('请关闭或刷新其他标签页后重试，本机数据仍保留'));};
+    request.onblocked=()=>{blocked=true;reject(new Error(uiLiteral('请关闭或刷新其他标签页后重试，本机数据仍保留')));};
     request.onupgradeneeded = () => {
       const database = request.result;
       if (!database.objectStoreNames.contains('restoredGallery')) {
@@ -317,23 +318,23 @@ function openDatabase(): Promise<IDBDatabase> {
 
 /** Probe an atomic temporary write before offering new local protection. */
 export async function assertPasswordProtectionEnvironment(): Promise<void> {
-  if (!window.isSecureContext) throw new Error('请通过浏览器信任的安全连接打开此页面');
-  if (!globalThis.crypto?.subtle || typeof globalThis.crypto.getRandomValues !== 'function' || typeof globalThis.crypto.randomUUID !== 'function') throw new Error('此浏览器无法使用所需的本机加密，请换用支持的浏览器');
-  if (typeof indexedDB === 'undefined') throw new Error('此浏览器无法保存本机加密数据，请检查存储权限');
+  if (!window.isSecureContext) throw new Error(uiLiteral('请通过浏览器信任的安全连接打开此页面'));
+  if (!globalThis.crypto?.subtle || typeof globalThis.crypto.getRandomValues !== 'function' || typeof globalThis.crypto.randomUUID !== 'function') throw new Error(uiLiteral('此浏览器无法使用所需的本机加密，请换用支持的浏览器'));
+  if (typeof indexedDB === 'undefined') throw new Error(uiLiteral('此浏览器无法保存本机加密数据，请检查存储权限'));
   try {
     const database = await openDatabase();
     try {
       await new Promise<void>((resolve, reject) => {
         const tx = database.transaction('vault', 'readwrite');
         tx.oncomplete = () => resolve();
-        tx.onabort = () => reject(tx.error ?? new Error('无法保存本机数据'));
+        tx.onabort = () => reject(tx.error ?? new Error(uiLiteral('无法保存本机数据')));
         try {
           const store = tx.objectStore('vault'), key = `quiet-room:storage-probe:${crypto.randomUUID()}`;
           store.put(1, key); store.delete(key);
         } catch (cause) { tx.abort(); reject(cause); }
       });
     } finally { database.close(); }
-  } catch { throw new Error('此浏览器暂时无法保存本机加密数据，请检查存储权限或可用容量后重试'); }
+  } catch { throw new Error(uiLiteral('此浏览器暂时无法保存本机加密数据，请检查存储权限或可用容量后重试')); }
 }
 
 async function transaction<T>(
@@ -354,7 +355,7 @@ async function transaction<T>(
     const request = action(tx.objectStore(storeName));
     // An explicit stale-session abort also aborts requests. Let the transaction
     // report its cause instead of turning it into a misleading AbortError.
-    tx.onabort = () => { database.close(); reject(stale ? staleVaultError() : tx.error ?? request.error ?? new Error('本机数据读取失败')); };
+    tx.onabort = () => { database.close(); reject(stale ? staleVaultError() : tx.error ?? request.error ?? new Error(uiLiteral('本机数据读取失败'))); };
     tx.oncomplete = () => {
       resolve(request.result);
       database.close();
@@ -373,7 +374,7 @@ export async function replaceRoomProtection(expected: import('./browser-room-key
     const current = store.get('room-protection-v2');
     current.onsuccess = () => { if (canonicalStringify(current.result ?? null) !== canonicalStringify(expected)) tx.abort(); else store.put(next, 'room-protection-v2'); };
     tx.oncomplete = () => { database.close(); resolve(); };
-    tx.onabort = () => { database.close(); reject(new Error('另一页面已修改本机保护，请重试')); };
+    tx.onabort = () => { database.close(); reject(new Error(uiLiteral('另一页面已修改本机保护，请重试'))); };
     tx.onerror = () => { database.close(); reject(tx.error); };
   });
 }
@@ -391,7 +392,7 @@ export async function clearAllRoomBrowserData(expected: import('./browser-room-k
         for (const name of names) tx.objectStore(name).clear();
       };
       tx.oncomplete = () => { database.close(); resolve(); };
-      tx.onabort = () => { database.close(); reject(tx.error ?? new Error('本机保护已改变，请重新打开后再清除')); };
+      tx.onabort = () => { database.close(); reject(tx.error ?? new Error(uiLiteral('本机保护已改变，请重新打开后再清除'))); };
     });
     selectedSpace = 'current';
     for (const name of ['localStorage', 'sessionStorage'] as const) {
@@ -412,20 +413,20 @@ export async function readPersonalIdentity(id?: string): Promise<import('./perso
   const selected = id ?? await transaction<string | undefined>('security', 'readonly', store => store.get('chamber:personal-current'));
   if (!selected) return null;
   const stored = await transaction('security', 'readonly', store => store.get(`chamber:personal:${selected}`));
-  if (!validStoredPersonalIdentity(stored) || stored.identity.id !== selected) throw new Error('本机身份保管数据损坏，请保留数据并使用自己的助记词恢复');
+  if (!validStoredPersonalIdentity(stored) || stored.identity.id !== selected) throw new Error(uiLiteral('本机身份保管数据损坏，请保留数据并使用自己的助记词恢复'));
   return stored;
 }
 
 /** Insert only: never overwrite another tab's identity or replace its encryption wrapper. */
 export async function saveNewPersonalIdentity(stored: import('./personal-identity-vault').StoredPersonalIdentity): Promise<void> {
   const { validStoredPersonalIdentity } = await import('./personal-identity-vault');
-  if (!validStoredPersonalIdentity(stored)) throw new Error('身份保管数据不正确');
+  if (!validStoredPersonalIdentity(stored)) throw new Error(uiLiteral('身份保管数据不正确'));
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const tx = database.transaction('security', 'readwrite'), store = tx.objectStore('security');
     let conflict = false;
     tx.oncomplete = () => { database.close(); resolve(); };
-    tx.onabort = () => { database.close(); reject(conflict ? new Error('另一页面已经创建身份，请重新打开并使用已有身份') : tx.error ?? new Error('身份未能保存')); };
+    tx.onabort = () => { database.close(); reject(conflict ? new Error(uiLiteral('另一页面已经创建身份，请重新打开并使用已有身份')) : tx.error ?? new Error(uiLiteral('身份未能保存'))); };
     const current = store.get('chamber:personal-current');
     current.onsuccess = () => {
       if (current.result) { conflict = true; tx.abort(); return; }
@@ -434,7 +435,7 @@ export async function saveNewPersonalIdentity(stored: import('./personal-identit
     };
   });
   const readback = await readPersonalIdentity(stored.identity.id);
-  if (JSON.stringify(readback) !== JSON.stringify(stored)) throw new Error('身份保存回读不一致');
+  if (JSON.stringify(readback) !== JSON.stringify(stored)) throw new Error(uiLiteral('身份保存回读不一致'));
 }
 
 /** Explicit full-mnemonic recovery may replace only this identity's protection.
@@ -442,7 +443,7 @@ export async function saveNewPersonalIdentity(stored: import('./personal-identit
 export async function replacePersonalIdentityProtection(expected:import('./personal-identity-vault').StoredPersonalIdentity,next:import('./personal-identity-vault').StoredPersonalIdentity,signal?:AbortSignal):Promise<void> {
   signal?.throwIfAborted();
   const {validStoredPersonalIdentity}=await import('./personal-identity-vault');
-  if(!validStoredPersonalIdentity(expected)||!validStoredPersonalIdentity(next)||canonicalStringify(expected.identity)!==canonicalStringify(next.identity))throw new Error('不能替换其他身份的应用锁');
+  if(!validStoredPersonalIdentity(expected)||!validStoredPersonalIdentity(next)||canonicalStringify(expected.identity)!==canonicalStringify(next.identity))throw new Error(uiLiteral('不能替换其他身份的应用锁'));
   const database=await openDatabase();
   if(signal?.aborted){database.close();signal.throwIfAborted();}
   await new Promise<void>((resolve,reject)=>{
@@ -451,16 +452,16 @@ export async function replacePersonalIdentityProtection(expected:import('./perso
     signal?.addEventListener('abort',abort,{once:true});
     const finish=()=>{signal?.removeEventListener('abort',abort);database.close();};
     const current=store.get(id);current.onsuccess=()=>{if(signal?.aborted||canonicalStringify(current.result)!==canonicalStringify(expected)){stale=!signal?.aborted;tx.abort();return;}store.put(next,id);};
-    tx.oncomplete=()=>{finish();resolve();};tx.onabort=()=>{finish();reject(signal?.aborted?signal.reason:stale?new Error('身份应用锁已被另一页面更新，请重新开始'):tx.error??new Error('身份应用锁未能保存'));};
+    tx.oncomplete=()=>{finish();resolve();};tx.onabort=()=>{finish();reject(signal?.aborted?signal.reason:stale?new Error(uiLiteral('身份应用锁已被另一页面更新，请重新开始')):tx.error??new Error(uiLiteral('身份应用锁未能保存')));};
   });
-  if(canonicalStringify(await readPersonalIdentity(next.identity.id))!==canonicalStringify(next))throw new Error('身份应用锁保存回读不一致');
+  if(canonicalStringify(await readPersonalIdentity(next.identity.id))!==canonicalStringify(next))throw new Error(uiLiteral('身份应用锁保存回读不一致'));
 }
 
 /** Legacy records retain their room namespace. Independent root-recovered
  * devices never overwrite ciphertext encrypted under another local master. */
 function localDataScope(vault: Pick<Vault, 'roomId' | 'localDataScope'>): string {
   if (!vault.localDataScope) return vault.roomId;
-  if (!/^[0-9a-f-]{36}(?::private:[0-9a-f-]{36})?$/i.test(vault.localDataScope)) throw new Error('本机数据范围不正确');
+  if (!/^[0-9a-f-]{36}(?::private:[0-9a-f-]{36})?$/i.test(vault.localDataScope)) throw new Error(uiLiteral('本机数据范围不正确'));
   return vault.localDataScope;
 }
 
@@ -471,11 +472,11 @@ function mediaBlobKey(roomId: string, blobId: string): string {
 /** Large recovery manifests stay outside the frequently rewritten room payload.
  * Ciphertext is durable before the small pending reference or network mutation. */
 export async function saveChamberRecoveryManifest(session: VaultSession, requestId: string, value: unknown, signal: AbortSignal): Promise<void> {
-  if (!/^[0-9a-f-]{36}$/i.test(requestId)) throw new Error('恢复请求编号不正确');
+  if (!/^[0-9a-f-]{36}$/i.test(requestId)) throw new Error(uiLiteral('恢复请求编号不正确'));
   const id = `chamber:history-job:${vaultSpaceId(session.stored)}:${requestId}`;
   const raw = encoder.encode(canonicalStringify(value)), iv = crypto.getRandomValues(new Uint8Array(12));
   try {
-    if (raw.length > 8 * 1024 ** 2) throw new Error('恢复范围超过安全处理上限');
+    if (raw.length > 8 * 1024 ** 2) throw new Error(uiLiteral('恢复范围超过安全处理上限'));
     const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: encoder.encode(id) },session.key,raw);
     await withVaultMutation(session, async () => {
       signal.throwIfAborted();
@@ -494,7 +495,7 @@ export async function saveChamberRecoveryManifest(session: VaultSession, request
 export async function readChamberRecoveryManifest<T>(session: VaultSession,requestId: string): Promise<T> {
   const id = `chamber:history-job:${vaultSpaceId(session.stored)}:${requestId}`;
   const record = await transaction<{iv:Uint8Array<ArrayBuffer>;ciphertext:ArrayBuffer}>('security','readonly',store => store.get(id));
-  if (!record) throw new Error('本机恢复请求缺失，请重新发起');
+  if (!record) throw new Error(uiLiteral('本机恢复请求缺失，请重新发起'));
   const raw = new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:record.iv,additionalData:encoder.encode(id)},session.key,record.ciphertext));
   try { return JSON.parse(decoder.decode(raw)) as T; } finally { raw.fill(0); }
 }
@@ -509,7 +510,7 @@ function mediaChunkId(roomId: string, blobId: string, index: number): string {
 export async function cacheChamberHistoryCipher(session:VaultSession,record:import('./chamber-history-record').ChamberHistoryRecord,signal:AbortSignal):Promise<void> {
   const blobId=`chamber-unit:${record.id}`,scope=localDataScope(session.vault),iv=crypto.getRandomValues(new Uint8Array(12)),raw=encoder.encode(canonicalStringify(record));
   try {
-    if(raw.length>4_300_000)throw new Error('历史密文分块过大');
+    if(raw.length>4_300_000)throw new Error(uiLiteral('历史密文分块过大'));
     const bytes=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:encoder.encode(`chamber-unit-cache-v1:${scope}:${record.id}`)},session.key,raw);
     await writeMediaCacheRecord(session,{id:mediaChunkId(scope,blobId,0),roomId:scope,blobKey:mediaBlobKey(scope,blobId),blobId,index:0,bytes,iv,cachedAt:Date.now()},signal);
   }finally{raw.fill(0);}
@@ -732,7 +733,7 @@ export async function deleteCachedMediaBlob(session: VaultSession, blobId: strin
     };
     tx.oncomplete = () => { database.close(); resolve(); };
     tx.onabort = () => { database.close(); reject(tx.error ?? staleVaultError()); };
-    tx.onerror = () => reject(tx.error ?? new Error('媒体密文缓存清理失败'));
+    tx.onerror = () => reject(tx.error ?? new Error(uiLiteral('媒体密文缓存清理失败')));
   });
 }
 
@@ -896,9 +897,9 @@ function encodeVaultPlaintext(vault: Vault, maximum: number): Uint8Array<ArrayBu
   // would later reject. AES-GCM adds a 16-byte tag; base64url omits padding.
   const text = JSON.stringify(vault);
   const maximumBytes = Math.floor(maximum * 3 / 4) - 16;
-  if (text.length > maximumBytes) throw new Error('本机保险库容量超过支持上限，本次更改未保存');
+  if (text.length > maximumBytes) throw new Error(uiLiteral('本机保险库容量超过支持上限，本次更改未保存'));
   const plaintext = encoder.encode(text);
-  if (plaintext.length > maximumBytes) throw new Error('本机保险库容量超过支持上限，本次更改未保存');
+  if (plaintext.length > maximumBytes) throw new Error(uiLiteral('本机保险库容量超过支持上限，本次更改未保存'));
   return plaintext;
 }
 
@@ -1016,7 +1017,7 @@ export async function deleteSpaceVault(session: VaultSession): Promise<void> {
     const id = vaultSpaceId(session.stored);
     const stored = await readStoredVaultUnlocked(id);
     if (!stored) return;
-    if (!sameStoredVault(stored, session.stored)) throw new Error('密室状态已变化，请重新打开后重试');
+    if (!sameStoredVault(stored, session.stored)) throw new Error(uiLiteral('密室状态已变化，请重新打开后重试'));
     await transaction('vault', 'readwrite', store => store.delete(id));
     clearDraftCheckpoints(id);
   });
@@ -1043,8 +1044,8 @@ export async function clearLocalBrowserData(session: VaultSession): Promise<void
         };
       }
       tx.oncomplete = () => { database.close(); resolve(); };
-      tx.onabort = () => { database.close(); reject(tx.error ?? new Error('本地数据清理失败')); };
-      tx.onerror = () => reject(tx.error ?? new Error('本地数据清理失败'));
+      tx.onabort = () => { database.close(); reject(tx.error ?? new Error(uiLiteral('本地数据清理失败'))); };
+      tx.onerror = () => reject(tx.error ?? new Error(uiLiteral('本地数据清理失败')));
     });
     // An authenticated empty checkpoint also fences older queued preference
     // saves. Removing it alone would let their legacy draft become the fallback.
@@ -1127,10 +1128,10 @@ export async function createVault(
 export async function findArchiveHistoryOwner(target: Vault, secret: string,
   isActive: () => boolean, sourceDeviceId = target.identity.publicBundle.deviceId, signal?: AbortSignal): Promise<VaultSession | null> {
   if (!target.roomArchiveV2 || !secret) return null;
-  const check = () => { signal?.throwIfAborted(); if (!isActive()) throw new DOMException('历史核验流程已经结束', 'AbortError'); };
+  const check = () => { signal?.throwIfAborted(); if (!isActive()) throw new DOMException(uiLiteral('历史核验流程已经结束'), 'AbortError'); };
   check();
   const ids = await transaction<IDBValidKey[]>('vault', 'readonly', store => store.getAllKeys(undefined, 257));
-  if (ids.length > 256) throw new Error('本机保险库数量超出自动核验范围，原数据已保留');
+  if (ids.length > 256) throw new Error(uiLiteral('本机保险库数量超出自动核验范围，原数据已保留'));
   let preferred: VaultSession | null = null, fallback: VaultSession | null = null, preferredAmbiguous = false, fallbackAmbiguous = false;
   const damagedOwners = new Set<string>();
   const ownerTag = async (session: VaultSession) => {
@@ -1193,11 +1194,11 @@ export async function findArchiveHistoryOwner(target: Vault, secret: string,
 /** Discover already-installed successors; neither links nor storage selection grant membership. */
 export async function findLocalArchiveSuccessors(source: VaultSession, secret: string,
   isActive: () => boolean, signal?: AbortSignal): Promise<VaultSession[]> {
-  const check = () => { signal?.throwIfAborted(); if (!isActive()) throw new DOMException('本机接入核验已结束', 'AbortError'); };
+  const check = () => { signal?.throwIfAborted(); if (!isActive()) throw new DOMException(uiLiteral('本机接入核验已结束'), 'AbortError'); };
   check();
   if (!source.vault.roomArchiveV2 || !secret) return [];
   const ids = await transaction<IDBValidKey[]>('vault', 'readonly', store => store.getAllKeys(undefined, 257));
-  if (ids.length > 256) throw new Error('本机保险库数量超出自动核验范围，原数据已保留');
+  if (ids.length > 256) throw new Error(uiLiteral('本机保险库数量超出自动核验范围，原数据已保留'));
   const master = new Uint8Array(await crypto.subtle.exportKey('raw', source.key));
   const result: VaultSession[] = [];
   try {
@@ -1218,7 +1219,7 @@ export async function findLocalArchiveSuccessors(source: VaultSession, secret: s
         } finally { raw.fill(0); }
       } catch {
         check();
-        if (sharedMaster) throw new Error('本机同历史保险库无法验证，原数据已保留');
+        if (sharedMaster) throw new Error(uiLiteral('本机同历史保险库无法验证，原数据已保留'));
         continue;
       }
       check();
@@ -1243,7 +1244,7 @@ export async function selectVerifiedArchiveSuccessor(source: VaultSession, targe
   await withVaultLifecycle(async () => {
     if (!sameStoredVault(await readStoredVaultUnlocked(vaultSpaceId(source.stored)), source.stored) ||
       !sameStoredVault(await readStoredVaultUnlocked(vaultSpaceId(target.stored)), target.stored)) throw staleVaultError();
-    if (!isActive()) throw new DOMException('本机接入核验已结束', 'AbortError');
+    if (!isActive()) throw new DOMException(uiLiteral('本机接入核验已结束'), 'AbortError');
     selectedSpace = vaultSpaceId(target.stored); rememberSpace(selectedSpace);
   });
 }
@@ -1252,10 +1253,10 @@ export async function selectVerifiedArchiveSuccessor(source: VaultSession, targe
 export async function createArchiveRepairVault(vault: Vault, owner: VaultSession, credential: LocalCredentialResult,
   isActive: () => boolean, current?: VaultSession, signal?: AbortSignal): Promise<VaultSession> {
   return withVaultMutation(owner, async mutation => {
-    if (!isActive()) throw new DOMException('历史关联流程已经结束', 'AbortError');
+    if (!isActive()) throw new DOMException(uiLiteral('历史关联流程已经结束'), 'AbortError');
     if (!vault.roomArchiveV2 || !owner.vault.roomArchiveV2 || vault.roomId !== owner.vault.roomId || vault.role !== owner.vault.role ||
         vault.creatorFingerprint !== owner.vault.creatorFingerprint || !isPasswordCredential(credential) || !credential.roomProtectionRevision) {
-      throw new Error('本机历史归属不一致，原数据已保留');
+      throw new Error(uiLiteral('本机历史归属不一致，原数据已保留'));
     }
     const guards = [owner.stored, ...(current ? [current.stored] : [])];
     for (const guard of guards) if (!sameStoredVault(await readStoredVaultUnlocked(vaultSpaceId(guard)), guard)) throw staleVaultError();
@@ -1288,7 +1289,7 @@ export async function createJointRecoveryVault(vault: Vault, credential: LocalCr
 export async function discardJointRecovery(session: VaultSession, signal: AbortSignal): Promise<boolean> {
   return withVaultMutation(session, async mutation => {
     const pending = session.vault.pendingJointRecovery;
-    if (!pending) throw new Error('本机恢复状态已变化');
+    if (!pending) throw new Error(uiLiteral('本机恢复状态已变化'));
     signal.throwIfAborted();
     if (pending.preserveHistory) {
       delete session.vault.pendingJointRecovery;
@@ -1303,7 +1304,7 @@ export async function discardJointRecovery(session: VaultSession, signal: AbortS
 export async function finishJointRecovery(session: VaultSession, nextVault: Vault, signal: AbortSignal): Promise<void> {
   return withVaultMutation(session, async () => {
     const pending = session.vault.pendingJointRecovery;
-    if (!pending || (session.stored.unlockMethod !== 'platform' && !(session.stored.v === 3 && session.stored.unlockMethod === 'password'))) throw new Error('双人恢复状态不存在');
+    if (!pending || (session.stored.unlockMethod !== 'platform' && !(session.stored.v === 3 && session.stored.unlockMethod === 'password'))) throw new Error(uiLiteral('双人恢复状态不存在'));
     const preferences = pending.preserveHistory ? await loadUiPreferences(session) : {};
     const nextSession = { ...session, vault: nextVault };
     const preferenceRecord = await encryptLocalRecord(nextSession, 'preferences', uiPreferenceId(nextSession), preferences);
@@ -1342,14 +1343,14 @@ async function createVaultLocked(
   isActive: () => boolean = () => true,
   expected?: StoredVault,
 ): Promise<VaultSession> {
-  if (!isActive()) throw new DOMException('保险库创建流程已经结束', 'AbortError');
+  if (!isActive()) throw new DOMException(uiLiteral('保险库创建流程已经结束'), 'AbortError');
   // Every new master owns its own record namespace, even when the live room
   // already exists in another local slot. Ordinary same-key saves retain it.
   if (vault.roomArchiveV2) vault = { ...vault, localDataScope: crypto.randomUUID() };
   if (unlockMethod === 'password' || (preparedPlatformCredential && isPasswordCredential(preparedPlatformCredential))) {
     const credential = preparedPlatformCredential && isPasswordCredential(preparedPlatformCredential)
       ? preparedPlatformCredential : await derivePasswordCredential(legacySecret);
-    if (vault.roomArchiveV2 && !credential.roomProtectionRevision) throw new Error('新密室的本机访问材料已失效，请重试');
+    if (vault.roomArchiveV2 && !credential.roomProtectionRevision) throw new Error(uiLiteral('新密室的本机访问材料已失效，请重试'));
     const master = crypto.getRandomValues(new Uint8Array(32));
     try {
       const key = await importMasterKey(master);
@@ -1357,7 +1358,7 @@ async function createVaultLocked(
         ...(vault.roomArchiveV2 ? { browserRoomKey: true as const } : {}),
         ...(credential.passwordFormat ? { passwordFormat: credential.passwordFormat } : {}),
         wrappedKey: await wrapPasswordMaster(master, credential, selectedSpace), payload: await encryptPayload(vault, key) };
-      if (!isActive()) throw new DOMException('保险库创建流程已经结束', 'AbortError');
+      if (!isActive()) throw new DOMException(uiLiteral('保险库创建流程已经结束'), 'AbortError');
       await installStoredVault(stored, expected, vault.roomArchiveV2 ? credential.roomProtectionRevision : undefined);
       rememberSpace(vaultSpaceId(stored)); await clearUnlockThrottle(); vault.v = 3;
       return { vault, key, stored };
@@ -1377,7 +1378,7 @@ async function createVaultLocked(
     payload: await encryptPayload(vault, key),
   };
   masterBytes.fill(0);
-  if (!isActive()) throw new DOMException('保险库创建流程已经结束', 'AbortError');
+  if (!isActive()) throw new DOMException(uiLiteral('保险库创建流程已经结束'), 'AbortError');
   await installStoredVault(stored, expected);
   rememberSpace(vaultSpaceId(stored));
   await clearUnlockThrottle();
@@ -1436,7 +1437,7 @@ async function clearUnlockThrottle(scope = 'unlock-throttle'): Promise<void> {
 
 async function enforceUnlockThrottle(): Promise<void> {
   const waitMs = await passwordUnlockWaitMs();
-  if (waitMs > 0) throw new Error(`尝试次数过多，请 ${Math.ceil(waitMs / 1000)} 秒后重试`);
+  if (waitMs > 0) throw new Error(uiTemplate`尝试次数过多，请 ${Math.ceil(waitMs / 1000)} 秒后重试`);
 }
 
 /** Read-only presentation of the existing guessing delay; never clears or extends it. */
@@ -1446,17 +1447,17 @@ export async function passwordUnlockWaitMs(): Promise<number> {
 
 /** A separate local guessing delay for root verification; it cannot strengthen an offline six-digit password. */
 export async function unlockPersonalIdentityPassword(stored: import('./personal-identity-vault').StoredPersonalIdentity, password: string): Promise<import('./password-protection').PasswordCredentialResult> {
-  if (stored.protection.method !== 'password') throw new Error('请使用原通行密钥验证');
+  if (stored.protection.method !== 'password') throw new Error(uiLiteral('请使用原通行密钥验证'));
   const protection = stored.protection, scope = `chamber:identity-throttle:${stored.identity.id}`;
   return withVaultLifecycle(async () => {
     const waitMs = Math.max(0, (await readUnlockThrottle(scope)).nextAllowedAt - Date.now());
-    if (waitMs > 0) throw new Error(`尝试次数过多，请 ${Math.ceil(waitMs / 1000)} 秒后重试`);
+    if (waitMs > 0) throw new Error(uiTemplate`尝试次数过多，请 ${Math.ceil(waitMs / 1000)} 秒后重试`);
     try {
       const credential = await derivePasswordCredential(password, protection.kdf, protection.passwordFormat);
       await (await import('./personal-identity-vault')).usePersonalIdentity(stored, credential, () => undefined);
       await clearUnlockThrottle(scope); return credential;
     } catch {
-      await recordUnlockFailure(scope); throw new Error('应用锁不正确，或本机身份保管数据损坏');
+      await recordUnlockFailure(scope); throw new Error(uiLiteral('应用锁不正确，或本机身份保管数据损坏'));
     }
   });
 }
@@ -1477,11 +1478,11 @@ export async function unlockVault(secret = '', preparedPlatformProof?: Promise<U
 /** Background directory sync must never change the user's selected room.
  * Only an already unlocked browser collection can open these modern vaults. */
 export async function unlockDirectorySyncRoom(secret: string, expected: StoredVault): Promise<VaultSession> {
-  if (expected.v !== 3 || expected.unlockMethod !== 'password' || !expected.browserRoomKey) throw new Error('此密室不能用于后台目录同步');
+  if (expected.v !== 3 || expected.unlockMethod !== 'password' || !expected.browserRoomKey) throw new Error(uiLiteral('此密室不能用于后台目录同步'));
   return withVaultLifecycle(async () => {
     if (!sameStoredVault(await readStoredVaultUnlocked(vaultSpaceId(expected)), expected)) throw staleVaultError();
     const session = await unlockVaultLocked(secret, undefined, expected);
-    if (!session.vault.roomArchiveV2) throw new Error('此密室不能用于后台目录同步');
+    if (!session.vault.roomArchiveV2) throw new Error(uiLiteral('此密室不能用于后台目录同步'));
     return session;
   });
 }
@@ -1513,7 +1514,7 @@ export async function unlockLocalSpaceForManagement(id: string, credential: Plat
     }), stored.passwordFormat);
   }
   if (!stored || stored.v !== 3 || stored.unlockMethod !== 'platform') {
-    throw new Error('请先打开此密室完成访问密钥升级');
+    throw new Error(uiLiteral('请先打开此密室完成访问密钥升级'));
   }
   const proof = credential?.record.credentialId === stored.platform.credentialId
     ? credential.prfOutput.slice() : await verify(stored.platform);
@@ -1532,7 +1533,7 @@ export async function resumeVaultSession(session: Pick<VaultSession, 'key' | 'st
   return withVaultLifecycle(async () => {
     const stored = await readStoredVaultUnlocked(vaultSpaceId(session.stored));
     if (!stored || !sameStoredVault(stored, session.stored)) throw staleVaultError();
-    if (stored.unlockMethod === 'recovery') throw new Error('恢复保险库尚未绑定到本设备');
+    if (stored.unlockMethod === 'recovery') throw new Error(uiLiteral('恢复保险库尚未绑定到本设备'));
     let vault: Vault;
     if (stored.v === 1) {
       const plaintext = await crypto.subtle.decrypt(
@@ -1575,8 +1576,8 @@ function isPasskeyOnlyVault(stored: { v?: number; unlockMethod?: string }): bool
 
 async function unlockVaultLocked(secret: string, preparedPlatformProof?: Uint8Array<ArrayBuffer>, explicitStored?: StoredVault): Promise<VaultSession> {
   const stored = explicitStored ?? await readStoredVaultUnlocked();
-  if (!stored) throw new Error('本机没有可解锁的会话');
-  if (stored.unlockMethod === 'recovery') throw new Error('恢复包需要先输入独立恢复码');
+  if (!stored) throw new Error(uiLiteral('本机没有可解锁的会话'));
+  if (stored.unlockMethod === 'recovery') throw new Error(uiLiteral('恢复包需要先输入独立恢复码'));
   const passkeyOnly = isPasskeyOnlyVault(stored);
   if (!passkeyOnly) await enforceUnlockThrottle();
   const decryptStarted = performance.now();
@@ -1647,20 +1648,20 @@ async function unlockVaultLocked(secret: string, preparedPlatformProof?: Uint8Ar
     if (error instanceof DOMException && error.name === 'AbortError') throw error;
     if (passkeyOnly) {
       preparedPlatformProof?.fill(0);
-      throw new UnlockStageError('本机保险库无法用这次验证结果打开。请重试或一起恢复。', 'S4', performance.now() - decryptStarted);
+      throw new UnlockStageError(uiLiteral('本机保险库无法用这次验证结果打开。请重试或一起恢复。'), 'S4', performance.now() - decryptStarted);
     }
     await recordUnlockFailure().catch(() => undefined);
     throw new Error(stored.v === 2
-      ? '手势、设备安全凭据不正确，或本机保险库已经损坏'
+      ? uiLiteral('手势、设备安全凭据不正确，或本机保险库已经损坏')
       : stored.unlockMethod === 'gesture'
-        ? '手势不正确，或本机保险库已经损坏'
-        : '密码不正确，或本机保险库已经损坏');
+        ? uiLiteral('手势不正确，或本机保险库已经损坏')
+        : uiLiteral('密码不正确，或本机保险库已经损坏'));
   }
 }
 
 export async function saveVault(session: VaultSession, mutation?: VaultMutation): Promise<void> {
   if (!ownsVaultMutation(session, mutation)) return withVaultMutation(session, (lease) => saveVault(session, lease));
-  if (session.stored.unlockMethod === 'recovery') throw new Error('恢复保险库尚未绑定到本设备');
+  if (session.stored.unlockMethod === 'recovery') throw new Error(uiLiteral('恢复保险库尚未绑定到本设备'));
   let nextStored: StoredVault;
   if (session.stored.v === 1) {
     nextStored = await encryptLegacyVault(
@@ -1713,9 +1714,9 @@ async function reencryptAllLocalData(session: VaultSession, migratedSession: Vau
     };
     tx.onabort = () => {
       database.close();
-      reject(tx.error ?? new Error('设备保险库迁移事务失败'));
+      reject(tx.error ?? new Error(uiLiteral('设备保险库迁移事务失败')));
     };
-    tx.onerror = () => reject(tx.error ?? new Error('设备保险库迁移事务失败'));
+    tx.onerror = () => reject(tx.error ?? new Error(uiLiteral('设备保险库迁移事务失败')));
   });
 }
 
@@ -1772,9 +1773,9 @@ function formatRecoveryCode(bytes: Uint8Array<ArrayBuffer>): string {
 
 function parseRecoveryCode(value: string): Uint8Array<ArrayBuffer> {
   const normalized = value.replace(/\s+/g, '');
-  if (!normalized.startsWith('QR2-')) throw new Error('恢复码格式不正确');
+  if (!normalized.startsWith('QR2-')) throw new Error(uiLiteral('恢复码格式不正确'));
   const bytes = fromBase64Url(normalized.slice(4));
-  if (bytes.length !== 32) throw new Error('恢复码长度不正确');
+  if (bytes.length !== 32) throw new Error(uiLiteral('恢复码长度不正确'));
   return bytes;
 }
 
@@ -1785,9 +1786,9 @@ export async function prepareRecoveryPackage(session: VaultSession): Promise<Pre
 }
 
 async function prepareRecoveryPackageLocked(session: VaultSession, mutation: VaultMutation): Promise<PreparedRecoveryExport> {
-  if(session.vault.migrationSource||session.vault.personalBinding&&session.vault.personalMigration?.state!=='staged')throw new Error('此密室使用助记词身份恢复，不能导出旧设备私钥恢复包');
+  if(session.vault.migrationSource||session.vault.personalBinding&&session.vault.personalMigration?.state!=='staged')throw new Error(uiLiteral('此密室使用助记词身份恢复，不能导出旧设备私钥恢复包'));
   if ((session.stored.v !== 2 && session.stored.v !== 3) || (session.stored.unlockMethod !== 'platform' && session.stored.unlockMethod !== 'password')) {
-    throw new Error('请先完成设备保险库升级');
+    throw new Error(uiLiteral('请先完成设备保险库升级'));
   }
   await saveVault(session, mutation);
   const exportedAt = new Date().toISOString();
@@ -1840,9 +1841,9 @@ export async function importRecoveryPackage(file: File): Promise<void> {
 
 async function importRecoveryPackageLocked(file: File): Promise<void> {
   const parsed: unknown = JSON.parse(await file.text());
-  if (!parsed || typeof parsed !== 'object') throw new Error('恢复包格式不正确');
+  if (!parsed || typeof parsed !== 'object') throw new Error(uiLiteral('恢复包格式不正确'));
   const record = parsed as Record<string, unknown>;
-  if (record.format !== 'quiet-room-recovery') throw new Error('这不是有效的 Chamber 恢复包');
+  if (record.format !== 'quiet-room-recovery') throw new Error(uiLiteral('这不是有效的 Chamber 恢复包'));
   if (record.version === 2 || record.version === 3) {
     const stored: StoredRecoveryVault = {
       v: record.version,
@@ -1851,11 +1852,11 @@ async function importRecoveryPackageLocked(file: File): Promise<void> {
       payload: record.payload as StoredRecoveryVault['payload'],
       recovery: record.recovery as StoredRecoveryVault['recovery'],
     };
-    if (!validateRecoveryStoredVault(stored)) throw new Error('恢复包格式或安全参数不正确');
+    if (!validateRecoveryStoredVault(stored)) throw new Error(uiLiteral('恢复包格式或安全参数不正确'));
     await transaction('vault', 'readwrite', (store) => store.put({ ...stored, spaceId: selectedSpace }, selectedSpace));
     return;
   }
-  if (!validateLegacyStoredVault(record.vault)) throw new Error('这不是有效的 Chamber 恢复包');
+  if (!validateLegacyStoredVault(record.vault)) throw new Error(uiLiteral('这不是有效的 Chamber 恢复包'));
   await transaction('vault', 'readwrite', (store) => store.put({ ...(record.vault as LegacyStoredVault), spaceId: selectedSpace }, selectedSpace));
 }
 
@@ -1910,7 +1911,7 @@ export async function findMissingArchivedMessages(
   session: VaultSession, messages: DecryptedMessage[], scope: 'chat' | 'gallery' | 'all', signal?: AbortSignal,
 ): Promise<DecryptedMessage[]> {
   signal?.throwIfAborted();
-  if (scope !== 'chat' && session.vault.role !== 'creator') throw new Error('此参与方没有保险箱入口');
+  if (scope !== 'chat' && session.vault.role !== 'creator') throw new Error(uiLiteral('此参与方没有保险箱入口'));
   const storeName = scope === 'gallery' ? 'restoredGallery' : 'history';
   // One snapshot transaction per archive part rather than reopening IDB twice per record.
   const existingDatabase = await openDatabase();
@@ -1923,13 +1924,13 @@ export async function findMissingArchivedMessages(
       request.onsuccess = () => { if (request.result) maps[index]!.set(message.seq, request.result); };
     }
     tx.oncomplete = () => { existingDatabase.close(); resolve(maps); };
-    tx.onabort = () => { existingDatabase.close(); reject(tx.error ?? new Error('历史读取失败')); };
+    tx.onabort = () => { existingDatabase.close(); reject(tx.error ?? new Error(uiLiteral('历史读取失败'))); };
     tx.onerror = () => reject(tx.error);
   });
   const missing: DecryptedMessage[] = [];
   for (const message of messages) {
     if (!Number.isSafeInteger(message.seq) || message.seq < 1 || !isMessagePayload(message.payload) ||
-        typeof message.clientMsgId !== 'string' || typeof message.senderId !== 'string' || typeof message.acceptedAt !== 'string') throw new Error('历史备份记录不正确');
+        typeof message.clientMsgId !== 'string' || typeof message.senderId !== 'string' || typeof message.acceptedAt !== 'string') throw new Error(uiLiteral('历史备份记录不正确'));
     const galleryOnly = message.payload.kind === 'gallery-image' || message.payload.kind === 'gallery-file';
     if (scope === 'chat' && galleryOnly) continue;
     const galleryProjectionEvent = message.payload.kind === 'message-delete';
@@ -1937,7 +1938,7 @@ export async function findMissingArchivedMessages(
     const [historyRecord, galleryRecord, restoredRecord] = existing.map(records => records.get(message.seq));
     for (const previous of [historyRecord, galleryRecord, restoredRecord]) if (previous) {
       const decrypted = (await decryptHistoryRecords(session, [previous], signal, { strict: true }))[0];
-      if (!decrypted || !sameHistoryMessage(decrypted, message)) throw new Error('历史记录与本机数据冲突');
+      if (!decrypted || !sameHistoryMessage(decrypted, message)) throw new Error(uiLiteral('历史记录与本机数据冲突'));
     }
     const previous = storeName === 'history' ? historyRecord : restoredRecord;
     if (previous) {
@@ -1959,7 +1960,7 @@ export async function importArchivedMessages(
 ): Promise<number> {
   return withVaultMutation(session, async () => {
     signal?.throwIfAborted();
-    if (scope !== 'chat' && session.vault.role !== 'creator') throw new Error('此参与方没有保险箱入口');
+    if (scope !== 'chat' && session.vault.role !== 'creator') throw new Error(uiLiteral('此参与方没有保险箱入口'));
     const storeName = scope === 'gallery' ? 'restoredGallery' : 'history';
     const records: StoredHistory[] = [];
     const missing = await findMissingArchivedMessages(session, messages, scope, signal);
@@ -1989,7 +1990,7 @@ export async function importArchivedMessages(
 
 async function unlockRecoveryVaultLocked(recoveryCode: string): Promise<VaultSession> {
   const stored = await readStoredVaultUnlocked();
-  if (!stored || stored.unlockMethod !== 'recovery') throw new Error('本机没有等待恢复的保险库');
+  if (!stored || stored.unlockMethod !== 'recovery') throw new Error(uiLiteral('本机没有等待恢复的保险库'));
   await enforceUnlockThrottle();
   try {
     const codeBytes = recoveryCode.trim().startsWith('QR3-') ? parseCloudRecoveryCode(recoveryCode).secret : parseRecoveryCode(recoveryCode);
@@ -2014,7 +2015,7 @@ async function unlockRecoveryVaultLocked(recoveryCode: string): Promise<VaultSes
     return { vault, key, stored };
   } catch {
     await recordUnlockFailure().catch(() => undefined);
-    throw new Error('恢复码不正确，或恢复包已经损坏');
+    throw new Error(uiLiteral('恢复码不正确，或恢复包已经损坏'));
   }
 }
 
@@ -2030,7 +2031,7 @@ async function bindRecoveredVaultToPlatformLocked(
   session: VaultSession,
   preparedPlatformCredential?: PlatformCredentialResult,
 ): Promise<void> {
-  if (session.stored.unlockMethod !== 'recovery') throw new Error('当前保险库不需要重新绑定');
+  if (session.stored.unlockMethod !== 'recovery') throw new Error(uiLiteral('当前保险库不需要重新绑定'));
   const platformResult = preparedPlatformCredential ?? await createPlatformCredential();
   if (session.vault.protocol === 'mls-rfc9420') {
     // A checkpoint cannot know all later sends, pending ciphertext, or the
@@ -2113,7 +2114,7 @@ async function assertCompatibleHistoryRecord(
     store.get(`${localDataScope(session.vault)}:${message.seq}`));
   if (!existing) return undefined;
   const decrypted = (await decryptHistoryRecords(session, [existing], undefined, { strict: true }))[0];
-  if (!decrypted || !sameHistoryMessage(decrypted, message)) throw new Error('历史记录与本机数据冲突');
+  if (!decrypted || !sameHistoryMessage(decrypted, message)) throw new Error(uiLiteral('历史记录与本机数据冲突'));
   return existing;
 }
 
@@ -2145,7 +2146,7 @@ export async function saveHistoryMessage(session: VaultSession, message: Decrypt
       database.close();
       reject(tx.error ?? staleVaultError());
     };
-    tx.onerror = () => reject(tx.error ?? new Error('历史记录写入失败'));
+    tx.onerror = () => reject(tx.error ?? new Error(uiLiteral('历史记录写入失败')));
   });
 }
 
@@ -2204,7 +2205,7 @@ export async function loadChamberHistoryPageAfter(session:VaultSession,afterSeq:
     await loadHistoryRecordsAfter(session,{limit:20,afterSeq,signal},store),signal,{strict:true})));
   const merged=new Map<number,DecryptedMessage>();
   for(const row of rows.flat()) {
-    const existing=merged.get(row.seq);if(existing&&!sameHistoryMessage(existing,row))throw new Error('历史备份存在相互冲突的本机记录');merged.set(row.seq,row);
+    const existing=merged.get(row.seq);if(existing&&!sameHistoryMessage(existing,row))throw new Error(uiLiteral('历史备份存在相互冲突的本机记录'));merged.set(row.seq,row);
   }
   return [...merged.values()].sort((a,b)=>a.seq-b.seq).slice(0,20);
 }
@@ -2267,7 +2268,7 @@ export async function loadMessageEventHistory(
   session: VaultSession,
   { signal, mutation }: { signal?: AbortSignal; mutation?: VaultMutation } = {},
 ): Promise<DecryptedMessage[]> {
-  if (mutation && !ownsVaultMutation(session, mutation)) throw new Error('历史快照读取必须使用当前保险库事务');
+  if (mutation && !ownsVaultMutation(session, mutation)) throw new Error(uiLiteral('历史快照读取必须使用当前保险库事务'));
   if (session.stored && !mutation) {
     // Snapshot acquisition joins the existing lifecycle queue. Capturing a
     // version outside this lock races a normal same-session atomic commit.
@@ -2284,7 +2285,7 @@ export async function loadMessageEventHistory(
   const throughSeq = session.vault.lastSeq;
   const coverage = Number.isSafeInteger(throughSeq) && throughSeq >= boundary;
   let expected = boundary + 1;
-  const missing = () => { throw new HistoryIntegrityError(`本机加密历史记录 ${expected} 缺失，已停止显示以避免撤回内容重新出现`); };
+  const missing = () => { throw new HistoryIntegrityError(uiTemplate`本机加密历史记录 ${expected} 缺失，已停止显示以避免撤回内容重新出现`); };
   async function* stream(storeName: 'history' | 'galleryHistory' | 'restoredGallery') {
     let afterSeq = 0;
     for (;;) {
@@ -2296,7 +2297,7 @@ export async function loadMessageEventHistory(
         const record = records[index]!;
         const message = page[index]!;
         if (!Number.isSafeInteger(record.seq) || record.seq <= afterSeq || message.seq !== record.seq) {
-          throw new Error('本机加密历史记录序号存在冲突');
+          throw new Error(uiLiteral('本机加密历史记录序号存在冲突'));
         }
         afterSeq = record.seq;
         yield message;
@@ -2387,7 +2388,7 @@ export async function loadMediaHistoryPage(
   for (const [index, message] of decrypted.entries()) {
     const storeName = scan.records[index]!.storeName;
     const existing = canonical.get(message.seq);
-    if (existing && !sameHistoryMessage(existing.message, message)) throw new Error('本机加密历史记录存在冲突');
+    if (existing && !sameHistoryMessage(existing.message, message)) throw new Error(uiLiteral('本机加密历史记录存在冲突'));
     if (!existing || storeName === 'history') canonical.set(message.seq, { storeName, message });
   }
   const records = [...canonical.values()].sort((left, right) => right.message.seq - left.message.seq);
@@ -2441,7 +2442,7 @@ async function decryptHistoryRecords(
       );
       messages.push(JSON.parse(decoder.decode(plaintext)) as DecryptedMessage);
     } catch {
-      if (strict) throw new HistoryIntegrityError(`本机加密历史记录 ${record.seq} 已损坏，已停止显示以避免撤回内容重新出现`);
+      if (strict) throw new HistoryIntegrityError(uiTemplate`本机加密历史记录 ${record.seq} 已损坏，已停止显示以避免撤回内容重新出现`);
       // Ordinary bounded history pages may omit a damaged cache row. The
       // strict full projection scan above still blocks every chat/Safe first
       // frame because encrypted payload kind cannot reveal whether it was a
@@ -2519,7 +2520,7 @@ async function loadLocalRecords<T>(session: VaultSession, storeName: LocalStore,
       values.push(value);
     } catch (cause) {
       signal?.throwIfAborted();
-      throw new Error(`本机加密队列 ${storeName} 已损坏`, {cause});
+      throw new Error(uiTemplate`本机加密队列 ${storeName} 已损坏`, {cause});
     }
   }
   return values;
@@ -2539,21 +2540,21 @@ export async function loadStickerPacks(session: VaultSession): Promise<StickerPa
   const record = await transaction<StoredLocalRecord | undefined>('memeFavorites', 'readonly', store => store.get(`${localDataScope(session.vault)}:packs`));
   if (!record) return [];
   const packs = await decryptLocalRecord<StickerPack[]>(session, 'memeFavorites', record);
-  if (!Array.isArray(packs) || packs.length > MAX_STICKER_PACKS) throw new Error('贴纸合集索引已损坏');
+  if (!Array.isArray(packs) || packs.length > MAX_STICKER_PACKS) throw new Error(uiLiteral('贴纸合集索引已损坏'));
   let total = 0;
   const ids = new Set<string>();
   for (const pack of packs) {
     if (!pack || !/^[a-z0-9-]{1,80}$/.test(pack.id) || ids.has(pack.id) || typeof pack.title !== 'string' || pack.title.length > 120
       || (pack.autoHide !== undefined && typeof pack.autoHide !== 'boolean')
-      || !Number.isSafeInteger(pack.installedAt) || !Array.isArray(pack.items) || !pack.items.length || pack.items.length > MAX_PACK_ITEMS) throw new Error('贴纸合集索引已损坏');
+      || !Number.isSafeInteger(pack.installedAt) || !Array.isArray(pack.items) || !pack.items.length || pack.items.length > MAX_PACK_ITEMS) throw new Error(uiLiteral('贴纸合集索引已损坏'));
     ids.add(pack.id);
     // Apply the same authenticated media metadata checks, in bounded pages.
     for (let offset = 0; offset < pack.items.length; offset += MAX_MEME_FAVORITES) normalizeMemeIndex(pack.items.slice(offset, offset + MAX_MEME_FAVORITES));
     const bytes = pack.items.reduce((sum, item) => sum + item.size, 0);
-    if (bytes > MAX_PACK_BYTES) throw new Error('贴纸合集超出限制');
+    if (bytes > MAX_PACK_BYTES) throw new Error(uiLiteral('贴纸合集超出限制'));
     total += bytes;
   }
-  if (total > MAX_PACK_LIBRARY_BYTES) throw new Error('贴纸密室超出限制');
+  if (total > MAX_PACK_LIBRARY_BYTES) throw new Error(uiLiteral('贴纸密室超出限制'));
   return packs;
 }
 
@@ -2561,13 +2562,13 @@ export async function loadStickerPacks(session: VaultSession): Promise<StickerPa
 export async function installStickerPack(session: VaultSession, id: string, title: string, files: File[], signal: AbortSignal, autoHide = false): Promise<void> {
   if (!/^[a-z0-9-]{1,80}$/.test(id) || title.length > 120 || !files.length || files.length > MAX_PACK_ITEMS
     || files.some(file => !file.size || file.size > MAX_MEME_BYTES || !MEME_TYPES.includes(file.type))
-    || files.reduce((sum, file) => sum + file.size, 0) > MAX_PACK_BYTES) throw new Error('贴纸合集格式或大小不受支持');
+    || files.reduce((sum, file) => sum + file.size, 0) > MAX_PACK_BYTES) throw new Error(uiLiteral('贴纸合集格式或大小不受支持'));
   await withVaultMutation(session, async () => {
     signal.throwIfAborted();
     const packs = await loadStickerPacks(session);
     if (packs.some(pack => pack.id === id)) return;
     if (packs.length >= MAX_STICKER_PACKS || packs.flatMap(pack => pack.items).reduce((sum, item) => sum + item.size, 0)
-      + files.reduce((sum, file) => sum + file.size, 0) > MAX_PACK_LIBRARY_BYTES) throw new Error('贴纸密室已满，请先移除部分合集');
+      + files.reduce((sum, file) => sum + file.size, 0) > MAX_PACK_LIBRARY_BYTES) throw new Error(uiLiteral('贴纸密室已满，请先移除部分合集'));
     const items: MemeFavorite[] = []; const originals: StoredLocalRecord[] = []; const digests = new Set<string>();
     for (const file of files) {
       signal.throwIfAborted();
@@ -2586,12 +2587,12 @@ export async function installStickerPack(session: VaultSession, id: string, titl
 /** Persist the user-selected shortcut order without rewriting pack originals. */
 export async function reorderStickerPacks(session: VaultSession, ids: string[], signal: AbortSignal): Promise<void> {
   if (!Array.isArray(ids) || ids.length > MAX_STICKER_PACKS || new Set(ids).size !== ids.length
-    || ids.some(id => typeof id !== 'string' || !/^[a-z0-9-]{1,80}$/.test(id))) throw new Error('贴纸合集顺序不正确');
+    || ids.some(id => typeof id !== 'string' || !/^[a-z0-9-]{1,80}$/.test(id))) throw new Error(uiLiteral('贴纸合集顺序不正确'));
   await withVaultMutation(session, async () => {
     signal.throwIfAborted();
     const packs = await loadStickerPacks(session);
     const byId = new Map(packs.map(pack => [pack.id, pack]));
-    if (ids.length !== packs.length || ids.some(id => !byId.has(id))) throw new Error('贴纸合集顺序不正确');
+    if (ids.length !== packs.length || ids.some(id => !byId.has(id))) throw new Error(uiLiteral('贴纸合集顺序不正确'));
     const index = await encryptLocalRecord(session, 'memeFavorites', 'packs', ids.map(id => byId.get(id)!));
     await commitStickerRecords(session, [index], [], signal);
   });
@@ -2629,20 +2630,20 @@ async function commitStickerRecords(session: VaultSession, records: StoredLocalR
 export async function loadMemeFavoriteFile(session: VaultSession, item: MemeFavorite, signal: AbortSignal): Promise<File> {
   signal.throwIfAborted();
   const record = await transaction<StoredLocalRecord | undefined>('memeFavorites', 'readonly', store => store.get(`${localDataScope(session.vault)}:${item.id}`));
-  if (!record) throw new Error('收藏图片已不存在');
+  if (!record) throw new Error(uiLiteral('收藏图片已不存在'));
   const data = await decryptLocalRecord<unknown>(session, 'memeFavorites', record);
   signal.throwIfAborted();
-  if (typeof data !== 'string' || data.length > Math.ceil(MAX_MEME_BYTES * 4 / 3)) throw new Error('收藏图片已损坏');
+  if (typeof data !== 'string' || data.length > Math.ceil(MAX_MEME_BYTES * 4 / 3)) throw new Error(uiLiteral('收藏图片已损坏'));
   const bytes = fromBase64Url(data);
   const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(byte => byte.toString(16).padStart(2, '0')).join('');
   signal.throwIfAborted();
-  if (bytes.byteLength !== item.size || digest !== item.digest) throw new Error('收藏图片完整性校验失败');
+  if (bytes.byteLength !== item.size || digest !== item.digest) throw new Error(uiLiteral('收藏图片完整性校验失败'));
   return new File([bytes], item.name, { type: item.type, lastModified: 0 });
 }
 
 /** Index and independent encrypted original commit atomically under the vault lease. */
 export async function saveMemeFavorite(session: VaultSession, file: File, signal: AbortSignal): Promise<boolean> {
-  if (!file.size || file.size > MAX_MEME_BYTES || !MEME_TYPES.includes(file.type)) throw new Error('梗图格式或大小不受支持');
+  if (!file.size || file.size > MAX_MEME_BYTES || !MEME_TYPES.includes(file.type)) throw new Error(uiLiteral('梗图格式或大小不受支持'));
   const bytes = await file.arrayBuffer();
   const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(byte => byte.toString(16).padStart(2, '0')).join('');
   return withVaultMutation(session, async () => {
@@ -2650,7 +2651,7 @@ export async function saveMemeFavorite(session: VaultSession, file: File, signal
     const items = await loadMemeFavorites(session);
     if (items.some(item => item.digest === digest)) return false;
     if (items.length >= MAX_MEME_FAVORITES || items.reduce((size, item) => size + item.size, file.size) > MAX_MEME_LIBRARY_BYTES) {
-      throw new Error('收藏密室已满，请先取消部分收藏');
+      throw new Error(uiLiteral('收藏密室已满，请先取消部分收藏'));
     }
     const item: MemeFavorite = { id: crypto.randomUUID(), digest, name: file.name.slice(0, 120), type: file.type, size: file.size, savedAt: Date.now() };
     const original = await encryptLocalRecord(session, 'memeFavorites', item.id, toBase64Url(bytes));
@@ -2698,7 +2699,7 @@ export async function removeMemeFavorite(session: VaultSession, id: string, sign
 
 function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: boolean } = {}): UiPreferences {
   if (strict && (!value || typeof value !== 'object' || Array.isArray(value))) {
-    throw new Error('本机加密偏好记录格式不正确');
+    throw new Error(uiLiteral('本机加密偏好记录格式不正确'));
   }
   const source = value && typeof value === 'object' ? value as Partial<UiPreferences> : {};
   const candidate = source.chatAnchor;
@@ -2718,7 +2719,7 @@ function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: b
   const validHidden = rawHidden === undefined || (Array.isArray(rawHidden) && rawHidden.length <= 20_000 && rawHidden.every((id) =>
     typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
   );
-  if (strict && !validHidden) throw new Error('本机删除偏好记录格式不正确');
+  if (strict && !validHidden) throw new Error(uiLiteral('本机删除偏好记录格式不正确'));
   const hiddenChatMessageIds = Array.isArray(rawHidden) && validHidden
     ? [...new Set(rawHidden.map((id) => id.toLowerCase()))] : [];
   const rawGifs = source.gifChatMessageIds;
@@ -2730,12 +2731,12 @@ function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: b
   try {
     attachmentFavorites = normalizeAttachmentFavorites(source.attachmentFavorites ?? []);
   } catch (cause) {
-    if (strict) throw new Error('收藏偏好记录格式不正确', { cause });
+    if (strict) throw new Error(uiLiteral('收藏偏好记录格式不正确'), { cause });
   }
   try {
     galleryCuration = normalizeGalleryCurationRecords(source.galleryCuration ?? []);
   } catch (cause) {
-    if (strict) throw new Error('保险箱整理偏好记录格式不正确', { cause });
+    if (strict) throw new Error(uiLiteral('保险箱整理偏好记录格式不正确'), { cause });
     // A damaged optional projection must not make the encrypted draft or
     // scroll anchor unavailable. Drop only the untrusted curation records.
   }
@@ -2774,7 +2775,7 @@ export async function prepareComposerDraft(session: VaultSession, fallback: stri
     const record = await transaction<StoredLocalRecord | undefined>('preferences', 'readonly', store =>
       store.get(`${localDataScope(session.vault)}:${draftCommitId(session)}`));
     const committed = record ? await decryptLocalRecord<DraftSubmission>(session, 'preferences', record) : undefined;
-    if (record && (!committed || typeof committed.revision !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(committed.revision))) throw new Error('本机草稿提交记录已损坏');
+    if (record && (!committed || typeof committed.revision !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(committed.revision))) throw new Error(uiLiteral('本机草稿提交记录已损坏'));
     return openDraftCheckpoint(session.key, composerDraftScope(session), fallback, committed, localStorage, false, isActive);
   });
 }
@@ -2788,7 +2789,7 @@ export async function loadUiPreferences(session: VaultSession): Promise<UiPrefer
   try {
     return normalizeUiPreferences(await decryptLocalRecord<unknown>(session, 'preferences', record), { strict: true });
   } catch (cause) {
-    throw new Error('本机加密偏好记录已损坏，已停止显示以避免本机删除或置顶内容重新出现', { cause });
+    throw new Error(uiLiteral('本机加密偏好记录已损坏，已停止显示以避免本机删除或置顶内容重新出现'), { cause });
   }
 }
 
@@ -2796,13 +2797,13 @@ export async function loadUiPreferences(session: VaultSession): Promise<UiPrefer
 export async function restoreGalleryHidden(session: VaultSession, records: GalleryCurationRecord[], signal: AbortSignal): Promise<boolean> {
   if (session.vault.role !== 'creator' || !records.length) return false;
   const incoming = normalizeGalleryCurationRecords(records);
-  if (incoming.some(record => !record.hidden || record.pinnedAt !== null)) throw new Error('保险箱删除记录不正确');
+  if (incoming.some(record => !record.hidden || record.pinnedAt !== null)) throw new Error(uiLiteral('保险箱删除记录不正确'));
   return withVaultMutation(session, async mutation => {
     signal.throwIfAborted();
     const preferences = await loadUiPreferences(session);
     const merged = new Map((preferences.galleryCuration ?? []).map(record => [galleryCurationKey(record), record]));
     for (const record of incoming) merged.set(galleryCurationKey(record), record);
-    if(merged.size>20_000)throw new Error('保险箱删除记录超过上限，已保留本机已有记录');
+    if(merged.size>20_000)throw new Error(uiLiteral('保险箱删除记录超过上限，已保留本机已有记录'));
     const galleryCuration = normalizeGalleryCurationRecords([...merged.values()]);
     if (JSON.stringify(galleryCuration) === JSON.stringify(preferences.galleryCuration ?? [])) return false;
     signal.throwIfAborted();
@@ -2818,7 +2819,7 @@ export function saveUiPreferences(session: VaultSession, preferences: UiPreferen
     const previous = await loadUiPreferences(session);
     // Local history imports must not be undone by an older queued draft/anchor save.
     const hiddenChatMessageIds = [...new Set([...(next.hiddenChatMessageIds ?? []), ...(previous.hiddenChatMessageIds ?? [])])];
-    if (hiddenChatMessageIds.length > 20_000) throw new Error('本机删除记录超过上限');
+    if (hiddenChatMessageIds.length > 20_000) throw new Error(uiLiteral('本机删除记录超过上限'));
     if (hiddenChatMessageIds.length) next.hiddenChatMessageIds = hiddenChatMessageIds;
     const merged = new Map((next.galleryCuration ?? []).map(record => [galleryCurationKey(record), record]));
     for (const record of previous.galleryCuration ?? []) if (record.hidden) merged.set(galleryCurationKey(record), record);
@@ -2849,7 +2850,7 @@ export async function prepareLegacyOutboxItem(session: VaultSession, clientMsgId
   if (!ownsVaultMutation(session, mutation)) return withVaultMutation(session, lease => prepareLegacyOutboxItem(session, clientMsgId, lease));
   const item = (await loadOutbox(session)).find(candidate => candidate.clientMsgId === clientMsgId);
   if (!item || item.envelope) return item;
-  if (session.vault.protocol === 'mls-rfc9420') throw new Error('MLS 待发密文缺失，已停止发送');
+  if (session.vault.protocol === 'mls-rfc9420') throw new Error(uiLiteral('MLS 待发密文缺失，已停止发送'));
   const prepared = { ...item, envelope: await encryptMessage(session.vault, item.payload, clientMsgId) };
   await saveOutboxItem(session, prepared, mutation);
   return prepared;
@@ -2861,12 +2862,12 @@ async function commitMlsVaultAndRecords(
   records: { outbox?: OutboxItem; history?: DecryptedMessage; pendingReceipt?: DeliveryReceipt; draft?: DraftSubmission },
   mutation?: VaultMutation,
 ): Promise<void> {
-  if (!ownsVaultMutation(session, mutation)) throw new Error('MLS 状态变更必须在完整保险库事务中执行');
+  if (!ownsVaultMutation(session, mutation)) throw new Error(uiLiteral('MLS 状态变更必须在完整保险库事务中执行'));
   if ((session.stored.v !== 2 && session.stored.v !== 3) || (session.stored.unlockMethod !== 'platform' && session.stored.unlockMethod !== 'password') || !session.vault.mls) {
-    throw new Error('MLS 状态只能写入通行密钥保险库');
+    throw new Error(uiLiteral('MLS 状态只能写入通行密钥保险库'));
   }
   const nextVault = structuredClone(session.vault);
-  if (!nextVault.mls) throw new Error('MLS 本机状态不存在');
+  if (!nextVault.mls) throw new Error(uiLiteral('MLS 本机状态不存在'));
   nextVault.mls.groupState = nextGroupState;
   if (records.outbox?.intent) nextVault.outboxSequence = Math.max(nextVault.outboxSequence ?? 0, records.outbox.intent.sequence);
   if (records.outbox?.envelope?.v === 2 && records.outbox.envelope.retention) {
@@ -2921,9 +2922,9 @@ async function commitMlsVaultAndRecords(
     };
     tx.onabort = () => {
       database.close();
-      reject(tx.error ?? new Error('MLS 原子写入失败'));
+      reject(tx.error ?? new Error(uiLiteral('MLS 原子写入失败')));
     };
-    tx.onerror = () => reject(tx.error ?? new Error('MLS 原子写入失败'));
+    tx.onerror = () => reject(tx.error ?? new Error(uiLiteral('MLS 原子写入失败')));
   });
 }
 
@@ -2950,7 +2951,7 @@ export function commitMlsReceive(
 /** Replace the old room cache and install the new identity's authenticated join boundary atomically. */
 export async function finishVaultRecovery(session: VaultSession, nextVault: Vault, mutation: VaultMutation): Promise<void> {
   if (!ownsVaultMutation(session, mutation) || (session.stored.unlockMethod !== 'platform' && !(session.stored.v === 3 && session.stored.unlockMethod === 'password')) || !session.vault.pendingRecovery) {
-    throw new Error('恢复完成操作没有有效的保险库事务');
+    throw new Error(uiLiteral('恢复完成操作没有有效的保险库事务'));
   }
   const nextStored: StoredPlatformVault | StoredPasswordVault = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
   const database = await openDatabase();
@@ -2969,8 +2970,8 @@ export async function finishVaultRecovery(session: VaultSession, nextVault: Vaul
       };
     }
     tx.oncomplete = () => { database.close(); session.vault = nextVault; session.stored = nextStored; resolve(); };
-    tx.onabort = () => { database.close(); reject(tx.error ?? new Error('恢复本机事务失败')); };
-    tx.onerror = () => reject(tx.error ?? new Error('恢复本机事务失败'));
+    tx.onabort = () => { database.close(); reject(tx.error ?? new Error(uiLiteral('恢复本机事务失败'))); };
+    tx.onerror = () => reject(tx.error ?? new Error(uiLiteral('恢复本机事务失败')));
   });
   clearDraftCheckpoints(vaultSpaceId(session.stored));
 }
@@ -3005,7 +3006,7 @@ export async function loadCancelledSend(session: VaultSession, clientMsgId: stri
     store.get(`${localDataScope(session.vault)}:${cancelledSendId(session, clientMsgId)}`));
   if (!record) return;
   const value = await decryptLocalRecord<{ v: number; item: OutboxItem }>(session, 'preferences', record);
-  if (value?.v !== 1 || !validCancelledSend(session, value.item, clientMsgId)) throw new Error('已取消消息的本机核验记录不正确');
+  if (value?.v !== 1 || !validCancelledSend(session, value.item, clientMsgId)) throw new Error(uiLiteral('已取消消息的本机核验记录不正确'));
   return value.item;
 }
 
@@ -3016,12 +3017,12 @@ export async function cancelOutboxItem(session:VaultSession,clientMsgId:string,m
   const queued = await transaction<StoredLocalRecord | undefined>('outbox', 'readonly', store =>
     store.get(`${localDataScope(session.vault)}:${clientMsgId}`));
   const item = queued ? await decryptLocalRecord<OutboxItem>(session, 'outbox', queued) : undefined;
-  if (item?.envelope?.v === 2 && !validCancelledSend(session, item, clientMsgId)) throw new Error('待发消息的本机核验记录不正确');
+  if (item?.envelope?.v === 2 && !validCancelledSend(session, item, clientMsgId)) throw new Error(uiLiteral('待发消息的本机核验记录不正确'));
   const cancelled = item?.envelope?.v === 2 ? await encryptLocalRecord(session, 'preferences',
     cancelledSendId(session, clientMsgId), { v: 1, item }) : null;
   const preferences=await loadUiPreferences(session);
   const hidden=new Set(preferences.hiddenChatMessageIds??[]);hidden.add(clientMsgId.toLowerCase());
-  if(hidden.size>20_000)throw new Error('本机删除记录超过上限');
+  if(hidden.size>20_000)throw new Error(uiLiteral('本机删除记录超过上限'));
   preferences.hiddenChatMessageIds=[...hidden];
   const record=await encryptLocalRecord(session,'preferences',uiPreferenceId(session),preferences);
   const nextStored={...session.stored,payload:await encryptPayload(session.vault,session.key)};
@@ -3034,8 +3035,8 @@ export async function cancelOutboxItem(session:VaultSession,clientMsgId:string,m
     tx.objectStore('preferences').put(record);
     if (cancelled) tx.objectStore('preferences').put(cancelled);
     tx.oncomplete=()=>{database.close();session.stored=nextStored;resolve();};
-    tx.onabort=()=>{database.close();reject(tx.error??new Error('取消发送未能保存'));};
-    tx.onerror=()=>reject(tx.error??new Error('取消发送未能保存'));
+    tx.onabort=()=>{database.close();reject(tx.error??new Error(uiLiteral('取消发送未能保存')));};
+    tx.onerror=()=>reject(tx.error??new Error(uiLiteral('取消发送未能保存')));
   });
 }
 
@@ -3086,7 +3087,7 @@ export async function writeBrowserAccessRecord(value: unknown, signal: AbortSign
       };
       const cleanup = () => { signal.removeEventListener('abort',abort);db.close(); };
       tx.oncomplete = () => { cleanup();resolve(); };
-      tx.onabort = () => { cleanup();reject(new Error('接入状态已在其他标签页更新或锁定，请重新验证')); };
+      tx.onabort = () => { cleanup();reject(new Error(uiLiteral('接入状态已在其他标签页更新或锁定，请重新验证'))); };
     });
   });
 }
@@ -3129,7 +3130,7 @@ const privateMediaWitness = (record:StoredLocalRecord):string => toBase64Url(sha
 
 function privateImportMediaSession(session:VaultSession,scope:string):VaultSession {
   const root=localDataScope(session.vault),prefix=`${root}:private:`;
-  if(scope!==root&&(!scope.startsWith(prefix)||!/^[0-9a-f-]{36}$/i.test(scope.slice(prefix.length))))throw new Error('恢复原件范围不正确');
+  if(scope!==root&&(!scope.startsWith(prefix)||!/^[0-9a-f-]{36}$/i.test(scope.slice(prefix.length))))throw new Error(uiLiteral('恢复原件范围不正确'));
   return {...session,get stored(){return session.stored;},vault:{...session.vault,localDataScope:scope}};
 }
 
@@ -3141,9 +3142,9 @@ function privateImportMediaSession(session:VaultSession,scope:string):VaultSessi
 export async function stagePrivateArchiveMedia(session:VaultSession,runId:string,scope:string,blobId:string,index:number,raw:ArrayBuffer,signal:AbortSignal,published=false):Promise<void>{
   await withVaultMutation(session,async()=>{
     signal.throwIfAborted();const root=localDataScope(session.vault),source=privateImportMediaSession(session,scope),id=`${blobId}:${index}`,encoded=toBase64Url(raw);
-    if(scope===root&&!published)throw new Error('未发布原件必须使用本次恢复的独立范围');
+    if(scope===root&&!published)throw new Error(uiLiteral('未发布原件必须使用本次恢复的独立范围'));
     const mediaId=`${scope}:${id}`,current=await transaction<StoredLocalRecord|undefined>('privateMedia','readonly',store=>store.get(mediaId));
-    if(current){if(await decryptLocalRecord<string>(source,'privateMedia',current)!==encoded)throw new Error('导入原文件与本机历史冲突');return;}
+    if(current){if(await decryptLocalRecord<string>(source,'privateMedia',current)!==encoded)throw new Error(uiLiteral('导入原文件与本机历史冲突'));return;}
     const stagedId=`${root}:${runId}:media:${mediaId}`,record=await encryptLocalRecord(source,'privateMedia',id,encoded);
     const marker:StagedPrivateMedia={id:stagedId,roomId:root,kind:'media',mediaId,witness:privateMediaWitness(record),retain:published};
     signal.throwIfAborted();const db=await openDatabase();
@@ -3161,9 +3162,9 @@ export async function loadStagedPrivateArchiveMedia(session:VaultSession,runId:s
   const marker=await transaction<StagedPrivateMedia|undefined>('privateArchiveStaging','readonly',store=>store.get(id));
   const record=await transaction<StoredLocalRecord|undefined>('privateMedia','readonly',store=>store.get(mediaId));
   if(!record)return null;
-  if(marker&&(!isStagedPrivateMedia(marker)||marker.mediaId!==mediaId||marker.witness!==privateMediaWitness(record)))throw new Error('暂存原文件归属不正确');
+  if(marker&&(!isStagedPrivateMedia(marker)||marker.mediaId!==mediaId||marker.witness!==privateMediaWitness(record)))throw new Error(uiLiteral('暂存原文件归属不正确'));
   const raw=fromBase64Url(await decryptLocalRecord<string>(source,'privateMedia',record));
-  if(raw.length!==size)throw new Error('历史原文件分块不完整');return raw.buffer;
+  if(raw.length!==size)throw new Error(uiLiteral('历史原文件分块不完整'));return raw.buffer;
 }
 
 export async function stagePrivateArchiveItem(session:VaultSession,runId:string,item:import('./room-archive').PrivateArchiveItem,signal:AbortSignal):Promise<void> {
@@ -3171,8 +3172,8 @@ export async function stagePrivateArchiveItem(session:VaultSession,runId:string,
     signal.throwIfAborted();const scope=localDataScope(session.vault),id=`${item.originRoomId}:${item.message.clientMsgId}`;
     const previous=await transaction<StoredLocalRecord|undefined>('privateArchive','readonly',store=>store.get(`${scope}:${id}`));
     const staged=await transaction<StagedPrivateRecord|undefined>('privateArchiveStaging','readonly',store=>store.get(`${scope}:${runId}:${id}`));
-    if(staged&&canonicalStringify(await decryptLocalRecord(session,'privateArchive',staged.record))!==canonicalStringify(item))throw new Error('导入记录与本次暂存的历史冲突');
-    if(previous&&canonicalStringify(await decryptLocalRecord(session,'privateArchive',previous))!==canonicalStringify(item))throw new Error('导入记录与已保存的历史冲突');
+    if(staged&&canonicalStringify(await decryptLocalRecord(session,'privateArchive',staged.record))!==canonicalStringify(item))throw new Error(uiLiteral('导入记录与本次暂存的历史冲突'));
+    if(previous&&canonicalStringify(await decryptLocalRecord(session,'privateArchive',previous))!==canonicalStringify(item))throw new Error(uiLiteral('导入记录与已保存的历史冲突'));
     const record=previous??await encryptLocalRecord(session,'privateArchive',id,item);signal.throwIfAborted();
     await transaction('privateArchiveStaging','readwrite',store=>store.put({id:`${scope}:${runId}:${id}`,roomId:scope,record,previous} satisfies StagedPrivateRecord),session.stored);
   });
@@ -3207,7 +3208,7 @@ export async function commitPrivateArchiveImport(session:VaultSession,runId:stri
         };
       };
       const finish=()=>{signal.removeEventListener('abort',abort);database.close();};
-      tx.oncomplete=()=>{finish();resolve();};tx.onabort=()=>{finish();reject(tx.error??new Error('恢复提交中断，请重新恢复；原记录仍保留'));};
+      tx.oncomplete=()=>{finish();resolve();};tx.onabort=()=>{finish();reject(tx.error??new Error(uiLiteral('恢复提交中断，请重新恢复；原记录仍保留')));};
     });
     } finally {database.close();}
   });privateArchiveChanged();
@@ -3244,7 +3245,7 @@ export async function collectAbandonedPrivateArchiveImports(session:VaultSession
     if(!held.some(lock=>lock.name===lockName&&lock.mode==='exclusive')||held.some(lock=>lock.name?.startsWith('quiet-room:archive-restore:')&&lock.name!==lockName))return;
     const scope=localDataScope(session.vault),references=new Map<string,number>();
     for await(const item of scanPrivateArchiveItems(session)){
-      if(!item?.message||!isMessagePayload(item.message.payload)||typeof item.sourceScope!=='string')throw new Error('私有历史完整性检查失败，原文件已保留');
+      if(!item?.message||!isMessagePayload(item.message.payload)||typeof item.sourceScope!=='string')throw new Error(uiLiteral('私有历史完整性检查失败，原文件已保留'));
       if(item.sourceScope!==scope&&(!item.sourceScope.startsWith(`${scope}:private:`)||!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(item.sourceScope.slice(`${scope}:private:`.length))))return;
       const p=item.message.payload,media='images'in p?p.images:'image'in p?[p.image]:'file'in p?[p.file]:'audio'in p?[p.audio]:[];
       for(const manifest of media){const key=`${item.sourceScope}:${manifest.blobId}`;references.set(key,Math.max(references.get(key)??0,manifest.chunkCount));}
@@ -3268,7 +3269,7 @@ export async function savePrivateArchiveItem(session:VaultSession,item:import('.
   const id=`${item.originRoomId}:${item.message.clientMsgId}`;
   await withVaultMutation(session,async()=>{
     const existing=await loadPrivateArchiveItem(session,id);
-    if(existing&&canonicalStringify(existing)!==canonicalStringify(item))throw new Error('导入记录与已保存的历史冲突');
+    if(existing&&canonicalStringify(existing)!==canonicalStringify(item))throw new Error(uiLiteral('导入记录与已保存的历史冲突'));
     if(existing)return;
     const meta=await readPrivateCatalogMeta(session),record=await encryptLocalRecord(session,'privateArchive',id,item);
     const next=await encryptLocalRecord(session,'privateCatalog','meta',{revision:crypto.randomUUID(),rawCount:meta.rawCount+1,retired:[...(meta.retired??[]),...(meta.catalog?[meta.catalog.generation]:[])]});
@@ -3286,7 +3287,7 @@ export async function readPrivateCatalogMeta(session: VaultSession, signal?: Abo
   const meta=record?await decryptLocalRecord<PrivateCatalogMeta>(session,'privateCatalog',record):{
     revision:'legacy',rawCount:await transaction<number>('privateArchive','readonly',store=>store.index('roomId').count(IDBKeyRange.only(localDataScope(session.vault))))};
   signal?.throwIfAborted();
-  if(!meta||typeof meta.revision!=='string'||!Number.isSafeInteger(meta.rawCount)||meta.rawCount<0)throw new Error('私有历史目录已损坏');
+  if(!meta||typeof meta.revision!=='string'||!Number.isSafeInteger(meta.rawCount)||meta.rawCount<0)throw new Error(uiLiteral('私有历史目录已损坏'));
   return meta;
 }
 export async function readPrivateCatalogRecord<T>(session:VaultSession,id:string,signal?:AbortSignal):Promise<T|null>{
@@ -3297,7 +3298,7 @@ export async function writePrivateCatalogRecord(session:VaultSession,id:string,v
   await withVaultMutation(session,async lease=>{signal.throwIfAborted();const record=await encryptLocalRecord(session,'privateCatalog',id,value);signal.throwIfAborted();await transaction('privateCatalog','readwrite',store=>store.put(record),session.stored);});
 }
 export async function adoptPrivateCatalog(session:VaultSession,expected:PrivateCatalogMeta,next:PrivateCatalogMeta,signal:AbortSignal):Promise<void>{
-  await withVaultMutation(session,async()=>{signal.throwIfAborted();if(canonicalStringify(await readPrivateCatalogMeta(session,signal))!==canonicalStringify(expected))throw new DOMException('私有历史已更新','AbortError');
+  await withVaultMutation(session,async()=>{signal.throwIfAborted();if(canonicalStringify(await readPrivateCatalogMeta(session,signal))!==canonicalStringify(expected))throw new DOMException(uiLiteral('私有历史已更新'),'AbortError');
     const record=await encryptLocalRecord(session,'privateCatalog','meta',next);signal.throwIfAborted();await transaction('privateCatalog','readwrite',store=>store.put(record),session.stored);
   });
 }
@@ -3352,7 +3353,7 @@ export async function loadPrivateArchiveItems(session:VaultSession,signal?:Abort
 export async function withRoomUnlockThrottle<T>(operation: () => Promise<T>): Promise<T> {
   const scope='room-protection-v2-throttle';
   const wait=Math.max(0,(await readUnlockThrottle(scope)).nextAllowedAt-Date.now());
-  if(wait) throw new Error(`尝试次数过多，请 ${Math.ceil(wait/1000)} 秒后重试`);
+  if(wait) throw new Error(uiTemplate`尝试次数过多，请 ${Math.ceil(wait/1000)} 秒后重试`);
   try { const value=await operation();await clearUnlockThrottle(scope);return value; }
   catch(cause) { await recordUnlockFailure(scope);throw cause; }
 }
@@ -3364,7 +3365,7 @@ export function readStoredRoom(id:string):Promise<StoredVault|null> {
 /** One local transaction removes the room and every private-media namespace.
  * It deliberately makes no server request and cannot close the peer's room. */
 export async function deleteNewRoomLocal(session:VaultSession, directory?: {owner:VaultSession;mutation:VaultMutation;id:string;value:unknown}):Promise<void> {
-  if(!session.vault.roomArchiveV2)throw new Error('此操作仅适用于新密室');
+  if(!session.vault.roomArchiveV2)throw new Error(uiLiteral('此操作仅适用于新密室'));
   const remove=async()=>{
     if(directory&&!ownsVaultMutation(directory.owner,directory.mutation))throw staleVaultError();
     const database=await openDatabase(),scope=localDataScope(session.vault);
@@ -3393,12 +3394,12 @@ export async function savePrivateMediaChunk(session:VaultSession,blobId:string,i
   signal.throwIfAborted();await withVaultMutation(session,async mutation=>{
     signal.throwIfAborted();const id=`${blobId}:${index}`,encoded=toBase64Url(raw);
     const record=await transaction<StoredLocalRecord|undefined>('privateMedia','readonly',store=>store.get(`${localDataScope(session.vault)}:${id}`));
-    if(record){if(await decryptLocalRecord<string>(session,'privateMedia',record)!==encoded)throw new Error('导入原文件与本机历史冲突');return;}
+    if(record){if(await decryptLocalRecord<string>(session,'privateMedia',record)!==encoded)throw new Error(uiLiteral('导入原文件与本机历史冲突'));return;}
     signal.throwIfAborted();await putLocalRecord(session,'privateMedia',id,encoded,mutation);
   });signal.throwIfAborted();
 }
 export async function loadPrivateMediaChunk(session:VaultSession,blobId:string,index:number,size:number):Promise<ArrayBuffer|null>{
   const record=await transaction<StoredLocalRecord|undefined>('privateMedia','readonly',store=>store.get(`${localDataScope(session.vault)}:${blobId}:${index}`));
   if(!record)return null;const encoded=await decryptLocalRecord<string>(session,'privateMedia',record),raw=fromBase64Url(encoded);
-  if(raw.length!==size)throw new Error('历史原文件分块不完整');return raw.buffer;
+  if(raw.length!==size)throw new Error(uiLiteral('历史原文件分块不完整'));return raw.buffer;
 }

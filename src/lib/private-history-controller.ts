@@ -1,3 +1,4 @@
+import { uiLiteral, t } from './language';
 import {ensurePrivateCatalog,readPrivateHistoryPage,type PrivateHistoryPage} from './private-archive-catalog';
 import type {VaultSession} from './vault';
 /** Owns one bounded plaintext page. Page cancellation also owns decoded media/URLs. */
@@ -20,7 +21,7 @@ export class PrivateHistoryController {
       const meta=await ensurePrivateCatalog(this.session,signal);
       const page=await readPrivateHistoryPage(this.session,meta,signal,{before,after,anchorId});
       if(!signal.aborted&&this.active()&&request===this.request)this.page=page;
-    }catch(cause){if(!signal.aborted&&this.active()&&request===this.request)this.error=cause instanceof Error?cause.message:'恢复历史暂时无法读取';}
+    }catch(cause){if(!signal.aborted&&this.active()&&request===this.request)this.error=cause instanceof Error?t(cause.message):uiLiteral('恢复历史暂时无法读取');}
     finally{if(!signal.aborted&&this.active()&&request===this.request){this.loading=false;this.changed();}}})();
     this.settled=run;return run;
   }

@@ -17,7 +17,7 @@ try {
   const args = ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'];
   if (process.env.QUIET_ROOM_CALL_TEST_CONFIG) args.push('--allow-loopback-in-peer-connection', '--disable-features=LocalNetworkAccessChecks,LocalNetworkAccessChecksForWebRTC,BlockInsecurePrivateNetworkRequests');
   browser = await chromium.launch({ ...executable, headless: true, args });
-  const page = await browser.newPage();
+  const page = await browser.newPage({locale: 'zh-CN'});
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__call_native`);

@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { randomBase64Url } from './base64';
 import type { Vault } from './types';
 
@@ -95,10 +96,10 @@ export class UnreadCounter {
       });
       if (version !== this.version || requestSignal.aborted) return;
       if (response.status === 401) this.clear();
-      if (!response.ok) throw new Error('未读状态暂时无法同步');
+      if (!response.ok) throw new Error(uiLiteral('未读状态暂时无法同步'));
       const result = await response.json();
       if (version !== this.version || requestSignal.aborted) return;
-      if (!validCount(result.count)) throw new Error('未读状态暂时无法同步');
+      if (!validCount(result.count)) throw new Error(uiLiteral('未读状态暂时无法同步'));
       this.registered = true;
       this.apply(result.count, state, version, request);
     } finally {

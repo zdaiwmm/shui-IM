@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { MAX_IMAGE_ALBUM_ITEMS } from './message-payload';
 
 export const GALLERY_CURATION_VERSION = 1 as const;
@@ -61,7 +62,7 @@ function validPinnedAt(value: unknown): value is number | null {
 
 function assertTarget(value: GalleryCurationTarget): void {
   if (!isGalleryCategory(value?.category) || !validClientMsgId(value?.clientMsgId) || !validAssetIndex(value?.assetIndex)) {
-    throw new TypeError('保险箱策展目标不正确');
+    throw new TypeError(uiLiteral('保险箱策展目标不正确'));
   }
 }
 
@@ -77,7 +78,7 @@ export function normalizeGalleryCurationRecord(value: unknown): GalleryCurationR
       !validClientMsgId(value.clientMsgId) || !validAssetIndex(value.assetIndex) ||
       typeof value.hidden !== 'boolean' || !validPinnedAt(value.pinnedAt) ||
       value.hidden && value.pinnedAt !== null) {
-    throw new TypeError('保险箱策展记录不正确');
+    throw new TypeError(uiLiteral('保险箱策展记录不正确'));
   }
   return {
     v: GALLERY_CURATION_VERSION,
@@ -94,17 +95,17 @@ export function normalizeGalleryCurationRecord(value: unknown): GalleryCurationR
  * returned order is canonical so serialization does not depend on IDB order.
  */
 export function normalizeGalleryCurationRecords(value: unknown): GalleryCurationRecord[] {
-  if (!Array.isArray(value)) throw new TypeError('保险箱策展记录集合不正确');
+  if (!Array.isArray(value)) throw new TypeError(uiLiteral('保险箱策展记录集合不正确'));
   // Check the container before touching any entry, including sparse/getter
   // arrays supplied by damaged or hostile decrypted state.
-  if (value.length > MAX_GALLERY_CURATION_RECORDS) throw new RangeError('保险箱策展记录数量超过上限');
+  if (value.length > MAX_GALLERY_CURATION_RECORDS) throw new RangeError(uiLiteral('保险箱策展记录数量超过上限'));
   const normalized: GalleryCurationRecord[] = [];
   const seen = new Set<string>();
   for (let index = 0; index < value.length; index += 1) {
-    if (!(index in value)) throw new TypeError('保险箱策展记录集合不正确');
+    if (!(index in value)) throw new TypeError(uiLiteral('保险箱策展记录集合不正确'));
     const record = normalizeGalleryCurationRecord(value[index]);
     const key = galleryCurationKey(record);
-    if (seen.has(key)) throw new TypeError('保险箱策展记录重复');
+    if (seen.has(key)) throw new TypeError(uiLiteral('保险箱策展记录重复'));
     seen.add(key);
     normalized.push(record);
   }
@@ -128,7 +129,7 @@ function compareBaseOrder(left: GalleryCurationAsset, right: GalleryCurationAsse
 function assertAsset(value: GalleryCurationAsset, category: GalleryCategory): void {
   assertTarget(value);
   if (value.category !== category || !Number.isSafeInteger(value.seq) || value.seq < 0) {
-    throw new TypeError('保险箱资源不正确');
+    throw new TypeError(uiLiteral('保险箱资源不正确'));
   }
 }
 
@@ -142,10 +143,10 @@ export function curateGalleryAssets<T extends GalleryCurationAsset>(
   assets: readonly T[],
   records: readonly GalleryCurationRecord[],
 ): T[] {
-  if (!isGalleryCategory(category)) throw new TypeError('保险箱分类不正确');
-  if (!Array.isArray(assets) || !Array.isArray(records)) throw new TypeError('保险箱策展输入不正确');
-  if (assets.length > MAX_GALLERY_CURATION_ASSETS) throw new RangeError('保险箱资源数量超过上限');
-  if (records.length > MAX_GALLERY_CURATION_RECORDS) throw new RangeError('保险箱策展记录数量超过上限');
+  if (!isGalleryCategory(category)) throw new TypeError(uiLiteral('保险箱分类不正确'));
+  if (!Array.isArray(assets) || !Array.isArray(records)) throw new TypeError(uiLiteral('保险箱策展输入不正确'));
+  if (assets.length > MAX_GALLERY_CURATION_ASSETS) throw new RangeError(uiLiteral('保险箱资源数量超过上限'));
+  if (records.length > MAX_GALLERY_CURATION_RECORDS) throw new RangeError(uiLiteral('保险箱策展记录数量超过上限'));
 
   const normalizedRecords = normalizeGalleryCurationRecords(records);
   const curation = new Map<string, GalleryCurationRecord>();
@@ -156,11 +157,11 @@ export function curateGalleryAssets<T extends GalleryCurationAsset>(
   const seen = new Set<string>();
   const visible: Array<{ asset: T; record?: GalleryCurationRecord }> = [];
   for (let index = 0; index < assets.length; index += 1) {
-    if (!(index in assets)) throw new TypeError('保险箱资源集合不正确');
+    if (!(index in assets)) throw new TypeError(uiLiteral('保险箱资源集合不正确'));
     const asset = assets[index]!;
     assertAsset(asset, category);
     const key = galleryCurationKey(asset);
-    if (seen.has(key)) throw new TypeError('保险箱资源重复');
+    if (seen.has(key)) throw new TypeError(uiLiteral('保险箱资源重复'));
     seen.add(key);
     const record = curation.get(key);
     if (!record?.hidden) visible.push({ asset, ...(record ? { record } : {}) });

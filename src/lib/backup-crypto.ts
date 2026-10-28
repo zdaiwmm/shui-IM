@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { normalizeGalleryCurationRecords } from './gallery-curation';
 import { fromBase64Url, toBase64Url } from './base64';
 import type { CloudRecoveryBundle, SealedBackup } from './backup-types';
@@ -13,9 +14,9 @@ export function newRecoveryCode(): { id: string; code: string } {
 
 export function parseCloudRecoveryCode(code: string): { id: string; secret: Uint8Array<ArrayBuffer> } {
   const normalized = code.trim();
-  if (!/^QR3-[A-Za-z0-9_-]{64}$/.test(normalized)) throw new Error('请输入完整的自动备份恢复码（QR3 开头）');
+  if (!/^QR3-[A-Za-z0-9_-]{64}$/.test(normalized)) throw new Error(uiLiteral('请输入完整的自动备份恢复码（QR3 开头）'));
   const bytes = fromBase64Url(normalized.slice(4));
-  if (bytes.length !== 48 || toBase64Url(bytes) !== normalized.slice(4)) throw new Error('恢复码格式不正确');
+  if (bytes.length !== 48 || toBase64Url(bytes) !== normalized.slice(4)) throw new Error(uiLiteral('恢复码格式不正确'));
   return { id: toBase64Url(bytes.slice(0, 16)), secret: bytes.slice(16) };
 }
 
@@ -53,7 +54,7 @@ async function sealWithKey(value: unknown, key: CryptoKey, aad: string): Promise
 
 async function openWithKey(sealed: SealedBackup, key: CryptoKey, aad: string): Promise<unknown> {
   if (!sealed || typeof sealed.iv !== 'string' || typeof sealed.ciphertext !== 'string' ||
-      sealed.iv.length !== 16 || sealed.ciphertext.length > 2 * 1024 * 1024) throw new Error('备份格式不正确');
+      sealed.iv.length !== 16 || sealed.ciphertext.length > 2 * 1024 * 1024) throw new Error(uiLiteral('备份格式不正确'));
   const plaintext = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromBase64Url(sealed.iv),
     additionalData: encoder.encode(aad), tagLength: 128 }, key, fromBase64Url(sealed.ciphertext)));
   try { return JSON.parse(decoder.decode(plaintext)); } finally { plaintext.fill(0); }
@@ -64,7 +65,7 @@ export function openJson(sealed: SealedBackup, secret: string, aad: string): Pro
 }
 
 export async function sealRecovery(bundle: CloudRecoveryBundle, code: string): Promise<SealedBackup> {
-  if (bundle.backupId !== parseCloudRecoveryCode(code).id) throw new Error('恢复码与备份不匹配');
+  if (bundle.backupId !== parseCloudRecoveryCode(code).id) throw new Error(uiLiteral('恢复码与备份不匹配'));
   return sealWithKey(bundle, await aesKey(await derive(code, 'encryption')), `quiet-room-cloud-recovery-v1:${bundle.backupId}`);
 }
 
@@ -78,10 +79,10 @@ export async function openRecovery(sealed: SealedBackup, code: string): Promise<
         !/^[A-Za-z0-9_-]{43}$/.test(a.token) || !Array.isArray(a.parts) || a.parts.length > 10_000 ||
         a.parts.some(p => !/^[A-Za-z0-9_-]{43}$/.test(p.id) || !/^[A-Za-z0-9_-]{43}$/.test(p.digest) ||
           !Number.isSafeInteger(p.firstSeq) || !Number.isSafeInteger(p.lastSeq) || p.firstSeq < 1 || p.lastSeq < p.firstSeq ||
-          !Number.isSafeInteger(p.count) || p.count < 1 || p.count > 100))) throw new Error('恢复备份的身份或历史索引不正确');
+          !Number.isSafeInteger(p.count) || p.count < 1 || p.count > 100))) throw new Error(uiLiteral('恢复备份的身份或历史索引不正确'));
   if (value.galleryHidden !== undefined) {
     const hidden = normalizeGalleryCurationRecords(value.galleryHidden);
-    if (value.checkpoint.role !== 'creator' || hidden.some(record => !record.hidden || record.pinnedAt !== null)) throw new Error('保险箱删除记录不正确');
+    if (value.checkpoint.role !== 'creator' || hidden.some(record => !record.hidden || record.pinnedAt !== null)) throw new Error(uiLiteral('保险箱删除记录不正确'));
   }
   return value;
 }

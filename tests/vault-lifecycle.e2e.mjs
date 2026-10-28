@@ -15,7 +15,7 @@ beforeAll(async () => {
   server.middlewares.use('/__vault_regression', (_req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html><title>Vault regression</title>'); });
   await server.listen();
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  page = await browser.newPage();
+  page = await browser.newPage({locale: 'zh-CN'});
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('WebAuthn.enable');
   await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal', hasResidentKey: true, hasUserVerification: true, hasPrf: true, automaticPresenceSimulation: true, isUserVerified: true } });
@@ -296,7 +296,7 @@ it('persists the first legacy envelope before sending and reuses it after retry 
 it('upgrades payload-only legacy retries once and never sends when their ciphertext cannot persist', async () => {
   // Each independent vault fixture owns its target and virtual authenticator.
   await page.close();
-  page = await browser.newPage();
+  page = await browser.newPage({locale: 'zh-CN'});
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('WebAuthn.enable');
   await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal', hasResidentKey: true, hasUserVerification: true, hasPrf: true, automaticPresenceSimulation: true, isUserVerified: true } });

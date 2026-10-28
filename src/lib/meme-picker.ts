@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate, t } from './language';
 import { layoutViewport } from './form-input';
 import { motion, retargetMotion } from './motion';
 import { emojiGroups } from './emoji-catalog';
@@ -121,11 +122,11 @@ export class MemePicker {
     this.cache = options.cache ?? createMemePickerCache();
     this.signal = AbortSignal.any([options.signal, this.controller.signal]);
     this.panel.className = 'meme-panel'; this.panel.id = 'meme-panel';
-    this.panel.setAttribute('role', 'region'); this.panel.setAttribute('aria-label', '表情');
-    this.panel.innerHTML = `
+    this.panel.setAttribute('role', 'region'); this.panel.setAttribute('aria-label', uiLiteral('表情'));
+    this.panel.innerHTML = uiLiteral(`
       <div class="meme-toolbar"><div class="meme-pack-shortcuts" aria-label="表情入口"></div></div>
       <header class="meme-search-header" hidden><h2>添加贴纸</h2></header>
-      <div class="meme-scroll"><div class="meme-grid"></div><p class="meme-status" role="status"></p><button type="button" class="meme-more" hidden>加载更多</button><p class="meme-source"></p></div><footer class="page-back-footer meme-page-back" hidden><button type="button" class="meme-back page-back-button" aria-label="返回表情面板">返回</button></footer>`;
+      <div class="meme-scroll"><div class="meme-grid"></div><p class="meme-status" role="status"></p><button type="button" class="meme-more" hidden>加载更多</button><p class="meme-source"></p></div><footer class="page-back-footer meme-page-back" hidden><button type="button" class="meme-back page-back-button" aria-label="返回表情面板">返回</button></footer>`);
     this.grid = this.panel.querySelector('.meme-grid')!; this.status = this.panel.querySelector('.meme-status')!;
     this.more = this.panel.querySelector('.meme-more')!;
     this.panel.querySelector('.meme-back')!.addEventListener('click', () => this.back());
@@ -256,12 +257,12 @@ export class MemePicker {
       this.packs = ids.map(id => byId.get(id)!).filter(Boolean);
       this.busy = true;
       void this.options.reorderPacks(ids, this.signal).then(() => {
-        if (this.active()) this.say(`已移动 ${label}`);
+        if (this.active()) this.say(uiTemplate`已移动 ${label}`);
       }).catch(() => {
         if (!this.active() || this.signal.aborted) return;
         this.packs = previousPacks;
         reorderDom(previousPacks.map(pack => pack.id));
-        this.say('合集顺序未能保存，已恢复');
+        this.say(uiLiteral('合集顺序未能保存，已恢复'));
       }).finally(() => { this.busy = false; });
     };
     const placePlaceholder = (targetIndex: number, force = false) => {
@@ -708,7 +709,7 @@ export class MemePicker {
   }
   private shortcuts() {
     const bar = this.panel.querySelector('.meme-pack-shortcuts')!;
-    bar.setAttribute('aria-label', '表情入口');
+    bar.setAttribute('aria-label', uiLiteral('表情入口'));
     const control = (key: string, label: string, icon: string, action: () => void) => {
       const existing = [...bar.querySelectorAll<HTMLButtonElement>('button')].find(node => node.dataset.shortcut === key);
       if (existing) { existing.title = label; existing.setAttribute('aria-label', label); return existing; }
@@ -716,19 +717,19 @@ export class MemePicker {
       button.dataset.shortcut = key;
       button.addEventListener('click', action); bar.append(button); return button;
     };
-    control('add', '添加贴纸', memeIcons.add, () => {
+    control('add', uiLiteral('添加贴纸'), memeIcons.add, () => {
       this.rememberView(); this.searchReturn={kind:this.kind,favorite:this.favoriteView,emojiGroup:this.emojiGroup};
       // The remote catalog must not wait for decrypting every installed pack.
       this.kind='stickers'; this.favoriteView=false; this.panel.dataset.kind=this.kind; this.openSearch();
     });
     control('emoji', 'Emoji', memeIcons.smile, () => { void this.switchKind('emoji'); }).setAttribute('aria-pressed', String(this.kind === 'emoji' && !this.favoriteView));
-    control('favorites', '收藏表情', memeIcons.star, () => { void this.switchKind('stickers', true); }).setAttribute('aria-pressed', String(this.favoriteView));
+    control('favorites', uiLiteral('收藏表情'), memeIcons.star, () => { void this.switchKind('stickers', true); }).setAttribute('aria-pressed', String(this.favoriteView));
     for (const node of bar.querySelectorAll<HTMLElement>('[data-shortcut^="pack:"]')) {
       if (!this.hasPack(node.dataset.shortcut!.slice(5))) { this.unload(node); this.tiles.delete(node); node.remove(); }
     }
     for (const pack of this.packs) {
       const button = control(`pack:${pack.id}`, pack.title, '', () => { if (this.favoriteView || this.kind !== 'stickers') { void this.switchKind('stickers').then(() => this.jump(pack.id)); } else this.jump(pack.id); });
-      button.setAttribute('aria-label', `${pack.title}，长按拖动排序`);
+      button.setAttribute('aria-label', uiTemplate`${pack.title}，长按拖动排序`);
       button.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight');
       bar.append(button);
       const first = pack.items[0]; if (!first) continue;
@@ -769,20 +770,20 @@ export class MemePicker {
         this.more.hidden = !this.nextPage;
       }
       await this.restoreView();
-    } catch { if (generation === this.generation) { this.shortcuts(); this.say('本地收藏或合集读取失败，请重新打开'); } }
+    } catch { if (generation === this.generation) { this.shortcuts(); this.say(uiLiteral('本地收藏或合集读取失败，请重新打开')); } }
   }
   private renderLocalItems() {
     if (this.favoriteView) {
       const items = this.favorites;
-      this.append(items.map(item => ({ id: item.id, title: item.name, favorite: item }))); if (!items.length) this.say('暂无收藏');
+      this.append(items.map(item => ({ id: item.id, title: item.name, favorite: item }))); if (!items.length) this.say(uiLiteral('暂无收藏'));
     } else if (this.kind === 'stickers') {
       this.grid.classList.add('meme-pack-list');
       for (const pack of this.packs) {
         const section = document.createElement('section'); section.dataset.pack = pack.id;
         const header = document.createElement('header'); const title = document.createElement('h3'); title.textContent = pack.title; header.append(title);
         if (this.packs.includes(pack as StickerPack)) {
-          const remove = document.createElement('button'); remove.type = 'button'; remove.title = '移除合集'; remove.setAttribute('aria-label', `移除 ${pack.title}`); remove.innerHTML = createElement(Trash2).outerHTML;
-          remove.addEventListener('click', () => { if (this.busy) return; this.busy = true; void this.options.removePack(pack.id, this.signal).then(() => this.local()).catch(() => this.say('移除失败，请重试')).finally(() => { this.busy = false; }); }); header.append(remove);
+          const remove = document.createElement('button'); remove.type = 'button'; remove.title = uiLiteral('移除合集'); remove.setAttribute('aria-label', uiTemplate`移除 ${pack.title}`); remove.innerHTML = createElement(Trash2).outerHTML;
+          remove.addEventListener('click', () => { if (this.busy) return; this.busy = true; void this.options.removePack(pack.id, this.signal).then(() => this.local()).catch(() => this.say(uiLiteral('移除失败，请重试'))).finally(() => { this.busy = false; }); }); header.append(remove);
         }
         const grid = document.createElement('div'); grid.className = 'meme-pack-grid'; section.append(header, grid); this.grid.append(section);
         this.append(pack.items.map(item => ({ id: item.id, title: item.name, favorite: item, pack: pack.id, autoHide: pack.autoHide })), grid);
@@ -794,7 +795,7 @@ export class MemePicker {
     const height = this.panel.getBoundingClientRect().height;
     const top = this.panel.getBoundingClientRect().top;
     this.halfHeight = height;
-    const overlay = document.createElement('div'); overlay.className = 'meme-search-dialog'; overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', '添加贴纸');
+    const overlay = document.createElement('div'); overlay.className = 'meme-search-dialog'; overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', uiLiteral('添加贴纸'));
     this.overlay = overlay; this.options.root.append(overlay); overlay.append(this.panel);
     const view = layoutViewport(); overlay.style.setProperty('--meme-height', `${view?.height ?? innerHeight}px`); overlay.style.setProperty('--meme-top', `${view?.offsetTop ?? 0}px`);
     this.panel.dataset.view = 'search'; (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = false;
@@ -843,7 +844,7 @@ export class MemePicker {
     if (this.kind === 'emoji') { this.renderEmoji(); return; }
     const page = this.nextPage;
     this.request = new AbortController(); const signal = AbortSignal.any([this.signal, this.request.signal]); const generation = this.generation;
-    this.searching = true; this.more.hidden = true; this.say('正在加载贴纸…');
+    this.searching = true; this.more.hidden = true; this.say(uiLiteral('正在加载贴纸…'));
     try {
       const key = this.searchCacheKey(this.query, page, this.kind);
       const cached = this.cachedSearch(key);
@@ -857,10 +858,10 @@ export class MemePicker {
         if (!this.query && this.panel.dataset.view === 'local') this.appendCatalog(result.items);
         else this.append(result.items);
       } else this.appendPacks(result.packs ?? []);
-      this.nextPage = result.nextPage; this.more.textContent = '加载更多';
+      this.nextPage = result.nextPage; this.more.textContent = uiLiteral('加载更多');
       this.more.hidden = !this.nextPage;
-      this.panel.querySelector('.meme-source')!.textContent = result.source === '表情资源库' ? '' : result.source ?? ''; this.say(!this.grid.querySelector('.meme-tile, .meme-pack-result') ? '没有找到相关内容' : '');
-    } catch (error) { if (!signal.aborted && generation === this.generation) { this.say(error instanceof Error ? error.message : '搜索失败，请重试'); this.more.textContent = '重试'; this.more.hidden = false; } }
+      this.panel.querySelector('.meme-source')!.textContent = result.source === '表情资源库' ? '' : result.source ?? ''; this.say(!this.grid.querySelector('.meme-tile, .meme-pack-result') ? uiLiteral('没有找到相关内容') : '');
+    } catch (error) { if (!signal.aborted && generation === this.generation) { this.say(error instanceof Error ? t(error.message) : uiLiteral('搜索失败，请重试')); this.more.textContent = uiLiteral('重试'); this.more.hidden = false; } }
     finally {
       if (generation === this.generation) {
         this.searching = false;
@@ -877,7 +878,7 @@ export class MemePicker {
       const fluent = document.createElement('div'); fluent.className = 'emoji-grid fluent-emoji-grid';
       for (const item of avatarEmoji) {
         const tile = document.createElement('button'); tile.type = 'button'; tile.className = 'emoji-tile fluent-emoji-tile';
-        tile.setAttribute('aria-label', `发送 ${item.label}`);
+        tile.setAttribute('aria-label', uiTemplate`发送 ${item.label}`);
         const img = document.createElement('img'); img.alt = ''; img.draggable = false; img.dataset.avatarEmoji = item.id;
         // 128px originals must not be stretched beyond physical pixel density.
         img.style.maxWidth = `${128 / Math.max(1, devicePixelRatio)}px`;
@@ -901,15 +902,15 @@ export class MemePicker {
       button.addEventListener('click', () => { if (this.active()) this.options.insertEmoji?.(emoji!); }); grid.append(button);
     }
     this.emojiOffset += 84; this.nextPage = this.emojiOffset < items.length ? 1 : null;
-    this.more.textContent = '加载更多'; this.more.hidden = !this.nextPage;
+    this.more.textContent = uiLiteral('加载更多'); this.more.hidden = !this.nextPage;
   }
   private appendCatalog(items: MediaItem[]) {
     if (!this.recentGrid || !this.browseGrid) {
       this.grid.classList.add('meme-catalog-sections');
       const recent = document.createElement('section'); recent.className = 'meme-recent-section'; recent.setAttribute('aria-labelledby', 'meme-recent-title');
-      recent.innerHTML = '<h3 id="meme-recent-title">推荐 GIFs</h3><div class="meme-recent-grid"></div>';
+      recent.innerHTML = uiLiteral('<h3 id="meme-recent-title">推荐 GIFs</h3><div class="meme-recent-grid"></div>');
       const browse = document.createElement('section'); browse.className = 'meme-browse-section'; browse.setAttribute('aria-labelledby', 'meme-browse-title'); browse.hidden = true;
-      browse.innerHTML = '<h3 id="meme-browse-title">更多 GIFs</h3><div class="meme-browse-grid"></div>';
+      browse.innerHTML = uiLiteral('<h3 id="meme-browse-title">更多 GIFs</h3><div class="meme-browse-grid"></div>');
       this.grid.append(recent, browse);
       this.recentGrid = recent.querySelector('.meme-recent-grid');
       this.browseGrid = browse.querySelector('.meme-browse-grid');
@@ -925,7 +926,7 @@ export class MemePicker {
       .sort((a, b) => (this.cache.usage.get(b.id) ?? 0) - (this.cache.usage.get(a.id) ?? 0));
     const featured = (used.length ? used : loaded).slice(0, 10);
     const ids = new Set(featured.map(item => item.id));
-    this.panel.querySelector('#meme-recent-title')!.textContent = used.length ? '常用 GIFs' : '推荐 GIFs';
+    this.panel.querySelector('#meme-recent-title')!.textContent = used.length ? uiLiteral('常用 GIFs') : uiLiteral('推荐 GIFs');
     for (const item of featured) this.recentGrid!.append(this.catalogTiles.get(item.id)!);
     for (const item of loaded.filter(item => !ids.has(item.id))) this.browseGrid!.append(this.catalogTiles.get(item.id)!);
     this.browseGrid!.closest<HTMLElement>('.meme-browse-section')!.hidden = loaded.length === featured.length;
@@ -935,10 +936,10 @@ export class MemePicker {
     this.grid.classList.add('meme-pack-results');
     for (const pack of packs) {
       const row = document.createElement('article'); row.className = 'meme-pack-result';
-      const cover = document.createElement('button'); cover.type = 'button'; cover.className = 'meme-pack-cover'; cover.setAttribute('aria-label', `查看 ${pack.title}`); cover.innerHTML = '<img alt="" draggable="false">';
+      const cover = document.createElement('button'); cover.type = 'button'; cover.className = 'meme-pack-cover'; cover.setAttribute('aria-label', uiTemplate`查看 ${pack.title}`); cover.innerHTML = '<img alt="" draggable="false">';
       this.tiles.set(cover, { item: { id: pack.cover, title: pack.title }, visible: false }); this.observer.observe(cover);
       const title = document.createElement('h3'); title.textContent = pack.title;
-      const add = document.createElement('button'); add.type = 'button'; add.className = 'meme-pack-add'; add.textContent = this.hasPack(pack.id) ? '解除添加' : '添加';
+      const add = document.createElement('button'); add.type = 'button'; add.className = 'meme-pack-add'; add.textContent = this.hasPack(pack.id) ? uiLiteral('解除添加') : uiLiteral('添加');
       add.dataset.danger = String(this.hasPack(pack.id));
       const progress = document.createElement('span'); progress.className = 'meme-pack-progress'; progress.setAttribute('role', 'status');
       add.addEventListener('click', () => void this.togglePack(pack, add, progress)); cover.addEventListener('click', () => void this.showPack(pack)); row.append(cover, title, add, progress); this.grid.append(row);
@@ -947,17 +948,17 @@ export class MemePicker {
   private async showPack(pack: RemotePack) {
     if (this.busy || !this.active()) return;
     if (!this.overlay) this.openSearch(false);
-    const generation = this.generation; this.say('正在加载合集…');
+    const generation = this.generation; this.say(uiLiteral('正在加载合集…'));
     try {
       const detail = await this.loadPack(pack.id, this.signal); if (!this.active() || generation !== this.generation) return;
       this.clear(); this.packDetail = true; this.grid.classList.add('meme-pack-list'); const header = document.createElement('header'); header.className = 'meme-pack-detail-header';
       const title = document.createElement('h3'); title.textContent = detail.title;
-      const add = document.createElement('button'); add.type = 'button'; add.className = 'meme-pack-add'; add.textContent = this.hasPack(pack.id) ? '解除添加' : '添加';
+      const add = document.createElement('button'); add.type = 'button'; add.className = 'meme-pack-add'; add.textContent = this.hasPack(pack.id) ? uiLiteral('解除添加') : uiLiteral('添加');
       add.dataset.danger = String(this.hasPack(pack.id));
       const progress = document.createElement('span'); progress.setAttribute('role', 'status'); add.addEventListener('click', () => void this.togglePack(pack, add, progress, detail));
       const grid = document.createElement('div'); grid.className = 'meme-pack-grid'; header.append(title, add, progress); this.grid.append(header, grid); this.append(detail.items, grid);
       this.panel.querySelector<HTMLButtonElement>('.meme-back')!.focus({ preventScroll: true });
-    } catch { if (this.active() && generation === this.generation) this.say('合集加载失败，请重试'); }
+    } catch { if (this.active() && generation === this.generation) this.say(uiLiteral('合集加载失败，请重试')); }
   }
   private async togglePack(pack: RemotePack, button: HTMLButtonElement, progress: HTMLElement, detail?: RemotePackDetail) {
     if (!this.hasPack(pack.id)) { await this.install(pack, button, progress, detail); return; }
@@ -966,28 +967,28 @@ export class MemePicker {
     try {
       await this.options.removePack(pack.id, this.signal);
       if (!this.active()) return;
-      this.packs = await this.options.packs(); button.textContent = '添加'; button.dataset.danger = 'false'; progress.textContent = ''; this.shortcuts();
-    } catch { if (this.active()) progress.textContent = '解除失败，请重试'; }
+      this.packs = await this.options.packs(); button.textContent = uiLiteral('添加'); button.dataset.danger = 'false'; progress.textContent = ''; this.shortcuts();
+    } catch { if (this.active()) progress.textContent = uiLiteral('解除失败，请重试'); }
     finally { this.busy = false; button.disabled = false; }
   }
   private async install(pack: RemotePack, button: HTMLButtonElement, progress: HTMLElement, detail?: RemotePackDetail) {
-    if (this.busy || !this.active()) return; this.busy = true; button.disabled = true; progress.textContent = '正在下载…';
+    if (this.busy || !this.active()) return; this.busy = true; button.disabled = true; progress.textContent = uiLiteral('正在下载…');
     const controller = new AbortController(); this.operation = controller; const signal = AbortSignal.any([this.signal, controller.signal]);
-    const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = '取消'; cancel.addEventListener('click', () => controller.abort()); progress.after(cancel);
+    const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = uiLiteral('取消'); cancel.addEventListener('click', () => controller.abort()); progress.after(cancel);
     try {
       detail ??= await this.loadPack(pack.id, signal); const files: File[] = []; let bytes = 0;
       for (const item of detail.items) {
-        const file = await this.getFile(item, signal); bytes += file.size; if (bytes > MAX_PACK_BYTES) throw new Error('合集超过 64 MiB');
+        const file = await this.getFile(item, signal); bytes += file.size; if (bytes > MAX_PACK_BYTES) throw new Error(uiLiteral('合集超过 64 MiB'));
         files.push(file); if (progress.isConnected) progress.textContent = `${files.length} / ${detail.items.length}`;
       }
       await this.options.install(pack.id, detail.title, files, signal, Boolean(detail.autoHide ?? pack.autoHide)); if (!this.active()) return;
-      this.packs = await this.options.packs(); button.textContent = '解除添加'; button.dataset.danger = 'true'; button.disabled = false; progress.textContent = `${files.length} 张 · 已下载`; this.shortcuts();
-    } catch (error) { if (this.active()) { progress.textContent = signal.aborted ? '已取消' : error instanceof Error ? error.message : '下载失败，请重试'; button.disabled = false; } }
+      this.packs = await this.options.packs(); button.textContent = uiLiteral('解除添加'); button.dataset.danger = 'true'; button.disabled = false; progress.textContent = uiTemplate`${files.length} 张 · 已下载`; this.shortcuts();
+    } catch (error) { if (this.active()) { progress.textContent = signal.aborted ? uiLiteral('已取消') : error instanceof Error ? t(error.message) : uiLiteral('下载失败，请重试'); button.disabled = false; } }
     finally { this.busy = false; if (this.operation === controller) this.operation = null; cancel.remove(); }
   }
   private append(items: MediaItem[], parent = this.grid) {
     for (const item of items) {
-      const tile = document.createElement('button'); tile.type = 'button'; tile.className = 'meme-tile'; tile.title = item.title; tile.setAttribute('aria-label', `发送 ${item.title}`);
+      const tile = document.createElement('button'); tile.type = 'button'; tile.className = 'meme-tile'; tile.title = item.title; tile.setAttribute('aria-label', uiTemplate`发送 ${item.title}`);
       const image = document.createElement('img'); image.alt = item.title; image.draggable = false; tile.append(image); parent.append(tile); this.tiles.set(tile, { item, visible: false }); this.observer.observe(tile);
       let timer: number | undefined; let held = false; let x = 0; let y = 0; const cancel = () => { clearTimeout(timer); timer = undefined; };
       tile.addEventListener('pointerdown', event => { if (event.button !== 0) return; held = false; x = event.clientX; y = event.clientY; timer = window.setTimeout(() => { held = true; void this.showPreview(item, tile); }, 450); });
@@ -1020,7 +1021,7 @@ export class MemePicker {
     signal.throwIfAborted();
     if ('localAsset' in item && typeof item.localAsset === 'string' && avatarEmoji.some(row => row.id === item.id) && item.localAsset === `/space-avatars/${item.id}.webp`) {
       const retained=this.cache.media.get(item.id); if(retained)return retained;
-      const response = await fetch(item.localAsset, {signal}); if (!response.ok) throw new Error('表情加载失败，请重试');
+      const response = await fetch(item.localAsset, {signal}); if (!response.ok) throw new Error(uiLiteral('表情加载失败，请重试'));
       const file=await validateMemeFile(await response.blob(), item.title, signal); signal.throwIfAborted();
       this.rememberMedia(item.id,file); return file;
     }
@@ -1033,7 +1034,7 @@ export class MemePicker {
       try { blob = item.favorite ? await this.options.file(item.favorite, signal) : await this.options.media(item.id, signal); break; }
       catch (error) { lastError = error; if (signal.aborted || attempt === 2) throw error; await new Promise(resolve => setTimeout(resolve, 80 * (attempt + 1))); }
     }
-    if (!blob) throw lastError instanceof Error ? lastError : new Error('图片加载失败');
+    if (!blob) throw lastError instanceof Error ? lastError : new Error(uiLiteral('图片加载失败'));
     const file = await validateMemeFile(blob, item.title, signal);
     if (item.animatedOnly && !await detectImageAnimation(file, signal)) throw new Error('NON_ANIMATED_RESULT');
     signal.throwIfAborted();
@@ -1042,7 +1043,7 @@ export class MemePicker {
     return file;
   }
   private async perform(item: PickerItem, action: 'send' | 'save' | 'remove') {
-    if (this.busy || !this.active()) return; this.busy = true; this.panel.setAttribute('aria-busy', 'true'); this.say(action === 'send' ? '正在发送…' : '正在保存…');
+    if (this.busy || !this.active()) return; this.busy = true; this.panel.setAttribute('aria-busy', 'true'); this.say(action === 'send' ? uiLiteral('正在发送…') : uiLiteral('正在保存…'));
     try {
       if (action === 'remove') await this.options.remove(item.id, this.signal);
       else {
@@ -1058,25 +1059,25 @@ export class MemePicker {
             autoHide = Boolean(remoteItem?.autoHide ?? detail.autoHide ?? item.autoHide);
           }
           await this.options.send(file, autoHide, this.signal, item.pack ? 'stickers' : item.animatedOnly ? 'gifs' : undefined); this.recordUsage(item.id);
-        } else this.say(await this.options.save(file, this.signal) ? '已收藏到本机' : '已在收藏中');
+        } else this.say(await this.options.save(file, this.signal) ? uiLiteral('已收藏到本机') : uiLiteral('已在收藏中'));
       }
       // Sending is non-modal: keep the picker open so repeated expressions can
       // be sent without reopening it for every message.
       if (!this.active()) return; if (action === 'remove') { this.forgetMedia(item.id); await this.local(); }
-    } catch (error) { if (this.active()) this.say(error instanceof Error ? error.message : '操作失败，请重试'); }
+    } catch (error) { if (this.active()) this.say(error instanceof Error ? t(error.message) : uiLiteral('操作失败，请重试')); }
     finally { this.busy = false; this.panel.removeAttribute('aria-busy'); }
   }
   private async showPreview(item: MediaItem, tile: HTMLElement) {
     if (this.preview || !this.active() || !tile.isConnected || !this.tiles.has(tile)) return;
-    const sheet = document.createElement('div'); sheet.className = 'meme-preview'; sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', '表情预览');
+    const sheet = document.createElement('div'); sheet.className = 'meme-preview'; sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', uiLiteral('表情预览'));
     sheet.style.setProperty('--meme-preview-size', `${tile.querySelector('img')?.getBoundingClientRect().width ?? tile.clientWidth}px`);
-    sheet.innerHTML = `<div class="meme-preview-body"><div class="meme-preview-image"><span role="status">正在加载…</span></div><div class="meme-preview-actions"><button type="button" data-action="save">${memeIcons.star}<span>${item.favorite && !item.pack ? '取消收藏' : '添加到收藏'}</span></button><button type="button" data-action="send">${createElement(Send).outerHTML}<span>发送</span></button></div><button type="button" class="meme-preview-close">关闭</button></div>`;
+    sheet.innerHTML = uiTemplate`<div class="meme-preview-body"><div class="meme-preview-image"><span role="status">正在加载…</span></div><div class="meme-preview-actions"><button type="button" data-action="save">${memeIcons.star}<span>${item.favorite && !item.pack ? uiLiteral('取消收藏') : uiLiteral('添加到收藏')}</span></button><button type="button" data-action="send">${createElement(Send).outerHTML}<span>发送</span></button></div><button type="button" class="meme-preview-close">关闭</button></div>`;
     this.options.root.append(sheet); this.preview = sheet; let url: string | undefined; const controller = new AbortController();
     const dialog = mountDialog(sheet, { signal: this.signal, isActive: () => this.active(), returnFocus: tile, onClose: () => { controller.abort(); if (url) URL.revokeObjectURL(url); sheet.querySelector('img')?.removeAttribute('src'); this.preview = null; } });
     sheet.addEventListener('click', event => { if (event.target === sheet) dialog.close(); }); sheet.querySelector('.meme-preview-close')!.addEventListener('click', () => dialog.close());
     for (const action of ['save', 'send'] as const) sheet.querySelector(`[data-action="${action}"]`)!.addEventListener('click', () => { dialog.close({ animate: false }); void this.perform(item, action === 'save' && item.favorite && !item.pack ? 'remove' : action); });
     try { const file = await this.getFile(item, AbortSignal.any([this.signal, controller.signal])); if (!this.active() || controller.signal.aborted) return; url = URL.createObjectURL(file); const image = document.createElement('img'); image.src = url; image.alt = item.title; sheet.querySelector('.meme-preview-image')!.replaceChildren(image); }
-    catch { if (!controller.signal.aborted) sheet.querySelector('.meme-preview-image')!.textContent = '图片加载失败，可关闭后重试'; }
+    catch { if (!controller.signal.aborted) sheet.querySelector('.meme-preview-image')!.textContent = uiLiteral('图片加载失败，可关闭后重试'); }
   }
   dispose() {
     if (this.disposed) return;

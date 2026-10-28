@@ -22,7 +22,7 @@ try {
   running=await startMobileDevelopment(['--port',String(port),'--api-port',String(apiPort),'--data-dir',data,'--no-watch'],{quiet:true});
   assert.equal((await (await fetch(`http://localhost:${port}/api/health`)).json()).ok,true);
   browser=await chromium.launch(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
-  const context=await browser.newContext({viewport:{width:1000,height:1100},deviceScaleFactor:3,isMobile:true,hasTouch:true,userAgent:deviceProfile.userAgent.userAgent});
+  const context=await browser.newContext({ locale: 'zh-CN',viewport:{width:1000,height:1100},deviceScaleFactor:3,isMobile:true,hasTouch:true,userAgent:deviceProfile.userAgent.userAgent});
   // This suite exercises the retained access-key editor as a presentation fixture,
   // including the iframe. New creation is covered by new-room-mobile.e2e.mjs.
   // Pin capability discovery so headless Linux takes the same layout as macOS.
