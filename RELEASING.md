@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+<a id="release-chat-link-preview-both-20261028"></a>
+## 网页预览与续发修复：两个环境已回读（2026-10-28）
+
+- 用户在本聊天要求发布、指定两个环境，并在完整应用SHA、版本、来源、CI／预检及未验证项已展示后回复「确认，两个环境都发布」。应用固定 `c1b3a9a2815bf36206f6e39cdb50fcd68e255b07`／`2026.10.28.8`；无独立消息permalink。包含[PR #465](https://github.com/zdaiwmm/shui-IM/pull/465)的输入链接预览、加密卡片、新标签及续发修复，以及此前已合并更新；范围与历史验证由[需求记录](docs/requirements/2026-10-28-chat-link-preview/README.md)拥有。
+- [精确应用main CI40693257651](https://github.com/zdaiwmm/shui-IM/actions/runs/40693257651) attempt1完整成功，含全部浏览器、1246项测试、真实认证TURN／通话、双架构镜像和Full application verification。源码未变化，复用本地1246项与完整88入口的既有证据。后续文档SHA不替换本次应用。
+- `production`／`https://ai.shui.click` 的[只读云预检40697118253](https://github.com/zdaiwmm/shui-IM/actions/runs/40697118253)取得PREFLIGHT_OK，103052ms，前版 `11ecacf422e794a102e958ec810ad31afe38c16c`。唯一[正式云运行40698001179](https://github.com/zdaiwmm/shui-IM/actions/runs/40698001179)请求 `08eeb867-6d3a-458a-8278-c6ffdb4b743e` 经现有production审核放行，提交部署命令 `t-wh071eomwqinlds` 后aliyun状态查询失败；外层230673ms退出1，**没有外层DEPLOY_VERIFIED回执**。原工作流失败保持，不伪造绿色或重复派发。
+- 首次只读回读采样到仍在切换的维护门和已停止旧容器，未通过；随后只读核对原云代理日志，原命令于13:41:22 UTC退出0、最终上报Success，精确DEPLOY_OK及STREAM_VERIFIED均匹配目标。独立同SHA回读于13:41:41.777 UTC取得READBACK_OK，3129ms，确认实际生产已完成切换。批次 `20261028T133814Z`；发布目录 `/opt/quiet-room/git-releases/20261028T133814Z-c1b3a9a2815b`。这是原命令成功和独立线上回读的恢复证据，不把失败外层改写为成功，也不把实际生产继续写成旧版。
+- `tokyo-public`／`https://mijiu.cloud` 的固定doctor、容量、来源、前版正向祖先和同轮镜像元数据预检通过；实际前版 `054d868eff8bfc6575721a5e4cd16145864d1362`／`2026.10.28.2`，与旧知识库首发记录不同，已由实时预检核实。唯一固定隔离发布取得精确DEPLOY_VERIFIED，587770ms，其中镜像准备227322ms、服务器导入276000ms。批次 `20261028T134736Z`，发布目录 `/opt/quiet-room/git-releases/20261028T134736Z-c1b3a9a2815b`；冷备份校验成功。独立同SHA回读于13:52:49.674 UTC首次取得READBACK_OK，9789ms；发布与回读合计597559ms，约9分58秒，不外推为固定耗时。
+- 两环境实际应用及备份均running且healthy，TURN running但探针none，维护门absent；精确SHA／镜像、HTTPS／数据库／存储、公开与容器资源摘要及新WebSocket一致。production管理员启用，东京管理员关闭，通话均启用；本轮回读不证明真实双设备公网通话或物理iPhone／原生标签偏好。共同linux/amd64镜像 `sha256:fd9000777526c0a1ba7c4c4f8051e25aff8d8304e6ebd82a5b296d080ef79889`，归档SHA-256 `2c1e590a519b643eb7aecc447925ce4277b3c8c290f7b1871c2528d79ec031d4`、212507505字节，均绑定上述CI／attempt1。
+- 两环境依次更新，各自来源、配置及数据保持独立；未安装helper或调整云权限。脱敏预检、原云失败、原命令恢复、切换中失败及两个成功回读保存在公共Git目录 `quiet-room-deliveries/evidence/chat-link-preview-both-20261028/`。第二个不含部署配置的工作树对账，文档提交不再次发布。资源按固定清理规则核验；活动目录、忽略材料及专属证据按机械结果保留，原生真机和独立外审没有新增结论。
+
 <a id="release-aws-tokyo-mijiu-20261028"></a>
 ## 东京独立对外环境首次发布（2026-10-28）
 
