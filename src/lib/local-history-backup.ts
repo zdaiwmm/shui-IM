@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { createSHA256 } from 'hash-wasm';
 import { fromBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
@@ -36,12 +37,12 @@ const emptySummary = (): LocalHistorySummary => ({
 const jsonRecord = (type: number, value: unknown): ArchiveRecord => ({ type, bytes: encoder.encode(JSON.stringify(value)) });
 
 export const HISTORY_CATEGORY_LABELS = [
-  ['text', '文字'],
-  ['images', '图片'],
-  ['videos', '视频'],
-  ['voice', '语音'],
-  ['files', '文件'],
-  ['expressions', '表情'],
+  ['text', uiLiteral('文字')],
+  ['images', uiLiteral('图片')],
+  ['videos', uiLiteral('视频')],
+  ['voice', uiLiteral('语音')],
+  ['files', uiLiteral('文件')],
+  ['expressions', uiLiteral('表情')],
 ] as const;
 
 function tallyPayload(summary: LocalHistorySummary, payload: MessagePayload): void {
@@ -74,7 +75,7 @@ function attachments(payload: MessagePayload): ImageManifest[] {
 /** Only a device's own retained archive lineage supplies these keys. Ordinary device linking does not. */
 function ownArchives(session: VaultSession) {
   if (!session.vault.backup?.syncedAt || session.vault.backup.replaces || session.vault.recoverySource) {
-    throw new Error('请先完成恢复码准备，再备份或导入聊天记录');
+    throw new Error(uiLiteral('请先完成恢复码准备，再备份或导入聊天记录'));
   }
   return session.vault.backup.archives;
 }
@@ -82,7 +83,7 @@ function ownArchives(session: VaultSession) {
 export type LocalHistoryAccess = { roomId: string; role: string; archives: Pick<HistoryArchive, 'id' | 'key'>[] };
 function readableArchives(session: VaultSession, access?: LocalHistoryAccess) {
   if (!access) return ownArchives(session);
-  if (access.roomId !== session.vault.roomId || access.role !== session.vault.role) throw new Error('这不是你在当前密室的备份');
+  if (access.roomId !== session.vault.roomId || access.role !== session.vault.role) throw new Error(uiLiteral('这不是你在当前密室的备份'));
   return access.archives;
 }
 
@@ -91,7 +92,7 @@ function readableArchives(session: VaultSession, access?: LocalHistoryAccess) {
 export async function authorizeLocalHistoryBackup(session: VaultSession, file: Blob, input: string, signal: AbortSignal): Promise<LocalHistoryAccess> {
   const codes = normalizeRecoveryCodes(input);
   const prefix = decoder.decode(await file.slice(0, PREFIX_SIZE).arrayBuffer());
-  if (!/^QRL1[A-Za-z0-9_-]{43}\n$/.test(prefix)) throw new Error('请选择有效的聊天备份文件');
+  if (!/^QRL1[A-Za-z0-9_-]{43}\n$/.test(prefix)) throw new Error(uiLiteral('请选择有效的聊天备份文件'));
   const own = session.vault.backup;
   const local = codes.some(code => code === own?.code || code === session.vault.spaceRecoveryCode)
     ? own?.archives.find(item => item.id === prefix.slice(4, 47)) : undefined;
@@ -119,7 +120,7 @@ export async function summarizeLocalHistory(
       afterSeq = message.seq;
       if (message.seq > upperSeq) break;
       if (message.payload.kind === 'gallery-image' || message.payload.kind === 'gallery-file') continue;
-      if (++summary.messages > MAX_MESSAGES) throw new Error('聊天记录超过本版备份上限');
+      if (++summary.messages > MAX_MESSAGES) throw new Error(uiLiteral('聊天记录超过本版备份上限'));
       tallyPayload(summary, message.payload);
       for (const manifest of attachments(message.payload)) {
         let available = true;
@@ -155,33 +156,33 @@ export async function previewLocalHistoryBackup(
   const iterator = readLocalArchive(body, archive.key, signal)[Symbol.asyncIterator]();
   async function next(type: number) {
     const item = await iterator.next();
-    if (item.done || item.value.type !== type) throw new Error('聊天备份记录顺序不正确');
+    if (item.done || item.value.type !== type) throw new Error(uiLiteral('聊天备份记录顺序不正确'));
     return item.value.bytes;
   }
   try {
     const metadata = JSON.parse(decoder.decode(await next(1)));
     if (metadata?.v !== 1 || metadata.roomId !== session.vault.roomId || metadata.role !== session.vault.role ||
         metadata.archiveId !== archive.id || !Number.isSafeInteger(metadata.upperSeq) || metadata.upperSeq < 0) {
-      throw new Error('聊天备份的密室或本人身份不匹配');
+      throw new Error(uiLiteral('聊天备份的密室或本人身份不匹配'));
     }
     let previousSeq = 0;
     while (true) {
       signal.throwIfAborted();
       const record = await iterator.next();
       if (record.done) break;
-      if (record.value.type !== 2) throw new Error('聊天备份记录顺序不正确');
+      if (record.value.type !== 2) throw new Error(uiLiteral('聊天备份记录顺序不正确'));
       const message = JSON.parse(decoder.decode(record.value.bytes)) as DecryptedMessage;
       if (!message || !isMessagePayload(message.payload) || !Number.isSafeInteger(message.seq) ||
           message.seq <= previousSeq || message.seq > metadata.upperSeq ||
           message.payload.kind === 'gallery-image' || message.payload.kind === 'gallery-file') {
-        throw new Error('聊天备份记录不正确');
+        throw new Error(uiLiteral('聊天备份记录不正确'));
       }
       previousSeq = message.seq;
-      if (++summary.messages > MAX_MESSAGES) throw new Error('聊天备份超过本版导入上限');
+      if (++summary.messages > MAX_MESSAGES) throw new Error(uiLiteral('聊天备份超过本版导入上限'));
       tallyPayload(summary, message.payload);
       for (const manifest of attachments(message.payload)) {
         const status = await next(3);
-        if (status.length !== 1 || status[0]! > 1) throw new Error('附件状态不正确');
+        if (status.length !== 1 || status[0]! > 1) throw new Error(uiLiteral('附件状态不正确'));
         if (!status[0]) {
           summary.missingAttachments++;
           const counts = summary.missingByKind ??= {};
@@ -198,9 +199,9 @@ export async function previewLocalHistoryBackup(
 
 export async function inspectLocalHistoryBackup(session: VaultSession, file: Blob, access?: LocalHistoryAccess): Promise<void> {
   const prefix = decoder.decode(await file.slice(0, PREFIX_SIZE).arrayBuffer());
-  if (!/^QRL1[A-Za-z0-9_-]{43}\n$/.test(prefix)) throw new Error('请选择有效的聊天备份文件');
+  if (!/^QRL1[A-Za-z0-9_-]{43}\n$/.test(prefix)) throw new Error(uiLiteral('请选择有效的聊天备份文件'));
   if (!readableArchives(session, access).some(item => item.id === prefix.slice(4, 47))) {
-    throw new Error('这份文件需要备份时的恢复码，请检查或补充旧恢复码');
+    throw new Error(uiLiteral('这份文件需要备份时的恢复码，请检查或补充旧恢复码'));
   }
 }
 
@@ -210,7 +211,7 @@ export async function attachmentVerifier(manifest: ImageManifest) {
   return {
     async chunk(index: number, ciphertext: ArrayBuffer) {
       const size = Math.min(manifest.chunkSize, manifest.originalSize - index * manifest.chunkSize);
-      if (ciphertext.byteLength !== size + 16) throw new Error('聊天备份附件分块长度不正确');
+      if (ciphertext.byteLength !== size + 16) throw new Error(uiLiteral('聊天备份附件分块长度不正确'));
       const iv = new Uint8Array(12); iv.set(fromBase64Url(manifest.ivPrefix));
       new DataView(iv.buffer).setUint32(8, index);
       const aad = encoder.encode(canonicalStringify({ v: 1, blobId: manifest.blobId, index,
@@ -218,7 +219,7 @@ export async function attachmentVerifier(manifest: ImageManifest) {
       const plaintext = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv, additionalData: aad, tagLength: 128 }, key, ciphertext));
       try { hash.update(plaintext); } finally { plaintext.fill(0); }
     },
-    finish() { if (hash.digest('hex') !== manifest.sha256) throw new Error('聊天备份附件完整性校验失败'); },
+    finish() { if (hash.digest('hex') !== manifest.sha256) throw new Error(uiLiteral('聊天备份附件完整性校验失败')); },
   };
 }
 
@@ -226,7 +227,7 @@ export async function attachmentVerifier(manifest: ImageManifest) {
 export async function exportLocalHistory(session: VaultSession, sink: ArchiveSink, signal: AbortSignal,
   progress: (summary: LocalHistorySummary) => void = () => undefined): Promise<LocalHistorySummary> {
   const archive = ownArchives(session)[0];
-  if (!archive) throw new Error('恢复码尚未准备完成');
+  if (!archive) throw new Error(uiLiteral('恢复码尚未准备完成'));
   const summary = emptySummary();
   const upperSeq = session.vault.lastSeq;
   const preferences = await loadUiPreferences(session);
@@ -246,7 +247,7 @@ export async function exportLocalHistory(session: VaultSession, sink: ArchiveSin
         afterSeq = message.seq;
         if (message.seq > upperSeq) break;
         if (message.payload.kind === 'gallery-image' || message.payload.kind === 'gallery-file') continue;
-        if (++summary.messages > MAX_MESSAGES) throw new Error('聊天记录超过本版备份上限');
+        if (++summary.messages > MAX_MESSAGES) throw new Error(uiLiteral('聊天记录超过本版备份上限'));
         tallyPayload(summary, message.payload);
         yield jsonRecord(2, message);
         for (const manifest of attachments(message.payload)) {
@@ -268,7 +269,7 @@ export async function exportLocalHistory(session: VaultSession, sink: ArchiveSin
             signal.throwIfAborted();
             const size = Math.min(manifest.chunkSize, manifest.originalSize - index * manifest.chunkSize) + 16;
             const chunk = await loadCachedMediaChunk(session, manifest.blobId, index, size);
-            if (!chunk) throw new Error('附件缓存已变化，请重新导出');
+            if (!chunk) throw new Error(uiLiteral('附件缓存已变化，请重新导出'));
             await verify.chunk(index, chunk);
             yield { type: 4, bytes: new Uint8Array(chunk) };
           }
@@ -297,7 +298,7 @@ export async function importLocalHistory(session: VaultSession, file: Blob, sign
     const iterator = readLocalArchive(body, archive.key, signal)[Symbol.asyncIterator]();
     async function next(type: number) {
       const item = await iterator.next();
-      if (item.done || item.value.type !== type) throw new Error('聊天备份记录顺序不正确');
+      if (item.done || item.value.type !== type) throw new Error(uiLiteral('聊天备份记录顺序不正确'));
       return item.value.bytes;
     }
     try {
@@ -307,16 +308,16 @@ export async function importLocalHistory(session: VaultSession, file: Blob, sign
           !Array.isArray(metadata.hiddenChatMessageIds) || metadata.hiddenChatMessageIds.length > 20_000 ||
           metadata.hiddenChatMessageIds.some((id: unknown) => typeof id !== 'string' ||
             !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))) {
-        throw new Error('聊天备份的密室或本人身份不匹配');
+        throw new Error(uiLiteral('聊天备份的密室或本人身份不匹配'));
       }
       const hiddenGallery = normalizeGalleryCurationRecords(metadata.galleryHidden);
       if (hiddenGallery.some(record => !record.hidden || record.pinnedAt !== null) ||
-          session.vault.role !== 'creator' && hiddenGallery.length) throw new Error('保险箱删除记录不正确');
+          session.vault.role !== 'creator' && hiddenGallery.length) throw new Error(uiLiteral('保险箱删除记录不正确'));
       if (pass === 1) {
         signal.throwIfAborted();
         const preferences = await loadUiPreferences(session);
         const hiddenChatMessageIds = [...new Set<string>([...(preferences.hiddenChatMessageIds ?? []), ...metadata.hiddenChatMessageIds])];
-        if (hiddenChatMessageIds.length > 20_000) throw new Error('本机删除记录超过上限');
+        if (hiddenChatMessageIds.length > 20_000) throw new Error(uiLiteral('本机删除记录超过上限'));
         await saveUiPreferences(session, { ...preferences, hiddenChatMessageIds });
         await restoreGalleryHidden(session, hiddenGallery, signal);
       }
@@ -324,29 +325,29 @@ export async function importLocalHistory(session: VaultSession, file: Blob, sign
       while (true) {
         const record = await iterator.next();
         if (record.done) break;
-        if (record.value.type !== 2) throw new Error('聊天备份记录顺序不正确');
+        if (record.value.type !== 2) throw new Error(uiLiteral('聊天备份记录顺序不正确'));
         const message = JSON.parse(decoder.decode(record.value.bytes)) as DecryptedMessage;
         if (!message || !isMessagePayload(message.payload) || !Number.isSafeInteger(message.seq) ||
             message.seq <= previousSeq || message.seq > metadata.upperSeq ||
             typeof message.clientMsgId !== 'string' || typeof message.senderId !== 'string' || typeof message.acceptedAt !== 'string' ||
-            message.payload.kind === 'gallery-image' || message.payload.kind === 'gallery-file') throw new Error('聊天备份记录不正确');
+            message.payload.kind === 'gallery-image' || message.payload.kind === 'gallery-file') throw new Error(uiLiteral('聊天备份记录不正确'));
         previousSeq = message.seq;
-        if (++summary.messages > MAX_MESSAGES) throw new Error('聊天记录超过本版导入上限');
+        if (++summary.messages > MAX_MESSAGES) throw new Error(uiLiteral('聊天记录超过本版导入上限'));
         tallyPayload(summary, message.payload);
         if (pass === 0) await findMissingArchivedMessages(session, [message], 'chat', signal);
         if (pass === 3 && (await findMissingArchivedMessages(session, [message], 'chat', signal)).length) {
-          throw new Error('导入后的本机记录未通过回读核验，请重试');
+          throw new Error(uiLiteral('导入后的本机记录未通过回读核验，请重试'));
         }
         for (const manifest of attachments(message.payload)) {
           const status = await next(3);
-          if (status.length !== 1 || status[0]! > 1) throw new Error('附件状态不正确');
+          if (status.length !== 1 || status[0]! > 1) throw new Error(uiLiteral('附件状态不正确'));
           if (!status[0]) { summary.missingAttachments++; continue; }
           const verify = await attachmentVerifier(manifest);
           for (let index = 0; index < manifest.chunkCount; index++) {
             const bytes = await next(4);
             if (pass === 3) {
               const stored = await loadCachedMediaChunk(session, manifest.blobId, index, bytes.length);
-              if (!stored) throw new Error('导入后的附件未通过回读核验，请重试');
+              if (!stored) throw new Error(uiLiteral('导入后的附件未通过回读核验，请重试'));
               await verify.chunk(index, stored);
             } else await verify.chunk(index, bytes.buffer);
             if (pass === 2) {

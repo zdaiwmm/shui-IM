@@ -15,7 +15,7 @@ try {
   await server.listen(); browser = await chromium.launch(process.env.CI ? {} : { channel: 'chrome' });
   const pages = [];
   for (let i = 0; i < 2; i++) {
-    const context = await browser.newContext(); const page = await context.newPage(); pages.push(page);
+    const context = await browser.newContext({locale: 'zh-CN'}); const page = await context.newPage(); pages.push(page);
     const cdp = await context.newCDPSession(page); await cdp.send('WebAuthn.enable');
     await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal', hasResidentKey: true, hasUserVerification: true, hasPrf: true, automaticPresenceSimulation: true, isUserVerified: true } });
     await page.goto(`http://localhost:${server.httpServer.address().port}/__window`);

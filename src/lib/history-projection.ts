@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 /** Merge ascending, paged ciphertext readers without retaining ordinary rows. */
 export async function mergeHistoryProjection<T extends { seq: number; clientMsgId: string }>(
   streams: AsyncIterable<T>[],
@@ -17,7 +18,7 @@ export async function mergeHistoryProjection<T extends { seq: number; clientMsgI
       for (let index = 0; index < heads.length; index++) {
         const head = heads[index]!;
         if (head.done || head.value.seq !== sequence) continue;
-        if (canonical && !same(canonical, head.value)) throw new Error('本机加密历史记录存在冲突');
+        if (canonical && !same(canonical, head.value)) throw new Error(uiLiteral('本机加密历史记录存在冲突'));
         canonical = head.value; // Last stream (ordinary history) is canonical.
         if (index === heads.length - 1) live(head.value);
       }

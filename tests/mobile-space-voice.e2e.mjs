@@ -18,7 +18,7 @@ try {
   browser=await chromium.launch(process.env.CI?{}:{channel:'chrome'});
   const pages=[];
   for(let i=0;i<2;i++) {
-    const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true});
+    const context=await browser.newContext({ locale: 'zh-CN',viewport:{width:390,height:844},hasTouch:true});
     await context.addInitScript(()=>localStorage.setItem('quiet-room:auto-lock-seconds','300'));
     const page=await context.newPage();page.setDefaultTimeout(20000);pages.push(page);
     const cdp=await context.newCDPSession(page);await cdp.send('WebAuthn.enable');await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',ctap2Version:'ctap2_1',transport:'internal',hasResidentKey:true,hasUserVerification:true,hasPrf:true,automaticPresenceSimulation:true,isUserVerified:true}});
@@ -95,7 +95,7 @@ try {
 
   // Desktop WebKit with explicit synthetic Chrome-on-iOS device evidence: vendor is not the engine contract.
   browser=await webkit.launch();
-  const page=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3,
+  const page=await browser.newPage({ locale: 'zh-CN',viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3,
     userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/141.0 Mobile/15E148 Safari/604.1'});
   await page.addInitScript(()=>{
     Object.defineProperty(navigator,'vendor',{configurable:true,get:()=> 'Google Inc.'});

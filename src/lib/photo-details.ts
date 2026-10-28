@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate } from './language';
 import { afterMotion, motion } from './motion';
 import type { ImageManifest } from './types';
 import { photoDetailGroups, type PhotoTags } from './photo-detail-model';
@@ -21,8 +22,8 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
   const panel = document.createElement('section');
   panel.className = 'photo-details is-opening';
   panel.addEventListener('animationend', event => { if (event.animationName === 'photo-details-enter') panel.classList.remove('is-opening'); });
-  panel.setAttribute('aria-label', '图片详情');
-  panel.innerHTML = `<button class="photo-details-handle" type="button" aria-label="展开全屏图片详情" aria-expanded="false"></button>
+  panel.setAttribute('aria-label', uiLiteral('图片详情'));
+  panel.innerHTML = uiTemplate`<button class="photo-details-handle" type="button" aria-label="展开全屏图片详情" aria-expanded="false"></button>
     <header><h2>图片详情</h2><button class="photo-details-close" type="button" data-photo-details-close aria-label="关闭图片详情">${createElement(X).outerHTML}</button></header>
     <p class="photo-details-status" role="status">正在读取图片属性</p>
     <div class="photo-details-content" tabindex="0" aria-label="图片属性"></div>`;
@@ -57,7 +58,7 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
         label.textContent = row.label;
         const value = document.createElement('dd');
         value.textContent = row.value;
-        value.classList.toggle('is-missing', row.value === '未记录');
+        value.classList.toggle('is-missing', row.value === uiLiteral('未记录'));
         wrapper.append(label, value);
         list.append(wrapper);
       }
@@ -100,7 +101,7 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
     panel.classList.remove('is-opening');
     panel.classList.add('is-expanded');
     expandButton.setAttribute('aria-expanded', 'true');
-    expandButton.setAttribute('aria-label', '关闭图片详情');
+    expandButton.setAttribute('aria-label', uiLiteral('关闭图片详情'));
     if (!reducedMotion) resizeAnimation = panel.animate([
       { transform: `translateY(${top - panel.getBoundingClientRect().top}px)` }, { transform: 'translateY(0)' },
     ], { duration: motion.panel, easing: motion.settle });
@@ -173,15 +174,15 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
       const width = cached.width ?? image?.naturalWidth;
       const height = cached.height ?? image?.naturalHeight;
       render(metadata.tags, width && height ? { width, height } : undefined);
-      status.textContent = metadata.unavailable ? '无法读取内嵌属性，已显示文件信息' : '';
+      status.textContent = metadata.unavailable ? uiLiteral('无法读取内嵌属性，已显示文件信息') : '';
       status.hidden = !metadata.unavailable;
     } catch {
       if (controller.signal.aborted || !panel.isConnected) return;
       render({});
-      status.textContent = '图片属性读取失败';
+      status.textContent = uiLiteral('图片属性读取失败');
       const retry = document.createElement('button');
       retry.type = 'button';
-      retry.textContent = '重试';
+      retry.textContent = uiLiteral('重试');
       retry.addEventListener('click', () => { options.close(); viewer.querySelector<HTMLButtonElement>('[data-viewer-details]')?.click(); });
       status.append(retry);
     }

@@ -1,3 +1,4 @@
+import { mountLanguage } from './lib/language';
 import './styles.css';
 import './chat-layout.css';
 import './gallery.css';
@@ -34,6 +35,7 @@ document.addEventListener('dblclick', (event) => {
 
 const root = document.querySelector<HTMLElement>('#app');
 if (!root) throw new Error('Application root is missing');
+await mountLanguage();
 mountSystemChrome();
 mountPortraitOrientation(root);
 mountFormInputs(root);

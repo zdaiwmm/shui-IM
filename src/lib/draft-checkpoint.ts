@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { gcm } from '@noble/ciphers/aes.js';
 import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
@@ -26,9 +27,9 @@ export class DraftCheckpoint {
     const previous = storage.getItem(`${this.base}owner`);
     this.value = fallback;
     if (previous !== null && !reset) {
-      if (!uuid.test(previous)) throw new Error('本机草稿检查点已损坏');
+      if (!uuid.test(previous)) throw new Error(uiLiteral('本机草稿检查点已损坏'));
       const raw = storage.getItem(`${this.base}${previous}`);
-      if (!raw || raw.length > 32_000) throw new Error('本机草稿检查点已损坏');
+      if (!raw || raw.length > 32_000) throw new Error(uiLiteral('本机草稿检查点已损坏'));
       try {
         const sealed = JSON.parse(raw);
         if (sealed.v !== 1 || typeof sealed.iv !== 'string' || fromBase64Url(sealed.iv).length !== 12 || typeof sealed.ciphertext !== 'string') throw new Error();
@@ -39,7 +40,7 @@ export class DraftCheckpoint {
           this.value = committed?.revision === data.revision ? '' : data.draft;
           this.revision = committed?.revision === data.revision ? crypto.randomUUID() : data.revision;
         } finally { bytes.fill(0); }
-      } catch (cause) { throw new Error('本机草稿检查点已损坏，已停止恢复旧草稿', { cause }); }
+      } catch (cause) { throw new Error(uiLiteral('本机草稿检查点已损坏，已停止恢复旧草稿'), { cause }); }
     }
     // Prepare the replacement before publishing its owner. Failure leaves the
     // previous complete ciphertext readable, never an owner with no record.
@@ -62,8 +63,8 @@ export class DraftCheckpoint {
   }
   get draft(): string { return this.value; }
   write(draft: string): void {
-    if (this.disposed || this.storage.getItem(`${this.base}owner`) !== this.writer) throw new Error('草稿已在其他窗口或清理流程中更新，请重新解锁');
-    if (draft.length > 4000) throw new Error('草稿超过长度上限');
+    if (this.disposed || this.storage.getItem(`${this.base}owner`) !== this.writer) throw new Error(uiLiteral('草稿已在其他窗口或清理流程中更新，请重新解锁'));
+    if (draft.length > 4000) throw new Error(uiLiteral('草稿超过长度上限'));
     if (draft === this.value) return;
     const revision = crypto.randomUUID();
     this.persist(draft, revision);

@@ -24,7 +24,7 @@ let browser, page;
 try {
   await server.listen();
   browser = process.env.MEME_WEBKIT === '1' ? await webkit.launch() : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  page = await browser.newPage({
+  page = await browser.newPage({ locale: 'zh-CN',
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
     viewport: { width: 390, height: 844 }, hasTouch: true,
   });

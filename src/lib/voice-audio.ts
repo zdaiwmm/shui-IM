@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { MAX_AUDIO_DURATION_MS } from './message-payload';
 
 // A single portable format avoids sending a browser-specific recording that
@@ -31,7 +32,7 @@ export function voiceWaveform(samples: Float32Array, count = 48): number[] {
 }
 
 export function encodeVoiceWav(samples: Float32Array): Blob {
-  if (!samples.length || samples.length > MAX_VOICE_SAMPLES) throw new Error('录音长度不受支持');
+  if (!samples.length || samples.length > MAX_VOICE_SAMPLES) throw new Error(uiLiteral('录音长度不受支持'));
   const bytes = new ArrayBuffer(44 + samples.length * 2);
   const view = new DataView(bytes);
   const ascii = (offset: number, value: string) => {

@@ -9,7 +9,7 @@ let browser;
 try {
   await server.listen();
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 390, height: 844 } });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__upload`);
   await page.evaluate(async () => {

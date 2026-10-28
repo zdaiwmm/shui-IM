@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { isChamberVault } from './chamber-space';
 import { recoverableSpaces, spaceCodeId, rememberHistorySources } from './spaces';
 import { ApiError } from './api';
@@ -11,6 +12,8 @@ import { canonicalStringify } from './canonical';
 import { loadUiPreferences, restoreGalleryHidden, findMissingArchivedMessages, importArchivedMessages, installCloudRecovery, readStoredVault, loadHistoryPageAfter, saveVault, withVaultMutation, type VaultSession } from './vault';
 import type { DecryptedMessage, Vault } from './types';
 import { auditRestoredHistory, historyRecordDigest, type RestoreAudit, type RestoreAuditRecord } from './history-restore-audit';
+
+class RecoverySourceUnavailableError extends Error {}
 
 export const BACKUP_REQUEST_TIMEOUT_MS = 30_000;
 export const AUTOMATIC_HISTORY_BATCH_WAIT_MS = 45_000;
@@ -27,7 +30,7 @@ export async function cloudBackupPreference(session: VaultSession, signal: Abort
   const previous = session.vault.cloudBackupPreference;
   const value = await request<{ enabled: boolean; revision: number }>(`/api/rooms/${session.vault.roomId}/backup-preference`, session.vault.accessToken, signal,
     enabled === undefined ? undefined : { enabled, revision: (previous?.revision ?? 0) + 1 });
-  if (typeof value.enabled !== 'boolean' || !Number.isSafeInteger(value.revision) || value.revision < 0) throw new Error('备份设置读取失败，请重试');
+  if (typeof value.enabled !== 'boolean' || !Number.isSafeInteger(value.revision) || value.revision < 0) throw new Error(uiLiteral('备份设置读取失败，请重试'));
   await withVaultMutation(session, async mutation => {
     signal.throwIfAborted();
     const current = session.vault.cloudBackupPreference;
@@ -73,7 +76,7 @@ async function waitForRetry(delayMs: number, signal: AbortSignal): Promise<void>
   signal.throwIfAborted();
   if (delayMs <= 0) return;
   await new Promise<void>((resolve, reject) => {
-    const abort = () => { clearTimeout(timer); signal.removeEventListener('abort', abort); reject(signal.reason ?? new DOMException('操作已取消', 'AbortError')); };
+    const abort = () => { clearTimeout(timer); signal.removeEventListener('abort', abort); reject(signal.reason ?? new DOMException(uiLiteral('操作已取消'), 'AbortError')); };
     const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(); }, delayMs);
     signal.addEventListener('abort', abort, { once: true });
   });
@@ -86,30 +89,31 @@ async function request<T>(url: string, token: string, signal: AbortSignal, body?
   for (let retry = 0;; retry += 1) {
     signal.throwIfAborted();
     const timeout = new AbortController();
-    const timer = setTimeout(() => timeout.abort(new Error('备份请求超时，请检查网络后重试')), BACKUP_REQUEST_TIMEOUT_MS);
+    const timer = setTimeout(() => timeout.abort(new Error(uiLiteral('备份请求超时，请检查网络后重试'))), BACKUP_REQUEST_TIMEOUT_MS);
     let response: Response;
     try {
       response = await fetch(url, { ...options, signal: AbortSignal.any([signal, timeout.signal]) });
       if (response.ok) return await response.json() as T;
     } catch (cause) {
       signal.throwIfAborted();
-      if (timeout.signal.aborted) throw new ApiError('备份请求超时，请检查网络后重试', 0, 'BACKUP_TIMEOUT');
-      if (cause instanceof TypeError) throw new ApiError('网络连接中断，请检查网络后重试', 0, 'NETWORK_FAILED');
+      if (timeout.signal.aborted) throw new ApiError(uiLiteral('备份请求超时，请检查网络后重试'), 0, 'BACKUP_TIMEOUT');
+      if (cause instanceof TypeError) throw new ApiError(uiLiteral('网络连接中断，请检查网络后重试'), 0, 'NETWORK_FAILED');
       throw cause;
     } finally { clearTimeout(timer); }
     if (response.status === 429) {
-      if (retry >= MAX_RATE_LIMIT_RETRIES) throw new ApiError('备份请求过于频繁，请稍后再试；已恢复的记录会保留，可继续重试', 429, 'RATE_LIMITED', retryAfterMs(response));
+      if (retry >= MAX_RATE_LIMIT_RETRIES) throw new ApiError(uiLiteral('备份请求过于频繁，请稍后再试；已恢复的记录会保留，可继续重试'), 429, 'RATE_LIMITED', retryAfterMs(response));
       onWait?.(true);
       try { await waitForRetry(retryAfterMs(response), signal); }
       finally { if (!signal.aborted) onWait?.(false); }
       continue;
     }
-    if (response.status === 401) throw new Error(url.startsWith('/api/history-archives/')
-      ? '恢复包已读取，但历史片段无法取回。恢复码可能刚被轮换、所属设备已撤销，或片段已被清理；请使用当前恢复码重试'
-      : '找不到可用备份。设备恢复并换码后，旧码会停用，请使用新生成的恢复码；也请确认码输入完整、对应设备未撤销且备份未清理');
-    if (response.status === 409) throw new Error('备份版本冲突，请锁定后重新解锁再试');
-    if (response.status === 413) throw new Error('备份密室已满，请联系管理员处理');
-    throw new ApiError('备份服务暂时不可用，请稍后重试', response.status, 'BACKUP_UNAVAILABLE');
+    if (response.status === 401) {
+      if(url.startsWith('/api/history-archives/'))throw new Error(uiLiteral('恢复包已读取，但历史片段无法取回。恢复码可能刚被轮换、所属设备已撤销，或片段已被清理；请使用当前恢复码重试'));
+      throw new RecoverySourceUnavailableError(uiLiteral('找不到可用备份。设备恢复并换码后，旧码会停用，请使用新生成的恢复码；也请确认码输入完整、对应设备未撤销且备份未清理'));
+    }
+    if (response.status === 409) throw new Error(uiLiteral('备份版本冲突，请锁定后重新解锁再试'));
+    if (response.status === 413) throw new Error(uiLiteral('备份密室已满，请联系管理员处理'));
+    throw new ApiError(uiLiteral('备份服务暂时不可用，请稍后重试'), response.status, 'BACKUP_UNAVAILABLE');
   }
 }
 
@@ -135,8 +139,8 @@ async function update<T>(session: VaultSession, signal: AbortSignal, change: (st
 }
 
 function checkpoint(vault: Vault): Vault {
-  if (vault.migrationSource) throw new Error('此历史本机状态已停用，不能生成设备恢复包');
-  if (vault.personalBinding && vault.personalMigration?.state !== 'staged') throw new Error('个人助记词密室不能使用旧身份备份格式');
+  if (vault.migrationSource) throw new Error(uiLiteral('此历史本机状态已停用，不能生成设备恢复包'));
+  if (vault.personalBinding && vault.personalMigration?.state !== 'staged') throw new Error(uiLiteral('个人助记词密室不能使用旧身份备份格式'));
   const value = structuredClone(vault);
   delete value.backup;
   delete value.spaceRecoveryCode;
@@ -237,7 +241,7 @@ async function stageEnvelope(session: VaultSession, signal: AbortSignal): Promis
     const sealed = await sealRecovery(bundle, state.code);
     // Validate the exact new envelope before it can replace any online recovery route.
     const verified = await openRecovery(sealed, state.code);
-    if (JSON.stringify(verified) !== JSON.stringify(bundle)) throw new Error('恢复备份自检失败');
+    if (JSON.stringify(verified) !== JSON.stringify(bundle)) throw new Error(uiLiteral('恢复备份自检失败'));
     state.pending = { id: state.id, revision: state.revision + 1, fetchToken: await recoveryFetchToken(state.code), sealed,
       archives: state.archives.map((archive, index) => ({
         id: archive.id,
@@ -253,9 +257,9 @@ async function sendEnvelope(session: VaultSession, signal: AbortSignal): Promise
   const pending = session.vault.backup?.pending;
   if (!pending) return;
   const result = await request<{ revision: number; updatedAt: string }>(`/api/rooms/${session.vault.roomId}/backup`, session.vault.accessToken, signal, pending);
-  if (result.revision !== pending.revision || !Number.isFinite(Date.parse(result.updatedAt))) throw new Error('备份确认不正确');
+  if (result.revision !== pending.revision || !Number.isFinite(Date.parse(result.updatedAt))) throw new Error(uiLiteral('备份确认不正确'));
   await update(session, signal, state => {
-    if (JSON.stringify(state.pending) !== JSON.stringify(pending)) throw new Error('备份状态已经变化');
+    if (JSON.stringify(state.pending) !== JSON.stringify(pending)) throw new Error(uiLiteral('备份状态已经变化'));
     state.revision = result.revision;
     state.syncedAt = result.updatedAt;
     delete state.pending;
@@ -280,13 +284,13 @@ async function backfillArchiveInventory(session: VaultSession, signal: AbortSign
     .map(part => ({ archive, part }))).slice(0, 20) ?? [];
   for (const { archive, part } of missing) {
     const sealed = await request<SealedBackup>(`/api/history-archives/${archive.id}/${part.id}`, archive.token, signal);
-    if (await backupDigest(sealed) !== part.digest) throw new Error('历史备份完整性验证失败');
+    if (await backupDigest(sealed) !== part.digest) throw new Error(uiLiteral('历史备份完整性验证失败'));
     const messages = validateArchivePart(await openJson(sealed, archive.key,
       archiveAad(session.vault.roomId, archive.id, part.id)), session.vault.roomId, part);
     const inventory = backupInventory(messages);
     await update(session, signal, state => {
       const current = state.archives.find(item => item.id === archive.id)?.parts.find(item => item.id === part.id);
-      if (!current || current.digest !== part.digest) throw new Error('历史备份状态已经变化');
+      if (!current || current.digest !== part.digest) throw new Error(uiLiteral('历史备份状态已经变化'));
       Object.assign(current, inventory);
     });
   }
@@ -330,7 +334,7 @@ export async function syncCloudBackup(session: VaultSession, signal: AbortSignal
       for (;;) {
         sealed = await sealJson({ v: 1, roomId: session.vault.roomId, messages }, archive.key, archiveAad(session.vault.roomId, archive.id, id));
         if (sealed.ciphertext.length <= 1_800_000) break;
-        if (messages.length === 1) throw new Error('一条历史记录超过备份大小限制，请联系维护者');
+        if (messages.length === 1) throw new Error(uiLiteral('一条历史记录超过备份大小限制，请联系维护者'));
         messages = messages.slice(0, Math.ceil(messages.length / 2));
         signal.throwIfAborted();
       }
@@ -343,7 +347,7 @@ export async function syncCloudBackup(session: VaultSession, signal: AbortSignal
     if (!pending) break;
     await request(`/api/rooms/${session.vault.roomId}/archives/${pending.archiveId}/${pending.part.id}`, session.vault.accessToken, signal, pending.sealed);
     await update(session, signal, state => {
-      if (state.pendingPart?.part.id !== pending.part.id) throw new Error('历史备份状态已经变化');
+      if (state.pendingPart?.part.id !== pending.part.id) throw new Error(uiLiteral('历史备份状态已经变化'));
       state.archives.at(-1)!.parts.push(pending.part);
       state.cursor = pending.part.lastSeq;
       delete state.pendingPart;
@@ -363,14 +367,14 @@ export async function fetchRecoveryBundle(code: string, signal: AbortSignal, onW
   if (code.startsWith('QR4-')) {
     const spaces = await recoverableSpaces(code, signal);
     const entry = targetRoom ? spaces.find(space => space.roomId === targetRoom) : spaces.length === 1 ? spaces[0] : undefined;
-    if (!entry?.code) throw new Error('请先选择此恢复码对应的密室');
+    if (!entry?.code) throw new Error(uiLiteral('请先选择此恢复码对应的密室'));
     code = entry.code;
   }
   const { id, secret } = parseCloudRecoveryCode(code);
   secret.fill(0);
   const result = await request<{ revision: number; sealed: SealedBackup }>(`/api/recovery-backups/${id}`, await recoveryFetchToken(code), signal, undefined, onWait);
   try { return await openRecovery(result.sealed, code); }
-  catch { throw new Error('恢复码不正确，或备份未通过完整性验证'); }
+  catch { throw new Error(uiLiteral('恢复码不正确，或备份未通过完整性验证')); }
 }
 
 export async function recoverFromCloud(code: string, signal: AbortSignal): Promise<VaultSession> {
@@ -383,11 +387,11 @@ export async function recoverFromCloud(code: string, signal: AbortSignal): Promi
 export function normalizeRecoveryCodes(input: string | readonly string[]): string[] {
   const values: readonly string[] = typeof input === 'string' ? input.split(/\r?\n/) : input;
   const codes = [...new Set(values.map((value: string) => value.trim()).filter(Boolean))];
-  if (!codes.length) throw new Error('请输入至少一个恢复码');
-  if (codes.length > 6) throw new Error('本会话最多支持 6 个设备恢复码');
+  if (!codes.length) throw new Error(uiLiteral('请输入至少一个恢复码'));
+  if (codes.length > 6) throw new Error(uiLiteral('本会话最多支持 6 个设备恢复码'));
   for (const code of codes) {
     try { if (code.startsWith('QR4-')) spaceCodeId(code); else parseCloudRecoveryCode(code); }
-    catch { throw new Error('恢复码格式不正确，请输入完整的密室或设备恢复码'); }
+    catch { throw new Error(uiLiteral('恢复码格式不正确，请输入完整的密室或设备恢复码')); }
   }
   return codes;
 }
@@ -396,17 +400,17 @@ export function normalizeRecoveryCodes(input: string | readonly string[]): strin
  * Verify possession of a signing key already authenticated in the live membership. */
 export async function assertHistoryOwner(session: VaultSession, bundle: CloudRecoveryBundle): Promise<void> {
   const vault = session.vault;
-  if (bundle.roomId !== vault.roomId || bundle.checkpoint.role !== vault.role) throw new Error('这不是你在当前密室的备份');
+  if (bundle.roomId !== vault.roomId || bundle.checkpoint.role !== vault.role) throw new Error(uiLiteral('这不是你在当前密室的备份'));
   const member = vault.members.find(item => item.deviceId === bundle.deviceId && item.role === vault.role)
     ?? (bundle.deviceId === vault.identity.publicBundle.deviceId ? { ...vault.identity.publicBundle, role: vault.role } : undefined);
-  if (!member) throw new Error('尚无法确认这份备份属于你，请先联网更新密室成员后重试');
+  if (!member) throw new Error(uiLiteral('尚无法确认这份备份属于你，请先联网更新密室成员后重试'));
   try {
     const privateKey = await crypto.subtle.importKey('jwk', bundle.checkpoint.identity.signingPrivateKey, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
     const publicKey = await crypto.subtle.importKey('jwk', member.signingKey, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
     const challenge = crypto.getRandomValues(new Uint8Array(32));
     const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, privateKey, challenge);
     if (!await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, publicKey, signature, challenge)) throw new Error();
-  } catch { throw new Error('无法验证备份的本人身份，已停止恢复'); }
+  } catch { throw new Error(uiLiteral('无法验证备份的本人身份，已停止恢复')); }
 }
 
 export async function authorizedHistorySources(session: VaultSession, input: string | readonly string[], signal: AbortSignal,
@@ -415,7 +419,7 @@ export async function authorizedHistorySources(session: VaultSession, input: str
   for (const code of normalizeRecoveryCodes(input)) {
     if (code.startsWith('QR4-')) {
       const entry = (await recoverableSpaces(code, signal)).find(space => space.roomId === session.vault.roomId);
-      if (!entry?.code) throw new Error('这份恢复码没有当前密室的备份');
+      if (!entry?.code) throw new Error(uiLiteral('这份恢复码没有当前密室的备份'));
       codes.add(entry.code);
       for (const source of entry.historyCodes ?? []) codes.add(source);
     } else codes.add(code);
@@ -429,47 +433,47 @@ export async function authorizedHistorySources(session: VaultSession, input: str
       signal.throwIfAborted();
       // Only a definitively unavailable source may be offered as a partial set.
       // Network failures and tampered ciphertext fail the whole discovery pass.
-      if (cause instanceof Error && cause.message.startsWith('找不到可用备份。') && codes.size > 1) { unavailable++; continue; }
+      if (cause instanceof RecoverySourceUnavailableError && codes.size > 1) { unavailable++; continue; }
       throw cause;
     }
     await assertHistoryOwner(session, bundle);
     if (!bundles.some(item => item.backupId === bundle.backupId)) { bundles.push(bundle); accepted.push(code); }
   }
-  if (!bundles.length) throw new Error('找不到可用备份，请检查恢复码或补充之前保存的恢复码');
+  if (!bundles.length) throw new Error(uiLiteral('找不到可用备份，请检查恢复码或补充之前保存的恢复码'));
   return { bundles, codes: accepted, unavailable };
 }
 
 /** Keep authenticated index failures separate from unsupported record formats. */
 function validateArchivePart(value: unknown, roomId: string, part: ArchivePart): DecryptedMessage[] {
   const archive = value as { v?: unknown; roomId?: unknown; messages?: unknown } | null;
-  if (archive?.v !== 1 || archive.roomId !== roomId || !Array.isArray(archive.messages)) throw new Error('历史备份片段格式或会话归属不正确');
+  if (archive?.v !== 1 || archive.roomId !== roomId || !Array.isArray(archive.messages)) throw new Error(uiLiteral('历史备份片段格式或会话归属不正确'));
   const messages = archive.messages as DecryptedMessage[];
-  if (messages.length !== part.count) throw new Error('历史备份条数与索引不一致');
+  if (messages.length !== part.count) throw new Error(uiLiteral('历史备份条数与索引不一致'));
   if (messages.some((message, index) => !message || !Number.isSafeInteger(message.seq) || message.seq < 1 ||
     index > 0 && message.seq <= messages[index - 1]!.seq) || messages[0]?.seq !== part.firstSeq || messages.at(-1)?.seq !== part.lastSeq) {
-    throw new Error('历史备份序号与索引不一致');
+    throw new Error(uiLiteral('历史备份序号与索引不一致'));
   }
   if (messages.some(message => typeof message.clientMsgId !== 'string' || typeof message.senderId !== 'string' || typeof message.acceptedAt !== 'string')) {
-    throw new Error('历史备份记录元数据不正确');
+    throw new Error(uiLiteral('历史备份记录元数据不正确'));
   }
-  if (messages.some(message => !isMessagePayload(message.payload))) throw new Error('历史备份包含当前版本不支持或格式不正确的记录，请更新应用后重试');
+  if (messages.some(message => !isMessagePayload(message.payload))) throw new Error(uiLiteral('历史备份包含当前版本不支持或格式不正确的记录，请更新应用后重试'));
   return messages;
 }
 
 /** Restore one or more device archives belonging to the current room. */
 export async function restoreCloudHistory(session: VaultSession, input: string | readonly string[], scope: 'chat' | 'gallery', signal: AbortSignal,
   progress: (count: number, changed: boolean) => void = () => undefined): Promise<number> {
-  if (!session.vault.backup?.syncedAt || session.vault.backup.replaces || session.vault.recoverySource) throw new Error('请先完成新恢复码的备份更新');
-  if (scope === 'gallery' && session.vault.role !== 'creator') throw new Error('此参与方没有相册入口');
+  if (!session.vault.backup?.syncedAt || session.vault.backup.replaces || session.vault.recoverySource) throw new Error(uiLiteral('请先完成新恢复码的备份更新'));
+  if (scope === 'gallery' && session.vault.role !== 'creator') throw new Error(uiLiteral('此参与方没有相册入口'));
   const { bundles, unavailable } = await authorizedHistorySources(session, input, signal);
-  if (unavailable) throw new Error('有备份暂不可用，请从恢复数据页面确认可恢复范围');
+  if (unavailable) throw new Error(uiLiteral('有备份暂不可用，请从恢复数据页面确认可恢复范围'));
   let restored = 0;
   let changed = false;
   for (const bundle of bundles) for (const archive of bundle.archives) {
     for (const part of archive.parts) {
       signal.throwIfAborted();
       const sealed = await request<SealedBackup>(`/api/history-archives/${archive.id}/${part.id}`, archive.token, signal);
-      if (await backupDigest(sealed) !== part.digest) throw new Error('历史备份完整性验证失败');
+      if (await backupDigest(sealed) !== part.digest) throw new Error(uiLiteral('历史备份完整性验证失败'));
       const messages = validateArchivePart(await openJson(sealed, archive.key, archiveAad(bundle.roomId, archive.id, part.id)), bundle.roomId, part);
       restored += await importArchivedMessages(session, messages, scope, signal, partChanged => { changed ||= partChanged; });
       progress(restored, changed);
@@ -499,7 +503,7 @@ export type HistoryRestoreProgress = {
 export async function restoreUnifiedHistory(session: VaultSession, input: string, signal: AbortSignal,
   onProgress: (value: HistoryRestoreProgress) => void,
   confirm?: (value: HistoryRestoreProgress) => Promise<void>): Promise<HistoryRestoreProgress> {
-  if (!session.vault.backup?.syncedAt || session.vault.backup.replaces || session.vault.recoverySource) throw new Error('请先完成新恢复码的备份更新');
+  if (!session.vault.backup?.syncedAt || session.vault.backup.replaces || session.vault.recoverySource) throw new Error(uiLiteral('请先完成新恢复码的备份更新'));
   const creator = session.vault.role === 'creator';
   const status: HistoryRestoreProgress = { phase: 'reading', scannedParts: 0, totalParts: 0,
     chat: { restored: 0, total: 0 }, ...(creator ? { gallery: { restored: 0, total: 0 } } : {}), percent: null, changed: false };
@@ -510,11 +514,11 @@ export async function restoreUnifiedHistory(session: VaultSession, input: string
   const sources = await authorizedHistorySources(session, input, signal, onWait);
   const { bundles } = sources;
   status.unavailableSources = sources.unavailable;
-  if (sources.unavailable && !confirm) throw new Error('有备份暂不可用，请先确认可恢复范围');
+  if (sources.unavailable && !confirm) throw new Error(uiLiteral('有备份暂不可用，请先确认可恢复范围'));
   const hidden = new Map((await galleryHiddenSnapshot(session)).map(record => [galleryCurationKey(record), record]));
   if (creator) for (const bundle of bundles) for (const record of bundle.galleryHidden ?? []) hidden.set(galleryCurationKey(record), record);
   const parts = bundles.flatMap(bundle => bundle.archives.flatMap(archive => archive.parts.map(part => ({ bundle, archive, part }))));
-  if (!parts.length) throw new Error('还没有找到聊天备份，可以选择本地文件或补充旧恢复码');
+  if (!parts.length) throw new Error(uiLiteral('还没有找到聊天备份，可以选择本地文件或补充旧恢复码'));
   status.totalParts = parts.length;
   const cache = new Map<number, SealedBackup>();
   // At most 8 MiB retained across passes plus an 8 MiB UTF-16 batch window.
@@ -537,14 +541,14 @@ export async function restoreUnifiedHistory(session: VaultSession, input: string
       if (!result || !Array.isArray(result.parts) || !result.parts.length || result.parts.length > wanted.length ||
         JSON.stringify(result).length > 4 * 1024 * 1024 || result.parts.some((item, offset) => !item ||
           item.id !== parts[wanted[offset]!]!.part.id || typeof item.sealed?.iv !== 'string' || typeof item.sealed.ciphertext !== 'string')) {
-        throw new Error('历史备份批量响应不正确');
+        throw new Error(uiLiteral('历史备份批量响应不正确'));
       }
       result.parts.forEach((item, offset) => batchCache.set(wanted[offset]!, item.sealed));
     }
     const sealed = cache.get(index) ?? batchCache.get(index)!;
     batchCache.delete(index);
     signal.throwIfAborted();
-    if (await backupDigest(sealed) !== part.digest) throw new Error('历史备份完整性验证失败');
+    if (await backupDigest(sealed) !== part.digest) throw new Error(uiLiteral('历史备份完整性验证失败'));
     const messages = validateArchivePart(await openJson(sealed, archive.key, archiveAad(bundle.roomId, archive.id, part.id)), bundle.roomId, part);
     if (!cache.has(index) && cacheSize + sealed.ciphertext.length * 2 <= 8 * 1024 * 1024) {
       cache.set(index, sealed); cacheSize += sealed.ciphertext.length * 2;
@@ -571,7 +575,7 @@ export async function restoreUnifiedHistory(session: VaultSession, input: string
       for (const message of messages) {
         const digest = await historyRecordDigest(message);
         const existing = seen.get(message.seq);
-        if (existing && existing.digest !== digest || messageIds.has(message.clientMsgId) && messageIds.get(message.clientMsgId) !== message.seq) throw new Error('多个备份中的历史记录冲突');
+        if (existing && existing.digest !== digest || messageIds.has(message.clientMsgId) && messageIds.get(message.clientMsgId) !== message.seq) throw new Error(uiLiteral('多个备份中的历史记录冲突'));
         if (existing) continue;
         messageIds.set(message.clientMsgId, message.seq);
         const chat = missing.has(message.seq) && ['text', 'image', 'image-album', 'audio', 'file'].includes(message.payload.kind);

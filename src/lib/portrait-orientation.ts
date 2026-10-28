@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { createElement, Smartphone } from 'lucide';
 
 export function mountPortraitOrientation(root: HTMLElement): () => void {
@@ -6,7 +7,7 @@ export function mountPortraitOrientation(root: HTMLElement): () => void {
   const guard = document.createElement('aside');
   guard.className = 'portrait-orientation-guard'; guard.hidden = true;
   guard.setAttribute('role', 'status');
-  const label = document.createElement('p'); label.textContent = '请将设备转回竖屏';
+  const label = document.createElement('p'); label.textContent = uiLiteral('请将设备转回竖屏');
   guard.append(createElement(Smartphone), label); document.body.append(guard);
   const orientation = screen.orientation as ScreenOrientation & { lock?: (value: string) => Promise<void> };
   const mobile = matchMedia('(pointer: coarse)');

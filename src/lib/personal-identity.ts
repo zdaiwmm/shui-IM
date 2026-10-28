@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { entropyToMnemonic, mnemonicToEntropy, mnemonicToSeedSync, validateMnemonic } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english.js';
 import { ed25519, x25519 } from '@noble/curves/ed25519.js';
@@ -25,13 +26,13 @@ export function normalizePersonalMnemonic(input: string): string {
 export function personalEntropyFromMnemonic(input: string): Uint8Array<ArrayBuffer> {
   const mnemonic = normalizePersonalMnemonic(input);
   if (mnemonic.split(' ').length !== 12 || !validateMnemonic(mnemonic, wordlist)) {
-    throw new Error('助记词的词数、词表、顺序或校验和不正确');
+    throw new Error(uiLiteral('助记词的词数、词表、顺序或校验和不正确'));
   }
   return new Uint8Array(mnemonicToEntropy(mnemonic, wordlist));
 }
 
 export function personalMnemonicFromEntropy(entropy: Uint8Array): string {
-  if (entropy.length !== 16) throw new Error('身份熵长度不正确');
+  if (entropy.length !== 16) throw new Error(uiLiteral('身份熵长度不正确'));
   return entropyToMnemonic(entropy, wordlist);
 }
 
@@ -76,7 +77,7 @@ export function validPersonalProof(proof: PersonalProof, identity: Pick<Personal
 
 export async function signPersonalProof(entropy: Uint8Array, proof: PersonalProof): Promise<string> {
   return withPersonalKeys(entropy, ({ publicIdentity, signingSecret }) => {
-    if (!validPersonalProof(proof, publicIdentity)) throw new Error('身份操作的用途、目标或有效期不正确');
+    if (!validPersonalProof(proof, publicIdentity)) throw new Error(uiLiteral('身份操作的用途、目标或有效期不正确'));
     return toBase64Url(ed25519.sign(encode(canonicalStringify(proof)), signingSecret));
   });
 }

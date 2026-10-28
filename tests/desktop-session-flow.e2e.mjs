@@ -42,7 +42,7 @@ let browser;
 const trace = step => { if (process.env.QUIET_ROOM_TEST_TRACE) console.log(step); };
 
 async function createDesktop() {
-  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 1280, height: 800 } });
   const page = await context.newPage();
   page.setDefaultNavigationTimeout(120_000);
   page.on('pageerror', error => errors.push(error.message));

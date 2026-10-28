@@ -15,7 +15,7 @@ try {
   for (const engine of ['webkit', 'chromium']) {
     browser = engine === 'webkit' ? await webkit.launch() : await chromium.launch();
     for (const desktop of [false, true]) {
-      const page = await browser.newPage({ viewport: desktop ? { width: 1280, height: 800 } : { width: 393, height: 844 },
+      const page = await browser.newPage({ locale: 'zh-CN', viewport: desktop ? { width: 1280, height: 800 } : { width: 393, height: 844 },
         isMobile: !desktop, hasTouch: !desktop });
       const errors = []; page.on('pageerror', error => errors.push(error.message));
       await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/__scroll_stability`);

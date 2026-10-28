@@ -1,3 +1,4 @@
+import { uiLiteral, matchesSourceText } from './language';
 import '../page-back.css';
 
 const pages = '.gateway,.pairing-screen,.device-shell,.recovery-flow-page,.backup-page,.gallery-shell,.image-detail,.space-profile-page,.space-drawer,.passkey-manager,.password-page';
@@ -14,7 +15,7 @@ export function mountPageBacks(root: HTMLElement): void {
   const normalize = (button: HTMLButtonElement) => {
     if (button.classList.contains('page-back-button') || button.classList.contains('page-back-duplicate')) return;
     const label = button.getAttribute('aria-label') ?? button.textContent?.trim() ?? '';
-    if (!/^返回/u.test(label)) return;
+    if (!matchesSourceText(label,/^返回/u)) return;
     if (button.closest('.confirm-overlay:not(.password-page),.space-modal-overlay,.form-input-overlay,.page-transition-outgoing')) return;
     const page = button.closest<HTMLElement>(pages);
     if (!page || page.classList.contains('numeric-password-page')) return;
@@ -35,7 +36,7 @@ export function mountPageBacks(root: HTMLElement): void {
     }
     button.classList.add('page-back-button'); button.type = 'button';
     if (!button.hasAttribute('aria-label')) button.setAttribute('aria-label', label);
-    button.textContent = '返回';
+    button.textContent = uiLiteral('返回');
     footer.append(...actions,button); page.append(footer);
     page.style.setProperty('--page-back-height', `${footer.offsetHeight}px`);
     footers.set(footer, page); resize.observe(footer);

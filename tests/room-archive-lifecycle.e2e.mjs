@@ -11,7 +11,7 @@ try{
  service=await startServer({port:0,host:'127.0.0.1',dataDir,quiet:true});
  vite=await createServer({root:process.cwd(),configFile:false,appType:'custom',logLevel:'error',server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${service.port}`}},plugins:[{name:'archive-fixture',configureServer(s){s.middlewares.use('/__archive',(_q,r)=>{r.setHeader('Content-Type','text/html');r.end('<!doctype html><title>Private archive regression</title>');});}}]});await vite.listen();
  browser=await engine.launch(engine===webkit?{}:process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
- const page=await browser.newPage();await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/__archive`);
+ const page=await browser.newPage({locale: 'zh-CN'});await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/__archive`);
  const result=await page.evaluate(async()=>{
   const v=await import('/src/lib/vault.ts'),a=await import('/src/lib/room-archive.ts'),c=await import('/src/lib/room-archive-crypto.ts'),k=await import('/src/lib/browser-room-key.ts'),api=await import('/src/lib/api.ts'),cryptoLib=await import('/src/lib/crypto.ts'),fileCrypto=await import('/src/lib/file-crypto.ts'),cardImage=await import('/src/lib/archive-card-image.ts');
   const {randomBase64Url}=await import('/src/lib/base64.ts');

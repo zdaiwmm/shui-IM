@@ -213,8 +213,8 @@ try {
         : { headless: true, channel: 'chrome', args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] },
   );
 
-  const creatorContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
-  const joinerContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 }, hasTouch: true });
+  const creatorContext = await browser.newContext({ locale: 'zh-CN', userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
+  const joinerContext = await browser.newContext({ locale: 'zh-CN', userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 }, hasTouch: true });
   // The receiver waits while the creator drives transfer/lifecycle checks. Keep
   // its supported 5-minute preference, while the creator explicitly chooses
   // the 30s lease exercised by verifyCallFlow. Unconfigured idle is tested separately.
@@ -1199,7 +1199,7 @@ try {
   await creator.locator(LOCK_SURFACE).first().waitFor();
   await hideOutsidePage(joiner);
   await joiner.locator(LOCK_SURFACE).first().waitFor();
-  const recoveryContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
+  const recoveryContext = await browser.newContext({ locale: 'zh-CN', userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
   const recovery = await recoveryContext.newPage();
   await enableDeviceVault(recovery);
   await recovery.goto(`${baseUrl}#legacy-recovery`);
@@ -1300,7 +1300,7 @@ try {
   await recovery.locator('#backup-back').click();
   await recovery.getByText('browser-e2e-after-gallery-file', { exact: true }).waitFor();
 
-  const legacyContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
+  const legacyContext = await browser.newContext({ locale: 'zh-CN', userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
   const legacy = await legacyContext.newPage();
   await enableDeviceVault(legacy);
   await legacy.goto(baseUrl);
@@ -1516,7 +1516,7 @@ try {
     const deviceUrl = await recovery.locator('.device-link-sheet input[aria-label="设备链接"]').inputValue();
     invariant(deviceUrl.includes('#device='), `${route}: generated link did not use the device discriminator`);
 
-    const context = await browser.newContext({
+    const context = await browser.newContext({ locale: 'zh-CN',
       userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
       viewport: { width: 390, height: 844 },
       hasTouch: true,
@@ -1573,7 +1573,7 @@ try {
   await recovery.locator('.device-link-sheet [data-close]').click();
   await recovery.locator('.device-link-sheet').waitFor({ state: 'detached' });
 
-  const repairContext = await browser.newContext({
+  const repairContext = await browser.newContext({ locale: 'zh-CN',
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
     viewport: { width: 390, height: 844 },
     hasTouch: true,

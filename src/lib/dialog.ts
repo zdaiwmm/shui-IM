@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate } from './language';
 import { afterMotion, motion, retargetMotion } from './motion';
 
 type DialogOptions = {
@@ -35,7 +36,7 @@ export function mountDialog(sheet: HTMLElement, options: DialogOptions) {
     const handle = existing instanceof HTMLButtonElement ? existing : document.createElement('button');
     handle.type = 'button';
     handle.className = 'half-sheet-handle is-close-handle';
-    handle.setAttribute('aria-label', `收起${sheet.getAttribute('aria-label') ?? panel.querySelector('h2')?.textContent ?? '面板'}`);
+    handle.setAttribute('aria-label', uiTemplate`收起${sheet.getAttribute('aria-label') ?? panel.querySelector('h2')?.textContent ?? uiLiteral('面板')}`);
     handle.removeAttribute('aria-hidden');
     handle.innerHTML = '<span></span>';
     if (existing && existing !== handle) existing.replaceWith(handle);

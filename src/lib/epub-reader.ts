@@ -1,3 +1,4 @@
+import { uiTemplate } from './language';
 import Packaging from 'epubjs/src/packaging.js';
 import Navigation, { type NavigationItem } from 'epubjs/src/navigation.js';
 import DOMPurify from 'dompurify';
@@ -93,7 +94,7 @@ export class EpubReader {
         const resource = packaging.manifest[item.idref];
         const path = resource && localReference(resource.href, opf)?.path;
         if (!path || !this.files.has(path) || !['application/xhtml+xml', 'text/html'].includes(resource.type)) throw new Error('INVALID_SPINE');
-        this.chapters.push({ path, label: `第 ${this.chapters.length + 1} 章` });
+        this.chapters.push({ path, label: uiTemplate`第 ${this.chapters.length + 1} 章` });
       }
       if (!this.pages) throw new Error('EMPTY_EPUB');
       const navPath = localReference(packaging.navPath || packaging.ncxPath, opf)?.path;

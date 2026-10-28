@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { canonicalStringify } from './canonical';
 import { fromBase64Url, toBase64Url } from './base64';
@@ -82,13 +83,13 @@ export function validChamberHistoryPayload(payload: ChamberHistoryPayload): bool
 export async function sealChamberHistoryRecord(payload: ChamberHistoryPayload, id: string, revision: number,
   peer: PersonalPublicIdentity, device: PrivateIdentity, binding: PersonalDeviceBinding): Promise<ChamberHistoryRecord> {
   if (payload.v !== 1 || !['messages', 'attachment','preferences'].includes(payload.kind) || payload.ownerId !== binding.identity.id ||
-    !/^[A-Za-z0-9_-]{1,128}$/.test(payload.roomId) || !/^[A-Za-z0-9_-]{1,128}$/.test(id) || !Number.isSafeInteger(revision) || revision < 1) throw new Error('历史备份范围不正确');
+    !/^[A-Za-z0-9_-]{1,128}$/.test(payload.roomId) || !/^[A-Za-z0-9_-]{1,128}$/.test(id) || !Number.isSafeInteger(revision) || revision < 1) throw new Error(uiLiteral('历史备份范围不正确'));
   const expected = payload.kind === 'messages' ? messageFields(payload) : payload.kind==='preferences'?'galleryHidden,hiddenChatMessageIds,kind,ownerId,roomId,v':'blobId,bytes,index,kind,ownerId,roomId,v';
-  if (Object.keys(payload).sort().join(',') !== expected) throw new Error('历史备份包含未许可的字段');
-  if (!validChamberHistoryPayload(payload)) throw new Error('历史备份的数据记录不正确');
+  if (Object.keys(payload).sort().join(',') !== expected) throw new Error(uiLiteral('历史备份包含未许可的字段'));
+  if (!validChamberHistoryPayload(payload)) throw new Error(uiLiteral('历史备份的数据记录不正确'));
   const raw = bytes(payload), dataKey = crypto.getRandomValues(new Uint8Array(32)), iv = crypto.getRandomValues(new Uint8Array(12));
   try {
-    if (raw.length > 3 * 1024 * 1024) throw new Error('历史备份分块超过大小限制');
+    if (raw.length > 3 * 1024 * 1024) throw new Error(uiLiteral('历史备份分块超过大小限制'));
     const key = await crypto.subtle.importKey('raw', dataKey, 'AES-GCM', false, ['encrypt']);
     const sealed = { iv: toBase64Url(iv), ciphertext: toBase64Url(await crypto.subtle.encrypt({ name: 'AES-GCM', iv,
       additionalData: scope(payload.roomId, payload.ownerId, peer.id, id, revision) }, key, raw)) };
@@ -104,7 +105,7 @@ export async function openChamberHistoryRecord(record: ChamberHistoryRecord, pin
     record.ownerId !== pinnedOwner.id || record.roomId !== record.keyEnvelope.context.roomId || record.id !== record.keyEnvelope.context.backupId ||
     record.revision !== record.keyEnvelope.context.revision || Object.keys(record.sealed).sort().join(',') !== 'ciphertext,iv' ||
     !/^[A-Za-z0-9_-]{16}$/.test(record.sealed.iv) || !/^[A-Za-z0-9_-]{22,4194326}$/.test(record.sealed.ciphertext) ||
-    toBase64Url(sha256(bytes(record.sealed))) !== record.keyEnvelope.context.contentDigest) throw new Error('历史备份完整性验证失败');
+    toBase64Url(sha256(bytes(record.sealed))) !== record.keyEnvelope.context.contentDigest) throw new Error(uiLiteral('历史备份完整性验证失败'));
   const context = { roomId: record.roomId, backupId: record.id, revision: record.revision,
     contentDigest: record.keyEnvelope.context.contentDigest, owner: pinnedOwner, peer: pinnedPeer };
   return useJointHistoryKey(record.keyEnvelope, context, request, signature, release, ownerEntropy, async dataKey => {
@@ -113,7 +114,7 @@ export async function openChamberHistoryRecord(record: ChamberHistoryRecord, pin
       additionalData: scope(record.roomId, record.ownerId, pinnedPeer.id, record.id, record.revision) }, key, fromBase64Url(record.sealed.ciphertext)));
     try {
       const value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw)) as ChamberHistoryPayload;
-      if (!validChamberHistoryPayload(value) || value.roomId !== record.roomId || value.ownerId !== record.ownerId) throw new Error('历史备份内容归属不正确');
+      if (!validChamberHistoryPayload(value) || value.roomId !== record.roomId || value.ownerId !== record.ownerId) throw new Error(uiLiteral('历史备份内容归属不正确'));
       return value;
     } finally { raw.fill(0); }
   }, scopeGrant, target);

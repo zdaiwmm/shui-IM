@@ -10,7 +10,7 @@ const vite=await createServer({root:process.cwd(),configFile:false,appType:'cust
 let browser;
 try{await vite.listen();for(const engine of perf?[chromium]:[chromium,webkit]){
  browser=await engine.launch(engine===webkit?{}:process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
- const context=await browser.newContext({viewport:{width:390,height:844}});const page=await context.newPage();await page.goto(`http://localhost:${vite.httpServer.address().port}/__private`);
+ const context=await browser.newContext({ locale: 'zh-CN',viewport:{width:390,height:844}});const page=await context.newPage();await page.goto(`http://localhost:${vite.httpServer.address().port}/__private`);
  const upgrade=await page.evaluate(async()=>{
   const old=await new Promise((resolve,reject)=>{const r=indexedDB.open('quiet-room',15);r.onupgradeneeded=()=>r.result.createObjectStore('security');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
   await new Promise(resolve=>{const tx=old.transaction('security','readwrite');tx.objectStore('security').put('preserved','synthetic-upgrade');tx.oncomplete=resolve;});

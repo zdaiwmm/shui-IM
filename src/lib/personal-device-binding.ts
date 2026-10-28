@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { ed25519 } from '@noble/curves/ed25519.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { canonicalStringify } from './canonical';
@@ -19,7 +20,7 @@ export type PersonalDeviceBinding = {
   rootSignature: string; deviceSignature: string;
 };
 export async function bindPersonalDevice(entropy: Uint8Array, device: PrivateIdentity): Promise<PersonalDeviceBinding> {
-  if(!validPersonalPublicBundle(device.publicBundle))throw new Error('身份绑定只能包含设备公钥');
+  if(!validPersonalPublicBundle(device.publicBundle))throw new Error(uiLiteral('身份绑定只能包含设备公钥'));
   return withPersonalKeys(entropy, async keys => {
     const body = { v: 1 as const, purpose: 'chamber-personal-device-v1' as const, identity: keys.publicIdentity,
       bundleHash: toBase64Url(sha256(bytes(device.publicBundle))) };

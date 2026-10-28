@@ -1,13 +1,14 @@
+import { uiLiteral } from './language';
 export const THEMES = [
-  { id: 'blue', name: '经典', color: '#89be87' },
-  { id: 'green', name: '松绿', color: 'oklch(43% .085 175)' },
-  { id: 'purple', name: '雾紫', color: 'oklch(46% .085 305)' },
-  { id: 'apricot', name: '暖杏', color: 'oklch(49% .12 58)' },
-  { id: 'sea', name: '海盐', color: 'oklch(46% .13 245)' },
-  { id: 'rose', name: '玫瑰', color: 'oklch(45% .13 355)' },
-  { id: 'terracotta', name: '赤陶', color: 'oklch(46% .13 35)' },
-  { id: 'lemon', name: '柠黄', color: 'oklch(85% .17 100)' },
-  { id: 'graphite', name: '石墨', color: 'oklch(42% .006 255)' },
+  { id: 'blue', get name() { return uiLiteral('经典'); }, color: '#89be87' },
+  { id: 'green', get name() { return uiLiteral('松绿'); }, color: 'oklch(43% .085 175)' },
+  { id: 'purple', get name() { return uiLiteral('雾紫'); }, color: 'oklch(46% .085 305)' },
+  { id: 'apricot', get name() { return uiLiteral('暖杏'); }, color: 'oklch(49% .12 58)' },
+  { id: 'sea', get name() { return uiLiteral('海盐'); }, color: 'oklch(46% .13 245)' },
+  { id: 'rose', get name() { return uiLiteral('玫瑰'); }, color: 'oklch(45% .13 355)' },
+  { id: 'terracotta', get name() { return uiLiteral('赤陶'); }, color: 'oklch(46% .13 35)' },
+  { id: 'lemon', get name() { return uiLiteral('柠黄'); }, color: 'oklch(85% .17 100)' },
+  { id: 'graphite', get name() { return uiLiteral('石墨'); }, color: 'oklch(42% .006 255)' },
 ] as const;
 export type Theme = typeof THEMES[number]['id'];
 export const THEME_KEY = 'quiet-room:appearance';
@@ -19,7 +20,7 @@ export function readColorScheme(storage: Pick<Storage, 'getItem'>): ColorSchemeP
   catch { return 'system'; }
 }
 export function saveColorScheme(storage: Pick<Storage, 'setItem'>, value: ColorSchemePreference): void {
-  if (!COLOR_SCHEMES.includes(value)) throw new Error('请选择有效的明暗模式');
+  if (!COLOR_SCHEMES.includes(value)) throw new Error(uiLiteral('请选择有效的明暗模式'));
   storage.setItem(COLOR_SCHEME_KEY, value);
 }
 export function resolveColorScheme(value: ColorSchemePreference, systemDark: boolean): 'light' | 'dark' {
@@ -30,7 +31,7 @@ export function readTheme(storage: Pick<Storage, 'getItem'>): Theme {
   catch { return 'blue'; }
 }
 export function saveTheme(storage: Pick<Storage, 'setItem'>, value: Theme): void {
-  if (!THEMES.some(theme => theme.id === value)) throw new Error('请选择有效的主题');
+  if (!THEMES.some(theme => theme.id === value)) throw new Error(uiLiteral('请选择有效的主题'));
   storage.setItem(THEME_KEY, value);
 }
 let mounted = false;

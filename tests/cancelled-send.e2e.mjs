@@ -58,7 +58,7 @@ try {
     browser = await engine.launch(engineName === 'chromium' && !process.env.CI ? { channel: 'chrome' } : {});
     for (const mode of ['delayed-no-cancel', 'cancel-before-submit', 'cancel-accepted-release', 'cancel-accepted-reload', 'cancel-accepted-reconnect', 'cancel-accepted-conflict']) {
       stage = `${engineName}/${mode}: pair`;
-      const contexts = await Promise.all([browser.newContext(), browser.newContext()]);
+      const contexts = await Promise.all([browser.newContext({locale: 'zh-CN'}), browser.newContext({locale: 'zh-CN'})]);
       try {
         for (const context of contexts) await context.addInitScript(() => {
           localStorage.setItem('quiet-room:auto-lock-seconds', '0');

@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
 import { isPasswordCredential, validPasswordKdf, type LocalCredentialResult } from './password-protection';
@@ -24,15 +25,15 @@ function validPlatform(p: PlatformCredentialRecord): boolean {
 const samePlatform = (root:PlatformCredentialRecord,daily:PlatformCredentialRecord) => root.credentialId===daily.credentialId && root.rpId===daily.rpId && root.origin===daily.origin && root.prfSalt!==daily.prfSalt;
 
 function assertCredential(credential: LocalCredentialResult): void {
-  if (!credential) throw new Error('请先设置应用锁');
+  if (!credential) throw new Error(uiLiteral('请先设置应用锁'));
   if (isPasswordCredential(credential)) {
     if (!validPasswordKdf(credential.kdf) || credential.kek?.type !== 'secret' ||
         credential.kek.algorithm.name !== 'AES-GCM' || (credential.kek.algorithm as AesKeyAlgorithm).length !== 256 ||
         !credential.kek.usages.includes('encrypt') || !credential.kek.usages.includes('decrypt') ||
-        (credential.passwordFormat !== undefined && credential.passwordFormat !== 'numeric-6')) throw new Error('本机密码保护尚未准备完成');
+        (credential.passwordFormat !== undefined && credential.passwordFormat !== 'numeric-6')) throw new Error(uiLiteral('本机密码保护尚未准备完成'));
     if (credential.rootKek?.algorithm.name !== 'AES-GCM' || (credential.rootKek.algorithm as AesKeyAlgorithm).length !== 256 ||
-      credential.rootKek.extractable || !credential.rootKek.usages.includes('encrypt') || !credential.rootKek.usages.includes('decrypt')) throw new Error('请为本次身份操作重新验证应用锁');
-  } else if (!validPlatform(credential.record) || credential.prfOutput?.length !== 32) throw new Error('通行密钥保护尚未准备完成');
+      credential.rootKek.extractable || !credential.rootKek.usages.includes('encrypt') || !credential.rootKek.usages.includes('decrypt')) throw new Error(uiLiteral('请为本次身份操作重新验证应用锁'));
+  } else if (!validPlatform(credential.record) || credential.prfOutput?.length !== 32) throw new Error(uiLiteral('通行密钥保护尚未准备完成'));
 }
 
 async function seal(key: CryptoKey, bytes: Uint8Array<ArrayBuffer>, additionalData: Uint8Array<ArrayBuffer>): Promise<Envelope> {
@@ -48,12 +49,12 @@ async function open(key: CryptoKey, envelope: Envelope, additionalData: Uint8Arr
 async function protectionKey(credential: LocalCredentialResult, identity: PersonalPublicIdentity, dailyPlatform?: PlatformCredentialRecord): Promise<{ key: CryptoKey; protection: Protection }> {
   assertCredential(credential);
   if (isPasswordCredential(credential)) {
-    if (!validPasswordKdf(credential.kdf) || credential.kek.algorithm.name !== 'AES-GCM') throw new Error('本机密码保护尚未准备完成');
+    if (!validPasswordKdf(credential.kdf) || credential.kek.algorithm.name !== 'AES-GCM') throw new Error(uiLiteral('本机密码保护尚未准备完成'));
     return { key: credential.rootKek!, protection: { method: 'password', kdf: structuredClone(credential.kdf),
       ...(credential.passwordFormat ? { passwordFormat: credential.passwordFormat } : {}) } };
   }
-  if (!credential?.record?.credentialId || credential.prfOutput?.length !== 32) throw new Error('通行密钥保护尚未准备完成');
-  if (!dailyPlatform || !validPlatform(dailyPlatform) || !samePlatform(credential.record,dailyPlatform)) throw new Error('助记词保管须使用独立的通行密钥PRF输入');
+  if (!credential?.record?.credentialId || credential.prfOutput?.length !== 32) throw new Error(uiLiteral('通行密钥保护尚未准备完成'));
+  if (!dailyPlatform || !validPlatform(dailyPlatform) || !samePlatform(credential.record,dailyPlatform)) throw new Error(uiLiteral('助记词保管须使用独立的通行密钥PRF输入'));
   const material = await crypto.subtle.importKey('raw', credential.prfOutput, 'HKDF', false, ['deriveKey']);
   const key = await crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: fromBase64Url(credential.record.prfSalt),
     info: encode({ purpose: 'chamber-personal-vault-kek-v1', identityId: identity.id }) }, material,
@@ -65,8 +66,8 @@ async function protectionKey(credential: LocalCredentialResult, identity: Person
 export async function preparePersonalIdentity(credential: LocalCredentialResult, importedEntropy?: Uint8Array, dailyPlatform?: PlatformCredentialRecord): Promise<StoredPersonalIdentity> {
   assertCredential(credential);
   if (!isPasswordCredential(credential) && (!dailyPlatform || !validPlatform(dailyPlatform) ||
-    !samePlatform(credential.record,dailyPlatform))) throw new Error('助记词保管须使用独立的通行密钥PRF输入');
-  if (importedEntropy && importedEntropy.length !== 16) throw new Error('身份熵长度不正确');
+    !samePlatform(credential.record,dailyPlatform))) throw new Error(uiLiteral('助记词保管须使用独立的通行密钥PRF输入'));
+  if (importedEntropy && importedEntropy.length !== 16) throw new Error(uiLiteral('身份熵长度不正确'));
   const entropy = importedEntropy ? new Uint8Array(importedEntropy) : crypto.getRandomValues(new Uint8Array(16));
   const master = crypto.getRandomValues(new Uint8Array(32));
   try {
@@ -77,7 +78,7 @@ export async function preparePersonalIdentity(credential: LocalCredentialResult,
       wrappedKey: await seal(kek, master, aad(identity, protection, 'master')),
       payload: await seal(key, entropy, aad(identity, protection, 'root')) };
     await usePersonalIdentity(stored, credential, restored => {
-      if (restored.length !== entropy.length || restored.some((byte, i) => byte !== entropy[i])) throw new Error('身份加密回读校验失败');
+      if (restored.length !== entropy.length || restored.some((byte, i) => byte !== entropy[i])) throw new Error(uiLiteral('身份加密回读校验失败'));
     });
     return stored;
   } finally { entropy.fill(0); master.fill(0); }
@@ -104,16 +105,16 @@ export function validStoredPersonalIdentity(value: unknown): value is StoredPers
 /** Never returns plaintext entropy to a long-lived session; wipe it after the operation. */
 export async function usePersonalIdentity<T>(stored: StoredPersonalIdentity, credential: LocalCredentialResult,
   operation: (entropy: Uint8Array<ArrayBuffer>) => T | Promise<T>): Promise<T> {
-  if (!validStoredPersonalIdentity(stored)) throw new Error('本机身份保管数据损坏');
+  if (!validStoredPersonalIdentity(stored)) throw new Error(uiLiteral('本机身份保管数据损坏'));
   const { key: kek, protection } = await protectionKey(credential, stored.identity, stored.protection.method === 'passkey' ? stored.protection.dailyPlatform : undefined);
-  if (canonicalStringify(protection) !== canonicalStringify(stored.protection)) throw new Error('请使用原应用锁验证身份');
+  if (canonicalStringify(protection) !== canonicalStringify(stored.protection)) throw new Error(uiLiteral('请使用原应用锁验证身份'));
   const master = await open(kek, stored.wrappedKey, aad(stored.identity, stored.protection, 'master'));
   let entropy: Uint8Array<ArrayBuffer> | undefined;
   try {
     const key = await crypto.subtle.importKey('raw', master, 'AES-GCM', false, ['encrypt', 'decrypt']);
     entropy = await open(key, stored.payload, aad(stored.identity, stored.protection, 'root'));
     const identity = await withPersonalKeys(entropy, keys => keys.publicIdentity);
-    if (canonicalStringify(identity) !== canonicalStringify(stored.identity)) throw new Error('本机身份归属校验失败');
+    if (canonicalStringify(identity) !== canonicalStringify(stored.identity)) throw new Error(uiLiteral('本机身份归属校验失败'));
     return await operation(entropy);
   } finally { entropy?.fill(0); master.fill(0); }
 }

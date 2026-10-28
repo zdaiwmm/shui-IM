@@ -21,12 +21,12 @@ try {
   browser = await chromium.launch(process.env.CI ? {} : process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' });
   const errors = [], pages = [];
   for (let i = 0; i < 3; i++) {
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, deviceScaleFactor: 3, hasTouch: true,
+    const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, isMobile: true, deviceScaleFactor: 3, hasTouch: true,
       userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0' });
     const page = await context.newPage(); page.setDefaultTimeout(20_000); page.on('pageerror', error => errors.push(error.message)); pages.push(page);
   }
   const [a, b, c] = pages, url = `http://127.0.0.1:${vite.httpServer.address().port}/`;
-  const blocked = await browser.newPage({viewport:{width:390,height:844}});
+  const blocked = await browser.newPage({ locale: 'zh-CN',viewport:{width:390,height:844}});
   await blocked.addInitScript(() => { indexedDB.open = () => { throw new DOMException('Synthetic blocked storage', 'SecurityError'); }; });
   await blocked.goto(`${url}#invite=synthetic-startup`);
   await blocked.locator('#startup-retry').waitFor();

@@ -23,7 +23,7 @@ try {
   for (const [name, engine] of Object.entries({ chromium, webkit })) {
     const browser = await engine.launch(name === 'chromium' && !process.env.CI ? { channel: 'chrome' } : {});
     try {
-      const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
+      const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3 });
       await context.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.copiedLink = text; } } }));
       const page = await context.newPage();
       let posts = 0;

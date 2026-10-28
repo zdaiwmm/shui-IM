@@ -4,7 +4,7 @@ import {createServer} from 'vite';
 const vite=await createServer({root:process.cwd(),configFile:false,appType:'custom',logLevel:'error',server:{host:'127.0.0.1',port:0,hmr:false},plugins:[{name:'runtime-isolation',configureServer(s){s.middlewares.use('/__runtime',(_q,r)=>{r.setHeader('Content-Type','text/html');r.end('<!doctype html><div id="app"></div>');});}}]});let browser;
 try{await vite.listen();for(const engine of [chromium,webkit]){
  browser=await engine.launch(engine===webkit?{}:process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
- const page=await browser.newPage();await page.goto(`http://localhost:${vite.httpServer.address().port}/__runtime`);
+ const page=await browser.newPage({locale: 'zh-CN'});await page.goto(`http://localhost:${vite.httpServer.address().port}/__runtime`);
  const result=await page.evaluate(async()=>{
   const {QuietRoomApp}=await import('/src/app.ts'),v=await import('/src/lib/vault.ts'),c=await import('/src/lib/crypto.ts'),k=await import('/src/lib/browser-room-key.ts'),a=await import('/src/lib/room-archive-crypto.ts');
   const create=async(label)=>{const identity=await c.generateIdentity(),roomId=crypto.randomUUID(),originRoomId=crypto.randomUUID(),stamp=new Date().toISOString();await v.selectLocalSpace(crypto.randomUUID());

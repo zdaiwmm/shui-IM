@@ -15,7 +15,7 @@ try {
   await server.listen();
   for (const engine of [chromium,webkit]) {
     browser = await engine.launch(engine===chromium&&!process.env.CI ? process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{channel:'chrome'} : {});
-    const page = await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3,
+    const page = await browser.newPage({ locale: 'zh-CN',viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3,
       userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1'});
     const errors=[];page.on('pageerror',error=>errors.push(error.message));
     await page.goto(`http://localhost:${server.httpServer.address().port}/__feedback`);
@@ -337,9 +337,12 @@ try {
     await page.waitForFunction(()=>document.querySelector('#cover-enabled').getAttribute('aria-checked')==='false');
     await page.locator('#cover-settings-back').click();
     await page.locator('.is-settings-sheet.is-restored').waitFor();
-    const settingIdentity=await page.locator('.space-drawer-scroll').evaluate(scroll=>{scroll.scrollTop=120;return scroll.scrollTop;});
+    await page.locator('.space-drawer-scroll').evaluate(scroll=>{scroll.scrollTop=120;});
     assert.equal(await page.locator('#cover-practice-menu .space-setting-label').textContent(),'入口遮蔽页');
     for(const [entry,back] of [['appearance-settings','appearance-back'],['auto-lock-settings','auto-lock-back'],['release-history','release-history-back']]) {
+      // New settings rows may require scrolling the chosen entry into view first.
+      await page.locator(`#${entry}`).scrollIntoViewIfNeeded();
+      const settingIdentity=await page.locator('.space-drawer-scroll').evaluate(scroll=>scroll.scrollTop);
       await page.locator(`#${entry}`).click();
       await page.locator(`#${back}`).waitFor();
       await page.evaluate(async()=>{await Promise.all(document.querySelector('#app').getAnimations({subtree:true}).map(animation=>animation.finished.catch(()=>{})));});

@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate } from './language';
 import { motion, retargetMotion } from './motion';
 import { transitionMediaCapsule, clearMediaCapsule, retireMediaCapsule } from './media-capsule';
 import { createElement, Image as ImageIcon, Video } from 'lucide';
@@ -30,11 +31,11 @@ export class MediaUploadView {
     retry: () => void, remove: () => void, changed: () => void, gif = false) {
     const video = isVideoFile({ mimeType: files[0]!.type, originalName: files[0]!.name });
     const plainFile = !video && !files[0]!.type.startsWith('image/');
-    this.kind = plainFile ? '文件' : video ? '视频' : expression ? '表情' : files.length > 1 ? '图片相册' : '图片';
+    this.kind = plainFile ? uiLiteral('文件') : video ? uiLiteral('视频') : expression ? uiLiteral('表情') : files.length > 1 ? uiLiteral('图片相册') : uiLiteral('图片');
     this.element.className = `message outgoing has-media media-upload${video ? ' video-upload' : plainFile ? ' file-upload' : ''}`;
     this.element.dataset.clientMsgId = id;
     this.element.dataset.concealed = String(!expression || autoHide);
-    this.element.setAttribute('aria-label', `正在发送${this.kind}`);
+    this.element.setAttribute('aria-label', uiTemplate`正在发送${this.kind}`);
     this.tile.className = `message-bubble media-upload-tile${expression ? ' media-upload-expression' : ''}`;
     this.tile.classList.toggle('gif-expression', gif);
     if (plainFile) this.tile.className = 'message-bubble file-bubble file-upload-tile';
@@ -46,7 +47,7 @@ export class MediaUploadView {
     this.status.className = 'media-upload-status';
     this.ring.className = 'media-upload-ring';
     this.ring.setAttribute('role', 'progressbar');
-    this.ring.setAttribute('aria-label', `${this.kind}上传进度`);
+    this.ring.setAttribute('aria-label', uiTemplate`${this.kind}上传进度`);
     this.ring.setAttribute('aria-valuemin', '0');
     this.ring.setAttribute('aria-valuemax', '100');
     const text = document.createElement('span');
@@ -56,27 +57,27 @@ export class MediaUploadView {
     text.append(this.percent, this.label);
     this.retry.type = 'button';
     this.retry.className = 'media-upload-retry';
-    this.retry.setAttribute('aria-label','重试');
+    this.retry.setAttribute('aria-label',uiLiteral('重试'));
     const retryText = document.createElement('span');
-    retryText.textContent = '· 重试';
+    retryText.textContent = uiLiteral('· 重试');
     this.retry.append(retryText);
     this.retry.addEventListener('click', retry);
     this.cancel.type = 'button';
     this.cancel.className = 'media-upload-remove';
-    this.cancel.setAttribute('aria-label', `移除未发送的${this.kind}`);
-    this.cancel.textContent = '移除未发送媒体';
+    this.cancel.setAttribute('aria-label', uiTemplate`移除未发送的${this.kind}`);
+    this.cancel.textContent = uiLiteral('移除未发送媒体');
     this.cancel.setAttribute('role','menuitem');
     this.cancel.addEventListener('click', remove);
     this.status.append(this.ring, text, this.retry);
     this.actions.className = 'media-upload-actions'; this.actions.hidden = true;
-    this.actions.setAttribute('role','menu'); this.actions.setAttribute('aria-label','未发送媒体操作');
-    const dismiss = document.createElement('button'); dismiss.type = 'button'; dismiss.textContent = '取消';
+    this.actions.setAttribute('role','menu'); this.actions.setAttribute('aria-label',uiLiteral('未发送媒体操作'));
+    const dismiss = document.createElement('button'); dismiss.type = 'button'; dismiss.textContent = uiLiteral('取消');
     dismiss.addEventListener('click', () => { this.actions.hidden = true; });
     this.actions.append(this.cancel, dismiss);
     if (plainFile) {
       const attachment = document.createElement('div'); attachment.className = 'file-attachment';
       const copy = document.createElement('span'); copy.className = 'file-attachment-copy';
-      const name = document.createElement('strong'); name.className = 'file-attachment-name'; name.textContent = files[0]!.name || '未命名文件';
+      const name = document.createElement('strong'); name.className = 'file-attachment-name'; name.textContent = files[0]!.name || uiLiteral('未命名文件');
       const size = document.createElement('span'); size.className = 'file-attachment-meta';
       const bytes = files[0]!.size;
       size.textContent = bytes < 1024 ? `${bytes} B` : bytes < 1024 ** 2 ? `${(bytes / 1024).toFixed(1)} KiB` : `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
@@ -141,8 +142,8 @@ export class MediaUploadView {
     this.percent.textContent = `${value}%`;
     this.percent.hidden = !hasPercent;
     this.status.dataset.indeterminate = String(state === 'uploading' && ratio === undefined);
-    this.label.textContent = state === 'preparing' ? '准备中' : state === 'finishing' ? '发送中'
-      : state === 'failed' ? this.element.dataset.failureStage === 'message' ? '发送失败' : '上传失败' : '上传中';
+    this.label.textContent = state === 'preparing' ? uiLiteral('准备中') : state === 'finishing' ? uiLiteral('发送中')
+      : state === 'failed' ? this.element.dataset.failureStage === 'message' ? uiLiteral('发送失败') : uiLiteral('上传失败') : uiLiteral('上传中');
     this.ring.hidden = state === 'failed';
     this.ring.style.setProperty('--upload-progress', `${value}%`);
     if (state === 'uploading' && ratio !== undefined) this.ring.setAttribute('aria-valuenow', String(value));
@@ -151,7 +152,7 @@ export class MediaUploadView {
     this.retry.disabled = this.uploadState !== 'failed';
     }, contentChanged, this.abort.signal);
     this.element.setAttribute('aria-busy', String(state !== 'failed'));
-    this.element.setAttribute('aria-label', state === 'failed' ? `${this.kind}${this.element.dataset.failureStage === 'message' ? '发送失败' : '上传失败'}，可重试或打开操作菜单移除未发送媒体` : `正在发送${this.kind}`);
+    this.element.setAttribute('aria-label', state === 'failed' ? uiTemplate`${this.kind}${this.element.dataset.failureStage === 'message' ? uiLiteral('发送失败') : uiLiteral('上传失败')}，可重试或打开操作菜单移除未发送媒体` : uiTemplate`正在发送${this.kind}`);
   }
 
   private url(blob: Blob): string {
@@ -185,14 +186,14 @@ export class MediaUploadView {
       // Concealed originals are never attached to the painted DOM, even for one frame.
       preview.src = conceal ? this.url(await createConcealedImage(decoded, signal)) : source;
       signal.throwIfAborted();
-      preview.alt = `${this.kind}${count > 1 ? ` ${index + 1}/${count}` : ''}${conceal ? '（已模糊）' : ''}`;
+      preview.alt = `${this.kind}${count > 1 ? ` ${index + 1}/${count}` : ''}${conceal ? uiLiteral('（已模糊）') : ''}`;
       preview.draggable = false;
       cell.replaceChildren(preview);
       retargetMotion(cell, null, { opacity: .55 }, { opacity: 1 }, motion.feedback);
       if (video) {
         const badge = document.createElement('span');
         badge.className = 'media-upload-video-label';
-        badge.append(createElement(Video), document.createTextNode('视频'));
+        badge.append(createElement(Video), document.createTextNode(uiLiteral('视频')));
         cell.append(badge);
       }
       this.element.dataset.poster = 'ready';

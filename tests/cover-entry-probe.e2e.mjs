@@ -9,7 +9,7 @@ const { code: source } = await transform(await readFile(new URL('../scripts/cove
 const engine = process.env.QUIET_ROOM_TEST_BROWSER === 'webkit' ? webkit : chromium;
 const browser = await engine.launch(engine === chromium && !process.env.CI ? { channel: 'chrome' } : {});
 try {
-  const page = await browser.newPage();
+  const page = await browser.newPage({locale: 'zh-CN'});
   let network = 0;
   await page.route('**/*', route => { network++; return route.fulfill({
     contentType: 'text/html', body: '<html><body class="cover-mode"><div id="app"><button class="cover-trigger">hold</button></div></body></html>',

@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { mountDialog } from './dialog';
 
 /** Long-lived help belongs in an on-demand dialog, never in an error toast. */
@@ -8,9 +9,9 @@ export function showExplanation(root: HTMLElement, title: string, paragraphs: st
   sheet.setAttribute('role', 'dialog');
   sheet.setAttribute('aria-modal', 'true');
   sheet.setAttribute('aria-label', title);
-  sheet.innerHTML = '<div class="confirm-dialog simple-confirm"><h2></h2><div data-copy></div><div class="simple-confirm-actions"><button class="primary-button" data-close type="button">知道了</button></div></div>';
+  sheet.innerHTML = uiLiteral('<div class="confirm-dialog simple-confirm"><h2></h2><div data-copy></div><div class="simple-confirm-actions"><button class="primary-button" data-close type="button">知道了</button></div></div>');
   sheet.querySelector('h2')!.textContent = title;
-  sheet.querySelector('[data-close]')!.textContent = options.closeLabel ?? '知道了';
+  sheet.querySelector('[data-close]')!.textContent = options.closeLabel ?? uiLiteral('知道了');
   for (const text of paragraphs) {
     const p = document.createElement('p'); p.textContent = text; sheet.querySelector('[data-copy]')!.append(p);
   }

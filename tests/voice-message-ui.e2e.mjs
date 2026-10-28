@@ -11,7 +11,7 @@ try{
  for(const[name,engine]of [['chromium',chromium],['webkit',webkit]]){
   const browser=await engine.launch({headless:true});
   try{
-   const context=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3});
+   const context=await browser.newContext({ locale: 'zh-CN',viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3});
    const page=await context.newPage();const errors=[];page.on('pageerror',error=>errors.push(error.message));
    await page.goto(`http://localhost:${server.httpServer.address().port}/__voice_message_ui`);
    await page.evaluate(async()=>{

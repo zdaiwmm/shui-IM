@@ -30,7 +30,7 @@ let browser;
 try {
   await vite.listen();
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 390, height: 844 } });
   page.setDefaultTimeout(60_000);
   const ids = Array.from({ length: 5 }, (_, index) => `00000000-0000-4000-8000-00000000000${index}`);
   let jobs = [

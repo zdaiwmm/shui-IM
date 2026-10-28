@@ -226,3 +226,5 @@ Chamber聊天卡片随键盘滚动、透明浮动顶栏、加入前样式门禁�
 移动表单统一输入：`src/lib/form-input.ts`／`src/form-input.css`；背景几何消费者通过 `layoutViewport()` 保持稳定，前景编辑器读取原始VisualViewport。`src/lib/gateway-intro.ts`维护入口图形三态。产品与安全边界见本次[需求记录](../requirements/2026-10-14-mobile-debug-feedback/README.md)。
 
 恢复失败原件清理：`room-archive.ts`与`vault.ts`共用独立未发布原件范围、小型run归属见证、消息／原件引用／目录原子发布及保守旧残留回收；`tests/restore-original-cleanup.e2e.mjs`由既有room-archive-lifecycle入口顺序纳入。范围和证据见[恢复清理R2](../requirements/2026-10-27-restore-failure-validation/README.md)。
+
+语言与反馈：`src/lib/language.ts` 和 `src/locales/` 管理本机语言与静态资源；`src/lib/language-feedback-ui.ts`、`src/language-feedback.css` 接入设置；`server/feedback.mjs` 提供独立反馈存储，公共提交由 `server/index.mjs` 接入，后台由 `server/admin.mjs` 与 `src/admin/workspace.ts` 承载。定向回归：`tests/language.test.ts`、`tests/feedback.test.ts`、`tests/language-feedback.e2e.mjs` 及 `tests/admin-workspace.e2e.mjs`。确认与交付见[需求 V1.1](../requirements/2026-10-28-language-feedback/README.md)。

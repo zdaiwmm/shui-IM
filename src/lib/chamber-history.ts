@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { isChamberVault } from './chamber-space';
 import { sha256 } from '@noble/hashes/sha2.js';
 import {canonicalStringify} from './canonical';
@@ -31,10 +32,10 @@ async function sourceChunk(session:VaultSession,blobId:string,index:number,size:
     // Originals uploaded by this authorized device need not already be in the
     // optional display cache. Stream one ciphertext chunk, never a full file.
     const raw=await fetchBlobChunk(session.vault.roomId,session.vault.accessToken,blobId,index,AbortSignal.any([signal,AbortSignal.timeout(30_000)]));
-    if(raw.byteLength!==size)throw new Error('历史备份暂停：原文件分块长度不正确');
+    if(raw.byteLength!==size)throw Object.assign(new Error(uiLiteral('历史备份暂停：原文件分块长度不正确')), { code: 'HISTORY_PAUSED' });
     return raw;
   }catch(cause){
-    if(cause instanceof ApiError&&[403,404,410].includes(cause.status))throw new Error('历史备份暂停：部分原文件缺失或不可读取，请先补齐原文件');
+    if(cause instanceof ApiError&&[403,404,410].includes(cause.status))throw Object.assign(new Error(uiLiteral('历史备份暂停：部分原文件缺失或不可读取，请先补齐原文件')), { code: 'HISTORY_PAUSED' });
     throw cause;
   }
 }
@@ -51,17 +52,17 @@ async function snapshot(session: VaultSession, signal: AbortSignal): Promise<Cha
   const after = session.vault.chamberBackup?.cursor ?? session.vault.historyUnavailableBeforeSeq ?? 0;
   const preferences=await loadUiPreferences(session),hiddenChatMessageIds=preferences.hiddenChatMessageIds??[];
   const hidden=session.vault.role==='creator'?new Map([...(session.vault.recoverySource?.galleryHidden??[]),...(session.vault.backup?.galleryHidden??[]),...(preferences.galleryCuration??[])].filter(record=>record.hidden).map(record=>[galleryCurationKey(record),{...record,pinnedAt:null}])):new Map<string,GalleryCurationRecord>();
-  if(hidden.size>20_000)throw new Error('历史备份暂停：保险箱删除标记超过上限，已保留先前备份');
+  if(hidden.size>20_000)throw Object.assign(new Error(uiLiteral('历史备份暂停：保险箱删除标记超过上限，已保留先前备份')), { code: 'HISTORY_PAUSED' });
   const galleryHidden=normalizeGalleryCurationRecords([...hidden.values()]);
   const metadataHash=toBase64Url(sha256(new TextEncoder().encode(canonicalStringify({hiddenChatMessageIds,galleryHidden}))));
   const messages = await loadChamberHistoryPageAfter(session,after,signal);
   if (!messages.length) {
-    if (after < session.vault.lastSeq) throw new Error('历史备份暂停：部分聊天内容缺失，请先补齐或恢复');
+    if (after < session.vault.lastSeq) throw Object.assign(new Error(uiLiteral('历史备份暂停：部分聊天内容缺失，请先补齐或恢复')), { code: 'HISTORY_PAUSED' });
     if(session.vault.chamberBackup?.head&&session.vault.chamberBackup.metadataHash===metadataHash)return undefined;
   }
   let expected = after + 1;
   for (const message of messages) {
-    if (message.seq !== expected++) throw new Error('历史备份暂停：部分聊天内容缺失，请先补齐或恢复');
+    if (message.seq !== expected++) throw Object.assign(new Error(uiLiteral('历史备份暂停：部分聊天内容缺失，请先补齐或恢复')), { code: 'HISTORY_PAUSED' });
   }
   const unique = new Map<string, ImageManifest>();
   // A joiner's old MLS cache can include creator-only Safe rows. Preserve only
@@ -78,10 +79,10 @@ async function snapshot(session: VaultSession, signal: AbortSignal): Promise<Cha
       const size = Math.min(manifest.chunkSize, manifest.originalSize - index * manifest.chunkSize) + 16;
       const chunk = await sourceChunk(session, manifest.blobId, index, size, signal);
       try { await verifier.chunk(index, chunk); }
-      catch { throw new Error('历史备份暂停：原文件完整性校验失败'); }
+      catch { throw Object.assign(new Error(uiLiteral('历史备份暂停：原文件完整性校验失败')), { code: 'HISTORY_PAUSED' }); }
       chunks.push({ blobId: manifest.blobId, index, size, digest: toBase64Url(sha256(new Uint8Array(chunk))) });
     }
-    try { verifier.finish(); } catch { throw new Error('历史备份暂停：原文件完整性校验失败'); }
+    try { verifier.finish(); } catch { throw Object.assign(new Error(uiLiteral('历史备份暂停：原文件完整性校验失败')), { code: 'HISTORY_PAUSED' }); }
   }
   // Only chat rows and data-key-bearing attachment manifests are serialized; never a Vault.
   const rows = visible.map(({ seq, clientMsgId, senderId, payload, acceptedAt, status }) => ({ seq, clientMsgId, senderId, payload, acceptedAt, status }));
@@ -111,7 +112,7 @@ export async function syncChamberHistory(session: VaultSession, signal: AbortSig
         let payload: Parameters<typeof sealChamberHistoryRecord>[0];
         if (chunk) {
           const raw = await sourceChunk(session, chunk.blobId, chunk.index, chunk.size, signal);
-          if (toBase64Url(sha256(new Uint8Array(raw))) !== chunk.digest) throw new Error('历史备份暂停：原文件缺失或完整性校验失败');
+          if (toBase64Url(sha256(new Uint8Array(raw))) !== chunk.digest) throw Object.assign(new Error(uiLiteral('历史备份暂停：原文件缺失或完整性校验失败')), { code: 'HISTORY_PAUSED' });
           payload = { v: 1, kind: 'attachment', roomId: session.vault.roomId, ownerId: binding.identity.id,
             blobId: chunk.blobId, index: chunk.index, bytes: toBase64Url(raw) };
         } else if(preference)payload={v:1,kind:'preferences',roomId:session.vault.roomId,ownerId:binding.identity.id,
@@ -132,7 +133,7 @@ export async function syncChamberHistory(session: VaultSession, signal: AbortSig
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pending.head), signal: AbortSignal.any([signal, AbortSignal.timeout(30_000)]),
       });
       await update(session, signal, next => {
-        if (next.pending?.record.id !== pending.record.id || !next.batch) throw new Error('历史备份状态已改变');
+        if (next.pending?.record.id !== pending.record.id || !next.batch) throw new Error(uiLiteral('历史备份状态已改变'));
         if (pending.chunk) next.batch.references.push({ blobId: pending.chunk.blobId, index: pending.chunk.index, unitId: pending.record.id });
         else if(pending.preference)next.batch.metadata.units.push(pending.record.id);
         else { next.cursor = next.batch.upperSeq; next.metadataHash=next.batch.metadata.hash; next.head = pending.head!.head; next.syncedAt = new Date().toISOString(); delete next.batch; }
@@ -142,8 +143,8 @@ export async function syncChamberHistory(session: VaultSession, signal: AbortSig
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : '';
     const code = cause && typeof cause === 'object' && 'code' in cause ? cause.code : '';
-    if (!signal.aborted && (message.startsWith('历史备份暂停：') || code === 'BACKUP_QUOTA' || code === 'STORAGE_QUOTA')) {
-      const reason = message.startsWith('历史备份暂停：') ? message : '历史备份暂停：容量不足，已保留先前的有效备份';
+    if (!signal.aborted && ((code === 'HISTORY_PAUSED' || message.startsWith('历史备份暂停：')) || code === 'BACKUP_QUOTA' || code === 'STORAGE_QUOTA')) {
+      const reason = (code === 'HISTORY_PAUSED' || message.startsWith('历史备份暂停：')) ? message : uiLiteral('历史备份暂停：容量不足，已保留先前的有效备份');
       await update(session, signal, state => { state.paused = reason; });
       throw new Error(reason);
     }

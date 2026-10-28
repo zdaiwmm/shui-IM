@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { ApiError, authorizedFetch, fetchBlobChunk } from './api';
 import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
@@ -31,26 +32,26 @@ function countBatch(batch: Batch): ArchiveCounts {
 /** Count only the committed chain authenticated by this browser's saved head.
  * Older archives read batch envelopes, never re-download the original media. */
 export async function readRoomArchiveCounts(session:VaultSession,signal:AbortSignal):Promise<ArchiveCounts> {
-  const archive=session.vault.roomArchiveV2;if(!archive)throw new Error('此密室不支持本人归档');
+  const archive=session.vault.roomArchiveV2;if(!archive)throw new Error(uiLiteral('此密室不支持本人归档'));
   const snapshot=structuredClone(session.vault.archiveState??{cursor:0,revision:0});
   if(snapshot.countsRevision===snapshot.revision&&snapshot.counts&&countKinds.every(kind=>Number.isSafeInteger(snapshot.counts![kind])&&snapshot.counts![kind]>=0))return snapshot.counts;
   const counts=emptyCounts();let ref=snapshot.head,revision=snapshot.revision;
-  if(!Number.isSafeInteger(revision)||revision<0||Boolean(ref)!==(revision>0))throw new Error('备份状态暂不可用');
+  if(!Number.isSafeInteger(revision)||revision<0||Boolean(ref)!==(revision>0))throw new Error(uiLiteral('备份状态暂不可用'));
   while(ref){
     signal.throwIfAborted();
-    if(!uuid.test(ref.id)||typeof ref.hash!=='string')throw new Error('备份状态暂不可用');
+    if(!uuid.test(ref.id)||typeof ref.hash!=='string')throw new Error(uiLiteral('备份状态暂不可用'));
     const object=await get<ArchiveObject>(archive.key,`/${ref.id}`,signal);
-    if(archiveObjectHash(object)!==ref.hash)throw new Error('备份统计校验失败');
+    if(archiveObjectHash(object)!==ref.hash)throw new Error(uiLiteral('备份统计校验失败'));
     const batch=await openArchiveObject(archive.key,object) as Batch;
-    if(batch?.v!==2||batch.kind!=='batch'||batch.revision!==revision||!batch.item||typeof batch.item.self!=='boolean'||!uuid.test(batch.item.originRoomId)||!isMessagePayload(batch.item.message?.payload)||!Array.isArray(batch.media)||batch.media.length>100||canonicalStringify(manifests(batch.item.message))!==canonicalStringify(batch.media.map(media=>media.manifest)))throw new Error('备份统计校验失败');
+    if(batch?.v!==2||batch.kind!=='batch'||batch.revision!==revision||!batch.item||typeof batch.item.self!=='boolean'||!uuid.test(batch.item.originRoomId)||!isMessagePayload(batch.item.message?.payload)||!Array.isArray(batch.media)||batch.media.length>100||canonicalStringify(manifests(batch.item.message))!==canonicalStringify(batch.media.map(media=>media.manifest)))throw new Error(uiLiteral('备份统计校验失败'));
     const next=countBatch(batch);for(const kind of Object.keys(counts) as Array<keyof ArchiveCounts>)counts[kind]+=next[kind];
     revision--;
-    if(revision===0){if(batch.previous!==null)throw new Error('备份链不完整');ref=undefined;}
-    else {if(!batch.previous||!uuid.test(batch.previous.id)||typeof batch.previous.hash!=='string')throw new Error('备份链不完整');ref=batch.previous;}
+    if(revision===0){if(batch.previous!==null)throw new Error(uiLiteral('备份链不完整'));ref=undefined;}
+    else {if(!batch.previous||!uuid.test(batch.previous.id)||typeof batch.previous.hash!=='string')throw new Error(uiLiteral('备份链不完整'));ref=batch.previous;}
   }
-  if(revision!==0)throw new Error('备份链不完整');
+  if(revision!==0)throw new Error(uiLiteral('备份链不完整'));
   await update(session,signal,state=>{
-    if(state.revision!==snapshot.revision||state.head?.id!==snapshot.head?.id)throw new DOMException('备份状态已更新','AbortError');
+    if(state.revision!==snapshot.revision||state.head?.id!==snapshot.head?.id)throw new DOMException(uiLiteral('备份状态已更新'),'AbortError');
     state.counts=counts;state.countsRevision=state.revision;
   });
   return counts;
@@ -68,20 +69,20 @@ async function update(session:VaultSession,signal:AbortSignal,change:(state:Room
 async function put(session:VaultSession,key:ArchiveKey,object:ArchiveObject|undefined,signal:AbortSignal) {
   const path=`/api/rooms/${session.vault.roomId}/private-archives/${key.descriptor.id}${object?`/${object.id}`:''}`;
   await authorizedFetch(path,session.vault.accessToken,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(object??{descriptor:key.descriptor,proof:archiveWriterProof(key,session.vault.roomId,session.vault.identity.publicBundle.deviceId)}),signal:AbortSignal.any([signal,AbortSignal.timeout(30_000)])});
-  if(object){const readback=await get<ArchiveObject>(key,`/${object.id}`,signal);if(archiveObjectHash(readback)!==archiveObjectHash(object))throw new Error('备份回读校验失败，请保留本机数据后重试');}
+  if(object){const readback=await get<ArchiveObject>(key,`/${object.id}`,signal);if(archiveObjectHash(readback)!==archiveObjectHash(object))throw new Error(uiLiteral('备份回读校验失败，请保留本机数据后重试'));}
 }
 async function readPart(session:VaultSession,manifest:ImageManifest,index:number,signal:AbortSignal,localOnly:boolean) {
   const size=Math.min(manifest.chunkSize,manifest.originalSize-index*manifest.chunkSize)+16;
   const cached=await (localOnly?loadPrivateMediaChunk:loadCachedMediaChunk)(session,manifest.blobId,index,size);
   if(cached)return cached;
-  if(localOnly)throw new Error('原文件尚未完整恢复，请先完成恢复后重试备份');
+  if(localOnly)throw new Error(uiLiteral('原文件尚未完整恢复，请先完成恢复后重试备份'));
   return fetchBlobChunk(session.vault.roomId,session.vault.accessToken,manifest.blobId,index,signal);
 }
 async function prepare(session:VaultSession,key:ArchiveKey,item:PrivateArchiveItem,signal:AbortSignal,localOnly:boolean,privateRevision:string):Promise<NonNullable<RoomArchiveState['pending']>> {
   const source=sourceSession(session,item.sourceScope);
   const identity=itemId(item);
   if (!session.vault.archiveState?.preparing) await update(session,signal,s=>{s.preparing={itemId:identity,media:[],...(localOnly?{privateId:identity,privateRevision}:{sharedSeq:item.message.seq})};delete s.completeAt;});
-  if (session.vault.archiveState!.preparing!.itemId!==identity) throw new Error('备份来源已改变，请保留本机数据');
+  if (session.vault.archiveState!.preparing!.itemId!==identity) throw new Error(uiLiteral('备份来源已改变，请保留本机数据'));
   for (const [mediaIndex,manifest] of manifests(item.message).entries()) {
     // Verify the original incrementally before publishing a manifest. Only one
     // encrypted chunk is retained in the vault during crash-safe upload.
@@ -111,7 +112,7 @@ async function prepare(session:VaultSession,key:ArchiveKey,item:PrivateArchiveIt
 }
 /** Foreground-only. A durable encrypted pending batch precedes every network write. */
 export async function syncRoomArchive(session:VaultSession,signal:AbortSignal):Promise<import('./archive-backup-state').BackupOutcome> {
-  const key=session.vault.roomArchiveV2?.key;if(!key||session.vault.roomArchiveV2?.rotation||session.vault.pairingState!=='ready')return {kind:'paused',reason:session.vault.roomArchiveV2?.rotation?'凭证更新待完成':'会话尚未就绪'};
+  const key=session.vault.roomArchiveV2?.key;if(!key||session.vault.roomArchiveV2?.rotation||session.vault.pairingState!=='ready')return {kind:'paused',reason:session.vault.roomArchiveV2?.rotation?uiLiteral('凭证更新待完成'):uiLiteral('会话尚未就绪')};
   const privateMeta=await readPrivateCatalogMeta(session,signal);
   await put(session,key,undefined,signal);
   for(let pass=0;pass<10;pass++) {
@@ -121,23 +122,23 @@ export async function syncRoomArchive(session:VaultSession,signal:AbortSignal):P
       const preparation=session.vault.archiveState?.preparing;
       const rows=preparation?.privateId?[]:await loadChamberHistoryPageAfter(session,after,signal);
       const row=rows[0];let item:PrivateArchiveItem|undefined;let localOnly=false;
-      if(preparation?.privateId){item=await loadPrivateArchiveItem(session,preparation.privateId,signal)??undefined;localOnly=true;if(!item)throw new Error('待传私有记录缺失，请保留本机数据');}
+      if(preparation?.privateId){item=await loadPrivateArchiveItem(session,preparation.privateId,signal)??undefined;localOnly=true;if(!item)throw new Error(uiLiteral('待传私有记录缺失，请保留本机数据'));}
       else if(row) {
-        if(row.seq!==after+1){const boundary=session.vault.historyUnavailableBeforeSeq??0;if(after<boundary){await update(session,signal,s=>{s.cursor=Math.min(row.seq-1,boundary);});continue;}throw new Error('部分记录尚未备份，请保留本机数据后重试');}
+        if(row.seq!==after+1){const boundary=session.vault.historyUnavailableBeforeSeq??0;if(after<boundary){await update(session,signal,s=>{s.cursor=Math.min(row.seq-1,boundary);});continue;}throw new Error(uiLiteral('部分记录尚未备份，请保留本机数据后重试'));}
         if(session.vault.role!=='creator'&&['gallery-image','gallery-file'].includes(row.payload.kind)) {await update(session,signal,s=>{s.cursor=row.seq;});continue;}
-        const sender=session.vault.members.find(m=>m.deviceId===row.senderId);if(!sender)throw new Error('记录发送者身份不完整，请保留本机记录');
+        const sender=session.vault.members.find(m=>m.deviceId===row.senderId);if(!sender)throw new Error(uiLiteral('记录发送者身份不完整，请保留本机记录'));
         item={originRoomId:session.vault.roomId,message:row,self:sender.role===session.vault.role,sourceScope:session.vault.localDataScope??session.vault.roomId};
       } else {
-        if(after<session.vault.lastSeq){const boundary=session.vault.historyUnavailableBeforeSeq??0;if(after<boundary){await update(session,signal,s=>{s.cursor=boundary;});continue;}throw new Error('部分记录尚未备份，请保留本机数据后重试');}
+        if(after<session.vault.lastSeq){const boundary=session.vault.historyUnavailableBeforeSeq??0;if(after<boundary){await update(session,signal,s=>{s.cursor=boundary;});continue;}throw new Error(uiLiteral('部分记录尚未备份，请保留本机数据后重试'));}
         const done=new Set(session.vault.archiveState?.privateDone??[]);
         for await(const candidate of scanPrivateArchiveItems(session,{signal,exclude:done,afterId:session.vault.archiveState?.privateScan?.revision===privateMeta.revision?session.vault.archiveState.privateScan.afterId:undefined})){item=candidate;break;}localOnly=true;
       }
-      if(preparation&&(!item||itemId(item)!==preparation.itemId)){const original=await loadPrivateArchiveItem(session,preparation.itemId,signal);if(original&&!preparation.sharedSeq){item=original;localOnly=true;}else throw new Error('备份来源已改变，请保留本机数据');}
-      if(item&&preparation?.sharedSeq!==undefined&&(localOnly||item.message.seq!==preparation.sharedSeq))throw new Error('备份共享记录序号不一致，请保留本机数据');
+      if(preparation&&(!item||itemId(item)!==preparation.itemId)){const original=await loadPrivateArchiveItem(session,preparation.itemId,signal);if(original&&!preparation.sharedSeq){item=original;localOnly=true;}else throw new Error(uiLiteral('备份来源已改变，请保留本机数据'));}
+      if(item&&preparation?.sharedSeq!==undefined&&(localOnly||item.message.seq!==preparation.sharedSeq))throw new Error(uiLiteral('备份共享记录序号不一致，请保留本机数据'));
       if(!item){
         await update(session,signal,async s=>{
-          if((await readPrivateCatalogMeta(session,signal)).revision!==privateMeta.revision)throw new DOMException('私有历史已更新，请继续备份','AbortError');
-          if(s.cursor<session.vault.lastSeq)throw new DOMException('新增记录等待备份','AbortError');
+          if((await readPrivateCatalogMeta(session,signal)).revision!==privateMeta.revision)throw new DOMException(uiLiteral('私有历史已更新，请继续备份'),'AbortError');
+          if(s.cursor<session.vault.lastSeq)throw new DOMException(uiLiteral('新增记录等待备份'),'AbortError');
           s.completeAt=new Date().toISOString();s.lastComplete={archiveId:key.descriptor.id,scope:session.vault.localDataScope??session.vault.roomId,sharedThrough:session.vault.lastSeq,privateRevision:privateMeta.revision,revision:s.revision,at:s.completeAt};
         });return {kind:'complete'};
       }
@@ -148,7 +149,7 @@ export async function syncRoomArchive(session:VaultSession,signal:AbortSignal):P
     signal.throwIfAborted();await put(session,key,pending.object,signal);
     const delta=countBatch(await openArchiveObject(key,pending.object) as Batch);
     await update(session,signal,s=>{
-      if(s.pending?.head.id!==pending.head.id)throw new Error('备份任务已改变');
+      if(s.pending?.head.id!==pending.head.id)throw new Error(uiLiteral('备份任务已改变'));
       if(s.counts&&s.countsRevision===s.revision){for(const kind of Object.keys(delta) as Array<keyof ArchiveCounts>)s.counts[kind]+=delta[kind];s.countsRevision=s.revision+1;}
       s.head=pending.head;s.revision++;if(pending.cursor!==undefined)s.cursor=pending.cursor;
       if(pending.privateId){s.privateDone=[...new Set([...(s.privateDone??[]),pending.privateId])];if(pending.privateRevision)s.privateScan={revision:pending.privateRevision,afterId:pending.privateId};}
@@ -181,7 +182,7 @@ async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal
   const state:ArchiveRestoreProgress={stage:'reading',objects:0,totalObjects:0,messages:0,images:0,videos:0,files:0,audio:0};
   detail?.({...state});
   const snapshot=await get<{descriptor:ArchiveKey['descriptor'];end:number;count?:number}>(key,'',signal);
-  if(canonicalStringify(snapshot.descriptor)!==canonicalStringify(key.descriptor)||!Number.isSafeInteger(snapshot.end)||snapshot.end<0)throw new Error('归档来源校验失败');
+  if(canonicalStringify(snapshot.descriptor)!==canonicalStringify(key.descriptor)||!Number.isSafeInteger(snapshot.end)||snapshot.end<0)throw new Error(uiLiteral('归档来源校验失败'));
   // Cursor IDs are global across archives; only this snapshot's actual count
   // is a valid denominator. Older servers retain indeterminate progress.
   state.totalObjects=Number.isSafeInteger(snapshot.count)&&snapshot.count!>=0&&snapshot.count!<=snapshot.end?snapshot.count!:0;detail?.({...state});
@@ -192,46 +193,46 @@ async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal
 
   for(;;) {
     const page=await get<{cursor:number;id:string;bytes:number}[]>(key,`?after=${after}&end=${snapshot.end}`,signal);
-    if(!Array.isArray(page)||page.length>100)throw new Error('备份目录不正确');
+    if(!Array.isArray(page)||page.length>100)throw new Error(uiLiteral('备份目录不正确'));
     for(const row of page) {
-      if(!Number.isSafeInteger(row.cursor)||row.cursor<=after||row.cursor>snapshot.end||!/^[0-9a-f-]{36}$/.test(row.id))throw new Error('备份目录不正确');
+      if(!Number.isSafeInteger(row.cursor)||row.cursor<=after||row.cursor>snapshot.end||!/^[0-9a-f-]{36}$/.test(row.id))throw new Error(uiLiteral('备份目录不正确'));
       after=row.cursor;
       const object=await get<ArchiveObject>(key,`/${row.id}`,signal);
-      if(object.id!==row.id)throw new Error('归档分块被替换');
+      if(object.id!==row.id)throw new Error(uiLiteral('归档分块被替换'));
       const payload=await openArchiveObject(key,object) as Batch|MediaPayload;
-      if(payload?.v!==2||!['batch','media'].includes(payload.kind))throw new Error('不支持的归档内容');
+      if(payload?.v!==2||!['batch','media'].includes(payload.kind))throw new Error(uiLiteral('不支持的归档内容'));
       if(payload.kind!=='batch'){state.objects++;detail?.({...state});continue;}
     signal.throwIfAborted();
     if(payload.revision!==++revision||canonicalStringify(payload.previous)!==canonicalStringify(previous)||
       !payload.item||typeof payload.item.self!=='boolean'||!uuid.test(payload.item.originRoomId)||!isMessagePayload(payload.item.message?.payload)||
-      !uuid.test(payload.item.message.clientMsgId)||!uuid.test(payload.item.message.senderId)||!Number.isSafeInteger(payload.item.message.seq)||payload.item.message.seq<1||!timestamp(payload.item.message.acceptedAt)||!['sent','stored','delivered'].includes(payload.item.message.status)||!Array.isArray(payload.media)||payload.media.length>100)throw new Error('历史来源或完整性校验失败');
+      !uuid.test(payload.item.message.clientMsgId)||!uuid.test(payload.item.message.senderId)||!Number.isSafeInteger(payload.item.message.seq)||payload.item.message.seq<1||!timestamp(payload.item.message.acceptedAt)||!['sent','stored','delivered'].includes(payload.item.message.status)||!Array.isArray(payload.media)||payload.media.length>100)throw new Error(uiLiteral('历史来源或完整性校验失败'));
     const prior=await loadPrivateArchiveItem(session,itemId(payload.item),signal);
     // Only published copies may be reused. Fresh per-run/source namespaces keep
     // another restore (including old clients) from borrowing unfinished chunks.
     let scope=prior?.sourceScope??destinationScopes.get(payload.item.originRoomId);
     if(!scope){scope=`${session.vault.localDataScope??session.vault.roomId}:private:${crypto.randomUUID()}`;destinationScopes.set(payload.item.originRoomId,scope);}
     const item={...payload.item,sourceScope:scope};
-    if(prior&&canonicalStringify(prior)!==canonicalStringify(item))throw new Error('导入记录与已保存的历史冲突');
+    if(prior&&canonicalStringify(prior)!==canonicalStringify(item))throw new Error(uiLiteral('导入记录与已保存的历史冲突'));
     const expected=manifests(payload.item.message);
-    if(canonicalStringify(expected)!==canonicalStringify(payload.media.map(x=>x.manifest)))throw new Error('原图片清单不完整');
+    if(canonicalStringify(expected)!==canonicalStringify(payload.media.map(x=>x.manifest)))throw new Error(uiLiteral('原图片清单不完整'));
     if(discovering){
       totals.messages++;for(const {manifest} of payload.media){const kind=manifest.mimeType?.startsWith('image/')?'images':manifest.mimeType?.startsWith('video/')?'videos':manifest.mimeType?.startsWith('audio/')?'audio':'files';totals[kind]++;}
       previous={id:object.id,hash:archiveObjectHash(object)};state.objects++;detail?.({...state});continue;
     }
     for(const {manifest,parts} of payload.media) {
-      if(!Array.isArray(parts)||parts.length!==manifest.chunkCount)throw new Error('原图片分块缺失');
+      if(!Array.isArray(parts)||parts.length!==manifest.chunkCount)throw new Error(uiLiteral('原图片分块缺失'));
       const verifier=await attachmentVerifier(manifest);
       // Verify a whole original before publishing any message that references it.
       for(let pass=0;pass<2;pass++)for(let index=0;index<parts.length;index++) {
         const ref=parts[index]!;
-        if(!ref||!/^[0-9a-f-]{36}$/.test(ref.id))throw new Error('原图片分块不正确');
+        if(!ref||!/^[0-9a-f-]{36}$/.test(ref.id))throw new Error(uiLiteral('原图片分块不正确'));
         const part=await get<ArchiveObject>(key,`/${ref.id}`,signal);
-        if(archiveObjectHash(part)!==ref.hash)throw new Error('原图片分块被替换');
+        if(archiveObjectHash(part)!==ref.hash)throw new Error(uiLiteral('原图片分块被替换'));
         const media=await openArchiveObject(key,part) as MediaPayload;
-        if(media.kind!=='media'||media.v!==2||media.blobId!==manifest.blobId||media.index!==index||typeof media.bytes!=='string')throw new Error('原图片分块归属不正确');
+        if(media.kind!=='media'||media.v!==2||media.blobId!==manifest.blobId||media.index!==index||typeof media.bytes!=='string')throw new Error(uiLiteral('原图片分块归属不正确'));
         const raw=fromBase64Url(media.bytes);
         if(pass===0){await verifier.chunk(index,raw.buffer);if(index===parts.length-1)verifier.finish();}
-        else {await stagePrivateArchiveMedia(session,runId,scope,manifest.blobId,index,raw.buffer,signal,Boolean(prior));const saved=await loadStagedPrivateArchiveMedia(session,runId,scope,manifest.blobId,index,raw.length);if(!saved||toBase64Url(saved)!==media.bytes)throw new Error('本机密室不足，请腾出密室后重试');}
+        else {await stagePrivateArchiveMedia(session,runId,scope,manifest.blobId,index,raw.buffer,signal,Boolean(prior));const saved=await loadStagedPrivateArchiveMedia(session,runId,scope,manifest.blobId,index,raw.length);if(!saved||toBase64Url(saved)!==media.bytes)throw new Error(uiLiteral('本机密室不足，请腾出密室后重试'));}
       }
     }
     for(const {manifest} of payload.media){const kind=manifest.mimeType?.startsWith('image/')?'images':manifest.mimeType?.startsWith('video/')?'videos':manifest.mimeType?.startsWith('audio/')?'audio':'files';state[kind]++;}
@@ -239,9 +240,9 @@ async function restoreArchiveContents(session:VaultSession,key:ArchiveKey,signal
     await stagePrivateArchiveItem(session,runId,item,signal);
     previous={id:object.id,hash:archiveObjectHash(object)};progress(++count);
     }
-    if(page.length<100){if(after!==snapshot.end)throw new Error('备份目录不完整，请重试');break;}
+    if(page.length<100){if(after!==snapshot.end)throw new Error(uiLiteral('备份目录不完整，请重试'));break;}
   }
-  if(snapshot.count!==undefined&&state.objects!==snapshot.count)throw new Error('备份目录数量不一致');
+  if(snapshot.count!==undefined&&state.objects!==snapshot.count)throw new Error(uiLiteral('备份目录数量不一致'));
   }
   state.stage='committing';detail?.({...state});
   await commitPrivateArchiveImport(session,runId,signal);

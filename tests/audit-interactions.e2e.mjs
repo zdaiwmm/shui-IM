@@ -21,7 +21,7 @@ try {
   await vite.listen();
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   const endpoint = async () => {
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, hasTouch: true });
     const page = await context.newPage(); page.setDefaultTimeout(15000);
     page.on('pageerror', error => errors.push(error.message));
     const cdp = await context.newCDPSession(page);

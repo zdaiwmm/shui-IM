@@ -5,7 +5,7 @@ import { observeExitRequests } from '../helpers/webkit-exit-diagnostics.mjs';
 
 /** Real gateway, encrypted local protection and creation, with synthetic links only. */
 export async function verifyExpiredInviteEntry(browser, baseUrl) {
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true,
+  const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, isMobile: true,
     hasTouch: true, deviceScaleFactor: 3 });
   const page = await context.newPage(), errors = [], exitEvidence = await observeExitRequests(page);
   page.setDefaultTimeout(20_000);

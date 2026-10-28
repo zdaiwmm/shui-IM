@@ -20,7 +20,7 @@ try {
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   const origin = `http://localhost:${vite.httpServer.address().port}`, errors = [];
   const endpoint = async () => {
-    const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'],
+    const context = await browser.newContext({ locale: 'zh-CN', permissions: ['clipboard-read', 'clipboard-write'],
       viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2,
       userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
     const page = await context.newPage(); page.setDefaultTimeout(20_000);
@@ -88,7 +88,7 @@ try {
   for (const scheme of ['light', 'dark']) for (const width of [320, 390]) await layout(bob, width, scheme);
   // A desktop context is necessary: widening the mobile context invokes the
   // intentional portrait-only guard. Only synthetic encrypted localhost data is copied.
-  const desktop = await browser.newContext({ storageState: await bobContext.storageState({ indexedDB: true }), viewport: { width: 1440, height: 844 } });
+  const desktop = await browser.newContext({ locale: 'zh-CN', storageState: await bobContext.storageState({ indexedDB: true }), viewport: { width: 1440, height: 844 } });
   const desktopPage = await desktop.newPage(); desktopPage.on('pageerror', error => errors.push(error.message));
   await desktopPage.goto(origin); await desktopPage.locator('.access-denied-page').waitFor();
   for (const scheme of ['light', 'dark']) await layout(desktopPage, 1440, scheme);
