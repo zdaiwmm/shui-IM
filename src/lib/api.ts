@@ -546,7 +546,7 @@ export class RoomSocket {
                 this.queuedSyncAfter = null;
                 // ACKs may have requested the same old page while it was
                 // decrypting. Resume at the contiguous durable cursor only.
-                this.requestSync(Math.max(after, this.afterSeq()));
+                this.requestSync(this.afterSeq());
               }
             }
           }

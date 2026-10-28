@@ -167,6 +167,23 @@ describe('RoomSocket membership ordering', () => {
       await vi.waitFor(() => expect(requests()).toEqual([{ type: 'sync', afterSeq: 7 }, { type: 'sync', afterSeq: 8 }]));
     } finally { socket.close(); }
   });
+  it('re-reads the durable cursor after a page write rolls back instead of trusting a queued cursor', async () => {
+    environment(); const callbacks = handlers(); let cursor = 7, finish!: () => void;
+    callbacks.sync.mockImplementation(async () => {
+      cursor = 8;
+      await new Promise<void>(resolve => { finish = resolve; });
+      cursor = 7;
+    });
+    const socket = new RoomSocket('room', 'token', () => cursor, () => 0, callbacks);
+    try {
+      socket.connect(); const transport = FakeWebSocket.instances[0]!; transport.emit('open');
+      socket.requestSync(7); transport.emit('message', JSON.stringify({ type: 'sync', messages: [{ seq: 8 }] }));
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+      socket.requestSync(8); finish();
+      await vi.waitFor(() => expect(transport.sent.map(value => JSON.parse(value)).filter(frame => frame.type === 'sync'))
+        .toEqual([{ type: 'sync', afterSeq: 7 }, { type: 'sync', afterSeq: 7 }]));
+    } finally { socket.close(); }
+  });
   it('does not let an old page completion release a reconnect generation catch-up request', async () => {
     environment(); const callbacks = handlers(); let finish!: () => void;
     callbacks.sync.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
