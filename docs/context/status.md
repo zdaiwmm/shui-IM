@@ -101,11 +101,11 @@
 - 原治理交付时的独占目录为治理树，文档分支 `codex/project-governance-evidence-20261025`，起点为已核实合并SHA；没有复制部署配置。公共Git证据位于 `quiet-room-deliveries/evidence/project-governance-20261025/reviewed-summary.json`，包含本地、只读回读、隔离修复和CI定位。
 - 该批提交现已包含于本次固定应用；本轮不修改或清理其任务现场。纯文档对账 SHA 不替代线上应用 SHA。
 
-## 语言与反馈 V1.1：CI 阻塞，未合并（2026-10-28）
+## 语言与反馈 V1.1：功能已合并，后续回归修复阻塞（2026-10-28）
 
-用户确认 V1.1 静态原型并明确授权实施、测试与合并，要求移除新增页解释性提示。独占树 `language-feedback-prototype-20261028` 基于实时 main `be615e3`；11 种用户端语言、设备匹配／English 兜底、必填邮箱反馈以及后台读取／标记已读已实现。[需求记录](../requirements/2026-10-28-language-feedback/README.md)拥有确认、边界及最终验收证据。本地完整浏览器回归 87／87 通过，最终组合专项通过；已保留主线 Safari 键盘修复，候选 `e764df7a`／版本 `2026.10.28.4`。PR #454 的 CI 40659566862 再次在 130 条离线消息恢复检查中超时，按重复失败停止规则保留阻塞，未合并。应用远端 head 不变，结果记录暂存任务提交并同步 PR 描述；无生产发布授权，不替换下方生产事实。
+11 种语言（含繁体）、设备匹配／English 兜底、必填邮箱反馈、后台查看／标记已读，已由 [PR #454](https://github.com/zdaiwmm/shui-IM/pull/454) 合入 main `b784f5a4e70426b33c4f59c1165fd8267f55fdce`，版本 `2026.10.28.5`，新增页面已去掉解释性段落。精确 PR head `c9a42910` 的[完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/40661942829)通过，含 88 个浏览器入口；本地完整单元 1,192 项与组合专项通过。生产尚未发布，无新增真机／全量母语审校结论。
 
-
+合并后主线复跑暴露离线恢复耗时与续发请求遗漏；[PR #460](https://github.com/zdaiwmm/shui-IM/pull/460) 的后续修复（候选 .6）有旧行为失败／新行为通过的确定性回归和真实离线／129 条跨纪元专项证据，但[最终组合 CI 40667038514](https://github.com/zdaiwmm/shui-IM/actions/runs/40667038514)在反应插入 FLIP 动画断言重复失败，本地原样复核通过，原因未知。依重复失败停止规则保留草稿 PR，不绕过门禁；该修复未进入 main，.6 未发布。主线当前不能记为完整 CI 全绿，发布前仍需精确目标完整 CI。[需求记录](../requirements/2026-10-28-language-feedback/README.md)保留全部阶段和证据；工作树保留。
 
 ## 仍开放的边界与证据缺口
 
