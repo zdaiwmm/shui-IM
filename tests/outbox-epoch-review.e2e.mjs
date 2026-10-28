@@ -78,12 +78,17 @@ try {
       assert.equal(queued.count, oldCount + freshCount); assert.equal(queued.encrypted, queued.count); assert.equal(queued.intentsOnly, 0);
       const start = backend.store.roomState(roomId);
       await b.evaluate(() => { reviewApp.socket.sendEnvelope = window.reviewOriginalSend; void reviewApp.resumeOutbox(); });
-      const deadline = Date.now() + 90_000;
+      // Bound both total work and lack of accepted-message progress. Crypto and
+      // IndexedDB speed varies on shared CI hosts; a stuck queue still fails fast.
+      const deadline = Date.now() + 180_000;
+      let progressAt = Date.now(), lastAccepted = 0;
       let final, accepted;
       while (Date.now() < deadline) {
         final = backend.store.roomState(roomId);
         accepted = queued.ids.filter(id => backend.store.getMessageByClientId(roomId, id)).length;
         if (accepted === oldCount + freshCount) break;
+        if (accepted > lastAccepted) { lastAccepted = accepted; progressAt = Date.now(); }
+        if (Date.now() - progressAt >= 30_000) break;
         // Several signed self-updates with zero accepted application progress
         // prove the bounded-window scheduling cycle without a long stress run.
         if (final.nextMlsEventSeq >= start.nextMlsEventSeq + 3 && accepted === 0) break;
