@@ -6,7 +6,7 @@ This service can preserve confidentiality when storage is disclosed, but availab
 
 The public nginx configuration replaces X-Forwarded-For with `$remote_addr`, matching the administrator origin. The application accepts one valid forwarded IP only when the immediate socket peer is in TRUSTED_PROXY_ADDRESSES; chains or malformed values fall back to that peer. Canonical IPv6 and IPv4-mapped IPv6 share the corresponding bucket. Preserve the existing request/connection edge limits. See the [application contract](SECURITY.md#current-scope-and-abuse-control-contract).
 
-Before installing a reviewed proxy change, determine the actual nginx-to-container socket address and any upstream proxy topology. Do not add arbitrary public clients or entire networks as trusted peers, or assume loopback is the observed container peer. A separately trusted upstream must supply nginx with a verified client address; do not enable a general client-controlled real-IP header. Run the real nginx configuration check before reload, then verify same-source forged XFF requests share admission and real distinct sources remain distinct. Repository/static tests do not prove this installed chain; an application-only release does not establish that nginx configuration was updated. This task has not installed or reloaded production nginx.
+Before installing a reviewed proxy change, determine the actual nginx-to-container socket address and any upstream proxy topology. Do not add arbitrary public clients or entire networks as trusted peers, or assume loopback is the observed container peer. A separately trusted upstream must supply nginx with a verified client address; do not enable a general client-controlled real-IP header. Run the real nginx configuration check before reload, then verify same-source forged XFF requests share admission and real distinct sources remain distinct. Repository/static tests do not prove this installed chain; an application-only release does not establish that nginx configuration was updated. On 2026-10-27, production installed the exact reviewed configuration for application 7516e8e49959f7b24a5bfb305e5aa820191c4931 after measuring the immediate socket peer as 10.255.2.1. The exact peer is now included with loopback in TRUSTED_PROXY_ADDRESSES. Server syntax validation, reload, runtime trust and configuration hashes, forged-header shared admission, distinct real-source admission, and natural-window recovery passed on both public and administrator origins; see the [release evidence](RELEASING.md#release-audit-remediation-20261027). Re-measure topology before future changes.
 
 ## Capacity governance
 
@@ -204,7 +204,13 @@ Recommended minimum production policy:
 The worker now atomically records `.backup-state.json` with the last verified
 snapshot creation time and last attempt result. Compose probes
 `scripts/backup-health.mjs` every five minutes; missing, invalid, future, stale
-state or a failed latest attempt is unhealthy. `BACKUP_MAX_AGE_MS` defaults to
+state or a failed latest attempt is unhealthy. During the existing five-minute
+startup grace period, Compose explicitly probes every ten seconds; after the
+first success the steady interval remains five minutes. The predicate, timeout
+and retry count are unchanged. This requires Docker Engine 25+ and Compose
+2.20.2+; the read-only production inventory found Engine 26.1.3 / Compose 2.27.0.
+Source changes take effect only through a separately approved release, not by
+restarting production during development. `BACKUP_MAX_AGE_MS` defaults to
 36 hours. This reports the worker's verification evidence, not a fresh checksum
 scan on every probe or actual delivery of an external alert. Successful cycles
 are scheduled from their start time; failures wait up to five minutes after

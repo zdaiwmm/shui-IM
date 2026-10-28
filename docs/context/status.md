@@ -1,5 +1,19 @@
 # Quiet Room 当前状态
 
+## 部署效率 V1 已发布（2026-10-27 20:19）
+
+[第一批PR #439](https://github.com/zdaiwmm/shui-IM/pull/439)合并为`da6f7d6`，补按耗时分片与精确本地验证复用；[第二批PR #440](https://github.com/zdaiwmm/shui-IM/pull/440)合并为候选`69b437c2f016aecde5063fff1be7070ebf1ac0cf`，补10秒启动期探针及最长6分钟的独立回读观察。原健康判定、宽限期、备份／回滚边界、全部浏览器及精确CI门槛保留。
+
+两批精确PR完整CI均通过，第一批精确main完整CI通过（590秒）。69b437c的主线轮被后续发布文档更新取消，未通过；后续`11ecacf422e794a102e958ec810ad31afe38c16c`仅改文档，应用及验证代码与69b437c相同，[该精确main CI40499312268](https://github.com/zdaiwmm/shui-IM/actions/runs/40499312268) attempt1完整成功（649秒），Full application verification及同轮双架构镜像通过，固定精确CI核验器通过。该精确应用已按用户本次「确认，发布」上线，本文档提交不替换它。[需求记录](../requirements/2026-10-27-deploy-efficiency-v1/README.md)拥有逐层证据、执行指纹修正、合并历史处置及计时口径。唯一[发布40502197172](https://github.com/zdaiwmm/shui-IM/actions/runs/40502197172)及首次独立 READBACK_OK 均通过，固定入口与回读合计286599ms（约4分47秒）。生产实测备份首次探针在启动10.007秒后成功，原判定与宽限期保持；[发布记录](../../RELEASING.md#release-deploy-efficiency-v1-20261027)拥有完整定位与计时边界。
+
+## 审计整改两批 V1 已发布（2026-10-27 19:28）
+
+用户确认整改方案V1并授权执行；[第一批PR #436](https://github.com/zdaiwmm/shui-IM/pull/436)合并为 `668407ca5e762e591b9c07731510019ef832ac81`，补可信来源、四路写入限流、后台来源额度及畸形路径400，并澄清当前新旧格式规则。[第二批PR #437](https://github.com/zdaiwmm/shui-IM/pull/437)合并为应用 `7516e8e49959f7b24a5bfb305e5aa820191c4931`／`2026.10.27.4`，补手工备份容量准入、显式保留策略及隔离计时演练；与最终组合源 `15774ff` 完整文件树一致。
+
+第一批完整本地86浏览器入口通过；组合本地153文件／1144项及灾备专项31项通过，两批精确PR完整CI均通过。原备份候选的旧空间恢复超时、取消的旧源复验、必要文档冲突集成及各层证据分别由[第一批记录](../requirements/2026-10-27-audit-abuse-hardening/README.md)和[备份记录](../requirements/2026-10-27-audit-backup-safety/README.md)拥有，不将未复现错误认定已修复。
+
+应用 `7516e8e` 的[精确main完整CI40490796677](https://github.com/zdaiwmm/shui-IM/actions/runs/40490796677) attempt1已通过，含全部浏览器、通话及同轮双架构镜像。用户随后明确授权上述完整SHA、代理安装及实际链路验收。唯一[发布40494694818](https://github.com/zdaiwmm/shui-IM/actions/runs/40494694818)取得DEPLOY_VERIFIED，同SHA最终独立READBACK_OK于2026-10-27T11:28:01.568Z完成；两次备份starting回读按原窗口后续跑，没有再次切换。实装nginx、实测代理peer及新容器信任配置一致，主站／后台伪造XFF不能重置来源预算，另一实际来源有独立额度，自然窗口恢复；细节由[发布记录](../../RELEASING.md#release-audit-remediation-20261027)拥有。真机及独立外审没有新增结论；外部告警渠道和不可变存储继续按用户决定另定。本文档提交不替换线上应用SHA。
+
 ## 失效邀请创建修复已发布（2026-10-27 18:03）
 
 [PR #434](https://github.com/zdaiwmm/shui-IM/pull/434)的失效邀请入口修复及[PR #435](https://github.com/zdaiwmm/shui-IM/pull/435)的验证取样续修已发布为应用 `e6dfcedccedd8b8adcea9a97224478c23fd59578`／`2026.10.27.3`。失效后创建正常，已有密室仍要求原应用锁，迟到结果保留隐私门禁；产品文件与原520f2f7相同，新增差异仅测试及记录。[需求记录](../requirements/2026-10-27-expired-invite-create/README.md)持有原失败、取样修正、用户改发精确SHA的确认及真机边界。
@@ -45,15 +59,14 @@
 本页是带时间的接手摘要，不是实时监控。历史详情保存在 [发布记录](../../RELEASING.md)、
 对应需求和 Git；[治理前完整状态快照](https://github.com/zdaiwmm/shui-IM/blob/bc329979e232d16a238190bc069eae32a85af4c9/docs/context/status.md)保留原证据和失败历史。
 
-## 最近已验证生产：2026-10-27 18:03
+## 最近已验证生产：2026-10-27 20:19
 
-- 应用 `e6dfcedccedd8b8adcea9a97224478c23fd59578`，版本 `2026.10.27.3`；[PR #434](https://github.com/zdaiwmm/shui-IM/pull/434)／[PR #435](https://github.com/zdaiwmm/shui-IM/pull/435)。实际前版 `75b01af61eb26ba1cbe5896881c3c354ead3a443`；后续纯文档main不替换线上应用SHA。
-- [精确main完整CI40482174872](https://github.com/zdaiwmm/shui-IM/actions/runs/40482174872) attempt1成功，Full application verification、浏览器分组、通话／TURN、审计与同轮双架构镜像通过。产品文件与原520f2f7一致，原目标失败和验证续修由[原需求记录](../requirements/2026-10-27-expired-invite-create/README.md)持有。
-- 只读doctor通过；唯一[发布40484081401](https://github.com/zdaiwmm/shui-IM/actions/runs/40484081401)取得精确DEPLOY_VERIFIED。请求 `bedc4b79-5a7d-41b4-8052-37b0e1c30414` 只派发一次，工作流来源为获批e6dfced；批次 `20261027T095419Z`。
-- 独立READBACK_OK于 `2026-10-27T10:03:16.062Z` 完成，4559ms：应用／备份running且healthy、TURN运行（探针none），SHA／镜像／HTTPS／数据库／存储／公开及容器产物／新WebSocket全部一致，维护门absent；管理员与通话启用。
-- 首次回读仅备份starting；等待原5分钟探针／启动期后只续同SHA只读回读。回读续跑未额外重启、切换或变更配置。完整回执见[发布记录](../../RELEASING.md#release-expired-invite-20261027)。
+- 应用 `11ecacf422e794a102e958ec810ad31afe38c16c`，版本 `2026.10.27.4`；部署效率 [PR #439](https://github.com/zdaiwmm/shui-IM/pull/439)／[PR #440](https://github.com/zdaiwmm/shui-IM/pull/440)及此前审计整改均包含。实际前版 `7516e8e49959f7b24a5bfb305e5aa820191c4931`；后续纯文档 main 不替换线上应用 SHA。
+- 精确 main 完整 CI40499312268 attempt 1、固定只读预检通过。唯一[发布40502197172](https://github.com/zdaiwmm/shui-IM/actions/runs/40502197172)取得 DEPLOY_VERIFIED，请求 `eb95c678-cd59-422d-b2bb-688789ff3820`，批次 `20261027T121607Z`；工作流来源464322d，应用与工作流 SHA 分别核对。
+- `2026-10-27T12:19:08.249Z` 首次独立 READBACK_OK：应用／备份 healthy、TURN 运行且无健康探针、维护门 absent，SHA／镜像／公开与容器资源及新 WebSocket 一致。无需额外等待、续跑或再次切换。
+- 实装10秒启动探针，首探针延迟10007ms且成功；原稳态5分钟间隔、5分钟宽限、10秒超时、1次失败及备份健康判定不变。固定入口与回读286599ms（约4分47秒），不含文档对账；一轮测量不构成固定速度保证。此前19:28代理及真实链路验收见[历史记录](../../RELEASING.md#release-audit-remediation-20261027)，本次未改代理或 helper。
 
-本页为部署时点事实，不是实时监控。脱敏组合证据保存在公共Git目录 `quiet-room-deliveries/evidence/expired-invite-20261027/production-summary.json`；资源按固定入口核验，活动目录与缓存／回执／未知内容按实际结果保留，不清理其他任务。真机及独立外审边界保持。
+本页为部署时点事实，不是实时监控。[发布记录](../../RELEASING.md#release-deploy-efficiency-v1-20261027)持有回执定位；脱敏生产证据在公共 Git 目录 `quiet-room-deliveries/evidence/deploy-efficiency-v1-20261027/production-evidence.json`。仅按固定入口核验本批资源，活动目录、忽略缓存／专属证据和晚于应用的文档资源按结果保留，不处理其他任务。外部告警／不可变存储另定，真机与外审边界保持。
 
 ## 六批项目治理 V1：已包含于当前生产
 

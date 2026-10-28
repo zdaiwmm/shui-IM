@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 // @ts-expect-error Operational Node script has no TS declarations.
-import { browserGroups, parseBrowserArguments, runBrowserScript, runBrowserTests, selectBrowserScripts } from '../scripts/test-browser.mjs';
+import { balanceBrowserScripts, browserDurations, browserGroups, parseBrowserArguments, runBrowserScript, runBrowserTests, selectBrowserScripts } from '../scripts/test-browser.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directories: string[] = [];
@@ -17,7 +17,9 @@ describe('browser regression groups', () => {
     const shards = Array.from({ length: 4 }, (_, i) => selectBrowserScripts('2', `${i + 1}/4`));
     expect(shards.flat().sort()).toEqual(selectBrowserScripts('2').sort());
     expect(new Set(shards.flat()).size).toBe(85);
-    expect(shards.map(shard => shard.length)).toEqual([22, 21, 21, 21]);
+    const costs = shards.map(shard => shard.reduce((sum: number, script: string) => sum + browserDurations[script], 0));
+    expect(Math.max(...costs) - Math.min(...costs)).toBeLessThan(5_000);
+    expect(Math.max(...costs)).toBeLessThan(490_000);
     for (const shard of ['0/4', '5/4', '1/0', '1/99', 'x', '1/2/3']) {
       expect(() => parseBrowserArguments(['--group', '2', '--shard', shard])).toThrow();
     }
@@ -26,6 +28,21 @@ describe('browser regression groups', () => {
     const seen: string[] = [];
     await runBrowserTests({ group: '2', shard: '2/4', run: async (script: string) => { seen.push(script); }, log: () => {} });
     expect(seen).toEqual(shards[1]);
+  });
+  it('keeps new and invalidly measured scripts, deterministic ties and every legal shard count', () => {
+    const scripts = ['long', 'short', 'new', 'invalid'];
+    const durations = { long: 180_000, short: 1_000, invalid: -1 };
+    for (let count = 1; count <= scripts.length; count++) {
+      const shards = balanceBrowserScripts(scripts, count, durations);
+      expect(shards.flat().sort()).toEqual([...scripts].sort());
+      expect(new Set(shards.flat()).size).toBe(scripts.length);
+      expect(shards.every((shard: string[]) => shard.length > 0)).toBe(true);
+      expect(balanceBrowserScripts(scripts, count, durations)).toEqual(shards);
+      for (const shard of shards) expect(shard).toEqual(scripts.filter(script => shard.includes(script)));
+    }
+    expect(balanceBrowserScripts(['a', 'b', 'c', 'd'], 2, {})).toEqual([['a', 'c'], ['b', 'd']]);
+    expect(() => balanceBrowserScripts(['a', 'a'], 2)).toThrow();
+    expect(() => balanceBrowserScripts(scripts, 5)).toThrow();
   });
   it('partitions every existing browser entry exactly once and preserves full-suite order', async () => {
     const expected = [

@@ -110,4 +110,68 @@ describe('independent production readback', () => {
     expect(publicCalls).toBe(0);
     expect(logs.join('\n')).not.toContain('synthetic outage details');
   });
+
+  function readinessFixture(samples: any[]) {
+    let elapsed = 0;
+    const waits: number[] = [], calls: string[] = [];
+    let index = 0;
+    return {
+      waits, calls, clock: () => BigInt(elapsed) * 1_000_000n,
+      operations: {
+        inspectState: () => { calls.push('state'); const sample = samples[Math.min(index++, samples.length - 1)]; if (sample instanceof Error) throw sample; return sample; },
+        pause: async (ms: number) => { waits.push(ms); elapsed += ms; },
+        inspectHealth: () => { calls.push('health'); return { ok: true, database: true, storage: true }; },
+        inspectPublicArtifacts: () => { calls.push('public'); return { '/': '1' }; },
+        inspectContainerArtifacts: () => { calls.push('container'); return { matched: true }; },
+        probeWebSocket: () => { calls.push('websocket'); },
+      },
+    };
+  }
+  it('waits only for a healthy-identity starting backup, then runs every independent check', async () => {
+    const f = readinessFixture([{ ...state, backupHealth: 'starting' }, { ...state, backupHealth: 'starting' }, { ...state, backupHealth: 'healthy' }]);
+    const result = await runReadback(sha, f.operations, () => {}, f.clock);
+    expect(f.waits).toEqual([10_000, 10_000]);
+    expect(result.readiness).toEqual({ polls: 2, budgetMs: 360_000 });
+    expect(result.server.backupHealth).toBe('healthy');
+    expect(result.status).toBe('success');
+    expect(f.calls).toEqual(['state', 'state', 'state', 'health', 'public', 'container', 'websocket']);
+    expect(result.phases.find((p: any) => p.name === 'backup-readiness').durationMs).toBe(20_000);
+  });
+  it.each([
+    { backupHealth: 'unhealthy' }, { backupHealth: 'none' }, { backupRunning: 'false' },
+    { appHealth: 'unhealthy' }, { currentSha: 'c'.repeat(40) }, { maintenance: 'present' },
+    { backupImageId: `sha256:${'c'.repeat(64)}` }, { adminEnabled: '1' },
+    { callsEnabled: '1', turnRunning: 'true', turnHealth: 'none' },
+    { deployedAt: '20260906T020304Z', release: `/opt/quiet-room/git-releases/20260906T020304Z-${sha.slice(0, 12)}` },
+  ])('stops immediately when a waiting deployment changes or becomes invalid: %j', async change => {
+    const pending = { ...state, backupHealth: 'starting' };
+    const f = readinessFixture([pending, { ...pending, ...change }]);
+    await expect(runReadback(sha, f.operations, () => {}, f.clock)).rejects.toBeInstanceOf(ReadbackError);
+    expect(f.waits).toEqual([10_000]);
+    expect(f.calls).toEqual(['state', 'state']);
+  });
+  it('bounds startup waits, preserves a failure receipt and never runs later checks after timeout', async () => {
+    const f = readinessFixture([{ ...state, backupHealth: 'starting' }]);
+    await expect(runReadback(sha, f.operations, () => {}, f.clock, { waitReadyMs: 15_000 })).rejects.toMatchObject({
+      classification: 'container-startup-timeout', phase: 'backup-readiness', evidence: { status: 'failure', server: { backupHealth: 'starting' }, readiness: { polls: 2 } },
+    });
+    expect(f.waits).toEqual([10_000, 5_000]);
+    expect(f.calls).toEqual(['state', 'state', 'state']);
+  });
+  it('does not retry a connectivity failure or wait when the first sample is already invalid', async () => {
+    const f = readinessFixture([{ ...state, backupHealth: 'starting' }, new ReadbackError('connectivity', 'server-state', 'private diagnostic')]);
+    await expect(runReadback(sha, f.operations, () => {}, f.clock)).rejects.toMatchObject({ classification: 'connectivity' });
+    expect(f.waits).toEqual([10_000]);
+    const invalid = readinessFixture([{ ...state, backupHealth: 'starting', appImageRef: 'unexpected' }]);
+    await expect(runReadback(sha, invalid.operations, () => {}, invalid.clock)).rejects.toMatchObject({ classification: 'image-mismatch' });
+    expect(invalid.waits).toEqual([]);
+  });
+  it('does not accept a healthy sample arriving after the wait deadline', async () => {
+    const f = readinessFixture([{ ...state, backupHealth: 'starting' }, { ...state, backupHealth: 'healthy' }]);
+    const originalPause = f.operations.pause;
+    f.operations.pause = (ms: number) => originalPause(ms + 10_000);
+    await expect(runReadback(sha, f.operations, () => {}, f.clock, { waitReadyMs: 15_000 }))
+      .rejects.toMatchObject({ classification: 'container-startup-timeout', evidence: { status: 'failure' } });
+    expect(f.calls).toEqual(['state', 'state']);
+  });
 });

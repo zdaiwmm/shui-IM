@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
@@ -99,6 +99,26 @@ export const browserGroups = Object.freeze({
   ]),
 });
 
+// Scheduling hints only: every selected script must still execute. Missing or
+// invalid measurements use a conservative default, never an exclusion list.
+const timings = JSON.parse(readFileSync(new URL('./browser-timings.json', import.meta.url), 'utf8'));
+export const browserDurations = Object.freeze(timings.version === 1 ? timings.durationsMs : {});
+export function balanceBrowserScripts(scripts, total, durations = browserDurations) {
+  if (!Number.isSafeInteger(total) || total < 1 || total > scripts.length
+      || new Set(scripts).size !== scripts.length) throw new Error('Invalid browser partition.');
+  const cost = script => Number.isSafeInteger(durations?.[script]) && durations[script] > 0 ? durations[script] : 60_000;
+  const bins = Array.from({ length: total }, () => ({ duration: 0, scripts: new Set() }));
+  const ranked = scripts.map((script, order) => ({ script, order, cost: cost(script) }))
+    .sort((a, b) => b.cost - a.cost || a.order - b.order);
+  for (const item of ranked) {
+    const bin = bins.reduce((best, next) => next.duration < best.duration ? next : best);
+    bin.scripts.add(item.script);
+    bin.duration += item.cost;
+  }
+  // Preserve the existing execution order within each independent checkout.
+  return bins.map(bin => scripts.filter(script => bin.scripts.has(script)));
+}
+
 export function selectBrowserScripts(group, shard) {
   if (group !== undefined && !Object.hasOwn(browserGroups, group)) throw new Error('Browser group must be 1 or 2.');
   const scripts = group === undefined ? Object.values(browserGroups).flat() : [...browserGroups[group]];
@@ -106,7 +126,7 @@ export function selectBrowserScripts(group, shard) {
   if (!/^[1-9]\d*\/[1-9]\d*$/.test(shard)) throw new Error('Shard must be index/total.');
   const [index, total] = shard.split('/').map(Number);
   if (index > total || total > scripts.length) throw new Error('Shard exceeds selected script count.');
-  return scripts.filter((_, offset) => offset % total === index - 1);
+  return balanceBrowserScripts(scripts, total)[index - 1];
 }
 
 export function parseBrowserArguments(args) {
