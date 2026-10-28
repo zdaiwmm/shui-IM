@@ -13,6 +13,32 @@ function cleanText(value: unknown, maximum: number): value is string {
   return typeof value === 'string' && value.length <= maximum && !/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/.test(value);
 }
 
+/** Check the encoded frame before a receiver hands untrusted bytes to an image decoder. */
+function matchesJpegFrame(bytes: Uint8Array, width: number, height: number): boolean {
+  if (bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216
+    || bytes[bytes.length - 2] !== 255 || bytes[bytes.length - 1] !== 217) return false;
+  let offset = 2, frame = false;
+  while (offset + 4 <= bytes.length) {
+    if (bytes[offset++] !== 255) return false;
+    while (bytes[offset] === 255) offset++;
+    const marker = bytes[offset++];
+    if (marker === undefined || marker === 0 || marker === 216 || marker === 217 || marker === 220) return false;
+    const length = (bytes[offset]! << 8) | bytes[offset + 1]!;
+    if (length < 2 || offset + length > bytes.length) return false;
+    if (marker === 218) return frame && length >= 6;
+    if (marker >= 192 && marker <= 207 && ![196,200,204].includes(marker)) {
+      if (frame || ![192,193,194].includes(marker) || length < 8 || bytes[offset + 2] !== 8
+        || ((bytes[offset + 3]! << 8) | bytes[offset + 4]!) !== height
+        || ((bytes[offset + 5]! << 8) | bytes[offset + 6]!) !== width) return false;
+      const components = bytes[offset + 7]!;
+      if (![1,3].includes(components) || length !== 8 + 3 * components) return false;
+      frame = true;
+    }
+    offset += length;
+  }
+  return false;
+}
+
 export function isLinkPreview(value: unknown, messageText?: string): value is LinkPreview {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const p = value as Record<string, unknown>;
@@ -31,7 +57,7 @@ export function isLinkPreview(value: unknown, messageText?: string): value is Li
     || !Number.isInteger(image.height) || Number(image.height) < 1 || Number(image.height) > 640) return false;
   try {
     const bytes = fromBase64Url(image.data);
-    return bytes.length >= 4 && bytes.length <= PREVIEW_IMAGE_BYTES && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255;
+    return bytes.length <= PREVIEW_IMAGE_BYTES && matchesJpegFrame(bytes, Number(image.width), Number(image.height));
   } catch { return false; }
 }
 

@@ -42,13 +42,19 @@ describe('web links and encrypted preview contract',()=>{
     expect(isMessagePayload({...payload,kind:'image'})).toBe(false);
   });
   it('rejects remote image URLs, unbounded data and shape mismatches',()=>{
-    const image={mimeType:'image/jpeg',data:Buffer.from([255,216,255,217]).toString('base64url'),width:640,height:320};
+    const jpeg=Buffer.from([255,216,255,192,0,11,8,1,64,2,128,1,1,17,0,255,218,0,8,1,1,0,0,63,0,0,255,217]);
+    const image={mimeType:'image/jpeg',data:jpeg.toString('base64url'),width:640,height:320};
     expect(isLinkPreview({...preview,layout:'large',image})).toBe(true);
     expect(isLinkPreview({...preview,image})).toBe(false);
     expect(isLinkPreview({...preview,layout:'large',image:{...image,data:'a'.repeat(24000)}})).toBe(false);
     expect(isLinkPreview({...preview,layout:'large',image:{...image,mimeType:'image/svg+xml'}})).toBe(false);
     expect(isLinkPreview({...preview,layout:'large',image:{...image,src:'https://tracker.example/a'}})).toBe(false);
     expect(isLinkPreview({...preview,layout:'large',image:{...image,width:99999}})).toBe(false);
+    expect(isLinkPreview({...preview,layout:'large',image:{...image,width:320}})).toBe(false);
+    const oversized=Buffer.from(jpeg);oversized[9]=255;oversized[10]=255;
+    expect(isLinkPreview({...preview,layout:'large',image:{...image,data:oversized.toString('base64url')}})).toBe(false);
+    expect(isLinkPreview({...preview,layout:'large',image:{...image,data:Buffer.from([255,216,255,217]).toString('base64url')}})).toBe(false);
+    expect(isLinkPreview({...preview,layout:'large',image:{...image,data:jpeg.subarray(0,16).toString('base64url')}})).toBe(false);
     expect(previewLayout('content',640,320)).toBe('large');
     expect(previewLayout('icon',640,320)).toBe('compact');
     expect(previewLayout('content',96,96)).toBe('compact');
