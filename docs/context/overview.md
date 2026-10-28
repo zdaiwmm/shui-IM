@@ -1,6 +1,6 @@
 消息时间线呈现投影：`src/lib/message-timeline.ts`分离聊天排序／隐藏及本人私有归档去重，其他来源房间相同消息ID仍私有可见；由`app.ts`委托调用，不改变协议、回执或存储。验证为`tests/message-timeline-model.test.ts`及既有frontend-lifecycle／恢复／删除专项；`npm run perf:timeline`输出合成投影基线，`QUIET_ROOM_TIMELINE_PERF=1 node tests/frontend-lifecycle.e2e.mjs`另测真实DOM／输入／锁定清理。隔离灾备入口为`npm run test:restore-drill`；范围与证据见[治理V1](../requirements/2026-10-25-project-governance/README.md)。
 
-媒体发送连续性V1.1：`media-upload-view.ts`复用上传行／外框／状态节点，`media-capsule.ts`为发送提供立即更新及仅透明度过渡，`app.ts`提前建立回复与日期、确认后显示时间，`room-polish.css`固定状态槽和表情底行。回归为`media-upload.e2e`（含整行／相邻消息逐帧采样）、`video-upload.e2e`及既有聊天滚动／隐私入口；规范V1.35与[本需求](../requirements/2026-10-28-media-send-continuity/README.md)拥有范围和分层证据。
+媒体发送连续性V1.1：`media-upload-view.ts`复用上传行／外框／状态节点，`media-capsule.ts`为发送提供立即更新及仅透明度过渡，`app.ts`提前建立回复与日期、确认后显示时间，`room-polish.css`固定状态槽和表情底行，`meme-picker.ts`交接前清除面板过程提示。回归为`media-upload.e2e`（含整行／相邻消息逐帧采样）、`video-upload.e2e`、`meme-picker.e2e`及既有聊天滚动／隐私入口；规范V1.35与[本需求](../requirements/2026-10-28-media-send-continuity/README.md)拥有范围和分层证据。
 
 运行隔离与私有分页V1：`room-runtime.ts`拥有每次打开的异步结果；`private-archive-catalog.ts`建立加密完整删除投影与外部归并目录，`private-history-controller.ts`拥有有界正文页／媒体取消；`archive-backup-state.ts`拥有备份任务和统一只读状态，`room-business-state.ts`仅投影目录／授权／就绪。`vault.ts`的v16派生存储保留原始记录，旧标签需刷新，不能降级数据库。新回归为room-runtime-isolation、private-archive-pagination、archive-backup-state；`QUIET_ROOM_PRIVATE_PERF=1 node tests/private-archive-pagination.e2e.mjs`比较基线14848e71的全量私有读取与分页，合成内存／耗时不外推真机。确认、回退和验收见[需求V1](../requirements/2026-10-27-room-runtime-archive-v1/README.md)。
 
