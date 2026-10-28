@@ -204,7 +204,11 @@ try {
       app.scrollChatToBottom();await settle();
       if(app.chatNewMessageIds.size||button().dataset.newMessages!=='false')throw Error('Return to latest did not clear counted arrivals');
     }
-    document.documentElement.dataset.colorScheme='light';await fresh();
+    const {setLanguage}=await import('/src/lib/language.ts');
+    await setLanguage('en',false);await fresh();await up(400);await waitForComposerReveal();
+    app.chatNewMessageIds=new Set(['bottom-79','bottom-80']);app.updateChatBottomControl();
+    if(button().textContent.trim()!=='2 new messages')throw Error('Counted arrivals did not use the active interface language');
+    await setLanguage('zh-Hans',false);document.documentElement.dataset.colorScheme='light';await fresh();
     return {centered:true,independent44pxTargets:true,stableComposer:true,lightAndDark:true,countCap:99};
   });
 
