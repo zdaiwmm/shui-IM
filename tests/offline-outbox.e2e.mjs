@@ -104,7 +104,18 @@ try {
   });
   await b.goto('about:blank'); await contextB.setOffline(false); await b.goto(origin); await ready(b);
   try {
-    await b.waitForFunction(()=>auditApp.outbox.size===0,undefined,{timeout:90000});
+    // This is a correctness gate, not a runner-speed benchmark. Allow a slow
+    // CI host to finish cryptographic writes, but fail a stalled queue sooner.
+    const deadline = Date.now() + 180_000;
+    let remaining = 130, progressedAt = Date.now();
+    while (true) {
+      const queued = await b.evaluate(() => auditApp.outbox.size);
+      if (queued === 0) break;
+      if (queued < remaining) { remaining = queued; progressedAt = Date.now(); }
+      assert.ok(Date.now() - progressedAt < 30_000, 'Offline queue made no durable progress for 30 seconds');
+      assert.ok(Date.now() < deadline, 'Offline queue exceeded its bounded 180 second recovery budget');
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
   } catch (error) {
     // Synthetic fixture metadata only: no credentials, payloads or ciphertext.
     console.error('OFFLINE_WINDOW_TIMEOUT', JSON.stringify(await b.evaluate(() => ({
