@@ -15,9 +15,6 @@ export TURN_SECRET="$(node -e 'process.stdout.write(require("node:crypto").rando
 mkdir "$TURN_TLS_DIR"
 cp deploy/turnserver.conf "$lab_dir/turnserver.conf"
 sed -i.bak '/^no-stdout-log$/d;/^log-file=/d' "$lab_dir/turnserver.conf"
-if [[ "$lab_ip" == 10.* ]]; then
-  sed -i.bak '/^denied-peer-ip=10\.0\.0\.0-10\.255\.255\.255$/d' "$lab_dir/turnserver.conf"
-fi
 printf '\nlistening-ip=%s\nrelay-ip=%s\nallowed-peer-ip=%s\nlog-file=stdout\n' "$lab_ip" "$lab_ip" "$lab_ip" >> "$lab_dir/turnserver.conf"
 cat > "$lab_dir/compose.lab.yaml" <<YAML
 services:
@@ -57,6 +54,7 @@ then
   "${compose[@]}" logs --no-color quiet-room-turn >&2 || true
   exit 1
 fi
+node scripts/check-turn-peer-policy.mjs
 for transport in udp tcp; do
   export TURN_URLS="turn:${lab_ip}:3478?transport=$transport"
   export QUIET_ROOM_CALL_TEST_CONFIG="$lab_dir/ice.json"
