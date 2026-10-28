@@ -399,7 +399,8 @@ type SocketHandlers = {
   ack: (clientMsgId: string, seq: number) => AsyncSocketHandler;
   receiptAck: (clientMsgId: string, receiptSeq: number) => AsyncSocketHandler;
   writable?: () => void;
-  error: (message: string, code?: string, clientMsgId?: string, rejectedEnvelope?: MessageEnvelope) => AsyncSocketHandler;
+  // false retains application retry/backoff ownership after a failed repair.
+  error: (message: string, code?: string, clientMsgId?: string, rejectedEnvelope?: MessageEnvelope) => void | boolean | Promise<void | boolean>;
 };
 
 export class RoomSocket {
@@ -434,7 +435,7 @@ export class RoomSocket {
   private sentEnvelopes = new Map<string, MessageEnvelope[]>();
   // Durable queues belong to the vault. Only retain a small acknowledged-send
   // window here, leaving room in the server input budget for control frames.
-  private pendingSends = new Map<string, { bytes: number; deadline: ReturnType<typeof setTimeout> }>();
+  private pendingSends = new Map<string, { bytes: number; deadline: ReturnType<typeof setTimeout>; envelope?: MessageEnvelope }>();
   private pendingSendBytes = 0;
 
   constructor(
@@ -576,16 +577,28 @@ export class RoomSocket {
         const sent = clientMsgId ? this.sentEnvelopes.get(clientMsgId) : undefined;
         const rejectedEnvelope = sent?.shift();
         if (clientMsgId && sent?.length === 0) this.sentEnvelopes.delete(clientMsgId);
-        if (clientMsgId) this.releaseSend(`message:${clientMsgId}`, false);
-        this.runAfterMembershipUpdate(() => this.handlers.error(
-          String(frame.message ?? uiLiteral('实时连接发生错误')),
-          String(frame.code ?? 'SOCKET_ERROR'),
-          clientMsgId,
-          rejectedEnvelope,
-        ));
+        const key = `message:${clientMsgId}`, generation = this.socket;
+        const reservation = this.pendingSends.get(key);
+        const pending = reservation?.envelope === rejectedEnvelope ? reservation : undefined;
+        if (pending) clearTimeout(pending.deadline);
+        this.runAfterMembershipUpdate(async () => {
+          let repaired = false;
+          try {
+            const result = await this.handlers.error(
+              String(frame.message ?? uiLiteral('实时连接发生错误')),
+              String(frame.code ?? 'SOCKET_ERROR'), clientMsgId, rejectedEnvelope,
+            );
+            repaired = result !== false && (frame.code === 'MLS_EPOCH_STALE' || frame.code === 'MLS_UPDATE_REQUIRED');
+          } finally {
+            // Membership can refill the outbox while a rejection waits for
+            // its durable re-encryption. Keep this exact send reserved until
+            // that result settles, and never release a later generation.
+            if (pending && !this.closed && this.socket === generation && this.pendingSends.get(key) === pending) this.releaseSend(key, repaired);
+          }
+        });
       }
     } catch {
-      this.runAfterMembershipUpdate(() => this.handlers.error(uiLiteral('收到无法识别的实时数据'), 'INVALID_SERVER_FRAME'));
+      this.runAfterMembershipUpdate(async () => { await this.handlers.error(uiLiteral('收到无法识别的实时数据'), 'INVALID_SERVER_FRAME'); });
     }
   }
 
@@ -670,8 +683,11 @@ export class RoomSocket {
     if (this.pendingSends.has(key)) return true;
     if (!this.sendDurable(key, { type: 'send', envelope, countUnread })) return false;
     const sent = this.sentEnvelopes.get(envelope.clientMsgId) ?? [];
-    sent.push(structuredClone(envelope));
+    const written = structuredClone(envelope);
+    sent.push(written);
     this.sentEnvelopes.set(envelope.clientMsgId, sent);
+    const pending = this.pendingSends.get(key);
+    if (pending) pending.envelope = written;
     return true;
   }
 

@@ -133,6 +133,70 @@ describe('RoomSocket membership ordering', () => {
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
     expect(writable).not.toHaveBeenCalled();
   });
+  it('retains a rejected send reservation through membership and durable error reconciliation', async () => {
+    environment(); let finish!: () => void;
+    const old = { clientMsgId: 'rekey', ciphertext: 'old' } as MessageEnvelope;
+    const fresh = { ...old, ciphertext: 'fresh' };
+    const callbacks = { ...handlers(), writable: vi.fn(() => { socket.sendEnvelope(fresh); }) };
+    callbacks.membership.mockImplementation(() => { socket.sendEnvelope(old); });
+    callbacks.error.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+    const socket = new RoomSocket('room', 'token', () => 0, () => 0, callbacks);
+    try {
+      socket.connect(); const transport = FakeWebSocket.instances[0]!; transport.emit('open');
+      socket.sendEnvelope(old);
+      transport.emit('message', JSON.stringify({ type: 'membership', state: {} }));
+      transport.emit('message', JSON.stringify({ type: 'error', code: 'MLS_EPOCH_STALE', clientMsgId: 'rekey' }));
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+      socket.sendEnvelope(old);
+      const sends = () => transport.sent.map(value => JSON.parse(value)).filter(frame => frame.type === 'send');
+      expect(sends()).toHaveLength(1);
+      expect(callbacks.writable).not.toHaveBeenCalled();
+      transport.emit('message', JSON.stringify({ type: 'message', seq: 1 }));
+      await vi.waitFor(() => expect(callbacks.message).toHaveBeenCalled());
+      finish();
+      await vi.waitFor(() => expect(sends().map(frame => frame.envelope.ciphertext)).toEqual(['old', 'fresh']));
+      expect(callbacks.error).toHaveBeenCalledWith(expect.any(String), 'MLS_EPOCH_STALE', 'rekey', old);
+    } finally { finish?.(); socket.close(); }
+  });
+  it('disarms the rejected send deadline and preserves backoff when durable repair fails', async () => {
+    vi.useFakeTimers(); environment(); let finish!: (result: boolean) => void;
+    const callbacks = { ...handlers(), writable: vi.fn() };
+    callbacks.error.mockImplementationOnce(() => new Promise<boolean>(resolve => { finish = resolve; }));
+    const socket = new RoomSocket('room', 'token', () => 0, () => 0, callbacks);
+    try {
+      socket.connect(); const transport = FakeWebSocket.instances[0]!; transport.emit('open');
+      transport.emit('message', JSON.stringify({ type: 'ready', state: {} }));
+      const envelope = { clientMsgId: 'repair-fails', ciphertext: 'old' } as MessageEnvelope;
+      socket.sendEnvelope(envelope);
+      transport.emit('message', JSON.stringify({ type: 'error', code: 'MLS_EPOCH_STALE', clientMsgId: envelope.clientMsgId }));
+      await vi.advanceTimersByTimeAsync(16_000);
+      expect(finish).toBeTypeOf('function'); expect(transport.closeCodes).toEqual([]);
+      finish(false); await vi.advanceTimersByTimeAsync(0);
+      expect(callbacks.writable).not.toHaveBeenCalled();
+      socket.sendEnvelope(envelope);
+      expect(transport.sent.filter(value => JSON.parse(value).type === 'send')).toHaveLength(2);
+    } finally { finish?.(false); socket.close(); }
+  });
+  it('abandons a delayed rejection refill after reconnect without releasing the new send', async () => {
+    environment(); let finish!: () => void;
+    const callbacks = { ...handlers(), writable: vi.fn() };
+    callbacks.error.mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
+    const socket = new RoomSocket('room', 'token', () => 0, () => 0, callbacks);
+    try {
+      socket.connect(); const first = FakeWebSocket.instances[0]!; first.emit('open');
+      socket.sendEnvelope({ clientMsgId: 'same', ciphertext: 'old' } as MessageEnvelope);
+      first.emit('message', JSON.stringify({ type: 'error', code: 'MLS_EPOCH_STALE', clientMsgId: 'same' }));
+      await vi.waitFor(() => expect(finish).toBeTypeOf('function'));
+      first.emit('close', undefined, 4413); socket.connect();
+      const next = FakeWebSocket.instances[1]!; next.emit('open');
+      const fresh = { clientMsgId: 'same', ciphertext: 'fresh' } as MessageEnvelope;
+      socket.sendEnvelope(fresh); finish();
+      await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+      socket.sendEnvelope(fresh);
+      expect(next.sent.filter(value => JSON.parse(value).type === 'send')).toHaveLength(1);
+      expect(callbacks.writable).not.toHaveBeenCalled();
+    } finally { finish?.(); socket.close(); }
+  });
   it('reconnects on an unacknowledged send and clears the old generation reservation', () => {
     vi.useFakeTimers(); environment(); const callbacks = handlers();
     const socket = new RoomSocket('room', 'token', () => 0, () => 0, callbacks);

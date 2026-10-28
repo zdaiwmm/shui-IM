@@ -5828,10 +5828,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
             try {
               await this.membershipChain.catch(() => undefined);
               await this.reencryptOutboxItem(clientMsgId, rejectedEnvelope, code === 'MLS_UPDATE_REQUIRED');
-              return;
+              return true;
             } catch (cause) {
+              if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return false;
               this.operationalError(cause, uiLiteral('设备状态已更新，但待发消息重新加密失败'));
-              return;
+              this.scheduleRetry(clientMsgId);
+              return false;
             }
           }
           this.showNotice(message, 'error');

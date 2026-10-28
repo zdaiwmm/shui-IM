@@ -37,11 +37,13 @@ try {
       for (const page of [a, b]) await page.waitForFunction(() => reviewApp.connectionState === 'connected' && reviewApp.session?.vault.mls?.phase === 'active' && document.querySelector('#message-input')?.disabled === false);
       await b.evaluate(() => {
         const room=reviewApp.socket,seen=new WeakSet();
-        globalThis.reviewTransport={syncCalls:0,syncFrames:0,capacityCloses:0,closeCodes:[]};
+        globalThis.reviewTransport={syncCalls:0,syncFrames:0,capacityCloses:0,closeCodes:[],frames:{},syncPages:0,emptyPages:0,replayedMessages:0,closeSnapshots:[]};
+        const start=performance.now(),onSync=room.handlers.sync;
+        room.handlers.sync=(messages,hasMore)=>{reviewTransport.syncPages++;if(!messages.length)reviewTransport.emptyPages++;reviewTransport.replayedMessages+=messages.filter(message=>message.seq<=reviewApp.session.vault.lastSeq).length;return onSync(messages,hasMore);};
         const observe=()=>{
           const ws=room.socket;if(!ws||seen.has(ws))return;seen.add(ws);
-          ws.addEventListener('close',event=>{reviewTransport.closeCodes.push(event.code);reviewTransport.closeCodes=reviewTransport.closeCodes.slice(-8);});
-          const send=ws.send.bind(ws);ws.send=raw=>{if(typeof raw==='string'&&JSON.parse(raw).type==='sync')reviewTransport.syncFrames++;return send(raw);};
+          ws.addEventListener('close',event=>{reviewTransport.closeCodes.push(event.code);reviewTransport.closeCodes=reviewTransport.closeCodes.slice(-8);reviewTransport.closeSnapshots.push({code:event.code,ms:Math.round(performance.now()-start),frames:{...reviewTransport.frames}});reviewTransport.closeSnapshots=reviewTransport.closeSnapshots.slice(-8);});
+          const send=ws.send.bind(ws);ws.send=raw=>{if(typeof raw==='string'){const type=JSON.parse(raw).type;if(['auth','sync','receiptSync','send','receipt','presence','ping'].includes(type))reviewTransport.frames[type]=(reviewTransport.frames[type]??0)+1;if(type==='sync')reviewTransport.syncFrames++;}return send(raw);};
         };
         const connect=room.connect.bind(room);room.connect=()=>{connect();observe();};
         const sync=room.requestSync.bind(room);room.requestSync=after=>{reviewTransport.syncCalls++;return sync(after);};
@@ -90,6 +92,7 @@ try {
       });
       assert.equal(queued.count, oldCount + freshCount); assert.equal(queued.encrypted, queued.count); assert.equal(queued.intentsOnly, 0);
       const start = backend.store.roomState(roomId);
+      const recoveryStartedAt = Date.now();
       await b.evaluate(() => { reviewApp.socket.sendEnvelope = window.reviewOriginalSend; void reviewApp.resumeOutbox(); });
       const deadline = Date.now() + 90_000;
       let final, accepted;
@@ -115,7 +118,7 @@ try {
       if(accepted === oldCount + freshCount) await a.waitForFunction(count => [...reviewApp.messages.values()].filter(x=>x.payload.kind==='text' && /^(old|fresh)-/.test(x.payload.text)).length===count,oldCount+freshCount,{timeout:15000});
       const receiver = await a.evaluate(() => [...reviewApp.messages.values()].filter(x => x.payload.kind === 'text' && /^(old|fresh)-/.test(x.payload.text)).length);
       const { ids, ...queueSummary } = queued;
-      const result = { oldCount, freshCount, before: { nextSeq: start.nextSeq, eventSeq: start.nextMlsEventSeq }, queued: queueSummary,
+      const result = { oldCount, freshCount, recoveryMs: Date.now() - recoveryStartedAt, before: { nextSeq: start.nextSeq, eventSeq: start.nextMlsEventSeq }, queued: queueSummary,
         after: { nextSeq: final.nextSeq, eventSeq: final.nextMlsEventSeq, accepted }, runtime, receiver, errors };
       console.log(JSON.stringify(result));
       assert.deepEqual(errors, []);
@@ -124,8 +127,10 @@ try {
   }
   const control = await scenario(16, 17);
   assert.equal(control.after.accepted, 33); assert.equal(control.runtime.queued, 0); assert.equal(control.receiver, 33);
+  assert.ok(control.runtime.transport.frames.send <= 2 * control.queued.count + 8, 'A rejected epoch must not amplify the queue into repeated stale sends');
   const boundary = await scenario(64, 65);
   assert.equal(boundary.after.accepted, 129, 'All 129 accepted queued messages must drain after a peer epoch update');
   assert.equal(boundary.runtime.queued, 0);
+  assert.ok(boundary.runtime.transport.frames.send <= 2 * boundary.queued.count + 8, 'Epoch repair must not amplify this bounded queue into repeated stale sends');
   console.log('PASS cross-epoch queue control and >128 mixed ciphertext drain');
 } finally { await browser?.close(); await vite?.close(); await backend?.close(); await rm(dataDir, { recursive: true, force: true }); }
