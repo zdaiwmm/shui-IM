@@ -68,6 +68,8 @@ Codex 本地移动调试：`scripts/dev-mobile.mjs`、`tools/mobile-debug/`、`.
 
 CI 镜像与双独立环境：`scripts/ci-image.mjs`、`scripts/deploy-config.mjs`、`scripts/publish.mjs`／`release.mjs` 与 `.github/workflows/ci.yml`；按精确 main CI run／attempt 校验并传输对应架构镜像。配置、发布与独立回读均选择同一命名环境。缓存维护为独立 root 工具 `deploy/server/quiet-room-cache-maintenance`，不进入每日定时器。契约与验证见[本次需求](../requirements/2026-10-12-ci-image-environments/README.md)、DEPLOYMENT 与 OPERATIONS；源代码存在不代表生产已安装或清理。
 
+独立空环境首次部署：固定入口的显式 `--initialize` 需要独立命名来源、root 配置允许和真实空状态证据，使用真实 TLS／流量闸门及启动后健康检查；已有更新流程继续使用常规入口。首次失败保留数据和闸门，拒绝重复初始化。契约见 [DEPLOYMENT](../../DEPLOYMENT.md#first-deployment-to-an-independent-empty-environment)，测试为 `tests/deploy-initialize.test.ts`，东京采购与实际安装状态由[本任务记录](../requirements/2026-10-27-aws-tokyo-public/README.md)拥有。
+
 备份与恢复双入口：`src/lib/backup-settings-ui.ts`、`src/lib/history-restore-ui.ts`；跨设备授权在 `cloud-backup.ts` / `local-history-backup.ts`，角色级开关在 `server/cloud-backups.mjs`。验证含 `tests/backup-access.e2e.mjs`；边界见 [恢复契约](../../RECOVERY_BACKUPS.md) 与 [需求记录](../requirements/2026-09-28-backup-recovery/README.md)。
 
 后台工作区 V1：`src/admin/workspace.ts` 实现六入口的查询与详情，`server/admin-data.mjs` 投影新旧归档元数据，`server/admin-diagnostics.mjs` 有界读取只读回执。回归为 `admin-data.test.ts`、`admin-workspace.e2e.mjs` 与既有后台专项；来源删除不影响新版归档。范围见[本次需求](../requirements/2026-10-25-admin-v1/README.md)。
