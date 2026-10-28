@@ -8,12 +8,13 @@ import { mountDialog } from './dialog';
 import { bindHalfSheetHandle } from './half-sheet';
 import { spaceAvatarMarkup, bindSpaceAvatarPlayback } from './space-avatar';
 import type { PrivateSpace } from './spaces';
-import { Image, createElement, Bell, Settings, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, Plus, ChevronRight, Trash2, PanelLeftClose, Palette, MonitorDown, ArrowLeft } from 'lucide';
+import { Image, createElement, Bell, Settings, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, Plus, ChevronRight, Trash2, PanelLeftClose, Palette, MonitorDown, ArrowLeft, Languages, MessageSquare } from 'lucide';
 import { formatPendingCountdown, pendingSpaceExpiry } from './spaces';
 export type PresenceStyle = 'capsule' | 'heart';
 export function readPresenceStyle(): PresenceStyle { try { return localStorage.getItem('quiet-room:presence-style') === 'heart' ? 'heart' : 'capsule'; } catch { return 'capsule'; } }
 export function writePresenceStyle(style: PresenceStyle): void { localStorage.setItem('quiet-room:presence-style', style); }
 export const spaceIcons = {
+  language: createElement(Languages).outerHTML, feedback: createElement(MessageSquare).outerHTML,
   bell: createElement(Bell).outerHTML, settings: createElement(Settings).outerHTML, spaces: createElement(PanelsTopLeft).outerHTML,
   device: createElement(Smartphone).outerHTML, key: createElement(KeyRound).outerHTML,
   upload: createElement(Upload).outerHTML, download: createElement(Download).outerHTML,

@@ -13,6 +13,8 @@ import { loadUiPreferences, restoreGalleryHidden, findMissingArchivedMessages, i
 import type { DecryptedMessage, Vault } from './types';
 import { auditRestoredHistory, historyRecordDigest, type RestoreAudit, type RestoreAuditRecord } from './history-restore-audit';
 
+class RecoverySourceUnavailableError extends Error {}
+
 export const BACKUP_REQUEST_TIMEOUT_MS = 30_000;
 export const AUTOMATIC_HISTORY_BATCH_WAIT_MS = 45_000;
 const encoder = new TextEncoder();
@@ -105,9 +107,10 @@ async function request<T>(url: string, token: string, signal: AbortSignal, body?
       finally { if (!signal.aborted) onWait?.(false); }
       continue;
     }
-    if (response.status === 401) throw new ApiError(url.startsWith('/api/history-archives/')
-      ? uiLiteral('恢复包已读取，但历史片段无法取回。恢复码可能刚被轮换、所属设备已撤销，或片段已被清理；请使用当前恢复码重试')
-      : uiLiteral('找不到可用备份。设备恢复并换码后，旧码会停用，请使用新生成的恢复码；也请确认码输入完整、对应设备未撤销且备份未清理'), 401, url.startsWith('/api/history-archives/') ? 'HISTORY_UNAVAILABLE' : 'RECOVERY_SOURCE_UNAVAILABLE');
+    if (response.status === 401) {
+      if(url.startsWith('/api/history-archives/'))throw new Error(uiLiteral('恢复包已读取，但历史片段无法取回。恢复码可能刚被轮换、所属设备已撤销，或片段已被清理；请使用当前恢复码重试'));
+      throw new RecoverySourceUnavailableError(uiLiteral('找不到可用备份。设备恢复并换码后，旧码会停用，请使用新生成的恢复码；也请确认码输入完整、对应设备未撤销且备份未清理'));
+    }
     if (response.status === 409) throw new Error(uiLiteral('备份版本冲突，请锁定后重新解锁再试'));
     if (response.status === 413) throw new Error(uiLiteral('备份密室已满，请联系管理员处理'));
     throw new ApiError(uiLiteral('备份服务暂时不可用，请稍后重试'), response.status, 'BACKUP_UNAVAILABLE');
@@ -430,7 +433,7 @@ export async function authorizedHistorySources(session: VaultSession, input: str
       signal.throwIfAborted();
       // Only a definitively unavailable source may be offered as a partial set.
       // Network failures and tampered ciphertext fail the whole discovery pass.
-      if (cause instanceof ApiError && cause.code === 'RECOVERY_SOURCE_UNAVAILABLE' && codes.size > 1) { unavailable++; continue; }
+      if (cause instanceof RecoverySourceUnavailableError && codes.size > 1) { unavailable++; continue; }
       throw cause;
     }
     await assertHistoryOwner(session, bundle);

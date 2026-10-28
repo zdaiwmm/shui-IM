@@ -22,11 +22,15 @@ export function renderLanguagePage(options:Options):void {
 }
 export function renderFeedbackPage({root,signal,active,back,notice}:Options):void {
   let clear=()=>{};
-  const host=page(root,t('用户反馈'),`<form class="feedback-form" novalidate><label for="feedback-email">${escape(t('邮箱'))}<span>${escape(t('必填'))}</span></label><input id="feedback-email" name="email" type="email" autocomplete="email" autocapitalize="none" maxlength="254" required aria-describedby="feedback-email-error"><p id="feedback-email-error" class="feedback-error" role="alert"></p><label for="feedback-message">${escape(t('反馈内容'))}<span>${escape(t('必填'))}</span></label><textarea id="feedback-message" name="message" rows="7" required aria-describedby="feedback-message-error feedback-count"></textarea><p id="feedback-count" class="feedback-count">0 / 5,000</p><p id="feedback-message-error" class="feedback-error" role="alert"></p><button class="primary-button" type="submit">${escape(t('提交反馈'))}</button></form>`,()=>{clear();back();});
+  const host=page(root,t('用户反馈'),`<form class="feedback-form" novalidate><label for="feedback-email">${escape(t('邮箱'))}<span>${escape(t('必填'))}</span></label><input id="feedback-email" name="email" type="email" dir="ltr" autocomplete="email" autocapitalize="none" maxlength="254" required aria-describedby="feedback-email-error"><p id="feedback-email-error" class="feedback-error" role="alert"></p><label for="feedback-message">${escape(t('反馈内容'))}<span>${escape(t('必填'))}</span></label><textarea id="feedback-message" name="message" rows="7" dir="auto" required aria-describedby="feedback-message-error feedback-count"></textarea><p id="feedback-count" class="feedback-count">0 / 5,000</p><p id="feedback-message-error" class="feedback-error" role="alert"></p><button class="primary-button" type="submit">${escape(t('提交反馈'))}</button></form>`,()=>{clear();back();});
   const form=host.querySelector('form')!,email=host.querySelector<HTMLInputElement>('#feedback-email')!,message=host.querySelector<HTMLTextAreaElement>('#feedback-message')!,submit=host.querySelector<HTMLButtonElement>('[type="submit"]')!;
   let busy=false,requestId=crypto.randomUUID(),payload='';
-  const live=()=>!signal.aborted&&active()&&host.isConnected;
-  clear=()=>{email.value='';message.value='';payload='';};signal.addEventListener('abort',clear,{once:true});
+  const pageAbort=new AbortController(),pageSignal=AbortSignal.any([signal,pageAbort.signal]);
+  const live=()=>!pageSignal.aborted&&active()&&host.isConnected;
+  clear=()=>{email.value='';message.value='';payload='';};
+  const departure=new MutationObserver(()=>{if(!host.isConnected){clear();pageAbort.abort();departure.disconnect();}});
+  departure.observe(root,{childList:true});
+  pageSignal.addEventListener('abort',()=>{clear();departure.disconnect();},{once:true});
   const count=()=>{host.querySelector('#feedback-count')!.textContent=`${[...message.value].length.toLocaleString()} / 5,000`;};
   message.addEventListener('input',count,{signal});message.addEventListener('change',count,{signal});
   form.addEventListener('submit',async event=>{
@@ -41,7 +45,7 @@ export function renderFeedbackPage({root,signal,active,back,notice}:Options):voi
     const fingerprint=JSON.stringify([e,m]);if(payload&&payload!==fingerprint)requestId=crypto.randomUUID();payload=fingerprint;
     busy=true;submit.disabled=true;submit.textContent=t('正在提交…');email.readOnly=true;message.readOnly=true;
     try {
-      const response=await fetch('/api/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:requestId,email:e,message:m}),signal:AbortSignal.any([signal,AbortSignal.timeout(15000)]),credentials:'same-origin'});
+      const response=await fetch('/api/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:requestId,email:e,message:m}),signal:AbortSignal.any([pageSignal,AbortSignal.timeout(15000)]),credentials:'same-origin'});
       if(!response.ok)throw new Error(response.status===429?'RATE_LIMITED':'FAILED');
       const result=await response.json();if(result.accepted!==true)throw new Error('FAILED');
       if(!live())return;

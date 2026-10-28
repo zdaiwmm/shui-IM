@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 /** Real HTTP, IndexedDB and pairwise device crypto in independent browsers.
  * The trusted membership roster is installed through the storage fixture. */
 export async function verifyOwnSpaceDirectory(browser, service, url) {
-  const contexts = [await browser.newContext(),await browser.newContext()];
+  const contexts = [await browser.newContext({locale: 'zh-CN'}),await browser.newContext({locale: 'zh-CN'})];
   try {
     const pages = await Promise.all(contexts.map(context=>context.newPage()));
     const publicKeys = [];

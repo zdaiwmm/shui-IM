@@ -53,6 +53,18 @@ try{
   const {messageLocalDay}=await import('/src/lib/message-date.ts');
   return [normalized,messageLocalDay('2026-10-28T12:00:00',2026).label];
  }),[true,'October 28']);
+ for(const language of ['en','zh-Hans','zh-Hant','es','fr','de','pt','ru','ar','ja','hi']){
+  await page.evaluate(async id=>{await(await import('/src/lib/language.ts')).setLanguage(id);window.fixture.app.renderLanguageFeedback('feedback');},language);
+  assert.equal(await page.locator('.feedback-form input[required]').count(),1);
+  assert.equal(await page.locator('.feedback-form textarea[required]').count(),1);
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,language+' overflow');
+ }
+ await page.evaluate(async()=>{await(await import('/src/lib/language.ts')).setLanguage('en');});
+ assert.deepEqual(await page.evaluate(async()=>{
+  const language=await import('/src/lib/language.ts'),original=Storage.prototype.setItem;
+  Storage.prototype.setItem=()=>{throw new DOMException('Unavailable','QuotaExceededError');};
+  try{await language.setLanguage('ja');return ['unexpected'];}catch{return [language.currentLanguage(),document.documentElement.lang];}finally{Storage.prototype.setItem=original;}
+ }),['en','en']);
  // Template values are private content and are never translated, even if identical to a UI label.
  assert.deepEqual(await page.evaluate(async()=>{const {uiTemplate,t}=await import('/src/lib/language.ts');return [t('设置'),uiTemplate`<p>${'设置'}</p>`];}),['Settings','<p>设置</p>']);
  await page.evaluate(()=>window.fixture.app.renderLanguageFeedback('feedback'));
@@ -76,6 +88,13 @@ try{
  assert.deepEqual(Object.keys(bodies[1]).sort(),['email','id','message']);
  await page.evaluate(()=>window.fixture.app.renderLanguageFeedback('feedback'));
  await page.locator('#feedback-email').fill('test@example.com');await page.locator('#feedback-message').fill('private draft');
+ assert.equal(await page.evaluate(async()=>{
+  const previous=document.querySelector('#feedback-message');
+  window.fixture.app.renderLanguageFeedback('language');
+  await Promise.resolve();return previous.value;
+ }),'');
+ await page.evaluate(()=>window.fixture.app.renderLanguageFeedback('feedback'));
+ await page.locator('#feedback-message').fill('private draft');
  await page.evaluate(()=>window.fixture.app.lockNow());assert.equal(await page.locator('#feedback-message').count(),0);
  assert.deepEqual(fixture.errors,[]);
  console.log('Language / feedback mobile UI passed');

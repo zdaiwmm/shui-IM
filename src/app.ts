@@ -1,4 +1,4 @@
-import { uiLiteral, uiTemplate, t, currentLanguage } from './lib/language';
+import { uiLiteral, uiTemplate, t, currentLanguage, matchesSourceText } from './lib/language';
 import { renderLanguagePage, renderFeedbackPage } from './lib/language-feedback-ui';
 import { roomBusinessState } from './lib/room-business-state';
 import { PrivateHistoryController } from './lib/private-history-controller';
@@ -2859,8 +2859,8 @@ export class QuietRoomApp {
   private openBrowserSpaceList(container?: HTMLElement, presentationSignal?: AbortSignal, initialSettings = false):void {
     const current=this.browserProfile,signal=presentationSignal ?? this.browserAccessAbort?.signal;if(!current||!signal||signal.aborted)return;
     mountSpaceDrawer(this.root,{container,presentation:container ? 'sidebar' : undefined, initialSettings, spaces:accessPrivateSpaces(current.profile),currentRoom:current.profile.currentRoom,signal,actions:[
-      {id:'language-settings',label:uiLiteral('语言 / Language'),icon:spaceIcons.appearance,run:()=>this.renderLanguageFeedback('language')},
-      {id:'user-feedback',label:uiLiteral('用户反馈'),icon:spaceIcons.history,run:()=>this.renderLanguageFeedback('feedback')},
+      {id:'language-settings',label:uiLiteral('语言 / Language'),icon:spaceIcons.language,run:()=>this.renderLanguageFeedback('language')},
+      {id:'user-feedback',label:uiLiteral('用户反馈'),icon:spaceIcons.feedback,run:()=>this.renderLanguageFeedback('feedback')},
       {id:'appearance-settings',label:uiLiteral('主题外观'),icon:spaceIcons.appearance,run:()=>this.renderAppearanceSettings()},
       {id:'auto-lock-settings',label:uiLiteral('自动锁定'),icon:spaceIcons.cover,run:()=>this.renderAutoLockSettings()},
       ...(this.desktopBrowser ? [{id:'app-access-settings',label:uiLiteral('在应用中打开'),icon:spaceIcons.app,run:()=>this.renderAppAccess()}] : [])],
@@ -7175,8 +7175,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       removeLabel: space => this.catalogRemovalLabel(space),
       actions: [
         ...((isChamberVault(session.vault) || session.vault.roomArchiveV2) ? [{ id: 'chamber-switch-space', label: uiLiteral('切换密室'), icon: spaceIcons.spaces, keepOpen: true, run: (showSpaceList: () => void) => { this.settingsReturn = null; showSpaceList(); } }] : []),
-        { id: 'language-settings', label: uiLiteral('语言 / Language'), icon: spaceIcons.appearance, run: forward(() => this.renderLanguageFeedback('language')) },
-        { id: 'user-feedback', group: '关于', label: uiLiteral('用户反馈'), icon: spaceIcons.history, run: forward(() => this.renderLanguageFeedback('feedback')) },
+        { id: 'language-settings', label: uiLiteral('语言 / Language'), icon: spaceIcons.language, run: forward(() => this.renderLanguageFeedback('language')) },
+        { id: 'user-feedback', group: '关于', label: uiLiteral('用户反馈'), icon: spaceIcons.feedback, run: forward(() => this.renderLanguageFeedback('feedback')) },
         { id: 'appearance-settings', label: uiLiteral('外观'), icon: spaceIcons.appearance, run: forward(() => this.renderAppearanceSettings()) },
         ...(this.desktopBrowser ? [{ id: 'app-access-settings', label: uiLiteral('在应用中打开'), icon: spaceIcons.app, run: forward(() => this.renderAppAccess()) }] : []),
         { id: 'manage-devices', label: uiLiteral('设备管理'), icon: spaceIcons.device, run: forward(() => this.renderDeviceManager()) },

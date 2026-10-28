@@ -9,7 +9,7 @@ try {
   for (const engine of [chromium, webkit]) {
     const browser = await engine.launch(engine === chromium && !process.env.CI ? { channel: 'chrome' } : {});
     try {
-      const page = await browser.newPage();
+      const page = await browser.newPage({locale: 'zh-CN'});
       await page.goto(`http://localhost:${server.httpServer.address().port}/__cache`);
       const fixture = await page.evaluate(async fixtures => {
         const v = await import('/src/lib/vault.ts'); const { QuietRoomApp } = await import('/src/app.ts');
@@ -75,7 +75,7 @@ try {
       if (engine === chromium) {
         // Set the limit before any database write: Chromium may retain quota
         // reservations when the limit is lowered on an already active database.
-        const pressureContext = await browser.newContext(); const pressurePage = await pressureContext.newPage();
+        const pressureContext = await browser.newContext({locale: 'zh-CN'}); const pressurePage = await pressureContext.newPage();
         await pressurePage.goto(page.url());
         const cdp = await pressureContext.newCDPSession(pressurePage);
         await cdp.send('Storage.overrideQuotaForOrigin', { origin: new URL(pressurePage.url()).origin, quotaSize: 2 * 1024 * 1024 });
@@ -100,7 +100,7 @@ try {
         assert.deepEqual(pressure, { seeded: true, rejected: true, cleared: true, stopped: true }, 'real quota rejection frees cache and blocks refilling during the session');
         await pressureContext.close();
       }
-      const migrationContext = await browser.newContext(); const migrationPage = await migrationContext.newPage();
+      const migrationContext = await browser.newContext({locale: 'zh-CN'}); const migrationPage = await migrationContext.newPage();
       await migrationPage.goto(page.url());
       const migration = await migrationPage.evaluate(async () => {
         const roomId = crypto.randomUUID(), blobId = crypto.randomUUID(), blobKey = `${roomId}:${blobId}`;

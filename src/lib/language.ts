@@ -64,7 +64,13 @@ export function uiLiteral<T extends string>(source:T):T {
 /** Preserve all interpolated values byte-for-byte; translate static source fragments only. */
 export function uiTemplate(parts:TemplateStringsArray,...values:unknown[]):string {
   let result=uiLiteral(parts[0]??'');
-  for(let i=0;i<values.length;i++)result+=String(values[i])+uiLiteral(parts[i+1]??'');
+  const spaced=!['zh-Hans','zh-Hant','ja'].includes(current);
+  for(let i=0;i<values.length;i++){
+    const value=String(values[i]),raw=parts[i+1]??'',next=uiLiteral(raw);
+    const before=spaced&&/[\p{Script=Han}：]$/u.test(parts[i]??'')&&/[\p{Letter}\p{Number}:]$/u.test(result)&&/^[\p{Letter}\p{Number}]/u.test(value)?' ':'';
+    const after=spaced&&/^\p{Script=Han}/u.test(raw)&&/[\p{Letter}\p{Number}]$/u.test(value)&&/^[\p{Letter}\p{Number}]/u.test(next)?' ':'';
+    result+=before+value+after+next;
+  }
   return result;
 }
 

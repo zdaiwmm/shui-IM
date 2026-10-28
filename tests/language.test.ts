@@ -27,7 +27,7 @@ describe('bundled locale contract',()=>{
  it('covers every extracted phrase in all ten translated catalogs without markup',()=>{
   for(const {id} of LANGUAGES.filter(item=>item.id!=='zh-Hans')){
    const data=JSON.parse(readFileSync(new URL(`../src/locales/${id}.json`,import.meta.url),'utf8'));
-   const missing=sources.filter(key=>typeof data[key]!=='string'||!data[key].trim());
+   const missing=sources.filter(key=>typeof data[key]!=='string'||!data[key].trim()||data[key]==='__UNTRANSLATED__');
    expect(missing,`${id} missing translations`).toEqual([]);
    const unsafe=Object.entries(data).filter(([,value])=>typeof value!=='string'||/[<>&"'\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value as string));
    expect(unsafe,`${id} unsafe translation text`).toEqual([]);

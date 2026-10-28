@@ -5,7 +5,7 @@ import { mkdtemp,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { request as httpRequest } from 'node:http';
-import { createFeedbackStore,validateFeedback } from '../server/feedback.mjs';
+import { createFeedbackStore,validateFeedback,FEEDBACK_LIMITS } from '../server/feedback.mjs';
 import { startServer } from '../server/index.mjs';
 import { makeAdminConfig,totp } from '../server/admin-auth.mjs';
 const cleanup:(()=>Promise<void>)[]=[];
@@ -26,6 +26,16 @@ describe('explicit user feedback',()=>{
    expect(store.list({status:'read'}).total).toBe(1);expect(store.list({status:'unread'}).total).toBe(26);
    expect(store.get(first.id).message).toBe(first.message);expect(store.list().items[0]).not.toHaveProperty('digest');
    expect(createFeedbackStore(db).list().total).toBe(27);expect(()=>store.list({offset:-1})).toThrow();
+  }finally{db.close();}
+ });
+ it('refuses capacity overflow without deleting old feedback or rejecting an exact retry',()=>{
+  const db=new DatabaseSync(':memory:');try{
+   const store=createFeedbackStore(db),first={id:randomUUID(),email:'one@example.com',message:'keep this feedback'};store.submit(first);
+   const insert=db.prepare('INSERT INTO user_feedback (id,email,message,digest,created_at) VALUES (?,?,?,?,?)');
+   for(let i=1;i<FEEDBACK_LIMITS.rows;i++)insert.run(randomUUID(),'two@example.com','entry','digest','2026-10-28T00:00:00Z');
+   expect(()=>store.submit({...first,id:randomUUID()})).toThrow('FEEDBACK_CAPACITY');
+   expect(()=>store.submit(first)).not.toThrow();
+   expect(store.list().total).toBe(FEEDBACK_LIMITS.rows);expect(store.get(first.id).message).toBe(first.message);
   }finally{db.close();}
  });
  it('enforces public origin/body limits, admin authentication/CSRF and source throttling',async()=>{
