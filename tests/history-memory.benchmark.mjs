@@ -17,7 +17,7 @@ let browser;
 try {
   await server.listen();
   browser = await chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' }), args: ['--enable-precise-memory-info'] });
-  const page = await browser.newPage();
+  const page = await browser.newPage({locale: 'zh-CN'});
   await page.goto(`http://localhost:${server.httpServer.address().port}/__history_benchmark`);
   await page.evaluate(async () => {
     const importer = new Function('path', 'return import(path)');

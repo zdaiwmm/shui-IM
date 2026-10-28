@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate } from './language';
 import { afterMotion, motion, retargetMotion } from './motion';
 import { AUDIO_MIME_TYPES, MAX_AUDIO_BYTES, MAX_AUDIO_DURATION_MS, MIN_AUDIO_DURATION_MS } from './message-payload';
 import { encodeVoiceWav, MAX_VOICE_SAMPLES, VOICE_SAMPLE_RATE, voiceIcons, voiceTime, voiceWaveform, waveformMarkup } from './voice-audio';
@@ -79,8 +80,8 @@ export class VoiceRecorder {
     this.signal = this.abort.signal;
     host.hidden = true;
     host.dataset.fullscreen = String(fullscreen);
-    host.innerHTML = `
-      ${fullscreen ? `<div class="voice-hold-screen">
+    host.innerHTML = uiTemplate`
+      ${fullscreen ? uiTemplate`<div class="voice-hold-screen">
         <div class="voice-live-card"><div class="voice-live-wave voice-waveform" aria-hidden="true">${waveformMarkup(Array(48).fill(0))}</div><span class="voice-live-time"></span></div>
         <p class="voice-live-label" role="status" aria-live="polite"></p>
         <div class="voice-cancel-zone"><svg viewBox="0 0 354 120" preserveAspectRatio="none" aria-hidden="true"><path d="M46 30 Q177 -14 308 30 C352 45 330 111 286 96 Q177 60 68 96 C24 111 2 45 46 30 Z"/></svg><span>${createElement(X).outerHTML}<span class="voice-cancel-label">滑到这里取消</span></span></div>
@@ -212,17 +213,17 @@ export class VoiceRecorder {
     if (!label) return;
     const action = this.state === 'requesting' ? 'pending' : this.cancelReady ? 'cancel' : 'send';
     this.host.dataset.holdAction = action;
-    const text = action === 'pending' ? '等待麦克风…'
-      : action === 'cancel' ? '松手取消录制'
-        : '滑动以取消';
+    const text = action === 'pending' ? uiLiteral('等待麦克风…')
+      : action === 'cancel' ? uiLiteral('松手取消录制')
+        : uiLiteral('滑动以取消');
     if (label.textContent !== text) {
       label.textContent = text;
       retargetMotion(label, label.getAnimations()[0], { opacity: .65 }, { opacity: 1 }, motion.feedback);
     }
     const liveLabel = this.host.querySelector('.voice-live-label');
-    if (liveLabel) liveLabel.textContent = action === 'pending' ? '等待麦克风…' : action === 'cancel' ? '松手取消' : '松手发送';
+    if (liveLabel) liveLabel.textContent = action === 'pending' ? uiLiteral('等待麦克风…') : action === 'cancel' ? uiLiteral('松手取消') : uiLiteral('松手发送');
     const cancelLabel = this.host.querySelector('.voice-cancel-label');
-    if (cancelLabel) cancelLabel.textContent = action === 'cancel' ? '松手取消' : '滑到这里取消';
+    if (cancelLabel) cancelLabel.textContent = action === 'cancel' ? uiLiteral('松手取消') : uiLiteral('滑到这里取消');
   }
 
   private cancel(animate = false): void {
@@ -259,9 +260,9 @@ export class VoiceRecorder {
     try {
       const ownershipInvalidated = Boolean(await this.callbacks.permission(true));
       if (ownershipInvalidated || this.signal.aborted) return;
-      this.permissionTimer = window.setTimeout(() => this.fail('等待麦克风授权超时，请点击录音重试'), 30_000);
+      this.permissionTimer = window.setTimeout(() => this.fail(uiLiteral('等待麦克风授权超时，请点击录音重试')), 30_000);
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
-        throw new Error('当前环境不能录音，请使用 HTTPS 和支持麦克风的新版浏览器');
+        throw new Error(uiLiteral('当前环境不能录音，请使用 HTTPS 和支持麦克风的新版浏览器'));
       }
       let granted = this.callbacks.permissionPrepared?.() ?? false;
       try {
@@ -300,7 +301,7 @@ export class VoiceRecorder {
       this.analyser.fftSize = 256;
       this.context.createMediaStreamSource(stream).connect(this.analyser);
       const mimeType = AUDIO_MIME_TYPES.find(type => type !== 'audio/wav' && MediaRecorder.isTypeSupported(type));
-      if (!mimeType) throw new Error('当前浏览器没有可用的录音格式，请更新浏览器');
+      if (!mimeType) throw new Error(uiLiteral('当前浏览器没有可用的录音格式，请更新浏览器'));
       const recorder = new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 64_000 });
       this.recorder = recorder;
       this.chunks = [];
@@ -308,10 +309,10 @@ export class VoiceRecorder {
       recorder.ondataavailable = event => {
         if (this.signal.aborted) return;
         this.chunkBytes += event.data.size;
-        if (this.chunkBytes > MAX_AUDIO_BYTES) { this.fail('录音超过大小限制，请重新录制'); return; }
+        if (this.chunkBytes > MAX_AUDIO_BYTES) { this.fail(uiLiteral('录音超过大小限制，请重新录制')); return; }
         if (event.data.size) this.chunks.push(event.data);
       };
-      recorder.onerror = () => this.fail('麦克风录音中断，请检查设备后重试');
+      recorder.onerror = () => this.fail(uiLiteral('麦克风录音中断，请检查设备后重试'));
       recorder.onstop = () => {
         if (this.signal.aborted) return;
         // Never auto-send after interruptions or the duration limit.
@@ -321,12 +322,12 @@ export class VoiceRecorder {
           this.mode = 'locked';
           this.resetDrag();
           this.state = 'processing';
-          this.message = '录音已停止，可试听后发送';
+          this.message = uiLiteral('录音已停止，可试听后发送');
         }
         void this.finishSegment(recorder.mimeType);
       };
       stream.getAudioTracks().forEach(track => track.addEventListener('ended', () => {
-        if (this.state === 'recording') { this.message = '麦克风已断开，已保留录音'; this.pause(); }
+        if (this.state === 'recording') { this.message = uiLiteral('麦克风已断开，已保留录音'); this.pause(); }
       }));
       this.startedAt = performance.now();
       this.state = 'recording';
@@ -348,7 +349,7 @@ export class VoiceRecorder {
         this.liveLevels.push(Math.round(peak * 100));
         if (this.liveLevels.length > 48) this.liveLevels.shift();
         if (this.durationMs + performance.now() - this.startedAt >= MAX_AUDIO_DURATION_MS) {
-          this.message = '已到 5 分钟上限，可试听后发送';
+          this.message = uiLiteral('已到 5 分钟上限，可试听后发送');
           this.pause();
         } else this.update();
       }, 100);
@@ -357,10 +358,10 @@ export class VoiceRecorder {
     } catch (cause) {
       if (this.signal.aborted) return;
       const name = cause instanceof DOMException ? cause.name : '';
-      this.fail(name === 'NotAllowedError' ? '未获得麦克风权限，请在浏览器网站设置中允许麦克风后重试'
-        : name === 'NotFoundError' ? '未找到麦克风，请连接麦克风后重试'
-          : name === 'NotReadableError' ? '麦克风被占用或不可用，请关闭其他录音应用后重试'
-            : cause instanceof Error ? cause.message : '无法开始录音，请重试');
+      this.fail(name === 'NotAllowedError' ? uiLiteral('未获得麦克风权限，请在浏览器网站设置中允许麦克风后重试')
+        : name === 'NotFoundError' ? uiLiteral('未找到麦克风，请连接麦克风后重试')
+          : name === 'NotReadableError' ? uiLiteral('麦克风被占用或不可用，请关闭其他录音应用后重试')
+            : cause instanceof Error ? cause.message : uiLiteral('无法开始录音，请重试'));
     } finally { this.starting = false; }
   }
 
@@ -375,8 +376,8 @@ export class VoiceRecorder {
     const interrupted = this.recorder?.state === 'inactive' || this.stream?.getAudioTracks().some(track => track.readyState === 'ended');
     const reachedLimit = this.durationMs + this.segmentDurationMs >= MAX_AUDIO_DURATION_MS;
     this.sendAfterProcessing = sendAfterProcessing && !interrupted && !reachedLimit;
-    if (sendAfterProcessing && reachedLimit) this.message = '已到 5 分钟上限，可试听后发送';
-    else if (sendAfterProcessing && interrupted) this.message = '录音已停止，可试听后发送';
+    if (sendAfterProcessing && reachedLimit) this.message = uiLiteral('已到 5 分钟上限，可试听后发送');
+    else if (sendAfterProcessing && interrupted) this.message = uiLiteral('录音已停止，可试听后发送');
     this.mode = 'locked';
     this.resetDrag();
     this.state = 'processing';
@@ -416,13 +417,13 @@ export class VoiceRecorder {
     this.chunks = [];
     this.update();
     try {
-      if (!context || !blob.size) throw new Error('没有录到声音，请重新录制');
+      if (!context || !blob.size) throw new Error(uiLiteral('没有录到声音，请重新录制'));
       const decoded = await context.decodeAudioData(await blob.arrayBuffer());
       if (this.signal.aborted) return;
       // Bound decoded length by both the measured segment and the total limit.
       const length = Math.min(MAX_VOICE_SAMPLES - this.samples.length,
         Math.floor(Math.min(decoded.duration, this.segmentDurationMs / 1000) * VOICE_SAMPLE_RATE));
-      if (length < 1) throw new Error('录音太短，请重新录制');
+      if (length < 1) throw new Error(uiLiteral('录音太短，请重新录制'));
       const offline = new OfflineAudioContext(1, length, VOICE_SAMPLE_RATE);
       const source = offline.createBufferSource(); source.buffer = decoded;
       source.connect(offline.destination); source.start();
@@ -436,7 +437,7 @@ export class VoiceRecorder {
       this.waveform = null;
       this.state = 'paused';
     } catch (cause) {
-      if (!this.signal.aborted) this.fail(cause instanceof Error ? cause.message : '录音处理失败，请重新录制');
+      if (!this.signal.aborted) this.fail(cause instanceof Error ? cause.message : uiLiteral('录音处理失败，请重新录制'));
     } finally {
       if (context?.state !== 'closed') void context?.close().catch(() => {});
       if (this.context === context) this.context = null;
@@ -448,7 +449,7 @@ export class VoiceRecorder {
     const shouldSend = this.sendAfterProcessing;
     this.sendAfterProcessing = false;
     if (shouldSend && this.durationMs >= MIN_AUDIO_DURATION_MS) await this.send();
-    else if (shouldSend) this.fail('录音太短，请重新录制');
+    else if (shouldSend) this.fail(uiLiteral('录音太短，请重新录制'));
     else this.update();
   }
 
@@ -502,7 +503,7 @@ export class VoiceRecorder {
   private getDraft(): VoiceDraft {
     const selected = this.samples.subarray(this.trimStart, this.trimEnd);
     this.draft ??= {
-      file: new File([encodeVoiceWav(selected)], '语音消息.wav', { type: 'audio/wav' }),
+      file: new File([encodeVoiceWav(selected)], uiLiteral('语音消息.wav'), { type: 'audio/wav' }),
       durationMs: this.selectedDurationMs, waveform: voiceWaveform(selected), clientMsgId: this.clientMsgId,
     };
     return this.draft;
@@ -519,7 +520,7 @@ export class VoiceRecorder {
       if (this.preview.ended) this.preview.currentTime = 0;
       await this.preview.play();
     } catch {
-      if (!this.signal.aborted) { this.message = '无法试听，请再次点击播放'; this.update(); }
+      if (!this.signal.aborted) { this.message = uiLiteral('无法试听，请再次点击播放'); this.update(); }
     }
   }
 
@@ -531,13 +532,13 @@ export class VoiceRecorder {
     this.preview.pause();
     this.sendMotion?.cancel(); this.sendMotion = null;
     this.sendAttempted = true;
-    this.state = 'sending'; this.message = '正在加密并上传，完成后进入待发箱'; this.update();
+    this.state = 'sending'; this.message = uiLiteral('正在加密并上传，完成后进入待发箱'); this.update();
     try {
       await this.callbacks.send(this.getDraft(), this.signal);
     } catch (cause) {
       if (this.signal.aborted) return;
       this.state = 'paused';
-      this.message = `${cause instanceof Error ? cause.message : '语音发送失败'}。录音已保留，可再次发送`;
+      this.message = uiTemplate`${cause instanceof Error ? cause.message : uiLiteral('语音发送失败')}。录音已保留，可再次发送`;
       this.update();
       if (restoreSendFocus) this.host.querySelector<HTMLButtonElement>('.voice-send')?.focus({ preventScroll: true });
     }
@@ -552,7 +553,7 @@ export class VoiceRecorder {
     const submitting = this.state === 'sending' || (this.state === 'processing' && this.sendAfterProcessing);
     this.host.dataset.submitting = String(submitting);
     this.host.setAttribute('aria-busy', String(submitting));
-    const labels: Record<State, string> = { requesting: '等待麦克风权限', recording: '正在录音', processing: '正在处理录音', paused: '录音已暂停', sending: '正在发送语音' };
+    const labels: Record<State, string> = { requesting: uiLiteral('等待麦克风权限'), recording: uiLiteral('正在录音'), processing: uiLiteral('正在处理录音'), paused: uiLiteral('录音已暂停'), sending: uiLiteral('正在发送语音') };
     const status = this.host.querySelector<HTMLElement>('.voice-recording-state')!;
     if (status.textContent !== labels[this.state]) status.textContent = labels[this.state];
     const elapsed = this.state === 'recording' ? this.durationMs + performance.now() - this.startedAt : this.durationMs;
@@ -580,7 +581,7 @@ export class VoiceRecorder {
       handle.setAttribute('aria-valuemin', String(isStart ? 0 : this.trimStart / VOICE_SAMPLE_RATE));
       handle.setAttribute('aria-valuemax', String((isStart ? this.trimEnd : this.samples.length) / VOICE_SAMPLE_RATE));
       handle.setAttribute('aria-valuenow', String((isStart ? this.trimStart : this.trimEnd) / VOICE_SAMPLE_RATE));
-      handle.setAttribute('aria-valuetext', `${((isStart ? this.trimStart : this.trimEnd) / VOICE_SAMPLE_RATE).toFixed(1)}秒，选中${(this.selectedDurationMs / 1000).toFixed(1)}秒`);
+      handle.setAttribute('aria-valuetext', uiTemplate`${((isStart ? this.trimStart : this.trimEnd) / VOICE_SAMPLE_RATE).toFixed(1)}秒，选中${(this.selectedDurationMs / 1000).toFixed(1)}秒`);
     });
     this.waveBars.forEach((bar, index) => bar.classList.toggle('is-trimmed', (index + .5) / 48 < start || (index + .5) / 48 > end));
     this.waveBars.forEach((bar, index) => bar.classList.toggle('is-played', index / 48 < progress));
@@ -595,14 +596,14 @@ export class VoiceRecorder {
     this.host.querySelector<HTMLElement>('.voice-cancel')!.hidden = holding || drafting || submitting;
     const submitLabel = this.host.querySelector<HTMLElement>('.voice-submit-label')!;
     submitLabel.hidden = !submitting;
-    submitLabel.textContent = submitting ? this.state === 'sending' ? '正在发送语音…' : '正在处理录音…' : '';
+    submitLabel.textContent = submitting ? this.state === 'sending' ? uiLiteral('正在发送语音…') : uiLiteral('正在处理录音…') : '';
     const toggle = this.host.querySelector<HTMLButtonElement>('.voice-toggle')!;
     toggle.hidden = holding || this.state === 'requesting' || submitting;
     toggle.disabled = this.sendAttempted || !['recording', 'paused'].includes(this.state) || this.durationMs >= MAX_AUDIO_DURATION_MS;
     const toggleIcon = this.state === 'recording' ? voiceIcons.pause : voiceIcons.mic;
     if (this.renderedToggleIcon !== toggleIcon) { toggle.innerHTML = toggleIcon; this.renderedToggleIcon = toggleIcon; }
-    toggle.setAttribute('aria-label', this.state === 'recording' ? '暂停录音' : '继续录音');
-    toggle.title = this.state === 'recording' ? '暂停以试听或继续录音' : '继续录音';
+    toggle.setAttribute('aria-label', this.state === 'recording' ? uiLiteral('暂停录音') : uiLiteral('继续录音'));
+    toggle.title = this.state === 'recording' ? uiLiteral('暂停以试听或继续录音') : uiLiteral('继续录音');
     const play = this.host.querySelector<HTMLButtonElement>('.voice-preview')!;
     play.disabled = this.state !== 'paused' || !this.samples.length;
     const previewIcon = this.preview.paused ? voiceIcons.play : voiceIcons.pause;
@@ -611,8 +612,8 @@ export class VoiceRecorder {
       this.renderedPreviewIcon = previewIcon;
     }
     this.host.querySelector('.voice-preview-time')!.textContent = voiceTime(!this.preview.paused ? this.preview.currentTime * 1000 : this.selectedDurationMs);
-    play.setAttribute('aria-label', this.preview.paused ? '试听录音' : '暂停试听');
-    play.setAttribute('aria-description', `仅试听选定的${(this.selectedDurationMs / 1000).toFixed(1)}秒区间`);
+    play.setAttribute('aria-label', this.preview.paused ? uiLiteral('试听录音') : uiLiteral('暂停试听'));
+    play.setAttribute('aria-description', uiTemplate`仅试听选定的${(this.selectedDurationMs / 1000).toFixed(1)}秒区间`);
     const send = this.host.querySelector<HTMLButtonElement>('.voice-send')!;
     send.hidden = holding || this.state === 'requesting' || submitting;
     send.disabled = this.state === 'recording' ? elapsed < MIN_AUDIO_DURATION_MS : this.state !== 'paused' || this.selectedDurationMs < MIN_AUDIO_DURATION_MS;
@@ -621,8 +622,8 @@ export class VoiceRecorder {
     const discard = this.host.querySelector<HTMLButtonElement>('.voice-discard')!;
     discard.hidden = !drafting;
     discard.disabled = this.state === 'sending';
-    const hint = submitting ? '' : this.message || (this.state === 'requesting' ? '请允许麦克风访问' : this.state === 'processing' ? '正在处理录音…'
-      : this.state === 'paused' && this.durationMs < MIN_AUDIO_DURATION_MS ? '录音太短，请继续录制至少半秒' : '');
+    const hint = submitting ? '' : this.message || (this.state === 'requesting' ? uiLiteral('请允许麦克风访问') : this.state === 'processing' ? uiLiteral('正在处理录音…')
+      : this.state === 'paused' && this.durationMs < MIN_AUDIO_DURATION_MS ? uiLiteral('录音太短，请继续录制至少半秒') : '');
     const hintElement = this.host.querySelector<HTMLElement>('.voice-recording-hint')!;
     hintElement.hidden = !hint;
     if (hintElement.textContent !== hint) hintElement.textContent = hint;

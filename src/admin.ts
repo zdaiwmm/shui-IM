@@ -111,7 +111,7 @@ for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
 function frame(title: string) {
   leaveView(); view += 1;
   const resourceTitles = ['表情管理', '资源详情', '表情采集', '采集任务', '内置动画'];
-  const keys: Record<string,string> = {'总览':'overview','密室管理':'rooms','密室详情':'rooms','归档与备份':'archives','归档详情':'archives','运维诊断':'diagnostics','安全与审计':'security','表情管理':'expressions','资源详情':'expressions','表情采集':'collection','采集任务':'collection-jobs','内置动画':'bundled'};
+  const keys: Record<string,string> = {'用户反馈':'feedback','总览':'overview','密室管理':'rooms','密室详情':'rooms','归档与备份':'archives','归档详情':'archives','运维诊断':'diagnostics','安全与审计':'security','表情管理':'expressions','资源详情':'expressions','表情采集':'collection','采集任务':'collection-jobs','内置动画':'bundled'};
   const key = keys[title] ?? 'overview';
   try { sessionStorage.setItem('quiet-admin-view', key); } catch { /* Optional navigation memory. */ }
   root.innerHTML = `<a class="admin-skip-link" href="#content">跳至主要内容</a><div class="admin-shell tabler-shell"><aside class="admin-sidebar"><div class="brand"><span class="brand-mark">${chamberMark()}</span><div><strong>Chamber</strong><small>管理工作区</small></div><button class="admin-mobile-menu" id="admin-menu" type="button" aria-label="打开后台导航" aria-expanded="false" aria-controls="admin-nav"></button></div>
@@ -124,9 +124,9 @@ function frame(title: string) {
   mobileMenu.addEventListener('click',()=>{const open=mobileMenu.getAttribute('aria-expanded')!=='true';mobileMenu.setAttribute('aria-expanded',String(open));mobileMenu.setAttribute('aria-label',open?'关闭后台导航':'打开后台导航');root.querySelector('.admin-sidebar')!.classList.toggle('navigation-open',open);});
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&mobileMenu.getAttribute('aria-expanded')==='true'){mobileMenu.click();mobileMenu.focus();}},{signal:viewRequests.signal});
   const nav=root.querySelector('#admin-nav')!;
-  const entries=[['overview','总览',LayoutDashboard,()=>void workspace.overview()],['rooms','密室管理',MessageSquare,()=>void rooms()],['archives','归档与备份',Archive,()=>void workspace.archives()],['expressions','表情资源',Images,()=>void expressions()],['diagnostics','运维诊断',Activity,()=>void workspace.diagnostics()],['security','安全与审计',ShieldCheck,()=>void workspace.security()]] as const;
+  const entries=[['overview','总览',LayoutDashboard,()=>void workspace.overview()],['rooms','密室管理',MessageSquare,()=>void rooms()],['archives','归档与备份',Archive,()=>void workspace.archives()],['expressions','表情资源',Images,()=>void expressions()],['feedback','用户反馈',MessageSquare,()=>void workspace.feedback()],['diagnostics','运维诊断',Activity,()=>void workspace.diagnostics()],['security','安全与审计',ShieldCheck,()=>void workspace.security()]] as const;
   entries.forEach(([id,label,icon,run],index)=>{
-    if(index===4){const group=document.createElement('p');group.className='admin-nav-label';group.textContent='管理';nav.append(group);}
+    if(index===5){const group=document.createElement('p');group.className='admin-nav-label';group.textContent='管理';nav.append(group);}
     const button=document.createElement('button');button.type='button';button.id=`${id}-nav`;button.className='nav-item';const graphic=createElement(icon);graphic.setAttribute('aria-hidden','true');const text=document.createElement('span');text.textContent=label;button.append(graphic,text);
     if(key===id||(id==='expressions'&&resourceTitles.includes(title)))button.setAttribute('aria-current','page');button.addEventListener('click',run);nav.append(button);
   });
@@ -547,6 +547,6 @@ root.textContent = '正在验证后台会话…';
 void api<{ csrf: string }>('/session').then(result => {
   csrf = result.csrf; startSessionRenewal();
   let previous = ''; try { previous = sessionStorage.getItem('quiet-admin-view') || ''; } catch { /* Use the default view. */ }
-  const destinations:Record<string,()=>Promise<unknown>|void>={overview:workspace.overview,rooms,archives:()=>workspace.archives(),expressions,collection,'collection-jobs':collectionJobs,diagnostics:workspace.diagnostics,security:workspace.security,bundled};
+  const destinations:Record<string,()=>Promise<unknown>|void>={feedback:()=>workspace.feedback(),overview:workspace.overview,rooms,archives:()=>workspace.archives(),expressions,collection,'collection-jobs':collectionJobs,diagnostics:workspace.diagnostics,security:workspace.security,bundled};
   return (destinations[previous]??workspace.overview)();
 }).catch(login);

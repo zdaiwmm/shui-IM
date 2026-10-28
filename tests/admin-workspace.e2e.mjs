@@ -18,6 +18,8 @@ try {
   const reservation=createNetServer();await new Promise(resolve=>reservation.listen(0,'127.0.0.1',resolve));const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve));
   const password='synthetic-admin-workspace-password',config=await makeAdminConfig(password);
   service=await startServer({port,host:'127.0.0.1',dataDir:directory,adminConfig:config,adminOrigin:`http://localhost:${port}`,quiet:true});
+  for(let i=0;i<26;i++)service.store.feedback.submit({id:randomUUID(),email:'reader@example.com',message:`Synthetic feedback ${i}`});
+  service.store.feedback.submit({id:randomUUID(),email:'sender@example.com',message:'<img src=x onerror=alert(1)> Feedback remains plain text'});
   const owner={deviceId:randomUUID(),encryptionKey:{kty:'EC'},signingKey:{kty:'EC'}};
   const room=service.store.createRoom(owner,'a'.repeat(43),'b'.repeat(43),'Synthetic device');
   const signing=generateKeyPairSync('ed25519'),encryption=generateKeyPairSync('x25519');
@@ -29,12 +31,12 @@ try {
   service.store.roomArchives.put(room.roomId,owner.deviceId,descriptor.id,{...unsigned,signature:sign(null,Buffer.from(canonicalStringify(unsigned)),signing.privateKey).toString('base64url')});
   if(process.env.ADMIN_BROWSER&&!['chromium','webkit'].includes(process.env.ADMIN_BROWSER))throw new Error('Unknown admin browser');
   browser=process.env.ADMIN_BROWSER==='webkit'?await webkit.launch():await chromium.launch(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
-  const page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(20_000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  const page=await browser.newPage({ locale: 'zh-CN',viewport:{width:1440,height:1000}});page.setDefaultTimeout(20_000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
   const capture=async name=>{if(screenshots)await page.screenshot({path:path.join(screenshots,`${name}.png`),fullPage:true,animations:'disabled'});};
   const nav=async name=>{const b=page.locator('#admin-nav').getByRole('button',{name,exact:true});if(!await b.isVisible())await page.getByRole('button',{name:'打开后台导航',exact:true}).click();await b.click();await page.getByRole('heading',{name:name==='表情资源'?'表情管理':name,exact:true}).waitFor();};
   await page.goto(`http://localhost:${port}`);await page.getByRole('heading',{name:'登录管理工作区'}).waitFor();await capture('login');
   await page.locator('[name=password]').fill(password);await page.locator('[name=code]').fill(totp(config.totpSecret));await page.getByRole('button',{name:'验证并登录'}).click();await page.getByRole('heading',{name:'总览',exact:true}).waitFor();await page.getByText('灾备状态尚未接入',{exact:true}).waitFor();
-  assert.equal(await page.locator('#admin-nav .nav-item').count(),6);await capture('overview-desktop');await auditP1Surface(page,'admin-v1-overview','#admin');
+  assert.equal(await page.locator('#admin-nav .nav-item').count(),7);await capture('overview-desktop');await auditP1Surface(page,'admin-v1-overview','#admin');
   for(const scheme of ['light','dark'])for(const theme of ['blue','green','purple','apricot','sea','rose','terracotta','lemon','graphite']){
     await page.emulateMedia({colorScheme:scheme});
     await page.evaluate(theme=>{localStorage.setItem('quiet-room:appearance',theme);window.dispatchEvent(new StorageEvent('storage',{key:'quiet-room:appearance'}));},theme);
@@ -59,6 +61,20 @@ try {
   await page.getByRole('button',{name:'设备与接入',exact:true}).click();await page.getByText('创建者 · Synthetic device',{exact:true}).waitFor();await capture('devices-desktop');
   await page.getByRole('button',{name:'关联归档',exact:true}).click();await page.getByRole('button',{name:descriptor.id,exact:true}).click();await page.getByRole('heading',{name:'归档详情',exact:true}).waitFor();await page.getByText('后台不可读取',{exact:true}).waitFor();await capture('archive-detail');await auditP1Surface(page,'admin-v1-archive','#admin');
   await nav('归档与备份');await page.getByRole('button',{name:'服务器灾备',exact:true}).click();await page.getByText('未接入状态源',{exact:true}).waitFor();await capture('disaster');
+  await nav('用户反馈');
+  await page.getByText('sender@example.com',{exact:true}).waitFor();
+  assert.equal(await page.locator('#content tbody tr').count(),25);
+  await page.locator('#content tbody tr').filter({hasText:'sender@example.com'}).getByRole('button',{name:'查看',exact:true}).click();
+  await page.locator('.feedback-admin-message').waitFor();
+  assert.equal(await page.locator('.feedback-admin-message').textContent(),'<img src=x onerror=alert(1)> Feedback remains plain text');
+  assert.equal(await page.locator('.feedback-admin-message img').count(),0);
+  await page.getByRole('button',{name:'标记为已读',exact:true}).click();
+  await page.getByRole('button',{name:'已读 1',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelectorAll('#content tbody tr').length===1);
+  await page.getByRole('button',{name:'全部 27',exact:true}).click();
+  await page.getByRole('navigation',{name:'反馈分页'}).getByRole('button',{name:'下一页',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelectorAll('#content tbody tr').length===2);
+  await capture('feedback');
   await nav('运维诊断');await page.getByText('格式校验通过，连通性未验证',{exact:true}).waitFor();await capture('diagnostics');await auditP1Surface(page,'admin-v1-diagnostics','#admin');
   await nav('安全与审计');await page.getByText('密码只保存不可逆哈希',{exact:false}).waitFor();await capture('audit');
   await nav('表情资源');await page.getByRole('button',{name:'内置动画',exact:true}).click();await page.getByText('只读，不提供上下架或上传替换',{exact:true}).waitFor();await capture('bundled');
@@ -70,5 +86,5 @@ try {
   assert.equal(service.store.roomState(room.roomId),null);await nav('归档与备份');await page.getByRole('button',{name:'本人归档',exact:true}).click();await page.getByRole('button',{name:descriptor.id,exact:true}).waitFor();await page.getByText('来源密室已移除，归档保留',{exact:true}).waitFor();await capture('retained-archive');
   await page.route('**/admin-api/archives?*',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'合成读取失败'})}));await page.getByRole('button',{name:'刷新归档列表',exact:true}).click();await page.getByText('合成读取失败',{exact:true}).waitFor();await page.unroute('**/admin-api/archives?*');await page.getByRole('button',{name:'重试',exact:true}).click();await page.getByRole('button',{name:descriptor.id,exact:true}).waitFor();
   await page.reload();await page.getByRole('heading',{name:'归档与备份',exact:true}).waitFor();await page.getByRole('button',{name:descriptor.id,exact:true}).waitFor();
-  assert.deepEqual(errors,[]);console.log(browser.browserType().name()+' admin workspace passed: real authentication, six entries, format filters, metadata boundaries, protected deletion, retained archives, retry, refresh, responsive navigation and rendered states.');
+  assert.deepEqual(errors,[]);console.log(browser.browserType().name()+' admin workspace passed: real authentication, seven entries including feedback, format filters, metadata boundaries, protected deletion, retained archives, retry, refresh, responsive navigation and rendered states.');
 }finally{await browser?.close();await service?.close();await rm(directory,{recursive:true,force:true});}

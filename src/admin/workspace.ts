@@ -229,6 +229,33 @@ export class AdminWorkspace {
                 host.replaceChildren(errorState(error, retry));
         }
     }
+    feedback = (offset=0,status='all') => this.load<{total:number;offset:number;limit:number;counts:Record<string,number>;items:{id:string;email:string;preview:string;createdAt:string;readAt:string|null}[]}>('用户反馈',`/feedback?offset=${offset}&status=${status}`,(host,data)=>{
+        const epoch=this.c.epoch();
+        host.append(tabs(['all','unread','read'].map((value,index)=>({label:`${['全部','未读','已读'][index]} ${data.counts[value]??0}`,active:status===value,run:()=>void this.feedback(0,value)}))));
+        const refresh=el('button','','刷新');refresh.addEventListener('click',()=>void this.feedback(offset,status));host.append(refresh);
+        if(!data.items.length){host.append(emptyState('暂无反馈'));return;}
+        const listing=table(['状态','邮箱','反馈摘要','提交时间','操作']);
+        const detail=el('section','admin-section');
+        for(const item of data.items){
+            const open=el('button','','查看');
+            open.addEventListener('click',async()=>{
+                detail.replaceChildren(loadingState('正在读取…'));
+                const selected=item.id;detail.dataset.selected=selected;
+                try{
+                    const value=await this.c.api<{id:string;email:string;message:string;createdAt:string;readAt:string|null}>(`/feedback/${selected}`);
+                    if(epoch!==this.c.epoch()||detail.dataset.selected!==selected)return;
+                    const title=el('h2','','反馈详情');title.tabIndex=-1;
+                    const message=el('p','feedback-admin-message',value.message);message.dir='auto';
+                    detail.replaceChildren(title,el('p','admin-stamp',`${value.email} · ${date(value.createdAt)}`),message);
+                    if(!value.readAt){const mark=el('button','','标记为已读');mark.addEventListener('click',async()=>{
+                        mark.disabled=true;try{await this.c.api(`/feedback/${selected}/read`,'POST',{});if(epoch===this.c.epoch())await this.feedback(offset,status);}catch(error){if(epoch===this.c.epoch()){mark.disabled=false;this.c.report(error);}}
+                    });detail.append(mark);}title.focus();
+                }catch(error){if(epoch===this.c.epoch()&&detail.dataset.selected===selected)detail.replaceChildren(errorState(error,()=>open.click()));}
+            });
+            row(listing.body,[badge(item.readAt?'已读':'未读',item.readAt?'muted':'success'),item.email,item.preview,date(item.createdAt),open]);
+        }
+        host.append(listing.wrapper,pagination({page:data.offset/data.limit+1,total:data.total,pageSize:data.limit,label:'反馈分页',change:next=>void this.feedback((next-1)*data.limit,status)}),detail);
+    },()=>void this.feedback(offset,status));
     private stamp(host: HTMLElement, time: string) { host.prepend(el('p', 'admin-stamp', `服务端记录 · 检查于 ${date(time)}`)); }
     overview = () => this.load<Summary>('总览', '/overview', (host, data) => {
         this.stamp(host, data.checkedAt);

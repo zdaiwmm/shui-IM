@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
 import { derivePasswordCredential, isPasswordCredential, wrapPasswordMaster, unwrapPasswordMaster, type LocalCredentialResult } from './password-protection';
@@ -20,7 +21,7 @@ export async function browserRoomKey(create = false): Promise<string | null> {
   }
   if (!record) return null;
   if (record.method === 'automatic') {
-    if (!/^[A-Za-z0-9_-]{43}$/.test(record.secret)) throw new Error('本机访问材料损坏');
+    if (!/^[A-Za-z0-9_-]{43}$/.test(record.secret)) throw new Error(uiLiteral('本机访问材料损坏'));
     return record.secret;
   }
   return held?.revision === record.revision ? held.secret : null;
@@ -28,17 +29,17 @@ export async function browserRoomKey(create = false): Promise<string | null> {
 export async function unlockBrowserRoomKey(password: string): Promise<string> {
   const generation = unlockGeneration;
   const record = await readRoomProtection();
-  if (!record || record.method !== 'password') throw new Error('本机保护状态已改变');
-  const raw = await withRoomUnlockThrottle(async () => {try{return await unwrapPasswordMaster({ ...record.wrapper, v: 3, unlockMethod: 'password', payload: { iv: '', ciphertext: '' } }, password);}catch(cause){if(cause instanceof DOMException && cause.name==='OperationError')throw new Error('应用锁密码不正确，请重试');throw cause;}});
+  if (!record || record.method !== 'password') throw new Error(uiLiteral('本机保护状态已改变'));
+  const raw = await withRoomUnlockThrottle(async () => {try{return await unwrapPasswordMaster({ ...record.wrapper, v: 3, unlockMethod: 'password', payload: { iv: '', ciphertext: '' } }, password);}catch(cause){if(cause instanceof DOMException && cause.name==='OperationError')throw new Error(uiLiteral('应用锁密码不正确，请重试'));throw cause;}});
   try {
-    if (canonicalStringify(await readRoomProtection()) !== canonicalStringify(record)) throw new Error('应用锁已改变，请重试');
-    if (generation !== unlockGeneration) throw new DOMException('验证已结束', 'AbortError');
+    if (canonicalStringify(await readRoomProtection()) !== canonicalStringify(record)) throw new Error(uiLiteral('应用锁已改变，请重试'));
+    if (generation !== unlockGeneration) throw new DOMException(uiLiteral('验证已结束'), 'AbortError');
     const secret = toBase64Url(raw); held = { revision: record.revision, secret }; return secret;
   } finally { raw.fill(0); }
 }
 export async function protectBrowserRoomKey(credential: LocalCredentialResult): Promise<void> {
   const record = await readRoomProtection(), key = await browserRoomKey();
-  if (!record || !key) throw new Error('请先解锁本机');
+  if (!record || !key) throw new Error(uiLiteral('请先解锁本机'));
   const raw = fromBase64Url(key);
   try {
     const next: RoomProtection = isPasswordCredential(credential) ? { v: 1, revision: crypto.randomUUID(), method: 'password', wrapper: {
@@ -50,17 +51,17 @@ export async function protectBrowserRoomKey(credential: LocalCredentialResult): 
 }
 export async function removeBrowserRoomProtection(): Promise<void> {
   const record = await readRoomProtection(), secret = await browserRoomKey();
-  if (!record || !secret) throw new Error('请先验证应用锁');
+  if (!record || !secret) throw new Error(uiLiteral('请先验证应用锁'));
   await replaceRoomProtection(record, { v: 1, revision: crypto.randomUUID(), method: 'automatic', secret });
   held = undefined;
 }
 export async function automaticRoomCredential() {
   const secret = await browserRoomKey(true);
-  if (!secret) throw new Error('请先解锁本机');
+  if (!secret) throw new Error(uiLiteral('请先解锁本机'));
   const record = await readRoomProtection();
-  if (!record || await browserRoomKey() !== secret) throw new Error('本机保护已改变，请重试');
+  if (!record || await browserRoomKey() !== secret) throw new Error(uiLiteral('本机保护已改变，请重试'));
   const credential = await derivePasswordCredential(secret); delete credential.rootKek;
-  if ((await readRoomProtection())?.revision !== record.revision) throw new Error('本机保护已改变，请重试');
+  if ((await readRoomProtection())?.revision !== record.revision) throw new Error(uiLiteral('本机保护已改变，请重试'));
   credential.roomProtectionRevision = record.revision; return credential;
 }
 
@@ -79,12 +80,12 @@ export async function unlockBrowserRoomPlatform(proof: Uint8Array<ArrayBuffer>):
   const generation = unlockGeneration;
   const record=await readRoomProtection();
   try {
-    if(!record||record.method!=='platform')throw new Error('本机保护状态已改变');
+    if(!record||record.method!=='platform')throw new Error(uiLiteral('本机保护状态已改变'));
     const key=await platformKey(proof,record.platform);
     const raw=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:fromBase64Url(record.iv),additionalData:platformAad(record.platform)},key,fromBase64Url(record.ciphertext)));
     try {
-      if(raw.length!==32||canonicalStringify(await readRoomProtection())!==canonicalStringify(record))throw new Error('应用锁已改变，请重试');
-      if(generation!==unlockGeneration)throw new DOMException('验证已结束','AbortError');
+      if(raw.length!==32||canonicalStringify(await readRoomProtection())!==canonicalStringify(record))throw new Error(uiLiteral('应用锁已改变，请重试'));
+      if(generation!==unlockGeneration)throw new DOMException(uiLiteral('验证已结束'),'AbortError');
       const secret=toBase64Url(raw);held={revision:record.revision,secret};return secret;
     }finally{raw.fill(0);}
   }finally{proof.fill(0);}

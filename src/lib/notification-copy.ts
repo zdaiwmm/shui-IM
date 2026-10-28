@@ -1,16 +1,17 @@
+import { uiLiteral, uiTemplate } from './language';
 import { NOTIFICATION_POLICY_CACHE, readNotificationPolicy, withNotificationLock } from './notification-policy';
 
 /** Explicitly user-authored, device-wide fixed copy. Never uploaded or read from the chat vault. */
 export const NOTIFICATION_COPY_URL = '/__quiet-room-notification-copy';
-export const DEFAULT_NOTIFICATION_COPY = { v: 1 as const, title: 'Chamber', body: '有一条新消息，解锁后查看。' };
+export const DEFAULT_NOTIFICATION_COPY = { v: 1 as const, title: 'Chamber', get body() { return uiLiteral('有一条新消息，解锁后查看。') as string; } };
 export type NotificationCopy = typeof DEFAULT_NOTIFICATION_COPY;
 export const NOTIFICATION_COPY_LIMITS = { title: 24, body: 80 };
 export function notificationCopyLength(value: string): number {
   return [...new Intl.Segmenter('zh-CN', { granularity: 'grapheme' }).segment(value)].length;
 }
 export function notificationCopyError(key: 'title' | 'body', value: string): string {
-  if (notificationCopyLength(value) > NOTIFICATION_COPY_LIMITS[key]) return `请缩短到 ${NOTIFICATION_COPY_LIMITS[key]} 个字以内。`;
-  return /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value) ? '请移除不可显示的字符。' : '';
+  if (notificationCopyLength(value) > NOTIFICATION_COPY_LIMITS[key]) return uiTemplate`请缩短到 ${NOTIFICATION_COPY_LIMITS[key]} 个字以内。`;
+  return /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value) ? uiLiteral('请移除不可显示的字符。') : '';
 }
 export function normalizeNotificationCopy(value: Pick<NotificationCopy, 'title' | 'body'>): NotificationCopy {
   for (const key of ['title', 'body'] as const) {

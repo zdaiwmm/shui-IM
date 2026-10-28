@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { canonicalStringify } from './canonical';
 import { toBase64Url } from './base64';
 import { galleryCurationKey } from './gallery-curation';
@@ -44,7 +45,7 @@ export async function auditRestoredHistory(session: VaultSession, expected: Read
       for (const message of page) {
         const plan = expected.get(message.seq);
         if (!plan) continue;
-        if (verified.has(message.seq) || await historyRecordDigest(message) !== plan.digest) throw new Error('恢复后的本机记录与备份不一致，请重试核验');
+        if (verified.has(message.seq) || await historyRecordDigest(message) !== plan.digest) throw new Error(uiLiteral('恢复后的本机记录与备份不一致，请重试核验'));
         verified.add(message.seq);
         for (const kind of ['chat', 'gallery'] as const) {
           if (!plan[kind] || !result[kind]) continue;
@@ -72,7 +73,7 @@ export async function auditRestoredHistory(session: VaultSession, expected: Read
       afterSeq = page.at(-1)!.seq;
     }
     signal.throwIfAborted();
-    if (verified.size !== expected.size) throw new Error('恢复后的记录未能全部从本机读回，请重试；已写入内容会保留');
+    if (verified.size !== expected.size) throw new Error(uiLiteral('恢复后的记录未能全部从本机读回，请重试；已写入内容会保留'));
     return result;
   });
 }

@@ -1,10 +1,11 @@
+import { uiLiteral, uiTemplate } from './language';
 import referenceUrl from '../assets/notification-reference.png';
 import { mountDialog } from './dialog';
 import { DEFAULT_NOTIFICATION_COPY, normalizeNotificationCopy, notificationCopyError, notificationCopyLength, notificationCopyPaused, NOTIFICATION_COPY_LIMITS, readNotificationCopy, saveNotificationCopy } from './notification-copy';
 
 export function mountNotificationCopy(root: HTMLElement, options: { signal: AbortSignal; isActive: () => boolean; backIcon: string; onBack: () => void }): void {
   const { signal } = options;
-  root.innerHTML = `<section class="device-shell notification-copy-page">
+  root.innerHTML = uiTemplate`<section class="device-shell notification-copy-page">
     <header class="subpage-header device-header"><button class="icon-button" id="notification-copy-back" type="button" aria-label="返回通知管理">${options.backIcon}</button><div><h1>通知文案</h1></div><button class="notification-copy-save" id="notification-copy-save" type="submit" form="notification-copy-form" disabled>保存</button></header>
     <section class="notification-copy-preview" aria-label="通知预览"><div class="notification-copy-preview-heading"><span id="notification-copy-state">正在读取…</span><div role="group" aria-label="通知预览对照"><button type="button" data-copy-preview aria-pressed="true">编辑效果</button><button type="button" data-copy-reference aria-pressed="false">原截图</button></div></div>
       <figure class="notification-copy-card"><img src="${referenceUrl}" width="722" height="184" alt="通知卡片：Quiet Room，ai.shui.click，有一条新消息，解锁后查看。"><div class="notification-copy-text" hidden><strong data-copy-title></strong><strong>ai.shui.click</strong><strong data-copy-body></strong></div></figure><p class="notification-copy-hint">自填文案排版待真机核对</p>
@@ -47,8 +48,8 @@ export function mountNotificationCopy(root: HTMLElement, options: { signal: Abor
     shell.querySelector('img')!.setAttribute('aria-hidden', String(!original));
     shell.querySelector('[data-copy-preview]')!.setAttribute('aria-pressed', String(!reference));
     shell.querySelector('[data-copy-reference]')!.setAttribute('aria-pressed', String(reference));
-    shell.querySelector('#notification-copy-state')!.textContent = loading ? '正在读取…' : dirty() ? '预览 · 未保存' : '通知预览';
-    save.disabled = loading || saving || composing || invalid || !dirty(); save.textContent = saving ? '保存中' : '保存';
+    shell.querySelector('#notification-copy-state')!.textContent = loading ? uiLiteral('正在读取…') : dirty() ? uiLiteral('预览 · 未保存') : uiLiteral('通知预览');
+    save.disabled = loading || saving || composing || invalid || !dirty(); save.textContent = saving ? uiLiteral('保存中') : uiLiteral('保存');
     back.disabled = saving; reset.disabled = loading || saving;
     try { shell.querySelector<HTMLElement>('[data-copy-paused]')!.hidden = !notificationCopyPaused(); } catch { /* Keep editing available if switch metadata is corrupt. */ }
   };
@@ -65,7 +66,7 @@ export function mountNotificationCopy(root: HTMLElement, options: { signal: Abor
     if (!active() || saving || confirmation) return;
     if (!dirty() || loading) { options.onBack(); return; }
     const sheet = document.createElement('section'); sheet.className = 'confirm-overlay notification-copy-discard'; sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-labelledby', 'notification-copy-discard-heading');
-    sheet.innerHTML = '<div class="confirm-dialog"><h2 id="notification-copy-discard-heading">放弃未保存的修改？</h2><button class="text-button danger" data-discard type="button">放弃修改并返回</button><button class="primary-button" data-continue type="button">继续编辑</button></div>';
+    sheet.innerHTML = uiLiteral('<div class="confirm-dialog"><h2 id="notification-copy-discard-heading">放弃未保存的修改？</h2><button class="text-button danger" data-discard type="button">放弃修改并返回</button><button class="primary-button" data-continue type="button">继续编辑</button></div>');
     root.append(sheet);
     confirmation = mountDialog(sheet, { signal, isActive: active, returnFocus: back, initialFocus: sheet.querySelector<HTMLElement>('[data-continue]'), onClose: () => { confirmation = undefined; } });
     sheet.querySelector('[data-continue]')!.addEventListener('click', () => confirmation?.close(), { signal });
@@ -78,8 +79,8 @@ export function mountNotificationCopy(root: HTMLElement, options: { signal: Abor
     try {
       const result = await saveNotificationCopy(value, signal);
       if (!active()) return;
-      saved = result; title.value = result.title; body.value = result.body; status('已保存');
-    } catch { if (active()) status('保存失败，请重试。修改已保留。', true); }
+      saved = result; title.value = result.title; body.value = result.body; status(uiLiteral('已保存'));
+    } catch { if (active()) status(uiLiteral('保存失败，请重试。修改已保留。'), true); }
     finally { if (active()) { saving = false; paint(); } }
   }, { signal });
   window.addEventListener('beforeunload', event => { if (active() && !loading && dirty()) { event.preventDefault(); event.returnValue = ''; } }, { signal });
@@ -89,5 +90,5 @@ export function mountNotificationCopy(root: HTMLElement, options: { signal: Abor
   void readNotificationCopy().then(value => {
     if (!active()) return;
     saved = value; title.value = value.title; body.value = value.body; loading = false; paint();
-  }).catch(() => { if (active()) { loading = false; title.value = saved.title; body.value = saved.body; status('本机文案暂时无法读取，可重新保存。', true); paint(); } });
+  }).catch(() => { if (active()) { loading = false; title.value = saved.title; body.value = saved.body; status(uiLiteral('本机文案暂时无法读取，可重新保存。'), true); paint(); } });
 }

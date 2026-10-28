@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { canonicalStringify } from './canonical';
 import { toBase64Url } from './base64';
@@ -32,7 +33,7 @@ export async function preparePersonalDevice(entry: PersonalDirectoryEntry, store
     version: generation, payloadHash: personalDevicePayloadHash(payload) }, signal);
   const signature = await usePersonalIdentity(stored, credential, entropy => signPersonalProof(entropy, proof));
   const request: PersonalDeviceRequest = { payload, proof, signature };
-  if (!await verifyPersonalDeviceRequest(request, stored.identity)) throw new Error('新设备请求与本机身份不一致');
+  if (!await verifyPersonalDeviceRequest(request, stored.identity)) throw new Error(uiLiteral('新设备请求与本机身份不一致'));
   signal.throwIfAborted(); return { identity, binding, accessToken, request };
 }
 export async function verifyPersonalDeviceRequest(request: PersonalDeviceRequest, owner: PersonalPublicIdentity, now = Date.now()): Promise<boolean> {

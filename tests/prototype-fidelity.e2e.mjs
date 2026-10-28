@@ -16,7 +16,7 @@ async function shot(page,name){if (!out) return;await page.evaluate(async()=>{aw
 try {
  await vite.listen();const url=`http://localhost:${vite.httpServer.address().port}`;
  browser=await chromium.launch(process.env.CHROME_PATH ? {executablePath:process.env.CHROME_PATH} : process.env.CI ? {} : {channel:'chrome'});
- const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0.65'});
+ const context=await browser.newContext({ locale: 'zh-CN',viewport:{width:390,height:844},hasTouch:true,userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0.65'});
  await context.addInitScript(()=>{delete window.PublicKeyCredential;});
  const page=await context.newPage();await page.goto(url+'/__audit');
  await page.evaluate(async()=>{
@@ -78,7 +78,7 @@ try {
  await page.evaluate(()=>app.lockNow());assert.equal(await page.locator('#message-input').count(),0,'Explicit lock must clear private UI immediately');
  if(out)await writeFile(path.join(out,'fidelity-layouts.json'),JSON.stringify({engine:'desktop Chromium',realDevice:false,syntheticPresentationFixture:true,metrics,timeline},null,2));
  await auditUiDetails(page,out);
- const prototype=await browser.newPage({viewport:{width:390,height:844}});
+ const prototype=await browser.newPage({ locale: 'zh-CN',viewport:{width:390,height:844}});
  for(const [name,query] of [['P03','page=password'],['P04','page=unlock&method=password'],['P06','page=reauth&purpose=export'],['R03','page=restore'],['R06','page=recoveryWaiting']]){
   await prototype.goto(url+'/docs/requirements/2026-09-30-experience-optimization/prototype/index.html?'+query+'&v=7');
   await prototype.addStyleTag({content:'.review,.stagebar,.annotation,.auth-tools,#announce{display:none!important}.layout{display:block!important;padding:0!important;margin:0!important}.stage{display:block!important}.phone{width:100vw!important;height:100dvh!important;min-height:0!important;border:0!important;box-shadow:none!important}.change-marker{display:none!important}.annotated{outline:0!important}'});

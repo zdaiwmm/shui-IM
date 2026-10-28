@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { isChamberVault } from './chamber-space';
 import { canonicalStringify } from './canonical';
 import { authorizedFetch } from './api';
@@ -29,19 +30,19 @@ async function api<T>(session:VaultSession,path:string,signal:AbortSignal,body?:
 export const listChamberHistoryRequests = (session:VaultSession,signal:AbortSignal) => api<ChamberHistorySummary[]>(session,base(session),signal);
 export const readChamberHistoryRequest = (session:VaultSession,id:string,signal:AbortSignal) => api<ChamberHistoryRequest>(session,`${base(session)}/${id}?manifest=1`,signal);
 function participants(session:VaultSession) {
-  if (!isChamberVault(session.vault)) throw new Error('此密室使用原有备份与恢复方式');
+  if (!isChamberVault(session.vault)) throw new Error(uiLiteral('此密室使用原有备份与恢复方式'));
   const owner = session.vault.personalBinding?.identity, peer = session.vault.personalPeers?.find(p=>p.identity.id !== owner?.id)?.identity;
-  if (!owner || !peer) throw new Error('双方身份尚未确认'); return {owner,peer};
+  if (!owner || !peer) throw new Error(uiLiteral('双方身份尚未确认')); return {owner,peer};
 }
 export async function startChamberHistoryRecovery(session:VaultSession,stored:StoredPersonalIdentity,credential:LocalCredentialResult,
   scope:'chat'|'gallery'|'all',signal:AbortSignal):Promise<ChamberHistoryRequest> {
   const {owner,peer} = participants(session);
-  if (!same(owner,stored.identity) || session.vault.role !== 'creator' && scope !== 'chat') throw new Error('恢复范围与本人权限不一致');
+  if (!same(owner,stored.identity) || session.vault.role !== 'creator' && scope !== 'chat') throw new Error(uiLiteral('恢复范围与本人权限不一致'));
   const pending = session.vault.pendingChamberHistoryRecovery;
   if (pending) {
     const request = await readChamberRecoveryManifest<ChamberHistoryRequest>(session,pending);
     if (Date.parse(request.proof.expiresAt) > Date.now()) {
-      if(request.scope.scope!==scope)throw new Error('已有其他范围的恢复申请，请先完成或等待本次申请结束');
+      if(request.scope.scope!==scope)throw new Error(uiLiteral('已有其他范围的恢复申请，请先完成或等待本次申请结束'));
       prepareJointHistoryScope(request.scope,request.proof,request.signature,owner,peer);
       await api(session,base(session),signal,request); return request;
     }
@@ -49,16 +50,16 @@ export async function startChamberHistoryRecovery(session:VaultSession,stored:St
   await syncPersonalDirectory(session,signal);
   const directory = await readOwnPersonalDirectory(stored,credential,signal,new Map([[session.vault.roomId,session.vault.personalDirectoryRevision ?? 0]]));
   const entry = directory.find(e=>e.roomId === session.vault.roomId);
-  if (!entry?.heads.length) throw new Error('尚无已验证的本人历史备份');
+  if (!entry?.heads.length) throw new Error(uiLiteral('尚无已验证的本人历史备份'));
   const heads = new Map(entry.heads.map(head=>[head.deviceId,head]));
   const units:JointHistoryScope['units'] = []; let after = 0;
   for (;;) {
     const rows = await api<{cursor:number;id:string;deviceId:string;revision:number;envelope:JointHistoryKeyEnvelope}[]>(session,`/api/rooms/${session.vault.roomId}/chamber-history?after=${after}`,signal);
-    if (!Array.isArray(rows) || rows.length > 100) throw new Error('备份列表不正确');
+    if (!Array.isArray(rows) || rows.length > 100) throw new Error(uiLiteral('备份列表不正确'));
     for (const row of rows) {
-      if (!Number.isSafeInteger(row.cursor) || row.cursor <= after) throw new Error('备份列表顺序不正确'); after = row.cursor;
+      if (!Number.isSafeInteger(row.cursor) || row.cursor <= after) throw new Error(uiLiteral('备份列表顺序不正确')); after = row.cursor;
       if (row.revision <= (heads.get(row.deviceId)?.revision ?? 0)) units.push({id:row.id,deviceId:row.deviceId,revision:row.revision,envelopeHash:jointHistoryEnvelopeHash(row.envelope)});
-      if (units.length > 50_000) throw new Error('本次恢复超过分块上限');
+      if (units.length > 50_000) throw new Error(uiLiteral('本次恢复超过分块上限'));
     }
     if (rows.length < 100) break;
   }
@@ -82,17 +83,17 @@ async function verifyRequest(session:VaultSession,request:ChamberHistoryRequest,
     ((peerOperation ? session.vault.role === 'creator' : session.vault.role === 'joiner') && request.scope.scope !== 'chat') ||
     !members.some(m=>m.status === 'active' && m.deviceId === request.scope.target.deviceId &&
       same(m.encryptionKey,request.scope.target.encryptionKey) && same(m.signingKey,request.scope.target.signingKey) && m.mlsKeyPackage === request.scope.target.mlsKeyPackage &&
-      m.role === (peerOperation ? session.vault.role === 'creator' ? 'joiner' : 'creator' : session.vault.role))) throw new Error('恢复申请的接收设备未获双方批准');
+      m.role === (peerOperation ? session.vault.role === 'creator' ? 'joiner' : 'creator' : session.vault.role))) throw new Error(uiLiteral('恢复申请的接收设备未获双方批准'));
   return {owner,peer,grant:prepareJointHistoryScope(request.scope,request.proof,request.signature,owner,peer)};
 }
 export async function approveChamberHistoryRecovery(session:VaultSession,request:ChamberHistoryRequest,stored:StoredPersonalIdentity,credential:LocalCredentialResult,
   signal:AbortSignal,progress:(count:number,total:number)=>void):Promise<void> {
   const {owner,peer,grant} = await verifyRequest(session,request,true);
-  if (!same(stored.identity,peer)) throw new Error('请使用对方原始参与者身份批准');
+  if (!same(stored.identity,peer)) throw new Error(uiLiteral('请使用对方原始参与者身份批准'));
   let count=0;
   for (let after=0;after<request.scope.units.length;after+=100) {
     const rows = await api<Unit[]>(session,`${base(session)}/${request.proof.requestId}?after=${after}`,signal);
-    if (rows.length !== Math.min(100,request.scope.units.length-after)) throw new Error('恢复分块缺失');
+    if (rows.length !== Math.min(100,request.scope.units.length-after)) throw new Error(uiLiteral('恢复分块缺失'));
     for (const row of rows) {
       signal.throwIfAborted();
       if (!row.release) {
@@ -112,12 +113,12 @@ const manifests = (message:DecryptedMessage):ImageManifest[] => {
 export async function completeChamberHistoryRecovery(session:VaultSession,request:ChamberHistoryRequest,stored:StoredPersonalIdentity,credential:LocalCredentialResult,
   signal:AbortSignal,progress:(count:number,total:number)=>void):Promise<number> {
   const {owner,peer,grant}=await verifyRequest(session,request,false);
-  if (!same(stored.identity,owner) || !same(request.scope.target,session.vault.identity.publicBundle)) throw new Error('恢复结果只交给申请的本机设备');
+  if (!same(stored.identity,owner) || !same(request.scope.target,session.vault.identity.publicBundle)) throw new Error(uiLiteral('恢复结果只交给申请的本机设备'));
   const destination=session;
   const releases=new Map<string,JointHistoryRelease>();
   for (let after=0;after<request.scope.units.length;after+=100) {
     const rows=await api<Unit[]>(session,`${base(session)}/${request.proof.requestId}?after=${after}`,signal);
-    for (const row of rows) { if (!row.release) throw new Error('等待对方共同解密，请联系对方在30分钟内完成'); releases.set(row.id,row.release); }
+    for (const row of rows) { if (!row.release) throw new Error(uiLiteral('等待对方共同解密，请联系对方在30分钟内完成')); releases.set(row.id,row.release); }
   }
   const units=new Map(request.scope.units.map(unit=>[unit.id,unit])), seen=new Set<string>();
   let checkpoint=session.vault.chamberHistoryRestoreProgress;
@@ -129,10 +130,10 @@ export async function completeChamberHistoryRecovery(session:VaultSession,reques
   });
   const open=async (id:string):Promise<{record:ChamberHistoryRecord;payload:ChamberHistoryPayload}> => {
     signal.throwIfAborted(); const unit=units.get(id), release=releases.get(id);
-    if (!unit || !release) throw new Error('历史备份链不完整');
+    if (!unit || !release) throw new Error(uiLiteral('历史备份链不完整'));
     const cached=await loadChamberHistoryCipher(destination,id);
     const record=cached??await api<ChamberHistoryRecord>(session,`/api/rooms/${session.vault.roomId}/chamber-history/${id}`,signal);
-    if (record.id !== id || record.revision !== unit.revision || jointHistoryEnvelopeHash(record.keyEnvelope) !== unit.envelopeHash) throw new Error('历史备份分块被替换');
+    if (record.id !== id || record.revision !== unit.revision || jointHistoryEnvelopeHash(record.keyEnvelope) !== unit.envelopeHash) throw new Error(uiLiteral('历史备份分块被替换'));
     const payload=await usePersonalIdentity(stored,credential,entropy=>openChamberHistoryRecord(record,owner,peer,request.proof,request.signature,release,entropy,grant,session.vault.identity));
     if(!cached)await cacheChamberHistoryCipher(destination,record,signal);
     return {record,payload};
@@ -142,16 +143,16 @@ export async function completeChamberHistoryRecovery(session:VaultSession,reques
     let next:{id:string;digest:string}|null=checkpoint.current?.headId===head.id?checkpoint.current.next:{id:head.id,digest:head.digest};
     let upper:number=checkpoint.current?.headId===head.id?checkpoint.current.upper:head.upperSeq;
     while(next) {
-      if (seen.has(next.id)) throw new Error('历史备份链出现重复'); seen.add(next.id);
+      if (seen.has(next.id)) throw new Error(uiLiteral('历史备份链出现重复')); seen.add(next.id);
       const {record,payload}=await open(next.id);
-      if (chamberHistoryRecordHash(record) !== next.digest || payload.kind !== 'messages' || payload.upperSeq !== upper || record.keyEnvelope.author?.bundle.deviceId !== head.deviceId) throw new Error('历史备份链或范围不完整');
-      if(payload.omittedSafe?.length&&session.vault.role!=='joiner')throw new Error('保险箱排除范围与历史归属不一致');
+      if (chamberHistoryRecordHash(record) !== next.digest || payload.kind !== 'messages' || payload.upperSeq !== upper || record.keyEnvelope.author?.bundle.deviceId !== head.deviceId) throw new Error(uiLiteral('历史备份链或范围不完整'));
+      if(payload.omittedSafe?.length&&session.vault.role!=='joiner')throw new Error(uiLiteral('保险箱排除范围与历史归属不一致'));
       for(const id of payload.preferences??[]) {
         const metadata=(await open(id)).payload;
-        if(metadata.kind!=='preferences'||session.vault.role!=='creator'&&metadata.galleryHidden.length)throw new Error('历史备份删除标记的归属不正确');
+        if(metadata.kind!=='preferences'||session.vault.role!=='creator'&&metadata.galleryHidden.length)throw new Error(uiLiteral('历史备份删除标记的归属不正确'));
         if(request.scope.scope!=='gallery') {
           const preferences=await loadUiPreferences(destination),hiddenChatMessageIds=[...new Set([...(preferences.hiddenChatMessageIds??[]),...metadata.hiddenChatMessageIds].map(id=>id.toLowerCase()))];
-          if(hiddenChatMessageIds.length>20_000)throw new Error('聊天删除标记超过本版恢复上限，已保留本机已有记录');
+          if(hiddenChatMessageIds.length>20_000)throw new Error(uiLiteral('聊天删除标记超过本版恢复上限，已保留本机已有记录'));
           await saveUiPreferences(destination,{...preferences,hiddenChatMessageIds});
         }
         if(request.scope.scope!=='chat')await restoreGalleryHidden(destination,metadata.galleryHidden,signal);
@@ -163,22 +164,22 @@ export async function completeChamberHistoryRecovery(session:VaultSession,reques
         // First pass verifies the entire original; second pass persists only
         // verified encrypted chunks, with no reconstructed plaintext file.
         for(let pass=0;pass<2;pass++) for(let index=0;index<manifest.chunkCount;index++) {
-          const id=chunks.get(`${manifest.blobId}:${index}`); if(!id) throw new Error('历史备份原文件分块缺失');
+          const id=chunks.get(`${manifest.blobId}:${index}`); if(!id) throw new Error(uiLiteral('历史备份原文件分块缺失'));
           const part=(await open(id)).payload;
-          if(part.kind !== 'attachment' || part.blobId !== manifest.blobId || part.index !== index) throw new Error('历史备份原文件归属不正确');
+          if(part.kind !== 'attachment' || part.blobId !== manifest.blobId || part.index !== index) throw new Error(uiLiteral('历史备份原文件归属不正确'));
           const raw=fromBase64Url(part.bytes);
           if(pass===0) { await verifier.chunk(index,raw.buffer); if(index===manifest.chunkCount-1) verifier.finish(); }
           else {
             await saveChamberRecoveredMediaChunk(destination,manifest.blobId,index,raw.buffer,signal);
             const readback=await loadCachedMediaChunk(destination,manifest.blobId,index,raw.length);
-            if(!readback||new Uint8Array(readback).some((byte,i)=>byte!==raw[i]))throw new Error('本机容量不足，原文件未能完整回读。已保留经过验证的旧记录，请腾出密室后继续恢复');
+            if(!readback||new Uint8Array(readback).some((byte,i)=>byte!==raw[i]))throw new Error(uiLiteral('本机容量不足，原文件未能完整回读。已保留经过验证的旧记录，请腾出密室后继续恢复'));
           }
         }
       }
       imported+=await importArchivedMessages(destination,payload.messages,request.scope.scope,signal);
-      if((await findMissingArchivedMessages(destination,payload.messages,request.scope.scope,signal)).length)throw new Error('历史记录未能完整落盘回读');
+      if((await findMissingArchivedMessages(destination,payload.messages,request.scope.scope,signal)).length)throw new Error(uiLiteral('历史记录未能完整落盘回读'));
       progress(++count,request.scope.units.length); upper=payload.afterSeq; next=payload.previous;
-      if(count>request.scope.units.length)throw new Error('恢复进度超出已批准范围');
+      if(count>request.scope.units.length)throw new Error(uiLiteral('恢复进度超出已批准范围'));
       checkpoint={...checkpoint,current:{headId:head.id,next,upper},count,imported};await saveProgress();
     }
     checkpoint={...checkpoint,doneHeads:[...checkpoint.doneHeads,head.id],current:undefined,count,imported};await saveProgress();

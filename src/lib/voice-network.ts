@@ -1,12 +1,13 @@
+import { uiLiteral } from './language';
 import { boundedOperation, networkDelay, NetworkOperationError } from './network-operation';
 export type VoiceFailureCode = 'VOICE_CONNECT_FAILED' | 'VOICE_UPLOAD_INTERRUPTED' | 'VOICE_ACK_UNKNOWN' | 'VOICE_DOWNLOAD_INTERRUPTED' | 'VOICE_DECRYPT_FAILED' | 'VOICE_DECODE_FAILED';
 export const VOICE_FAILURE_TEXT: Record<VoiceFailureCode, string> = {
-  VOICE_CONNECT_FAILED: '无法连接语音服务，请检查网络后重试',
-  VOICE_UPLOAD_INTERRUPTED: '语音上传中断，点按继续上传',
-  VOICE_ACK_UNKNOWN: '尚未确认语音已保存，重试将复用原消息',
-  VOICE_DOWNLOAD_INTERRUPTED: '语音下载中断，点按重试',
-  VOICE_DECRYPT_FAILED: '语音完整性校验或解密失败',
-  VOICE_DECODE_FAILED: '此设备无法解码这条语音',
+  get VOICE_CONNECT_FAILED() { return uiLiteral('无法连接语音服务，请检查网络后重试'); },
+  get VOICE_UPLOAD_INTERRUPTED() { return uiLiteral('语音上传中断，点按继续上传'); },
+  get VOICE_ACK_UNKNOWN() { return uiLiteral('尚未确认语音已保存，重试将复用原消息'); },
+  get VOICE_DOWNLOAD_INTERRUPTED() { return uiLiteral('语音下载中断，点按重试'); },
+  get VOICE_DECRYPT_FAILED() { return uiLiteral('语音完整性校验或解密失败'); },
+  get VOICE_DECODE_FAILED() { return uiLiteral('此设备无法解码这条语音'); },
 };
 export class VoiceNetworkError extends NetworkOperationError {
   constructor(readonly code: VoiceFailureCode) { super(code, VOICE_FAILURE_TEXT[code]); }

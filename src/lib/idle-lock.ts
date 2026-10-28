@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 /** Zero disables idle expiry, never lifecycle or security invalidation. */
 export const IDLE_DURATIONS = [20, 30, 40, 50, 60, 120, 180, 240, 300, 0] as const;
 export const IDLE_WARNING_MS = 10_000;
@@ -19,7 +20,7 @@ export function saveHiddenLock(storage: Pick<Storage, 'setItem'>, enabled: boole
   storage.setItem(HIDDEN_LOCK_PREFERENCE_KEY, enabled ? '1' : '0');
 }
 export function saveIdleSeconds(storage: Pick<Storage, 'setItem'>, seconds: IdleSeconds): void {
-  if (!IDLE_DURATIONS.includes(seconds)) throw new Error('请选择有效的自动锁定时间');
+  if (!IDLE_DURATIONS.includes(seconds)) throw new Error(uiLiteral('请选择有效的自动锁定时间'));
   storage.setItem(IDLE_PREFERENCE_KEY, String(seconds));
 }
 

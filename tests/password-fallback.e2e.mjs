@@ -67,13 +67,13 @@ async function chatContrast(page) {
 try {
   await vite.listen(); const url = `http://localhost:${vite.httpServer.address().port}/__password_acceptance`;
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const contexts = await Promise.all([0, 1].map(() => browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true,
+  const contexts = await Promise.all([0, 1].map(() => browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, hasTouch: true,
     userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.65' })));
   for (const context of contexts) await context.addInitScript(() => { delete window.PublicKeyCredential; });
   const [a, b] = await Promise.all(contexts.map(context => context.newPage()));
   // A real successful server response arriving after navigation cannot install
   // a vault or reclaim the foreground. The unused room is removed instead.
-  const cancelledContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const cancelledContext = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 } });
   await cancelledContext.addInitScript(() => { delete window.PublicKeyCredential; });
   const cancelled = await cancelledContext.newPage();
   let releaseResponse, observeRequest;
@@ -230,7 +230,7 @@ try {
   for (const digit of '012') await a.locator(`[data-digit="${digit}"]`).click();
   await a.evaluate(() => app.lockNow());
   await a.waitForFunction(() => proofResult === 'cancelled'); assert.equal(await a.locator('#message-input').count(), 0);
-  const partialContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const partialContext = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 } });
   const partial = await partialContext.newPage(); await partial.goto(url); await boot(partial);
   const summaries = await partial.evaluate(async () => {
     const v = await import('/src/lib/vault.ts'), c = await import('/src/lib/backup-crypto.ts'), b = await import('/src/lib/local-history-backup.ts');
@@ -267,7 +267,7 @@ try {
     if (repair) { await a.evaluate(()=>app.renderDeviceManager('peer'));await a.locator('.peer-device-section').getByRole('radio').first().click();await a.locator('.peer-device-continue').click();await a.locator('[data-help-action]').click(); }
     else await requestLegacyDeviceLink(a);
     const link = await a.locator('.device-link-sheet input[aria-label="设备链接"]').inputValue();
-    const extraContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const extraContext = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 } });
     await extraContext.addInitScript(() => { delete window.PublicKeyCredential; });
     const extra = await extraContext.newPage(); await extra.goto(link); await boot(extra);
     await extra.locator('[data-device-verify]').click(); await password(extra, repair ? '345678' : '234567');

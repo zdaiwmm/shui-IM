@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import type { MessagePayload, MlsRetentionBoundary, Vault } from './types';
 export const MESSAGE_WINDOW_CAPABILITY = 'message-window-v1';
 export const MLS_WINDOW_MESSAGES = 128;
@@ -30,6 +31,6 @@ export function appendExpiredRange(vault: Vault, from: number, through: number):
   const last = ranges.at(-1);
   if (last && last[1] + 1 === from) last[1] = through;
   else ranges.push([from, through]);
-  if (ranges.length > 4096) throw new Error('本机历史缺口记录已达到安全上限，需要修复设备');
+  if (ranges.length > 4096) throw new Error(uiLiteral('本机历史缺口记录已达到安全上限，需要修复设备'));
   vault.expiredMessageRanges = ranges;
 }

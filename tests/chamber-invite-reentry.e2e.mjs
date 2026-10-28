@@ -114,7 +114,7 @@ async function run() {
       browser = await engine.launch(engine === chromium && !process.env.CI ? process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' } : {});
       const pages = [], errors = [], teardownFetchDiagnostics = [];
       for (let i = 0; i < 2; i++) {
-        const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3,
+        const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 3,
           userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0' });
         const page = await context.newPage(); page.setDefaultTimeout(20_000);
         page.on('pageerror', error => {
@@ -153,7 +153,7 @@ async function run() {
       await b.locator('[data-form-input-done]').click();
       for (const page of pages) await page.waitForFunction(() => app.session?.vault.mls?.phase === 'active' && document.querySelector('#message-input') && !document.querySelector('#message-input').disabled);
       await verifyChamberInviteReentry(b, invite, '135790');
-      const outsider = await browser.newPage({ viewport: { width: 390, height: 844 } });
+      const outsider = await browser.newPage({ locale: 'zh-CN', viewport: { width: 390, height: 844 } });
       await outsider.goto(invite);
       await outsider.getByRole('heading', { name: '此邀请已使用', exact: true }).waitFor();
       assert.equal(await outsider.locator('#message-input').count(), 0);

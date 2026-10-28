@@ -17,7 +17,7 @@ try {
     } }] });
   await vite.listen();
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const page = await browser.newPage();
+  const page = await browser.newPage({locale: 'zh-CN'});
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('WebAuthn.enable');
   await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal', hasResidentKey: true, hasUserVerification: true, hasPrf: true, automaticPresenceSimulation: true, isUserVerified: true } });
@@ -40,7 +40,7 @@ try {
     return { roomId: room.roomId, code: source.vault.spaceRecoveryCode, sourceBundle: identity.publicBundle, bytes: [...new Uint8Array(await new Blob(chunks).arrayBuffer())] };
   });
   // Independent browser storage and independently generated target identity.
-  const targetPage = await browser.newPage();
+  const targetPage = await browser.newPage({locale: 'zh-CN'});
   await targetPage.goto(url);
   const result = await targetPage.evaluate(async fixture => {
     const v = await import('/src/lib/vault.ts'), b = await import('/src/lib/cloud-backup.ts'), local = await import('/src/lib/local-history-backup.ts');

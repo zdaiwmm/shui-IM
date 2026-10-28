@@ -7,7 +7,7 @@ try {
   await vite.listen();
   for (const engine of [chromium,webkit]) {
     browser = await engine.launch(engine === chromium && !process.env.CI ? process.env.CHROME_PATH ? {executablePath:process.env.CHROME_PATH} : {channel:'chrome'} : {});
-    const page = await browser.newPage({viewport:{width:393,height:680}}); page.setDefaultTimeout(8000);
+    const page = await browser.newPage({ locale: 'zh-CN',viewport:{width:393,height:680}}); page.setDefaultTimeout(8000);
     await page.goto(`http://localhost:${vite.httpServer.address().port}/__drawer`);
     await page.evaluate(async()=>{
       await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();

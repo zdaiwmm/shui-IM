@@ -14,7 +14,7 @@ let browser;
 try {
   await server.listen();
   browser = await chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' }), args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, hasTouch: true });
   await page.context().grantPermissions(['microphone']);
   page.setDefaultTimeout(10000);
   const errors = []; page.on('pageerror', error => errors.push(error.message));

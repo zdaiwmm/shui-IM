@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 const MAX_SIDE = 128;
 
 /** Two separable Gaussian passes over one bounded, premultiplied RGBA buffer. */
@@ -36,21 +37,21 @@ export function blurConcealedPixels(pixels: Uint8ClampedArray, width: number, he
 /** The caller supplies an already verified and decoded local image. */
 export async function createConcealedImage(image: HTMLImageElement, signal?: AbortSignal): Promise<Blob> {
   signal?.throwIfAborted();
-  if (!image.naturalWidth || !image.naturalHeight) throw new Error('图片尚未解码');
+  if (!image.naturalWidth || !image.naturalHeight) throw new Error(uiLiteral('图片尚未解码'));
   const ratio = Math.min(1, MAX_SIDE / Math.max(image.naturalWidth, image.naturalHeight));
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(image.naturalWidth * ratio));
   canvas.height = Math.max(1, Math.round(image.naturalHeight * ratio));
   try {
     const context = canvas.getContext('2d', { willReadFrequently: true });
-    if (!context) throw new Error('图片预览不可用');
+    if (!context) throw new Error(uiLiteral('图片预览不可用'));
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
     pixels.data.set(blurConcealedPixels(pixels.data, canvas.width, canvas.height));
     context.putImageData(pixels, 0, 0);
     const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'));
     signal?.throwIfAborted();
-    if (!blob) throw new Error('图片预览不可用');
+    if (!blob) throw new Error(uiLiteral('图片预览不可用'));
     return blob;
   } finally { canvas.width = canvas.height = 0; }
 }

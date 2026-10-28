@@ -1,6 +1,7 @@
+import { uiLiteral } from './language';
 import type { CallIceConfiguration, CallIceRoute } from './call-types';
 import { NetworkOperationError } from './network-operation';
-const invalid = (): never => { throw new NetworkOperationError('CALL_CONFIG_INVALID', '通话网络配置无效'); };
+const invalid = (): never => { throw new NetworkOperationError('CALL_CONFIG_INVALID', uiLiteral('通话网络配置无效')); };
 
 export function parseIceUrl(value: unknown): CallIceRoute {
   if (typeof value !== 'string' || value.length > 512) return invalid();

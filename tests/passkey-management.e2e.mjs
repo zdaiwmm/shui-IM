@@ -8,7 +8,7 @@ try {
   vite = await createServer({ configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0, hmr: false }, plugins: [{ name: 'fixture', configureServer(server) { server.middlewares.use('/__passkeys', (_req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="app"></div>'); }); } }] });
   await vite.listen();
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const context = await browser.newContext({ viewport: { width: 393, height: 852 } });
+  const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 393, height: 852 } });
   const page = await context.newPage(); page.setDefaultTimeout(10000);
   const cdp = await context.newCDPSession(page); await cdp.send('WebAuthn.enable');
   const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal', hasResidentKey: true, hasUserVerification: true, hasPrf: true, automaticPresenceSimulation: true, isUserVerified: true } });

@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 import { isChamberVault } from './chamber-space';
 import type { MessagePayload } from './types';
 import { isExpressionPayload } from './expression-media';
@@ -49,10 +50,10 @@ export function formatPendingCountdown(remainingMs: number): string {
 export function spaceMessagePreview(payload: MessagePayload): string | undefined {
   switch (payload.kind) {
     case 'text': return payload.text.replace(/\s+/g, ' ').trim().slice(0, 160);
-    case 'image': return isExpressionPayload(payload) ? '[表情]' : '[图片]';
-    case 'image-album': return '[图片]';
-    case 'file': return isVideoFile(payload.file) ? '[视频]' : '[文件]';
-    case 'audio': return '[语音]';
+    case 'image': return isExpressionPayload(payload) ? uiLiteral('[表情]') : uiLiteral('[图片]');
+    case 'image-album': return uiLiteral('[图片]');
+    case 'file': return isVideoFile(payload.file) ? uiLiteral('[视频]') : uiLiteral('[文件]');
+    case 'audio': return uiLiteral('[语音]');
     default: return undefined;
   }
 }
@@ -85,9 +86,9 @@ type Directory = { v: 1; spaces: PrivateSpace[]; roomSequence?: number };
 const uuid = /^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i;
 export function newSpaceRecoveryCode(): string { return newRecoveryCode().code.replace('QR3-', 'QR4-'); }
 export function spaceCodeId(code: string): string {
-  if (!/^QR4-[A-Za-z0-9_-]{64}$/.test(code)) throw new Error('请输入完整的密室恢复码');
+  if (!/^QR4-[A-Za-z0-9_-]{64}$/.test(code)) throw new Error(uiLiteral('请输入完整的密室恢复码'));
   const bytes = fromBase64Url(code.slice(4));
-  if (toBase64Url(bytes) !== code.slice(4)) throw new Error('恢复码格式不正确');
+  if (toBase64Url(bytes) !== code.slice(4)) throw new Error(uiLiteral('恢复码格式不正确'));
   return toBase64Url(bytes.slice(0, 16));
 }
 export async function spaceCapability(code: string, purpose: 'fetch' | 'write' | 'encryption'): Promise<string> {
@@ -99,15 +100,15 @@ export async function spaceCapability(code: string, purpose: 'fetch' | 'write' |
 }
 function validate(value: unknown): Directory {
   const data = value as Directory;
-  if(data?.roomSequence!==undefined&&(!Number.isSafeInteger(data.roomSequence)||data.roomSequence<0||data.roomSequence>=Number.MAX_SAFE_INTEGER))throw new Error('密室编号不完整，请重试');
-  if (Array.isArray(data?.spaces) && data.spaces.some(s => s.avatar !== undefined && !validSpaceAvatar(s.avatar))) throw new Error('密室头像不完整，已停止读取');
+  if(data?.roomSequence!==undefined&&(!Number.isSafeInteger(data.roomSequence)||data.roomSequence<0||data.roomSequence>=Number.MAX_SAFE_INTEGER))throw new Error(uiLiteral('密室编号不完整，请重试'));
+  if (Array.isArray(data?.spaces) && data.spaces.some(s => s.avatar !== undefined && !validSpaceAvatar(s.avatar))) throw new Error(uiLiteral('密室头像不完整，已停止读取'));
   if (Array.isArray(data?.spaces) && data.spaces.some(s => s.historyCodes !== undefined &&
-    (!Array.isArray(s.historyCodes) || s.historyCodes.length > 32 || s.historyCodes.some(code => typeof code !== 'string' || !/^QR3-[A-Za-z0-9_-]{64}$/.test(code))))) throw new Error('备份目录不完整，请重试');
-  if (data?.v !== 1 || !Array.isArray(data.spaces) || data.spaces.length > 256 || data.spaces.some(s => !uuid.test(s.roomId) || typeof s.name !== 'string' || !s.name.trim() || s.name.length > 40 || s.code !== undefined && !/^QR3-[A-Za-z0-9_-]{64}$/.test(s.code) || s.localId !== undefined && !/^[\w-]{1,80}$/.test(s.localId) || s.waiting !== undefined && typeof s.waiting !== 'boolean' || s.createdAt !== undefined && !Number.isFinite(Date.parse(s.createdAt))) || new Set(data.spaces.map(s => s.roomId)).size !== data.spaces.length) throw new Error('密室目录不完整，已停止读取');
+    (!Array.isArray(s.historyCodes) || s.historyCodes.length > 32 || s.historyCodes.some(code => typeof code !== 'string' || !/^QR3-[A-Za-z0-9_-]{64}$/.test(code))))) throw new Error(uiLiteral('备份目录不完整，请重试'));
+  if (data?.v !== 1 || !Array.isArray(data.spaces) || data.spaces.length > 256 || data.spaces.some(s => !uuid.test(s.roomId) || typeof s.name !== 'string' || !s.name.trim() || s.name.length > 40 || s.code !== undefined && !/^QR3-[A-Za-z0-9_-]{64}$/.test(s.code) || s.localId !== undefined && !/^[\w-]{1,80}$/.test(s.localId) || s.waiting !== undefined && typeof s.waiting !== 'boolean' || s.createdAt !== undefined && !Number.isFinite(Date.parse(s.createdAt))) || new Set(data.spaces.map(s => s.roomId)).size !== data.spaces.length) throw new Error(uiLiteral('密室目录不完整，已停止读取'));
   if (data.spaces.some(s => s.preview !== undefined && (typeof s.preview !== 'string' || s.preview.length > 160)
     || s.previewDeviceId !== undefined && !uuid.test(s.previewDeviceId)
     || s.observer !== undefined && (!s.observer || !uuid.test(s.observer.deviceId) || !/^[A-Za-z0-9_-]{43,128}$/.test(s.observer.token)
-      || !Number.isSafeInteger(s.observer.count) || s.observer.count < 0))) throw new Error('密室摘要不完整，已停止读取');
+      || !Number.isSafeInteger(s.observer.count) || s.observer.count < 0))) throw new Error(uiLiteral('密室摘要不完整，已停止读取'));
   return data;
 }
 export async function sealSpaceDirectory(code: string, spaces: PrivateSpace[], roomSequence?:number): Promise<SealedBackup> {
@@ -138,7 +139,7 @@ export async function rememberLocalSpace(session: VaultSession, inheritedCode?: 
     let sequence:number|undefined;
     if (!entry) {
       sequence=Math.max(directory.roomSequence??0,spaces.length)+1;
-      if(!Number.isSafeInteger(sequence)||sequence>=Number.MAX_SAFE_INTEGER)throw new Error('密室编号超出范围');
+      if(!Number.isSafeInteger(sequence)||sequence>=Number.MAX_SAFE_INTEGER)throw new Error(uiLiteral('密室编号超出范围'));
       const name=`chamber${sequence}`;
       entry={roomId:vault.roomId,name,createdAt:vault.createdAt};spaces.push(entry);
     }
@@ -159,10 +160,10 @@ export async function rememberLocalSpace(session: VaultSession, inheritedCode?: 
     if (vault.backup?.syncedAt && !vault.backup.replaces && !vault.recoverySource) entry.code = vault.backup.code;
     if (rename) {
       const target = spaces.find(s => s.roomId === rename.roomId);
-      if (!target || !rename.name.trim() || rename.name.trim().length > 40) throw new Error('密室名称需为 1–40 个字符');
+      if (!target || !rename.name.trim() || rename.name.trim().length > 40) throw new Error(uiLiteral('密室名称需为 1–40 个字符'));
       target.name = rename.name.trim();
       if (rename.avatar !== undefined) {
-        if (!validSpaceAvatar(rename.avatar)) throw new Error('密室头像不完整');
+        if (!validSpaceAvatar(rename.avatar)) throw new Error(uiLiteral('密室头像不完整'));
         target.avatar = rename.avatar;
       }
     }
@@ -182,7 +183,7 @@ export async function forgetLocalSpace(session: VaultSession, roomId: string): P
 /** The encrypted directory and all target data commit in one local transaction. */
 export async function removeNewRoomFromDirectory(current:VaultSession,target:VaultSession):Promise<PrivateSpace[]> {
   return withVaultMutation(current,async mutation=>{
-    const code=current.vault.spaceRecoveryCode;if(!code)throw new Error('本机密室目录尚未就绪');
+    const code=current.vault.spaceRecoveryCode;if(!code)throw new Error(uiLiteral('本机密室目录尚未就绪'));
     const spaces=(await read(code)).filter(space=>space.roomId!==target.vault.roomId);
     await deleteNewRoomLocal(target,{owner:current,mutation,id:spaceCodeId(code),value:await sealLocalDirectory(code,spaces)});
     return spaces;
@@ -197,12 +198,12 @@ async function request(code: string, signal: AbortSignal, session?: VaultSession
   const response = await fetch(`/api/space-directories/${spaceCodeId(code)}`, { method: session ? 'PUT' : 'GET', cache: 'no-store', credentials: 'omit', signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]), headers: {
     Authorization: `Bearer ${session ? session.vault.accessToken : await spaceCapability(code, 'fetch')}`, ...(session ? { 'Content-Type': 'application/json' } : {}),
   }, ...(session ? { body: JSON.stringify(value) } : {}) });
-  if (!response.ok && response.status !== 404 && response.status !== 409) throw new ApiError('密室目录备份暂不可用，请联网后重试', response.status, 'DIRECTORY_UNAVAILABLE', responseRetryAfterMs(response));
+  if (!response.ok && response.status !== 404 && response.status !== 409) throw new ApiError(uiLiteral('密室目录备份暂不可用，请联网后重试'), response.status, 'DIRECTORY_UNAVAILABLE', responseRetryAfterMs(response));
   return response;
 }
 export async function recoverableSpaces(code: string, signal: AbortSignal): Promise<PrivateSpace[]> {
   const response = await request(code, signal);
-  if (!response.ok) throw new Error('找不到此恢复码的密室，请检查恢复码是否完整');
+  if (!response.ok) throw new Error(uiLiteral('找不到此恢复码的密室，请检查恢复码是否完整'));
   const data = await response.json();
   return recoveryDirectoryEntries(await openSpaceDirectory(code, data.sealed)).filter(s => s.code);
 }
@@ -238,5 +239,5 @@ export async function syncSpaceDirectory(session: VaultSession, signal: AbortSig
     const result = await request(code, signal, session, { roomId: session.vault.roomId, revision: remote.revision + 1, fetchToken: await spaceCapability(code, 'fetch'), writeToken: await spaceCapability(code, 'write'), sealed: await sealSpaceDirectory(code, spaces) });
     if (result.ok) return;
   }
-  throw new Error('密室目录正在其他设备更新，请稍后重试');
+  throw new Error(uiLiteral('密室目录正在其他设备更新，请稍后重试'));
 }

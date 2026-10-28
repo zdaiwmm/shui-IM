@@ -1,4 +1,5 @@
 import { mountDialog } from './dialog';
+import { uiLiteral } from './language';
 import { isPlatformVaultCancellation, isPlatformVaultUnavailable, platformVaultSetupState } from './platform-vault';
 
 /** New wrappers only. Existing protection must authenticate its original verifier. */
@@ -10,7 +11,7 @@ export async function prepareNewProtection<T>(root: HTMLElement, options: {
 }): Promise<T> {
   const owner = root.firstElementChild;
   const active = () => options.isActive() && !options.signal?.aborted && !document.hidden && !!owner?.isConnected && root.contains(owner);
-  const cancelled = () => new DOMException('已取消设置', 'AbortError');
+  const cancelled = () => new DOMException(uiLiteral('已取消设置'), 'AbortError');
   if (!active()) throw cancelled();
   if (platformVaultSetupState() === 'unsupported') return options.password();
   try { return await options.platform(); }
@@ -30,7 +31,7 @@ export async function prepareNewProtection<T>(root: HTMLElement, options: {
     sheet.className = 'confirm-overlay new-protection-choice';
     sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true');
     sheet.setAttribute('aria-labelledby', 'new-protection-title');
-    sheet.innerHTML = '<div class="confirm-dialog simple-confirm"><h2 id="new-protection-title">未能使用通行密钥</h2><p>可以重试通行密钥，或为此浏览器设置六位数字密码。</p><button class="primary-button" type="button" data-protection-password>使用数字密码</button><button class="text-button" type="button" data-protection-retry>重试通行密钥</button><button class="text-button" type="button" data-protection-cancel>取消</button></div>';
+    sheet.innerHTML = uiLiteral('<div class="confirm-dialog simple-confirm"><h2 id="new-protection-title">未能使用通行密钥</h2><p>可以重试通行密钥，或为此浏览器设置六位数字密码。</p><button class="primary-button" type="button" data-protection-password>使用数字密码</button><button class="text-button" type="button" data-protection-retry>重试通行密钥</button><button class="text-button" type="button" data-protection-cancel>取消</button></div>');
     root.append(sheet);
     let settled = false;
     let observer: MutationObserver | undefined;

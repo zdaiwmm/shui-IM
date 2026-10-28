@@ -8,7 +8,7 @@ export async function privacyFixture(options = {}) {
   await server.listen();
   const browser = process.env.QUIET_ROOM_TEST_BROWSER === 'webkit' ? await webkit.launch()
     : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, ...options });
+  const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, ...options });
   const page = await context.newPage();
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.clock.install({ time: new Date('2026-10-10T02:00:00Z') });

@@ -268,3 +268,7 @@ The [approved V1 prototype and flow](docs/requirements/2026-10-15-iphone-numeric
 ## Compact attachment status, approved V1 (2026-10-23)
 
 The [approved prototype and flow](docs/requirements/2026-10-23-media-status-compact/README.md) supersede the 32px media capsule: preparation, upload, submission and errors paint at 24px/R12; completed receipts and reveal hints paint at 20px/R10. Keep 12px process copy, 11px completed copy, 12px rings, 6px gaps, 8px horizontal padding and independent 44px action targets. Expressions retain transparent completed metadata below the image. File selections own their message card and progress from preparation onward. Unknown progress has no percentage; offline pending says waiting for connection. Upload completion is separate from server acceptance and read receipts. Same-ID retries restore complete feedback; a submission failure reuses its prepared payload without uploading again. A persistent shell uses 240ms width/height FLIP, inverse content scaling and 180ms crossfade, at most one retiring layer. Reduced motion settles immediately; privacy cleanup never waits. The maintained standard 11.3 and requirement validation record own actual implementation evidence.
+
+## 2026-10-28 语言与反馈 V1.1
+
+用户确认[静态V1.1](docs/requirements/2026-10-28-language-feedback/README.md)并要求去掉新增页面解释性提示。沿用P1配色、系统字体、20px边距、26px标题、44px操作和R12控件；11种语言以本地名称展示，设置子页底部返回。反馈表单仅保留邮箱/正文、必填标识、字数、提交/返回、必要校验与提交结果。后台沿用240px侧栏、连续表格与详情文本；未读/已读明确文字表达。阿拉伯语使用RTL，用户内容采用自身文本方向。未添加新的字体、远程资源或第三方运行期翻译。

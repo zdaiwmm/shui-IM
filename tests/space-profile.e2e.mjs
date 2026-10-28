@@ -11,7 +11,7 @@ try {
   await vite.listen(); if(evidence)await mkdir(evidence,{recursive:true});
   for(const engine of [chromium,webkit]) {
     browser=await engine.launch(engine===chromium&&!process.env.CI?process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{channel:'chrome'}:{});
-    const page=await browser.newPage({viewport:{width:390,height:844},hasTouch:true});page.setDefaultTimeout(10000);
+    const page=await browser.newPage({ locale: 'zh-CN',viewport:{width:390,height:844},hasTouch:true});page.setDefaultTimeout(10000);
     const errors=[];page.on('pageerror',cause=>errors.push(cause.message));
     await page.goto(`http://localhost:${vite.httpServer.address().port}/__profile`);
     await page.evaluate(async()=>{

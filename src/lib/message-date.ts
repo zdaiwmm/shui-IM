@@ -1,3 +1,4 @@
+import { currentLanguage } from './language';
 /** Calendar labels follow the viewing device, without changing message order. */
 export function messageLocalDay(value: string, currentYear: number): { key: string; label: string; description: string } | null {
   const date = new Date(value);
@@ -7,7 +8,7 @@ export function messageLocalDay(value: string, currentYear: number): { key: stri
   const day = date.getDate();
   return {
     key: `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-    label: `${year === currentYear ? '' : `${year}年`}${month}月${day}日`,
-    description: `${year}年${month}月${day}日`,
+    label: new Intl.DateTimeFormat(currentLanguage(), { ...(year === currentYear ? {} : { year: 'numeric' as const }), month: 'long', day: 'numeric' }).format(date),
+    description: new Intl.DateTimeFormat(currentLanguage(), { year: 'numeric', month: 'long', day: 'numeric' }).format(date),
   };
 }

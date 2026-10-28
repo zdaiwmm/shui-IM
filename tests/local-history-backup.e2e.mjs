@@ -14,7 +14,7 @@ try {
     } }] });
   await vite.listen();
   browser = process.env.BACKUP_BROWSER === 'webkit' ? await webkit.launch() : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const page = await browser.newPage();
+  const page = await browser.newPage({locale: 'zh-CN'});
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`http://localhost:${vite.httpServer.address().port}/__local`);
   const result = await page.evaluate(async () => {

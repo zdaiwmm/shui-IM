@@ -11,7 +11,7 @@ try {
   await server.listen();
   const executable = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' };
   browser = await chromium.launch({ ...executable, headless: true, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'] });
-  const page = await browser.newPage(); const errors = [];
+  const page = await browser.newPage({locale: 'zh-CN'}); const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__weak_call`);
   const cdp = await page.context().newCDPSession(page);

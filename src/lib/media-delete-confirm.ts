@@ -1,3 +1,4 @@
+import { uiLiteral, uiTemplate } from './language';
 import { uiNotice } from './ui-notice';
 
 /** Anchored Safe-only confirmation. No OS/cloud deletion or recovery is implied. */
@@ -8,9 +9,9 @@ export function mountMediaDeleteConfirm(anchor: HTMLButtonElement, kind: '照片
   panel.className = 'media-delete-confirm';
   panel.hidden = true;
   panel.setAttribute('role', 'dialog');
-  panel.setAttribute('aria-label', `删除${kind}`);
+  panel.setAttribute('aria-label', uiTemplate`删除${kind}`);
   const description = document.createElement('p');
-  description.textContent = `此${kind}将从本机保险箱中删除。聊天中的原消息会保留。`;
+  description.textContent = uiTemplate`此${kind}将从本机保险箱中删除。聊天中的原消息会保留。`;
   const error = document.createElement('p');
   error.className = 'media-delete-error';
   error.setAttribute('role', 'alert');
@@ -18,7 +19,7 @@ export function mountMediaDeleteConfirm(anchor: HTMLButtonElement, kind: '照片
   const confirm = document.createElement('button');
   confirm.type = 'button';
   confirm.dataset.confirmMediaDelete = '';
-  confirm.textContent = `删除${kind}`;
+  confirm.textContent = uiTemplate`删除${kind}`;
   panel.append(description, error, confirm);
   anchor.parentElement!.append(panel);
   anchor.setAttribute('aria-haspopup', 'dialog');
@@ -50,7 +51,7 @@ export function mountMediaDeleteConfirm(anchor: HTMLButtonElement, kind: '照片
     busy = true; confirm.disabled = true; anchor.disabled = true;
     try { await remove(); close(); }
     catch {
-      if (!events.signal.aborted) uiNotice(panel, '删除未能保存，请重试');
+      if (!events.signal.aborted) uiNotice(panel, uiLiteral('删除未能保存，请重试'));
     } finally {
       busy = false; confirm.disabled = false; anchor.disabled = false;
     }

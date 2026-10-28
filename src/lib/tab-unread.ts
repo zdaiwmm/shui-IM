@@ -1,3 +1,4 @@
+import { uiLiteral } from './language';
 /** Only the existing count-only observer reaches browser chrome. No room name or content. */
 let generation=0, lastCount=-1;
 let base:Promise<HTMLImageElement>|undefined;
@@ -9,7 +10,7 @@ export function updateTabUnread(value:number):void {
   const links=[...document.querySelectorAll<HTMLLinkElement>('link[rel="icon"]')];
   for(const link of links)if(!originals.has(link))originals.set(link,{href:link.getAttribute('href')??'',type:link.type,sizes:link.sizes.value});
   if(!count){for(const [link,original]of originals){link.href=original.href;link.type=original.type;link.sizes.value=original.sizes;delete link.dataset.unread;}return;}
-  base??=new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>{base=undefined;reject(new Error('图标暂时不可用'));};image.src='/favicon.svg';});
+  base??=new Promise((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>{base=undefined;reject(new Error(uiLiteral('图标暂时不可用')));};image.src='/favicon.svg';});
   void base.then(image=>{
     if(version!==generation)return;
     const canvas=document.createElement('canvas');canvas.width=64;canvas.height=64;

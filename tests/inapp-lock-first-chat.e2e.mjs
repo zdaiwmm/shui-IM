@@ -24,7 +24,7 @@ try {
       ? process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' } : {});
     const pages = [], errors = [];
     for (let side = 0; side < 2; side++) {
-      const context = await browser.newContext({ viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true,
+      const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true,
         deviceScaleFactor: 3, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Version/27.0 Mobile/15E148 Safari/604.1' });
       await context.addInitScript(() => {
         const observer = new MutationObserver(() => {

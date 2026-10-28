@@ -18,7 +18,7 @@ try {
     ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' }),
     args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
   });
-  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, permissions: ['camera', 'microphone'] });
+  const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 390, height: 844 }, permissions: ['camera', 'microphone'] });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
