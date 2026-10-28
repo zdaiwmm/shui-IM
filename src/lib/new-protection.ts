@@ -17,9 +17,12 @@ export async function prepareNewProtection<T>(root: HTMLElement, options: {
   catch (cause) {
     if (!active()) throw cancelled();
     if (isPlatformVaultUnavailable(cause)) return options.password();
-    // NotAllowedError conflates cancellation, timeout and a restricted shell.
-    // Let the user choose a NEW wrapper, without silently treating it as proof.
-    if (!isPlatformVaultCancellation(cause)) throw cause;
+    // Native restrictions and transient failures do not prove unsupported
+    // capability. Offer an explicit NEW-wrapper choice; invalid credential
+    // data and request/programming errors still fail closed.
+    const nativeFailure = cause instanceof DOMException
+      && ['SecurityError', 'UnknownError', 'NotReadableError', 'ConstraintError'].includes(cause.name);
+    if (!isPlatformVaultCancellation(cause) && !nativeFailure) throw cause;
   }
   return new Promise<T>((resolve, reject) => {
     const events = new AbortController();
