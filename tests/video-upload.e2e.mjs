@@ -129,7 +129,7 @@ try {
   assert.deepEqual(await message.evaluate(node=>({row:node===window.uploadFixture.row,
     shell:node.querySelector('.message-bubble')===window.uploadFixture.shell,
     status:node.querySelector('.media-send-status')===window.uploadFixture.status})),{row:true,shell:true,status:true});
-  assert.equal(await message.locator('.message-meta > .media-capsule-content > time').isVisible(),false,'Uploaded video has no time before server confirmation');
+  assert.equal(await message.locator('.message-meta > .media-capsule-content time').isVisible(),false,'Uploaded video has no time before server confirmation');
   assert.ok(Math.abs(uploadBox.width - loadedBox.width) < 1 && Math.abs(uploadBox.height - loadedBox.height) < 1, `Video upload and final bubble share geometry: ${JSON.stringify(uploadBox)} -> ${JSON.stringify(loadedBox)}`);
   await page.waitForFunction(id => !document.querySelector(`[data-client-msg-id="${id}"] .media-upload-handoff`), id);
   await message.dispatchEvent('contextmenu');
@@ -140,7 +140,15 @@ try {
   assert.equal(await lifted.evaluate(node => { const s = getComputedStyle(node); return new Set([s.borderTopLeftRadius, s.borderTopRightRadius, s.borderBottomLeftRadius, s.borderBottomRightRadius]).size; }), 1);
   await page.evaluate(() => window.uploadFixture.app.closeMessageActions(false, false));
   await page.evaluate(id=>{const f=window.uploadFixture;f.app.pending.get(id).status='stored';f.app.renderMessages();},id);
-  assert.equal(await message.locator('.message-meta > .media-capsule-content > time').isVisible(),true,'Video time appears only when the server has saved the message');
+  assert.equal(await message.locator('.message-meta > .media-capsule-content time').isVisible(),true,'Video time appears only when the server has saved the message');
+  const receipt=await message.evaluate(row=>{
+    const cap=row.querySelector('.media-receipt'),time=cap.querySelector('time'),check=cap.querySelector('.message-delivery');
+    const style=getComputedStyle(cap);
+    return {height:cap.offsetHeight,font:getComputedStyle(time).fontSize,padding:[style.paddingLeft,style.paddingRight],
+      gap:check.getBoundingClientRect().left-time.getBoundingClientRect().right};
+  });
+  assert.equal(receipt.height,20);assert.equal(receipt.font,'11px');assert.deepEqual(receipt.padding,['8px','8px']);
+  assert.ok(Math.abs(receipt.gap-4)<.1,JSON.stringify(receipt));
   // Retry restores feedback after the failure removed the original ring.
   await page.evaluate(async id => {
     const f = window.uploadFixture, manifest = f.app.pending.get(id).payload.file;

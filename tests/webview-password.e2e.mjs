@@ -10,9 +10,10 @@ const evidence = process.argv[2];
 const server = await createServer({ configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0, hmr: false } });
 server.middlewares.use('/__webview', (_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div></body></html>'); });
 const cases = [
-  ['known-embedded-with-api', true], ['missing-constructor', true], ['missing-container', true], ['missing-create', true], ['missing-get', true],
+  ['embedded-negative-prf-with-api', true], ['missing-constructor', true], ['missing-container', true], ['missing-create', true], ['missing-get', true],
   ['negative-prf-capability', true], ['negative-builtin-capability', true], ['not-supported', true],
   ['unknown-cancel', false], ['unknown-abort', false], ['unknown-security', false], ['unknown-transient', false],
+  ['unknown-unreadable', false], ['unknown-constraint', false], ['invalid-native-data', false],
   ['insecure-context', false], ['missing-crypto', false], ['missing-storage', false], ['storage-quota', false],
 ];
 let browser; const results = [];
@@ -27,14 +28,14 @@ try {
       if (name === 'missing-container') Object.defineProperty(navigator, 'credentials', { configurable: true, value: undefined });
       if (name === 'missing-create') Object.defineProperty(navigator.credentials, 'create', { configurable: true, value: undefined });
       if (name === 'missing-get') Object.defineProperty(navigator.credentials, 'get', { configurable: true, value: undefined });
-      if (window.PublicKeyCredential) Object.defineProperty(PublicKeyCredential, 'getClientCapabilities', { configurable: true, value: async () => name === 'negative-prf-capability' ? { 'extension:prf': false } : name === 'negative-builtin-capability' ? { 'extension:prf':true,userVerifyingPlatformAuthenticator:false } : {} });
+      if (window.PublicKeyCredential) Object.defineProperty(PublicKeyCredential, 'getClientCapabilities', { configurable: true, value: async () => ['negative-prf-capability','embedded-negative-prf-with-api'].includes(name) ? { 'extension:prf': false } : name === 'negative-builtin-capability' ? { 'extension:prf':true,userVerifyingPlatformAuthenticator:false } : {} });
       // Control both probes: a real Linux false result would correctly select
       // password before the simulated unknown/cancelled ceremony is reached.
       if (window.PublicKeyCredential) Object.defineProperty(PublicKeyCredential,'isUserVerifyingPlatformAuthenticatorAvailable',{
         configurable:true,value:async()=>{throw Error('Synthetic unknown built-in capability');},
       });
       if (name === 'negative-builtin-capability') Object.defineProperty(navigator.credentials,'create',{configurable:true,value:async()=>{throw Error('Unavailable built-in verifier must choose password before requesting an external key');}});
-      if (name === 'not-supported' || name.startsWith('unknown-')) Object.defineProperty(navigator.credentials, 'create', { configurable: true, value: async () => { throw new DOMException('synthetic capability outcome', { 'not-supported': 'NotSupportedError', 'unknown-cancel': 'NotAllowedError', 'unknown-abort': 'AbortError', 'unknown-security': 'SecurityError', 'unknown-transient': 'UnknownError' }[name]); } });
+      if (name === 'not-supported' || name.startsWith('unknown-') || name === 'invalid-native-data') Object.defineProperty(navigator.credentials, 'create', { configurable: true, value: async () => { throw new DOMException('synthetic capability outcome', { 'not-supported': 'NotSupportedError', 'unknown-cancel': 'NotAllowedError', 'unknown-abort': 'AbortError', 'unknown-security': 'SecurityError', 'unknown-transient': 'UnknownError', 'unknown-unreadable':'NotReadableError', 'unknown-constraint':'ConstraintError', 'invalid-native-data':'DataError' }[name]); } });
     }, name);
     const page = await context.newPage(); const errors = []; let roomWrites = 0;
     page.on('pageerror', error => errors.push(error.message));
@@ -62,6 +63,11 @@ try {
       if (evidence) await page.screenshot({ path: path.join(evidence, `F15-webview-${name}.png`) });
       await cancelPasswordForm(page); await page.locator('.password-sheet').waitFor({ state: 'detached' });
     } else {
+      if (name.startsWith('unknown-')) {
+        await page.locator('.new-protection-choice').waitFor();
+        assert.equal(await page.locator('.password-sheet').count(),0,'Ambiguous failure requires explicit user choice');
+        await page.locator('[data-protection-cancel]').click();
+      }
       await page.waitForFunction(() => !document.querySelector('[data-device-verify]')?.disabled).catch(async error=>{
         console.error('WEBVIEW_CASE_STATE',name,await page.evaluate(()=>({hidden:document.hidden,focused:document.hasFocus(),covered:window.app?.privacyCovered,
           pending:window.app?.deviceVerificationActive,buttonDisabled:document.querySelector('[data-device-verify]')?.disabled,

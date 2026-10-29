@@ -9,12 +9,13 @@ export async function verifySafariKeyboardHitArea(page) {
     catch (error) { failures.push(error.message); }
   };
   await page.locator('#message-input').fill('键盘重开草稿');
-  const rearm = async ({ cancelable, scale = 1, composing = false }) => page.evaluate(async options => {
+  const rearm = async ({ cancelable, scale = 1, composing = false, opening = false }) => page.evaluate(async options => {
     const input = document.querySelector('#message-input'), app = fixture.app;
     input.focus(); setViewport(473);
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     Object.defineProperty(visualViewport, 'scale', { configurable: true, get: () => options.scale });
     setViewport(844 / options.scale);
+    if (options.opening) { app.nativeKeyboardOpening = true; app.nativeKeyboardOpeningAt = performance.now(); }
     input.setSelectionRange(1, 4);
     if (options.composing) input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
     let focuses = 0, blurs = 0;
@@ -33,11 +34,28 @@ export async function verifySafariKeyboardHitArea(page) {
     // A synthetic rearm has no native keyboard to complete its requested target.
     app.nativeKeyboardOpening = false;
     return result;
-  }, { cancelable, scale, composing });
+  }, { cancelable, scale, composing, opening });
   const rearmed = { focuses: 1, blurs: 1, focused: true, same: true, draft: '键盘重开草稿', selection: [1, 4], keyboardClosed: true };
   check(await rearm({ cancelable: false }), rearmed, 'A non-cancelable touch release still rearms a retained editor');
   check(await rearm({ cancelable: true, scale: 2 }), rearmed, 'Rearm uses the same scaled viewport geometry as keyboard state');
+  check(await rearm({ cancelable: true, opening: true }), rearmed, 'A stale opening request cannot consume a retained-editor tap after native dismissal');
   check(await rearm({ cancelable: true, composing: true }), { ...rearmed, focuses: 0, blurs: 0 }, 'An active IME composition is never blurred to rearm');
+
+  const firstFocus = await page.evaluate(() => {
+    const input=document.querySelector('#message-input'); input.blur();setViewport(844);
+    let focuses=0,blurs=0;const onFocus=()=>focuses++,onBlur=()=>blurs++;
+    input.addEventListener('focus',onFocus);input.addEventListener('blur',onBlur);
+    for(const type of ['touchstart','touchend']) {
+      const event=new Event(type,{bubbles:true,cancelable:true});
+      Object.defineProperty(event,'touches',{value:type==='touchstart'?[{clientX:120,clientY:400}]:[]});
+      input.dispatchEvent(event);
+      if(type==='touchstart')input.focus(); // Safari's default focus within this tap.
+    }
+    input.removeEventListener('focus',onFocus);input.removeEventListener('blur',onBlur);
+    fixture.app.nativeKeyboardOpening=false;
+    return {focuses,blurs,focused:document.activeElement===input};
+  });
+  check(firstFocus,{focuses:1,blurs:0,focused:true},'First focus within a tap is never blurred and reopened');
 
   await page.evaluate(() => { document.querySelector('#message-input').focus(); setViewport(473); });
   await page.waitForFunction(() => !fixture.app.listKeyboardLayout.moving && !fixture.app.chatViewportMotion?.moving);
