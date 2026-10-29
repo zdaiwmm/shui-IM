@@ -234,3 +234,5 @@ Chamber聊天卡片随键盘滚动、透明浮动顶栏、加入前样式门禁�
 恢复失败原件清理：`room-archive.ts`与`vault.ts`共用独立未发布原件范围、小型run归属见证、消息／原件引用／目录原子发布及保守旧残留回收；`tests/restore-original-cleanup.e2e.mjs`由既有room-archive-lifecycle入口顺序纳入。范围和证据见[恢复清理R2](../requirements/2026-10-27-restore-failure-validation/README.md)。
 
 语言与反馈：`src/lib/language.ts` 和 `src/locales/` 管理本机语言与静态资源；`src/lib/language-feedback-ui.ts`、`src/language-feedback.css` 接入设置；`server/feedback.mjs` 提供独立反馈存储，公共提交由 `server/index.mjs` 接入，后台由 `server/admin.mjs` 与 `src/admin/workspace.ts` 承载。定向回归：`tests/language.test.ts`、`tests/feedback.test.ts`、`tests/language-feedback.e2e.mjs` 及 `tests/admin-workspace.e2e.mjs`。确认与交付见[需求 V1.1](../requirements/2026-10-28-language-feedback/README.md)。
+
+内置浏览器重新进入的视口异常：`src/app.ts` 拒绝零／非有限尺寸并在公开入口返回时重新采样；`tests/entry-switch-repair.e2e.mjs` 覆盖无 resize 返回、有效缩放及原应用锁请求保持。可控模拟与钉钉真机证据分开，详见[白屏修复 V1](../requirements/2026-10-29-dingtalk-cover-reopen/README.md)。
