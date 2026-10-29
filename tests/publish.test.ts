@@ -70,19 +70,19 @@ describe('isolated non-GUI publishing', () => {
       if (directory) rmSync(directory, { recursive: true, force: true });
     }
   });
-  it.each([true, false])('waits for CI and requires an isolated release receipt (receipt=%s)', (hasReceipt) => {
+  it.each([[true, false], [false, false], [true, true]])('waits for CI and requires an isolated receipt (receipt=%s, cache=%s)', (hasReceipt, cacheImages) => {
     const calls: { program: string; args: string[]; options: Record<string, any> }[] = [];
     let directory = '';
     let ciReads = 0;
     try {
-      const operation = () => publish(['--sha', sha], (program: string, args: string[], options: Record<string, any> = {}) => {
+      const operation = () => publish([...(cacheImages ? ['--cache-images'] : []), '--sha', sha], (program: string, args: string[], options: Record<string, any> = {}) => {
         calls.push({ program, args, options });
         if (args.includes('--jq')) return 'b'.repeat(40);
         if (args[1]?.includes('/compare/')) return JSON.stringify({ status: 'ahead', merge_base_commit: { sha } });
         if (args[0] === 'api' && args[1].includes('runs?')) return JSON.stringify([{ workflow_runs: [{ ...good, status: ++ciReads === 1 ? 'in_progress' : 'completed' }] }]);
         if (args[0] === 'api' && args[1].includes('/jobs?')) return JSON.stringify([jobs]);
         if (args[0] === 'clone') { directory = args.at(-1)!; mkdirSync(path.join(directory, '.git')); }
-        if (args[0] === 'rev-parse') return sha;
+        if (args[0] === 'rev-parse') return args.includes('--git-common-dir') ? '/synthetic/git-common' : sha;
         if (args[0] === 'config') return 'ssh -o BatchMode=yes';
         if (args.at(-2) === '--sha' && hasReceipt) writeFileSync(options.env.QUIET_ROOM_PUBLISH_RECEIPT, `${sha}\n`);
         return '';
@@ -101,6 +101,7 @@ describe('isolated non-GUI publishing', () => {
       const deploy = calls.at(-1)!;
       expect(deploy.args.slice(-2)).toEqual(['--sha', sha]);
       expect(deploy.options.cwd).toBe(directory);
+      expect(deploy.options.env.QUIET_ROOM_CI_IMAGE_CACHE).toBe(cacheImages ? '/synthetic/git-common/quiet-room-ci-image-cache-v1' : process.env.QUIET_ROOM_CI_IMAGE_CACHE);
       expect(calls.some(call => call.args.join(' ') === `checkout -B main ${sha}` && call.options.cwd === directory
         && call.options.env.GIT_CONFIG_VALUE_0 === '!gh auth git-credential')).toBe(true);
       expect(calls.some(call => call.args.join(' ') === `merge-base --is-ancestor ${sha} origin/main`)).toBe(true);
@@ -110,6 +111,9 @@ describe('isolated non-GUI publishing', () => {
     } finally {
       if (directory) rmSync(directory, { recursive: true, force: true });
     }
+  });
+  it.each(['--cloud', '--readback-only', '--cache-images'])('rejects an incompatible or duplicate cache option: %s', flag => {
+    expect(() => publish(['--cache-images', flag, '--sha', sha], () => { throw new Error('Must stop before I/O'); })).toThrow(/Image cache requires direct publishing|Duplicate image cache flag/);
   });
   it('stops before cloning when CI is green but complete application verification was skipped', () => {
     const calls: string[][] = [];
