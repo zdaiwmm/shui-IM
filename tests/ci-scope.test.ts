@@ -101,6 +101,13 @@ describe('CI documentation scope', () => {
     renameSync(path.join(repo.cwd, 'src/example.ts'), path.join(repo.cwd, 'scripts/cloud-publish.mjs'));
     expect(repo.scope(repo.commit()).mode).toBe('full');
   });
+  it.each(['scripts/ci-image-cache.mjs', 'scripts/delivery-evidence.mjs'])('keeps reviewed delivery tooling scoped while mixed runtime changes remain full: %s', file => {
+    const repo = repository();
+    repo.write(file, '// delivery fixture\n');
+    expect(repo.scope(repo.commit()).mode).toBe('delivery');
+    repo.write('SECURITY.md', '# Security boundary\n');
+    expect(repo.scope(repo.commit()).mode).toBe('full');
+  });
 
   it('recognizes allowlisted deletions while leaving broken inbound links to documentation checks', () => {
     const repo = repository();

@@ -19,6 +19,7 @@ export const deliveryScripts = Object.freeze([
   'scripts/publish.mjs', 'scripts/cloud-dispatch.mjs', 'scripts/cloud-publish.mjs',
   'scripts/server-image-stream.py', 'scripts/release.mjs', 'scripts/release-ci.mjs',
   'scripts/release-runtime.mjs', 'scripts/ci-image.mjs', 'scripts/ci-image-retention.mjs',
+  'scripts/ci-image-cache.mjs', 'scripts/delivery-evidence.mjs',
   'scripts/deploy-config.mjs', 'scripts/deploy-setup.mjs', 'scripts/deploy-production.sh',
   'scripts/production-readback.mjs', 'scripts/prepare-release.mjs',
   'scripts/ci-scope.mjs', 'scripts/check-docs.mjs', 'scripts/check-delivery.mjs',
