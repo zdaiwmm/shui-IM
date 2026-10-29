@@ -16,7 +16,7 @@ let service,browser;
 try {
   if(screenshots)await mkdir(screenshots,{recursive:true});
   const reservation=createNetServer();await new Promise(resolve=>reservation.listen(0,'127.0.0.1',resolve));const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve));
-  const password='synthetic-admin-workspace-password',config=await makeAdminConfig(password);
+  const config=await makeAdminConfig();
   service=await startServer({port,host:'127.0.0.1',dataDir:directory,adminConfig:config,adminOrigin:`http://localhost:${port}`,quiet:true});
   for(let i=0;i<26;i++)service.store.feedback.submit({id:randomUUID(),email:'reader@example.com',message:`Synthetic feedback ${i}`});
   service.store.feedback.submit({id:randomUUID(),email:'sender@example.com',message:'<img src=x onerror=alert(1)> Feedback remains plain text'});
@@ -35,7 +35,17 @@ try {
   const capture=async name=>{if(screenshots)await page.screenshot({path:path.join(screenshots,`${name}.png`),fullPage:true,animations:'disabled'});};
   const nav=async name=>{const b=page.locator('#admin-nav').getByRole('button',{name,exact:true});if(!await b.isVisible())await page.getByRole('button',{name:'打开后台导航',exact:true}).click();await b.click();await page.getByRole('heading',{name:name==='表情资源'?'表情管理':name,exact:true}).waitFor();};
   await page.goto(`http://localhost:${port}`);await page.getByRole('heading',{name:'登录管理工作区'}).waitFor();await capture('login');
-  await page.locator('[name=password]').fill(password);await page.locator('[name=code]').fill(totp(config.totpSecret));await page.getByRole('button',{name:'验证并登录'}).click();await page.getByRole('heading',{name:'总览',exact:true}).waitFor();await page.getByText('灾备状态尚未接入',{exact:true}).waitFor();
+  assert.equal(await page.locator('form input').count(),1);assert.equal(await page.locator('[name=password]').count(),0);
+  await page.setViewportSize({width:390,height:844});await capture('login-mobile');
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+  await page.emulateMedia({colorScheme:'dark'});await capture('login-mobile-dark');
+  await page.emulateMedia({colorScheme:'light'});await page.setViewportSize({width:1440,height:1000});
+  const validCodes=[-1,0,1].map(offset=>totp(config.totpSecret,Math.floor(Date.now()/30_000)+offset));
+  const invalidCode=['000000','111111','222222','333333'].find(code=>!validCodes.includes(code));
+  await page.locator('[name=code]').fill(invalidCode);await page.getByRole('button',{name:'验证并登录'}).click();
+  await page.getByText('动态验证码不正确或已使用，请输入新的 6 位动态码',{exact:true}).waitFor();
+  assert.equal(await page.locator('[name=code]').inputValue(),'');await capture('login-error');
+  await page.locator('[name=code]').fill(totp(config.totpSecret));await page.getByRole('button',{name:'验证并登录'}).click();await page.getByRole('heading',{name:'总览',exact:true}).waitFor();await page.getByText('灾备状态尚未接入',{exact:true}).waitFor();
   assert.equal(await page.locator('#admin-nav .nav-item').count(),7);await capture('overview-desktop');await auditP1Surface(page,'admin-v1-overview','#admin');
   for(const scheme of ['light','dark'])for(const theme of ['blue','green','purple','apricot','sea','rose','terracotta','lemon','graphite']){
     await page.emulateMedia({colorScheme:scheme});
@@ -76,13 +86,14 @@ try {
   await page.waitForFunction(()=>document.querySelectorAll('#content tbody tr').length===2);
   await capture('feedback');
   await nav('运维诊断');await page.getByText('格式校验通过，连通性未验证',{exact:true}).waitFor();await capture('diagnostics');await auditP1Surface(page,'admin-v1-diagnostics','#admin');
-  await nav('安全与审计');await page.getByText('密码只保存不可逆哈希',{exact:false}).waitFor();await capture('audit');
+  await nav('安全与审计');await page.getByText('6 位动态验证码',{exact:true}).waitFor();await capture('audit');
   await nav('表情资源');await page.getByRole('button',{name:'内置动画',exact:true}).click();await page.getByText('只读，不提供上下架或上传替换',{exact:true}).waitFor();await capture('bundled');
   await page.setViewportSize({width:390,height:844});await nav('总览');await capture('overview-mobile');await page.getByRole('button',{name:'打开后台导航',exact:true}).click();await capture('navigation-mobile');await page.keyboard.press('Escape');assert.equal(await page.locator('#admin-menu').getAttribute('aria-expanded'),'false');
   await page.emulateMedia({colorScheme:'dark',reducedMotion:'reduce'});await page.setViewportSize({width:1440,height:1000});await capture('overview-dark');
   await nav('密室管理');await page.getByRole('button',{name:room.roomId,exact:true}).click();await page.getByRole('button',{name:'危险操作',exact:true}).click();await page.getByText('新版独立本人归档 1 个；独立灾备快照与设备离线副本',{exact:true}).waitFor();await capture('cleanup-preview');
   await page.getByRole('button',{name:'准备清理',exact:true}).click();await page.locator('[name=confirmRoomId]').fill('wrong');await page.getByRole('button',{name:'确认清理实时密室',exact:true}).click();assert.notEqual(service.store.roomState(room.roomId),null);
-  await page.locator('[name=confirmRoomId]').fill(room.roomId);await page.locator('[name=password]').fill(password);await page.locator('[name=code]').fill(totp(config.totpSecret,Math.floor(Date.now()/30_000)+1));await page.getByRole('button',{name:'确认清理实时密室',exact:true}).click();await page.getByText('实时密室已清理，新版独立归档继续保留。',{exact:true}).waitFor();
+  assert.equal(await page.locator('[name=password]').count(),0);
+  await page.locator('[name=confirmRoomId]').fill(room.roomId);await page.locator('[name=code]').fill(totp(config.totpSecret,Math.floor(Date.now()/30_000)+1));await page.getByRole('button',{name:'确认清理实时密室',exact:true}).click();await page.getByText('实时密室已清理，新版独立归档继续保留。',{exact:true}).waitFor();
   assert.equal(service.store.roomState(room.roomId),null);await nav('归档与备份');await page.getByRole('button',{name:'本人归档',exact:true}).click();await page.getByRole('button',{name:descriptor.id,exact:true}).waitFor();await page.getByText('来源密室已移除，归档保留',{exact:true}).waitFor();await capture('retained-archive');
   await page.route('**/admin-api/archives?*',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'合成读取失败'})}));await page.getByRole('button',{name:'刷新归档列表',exact:true}).click();await page.getByText('合成读取失败',{exact:true}).waitFor();await page.unroute('**/admin-api/archives?*');await page.getByRole('button',{name:'重试',exact:true}).click();await page.getByRole('button',{name:descriptor.id,exact:true}).waitFor();
   await page.reload();await page.getByRole('heading',{name:'归档与备份',exact:true}).waitFor();await page.getByRole('button',{name:descriptor.id,exact:true}).waitFor();

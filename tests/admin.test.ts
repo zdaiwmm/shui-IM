@@ -15,8 +15,7 @@ afterEach(async () => { vi.useRealTimers(); for (const fn of cleanups.splice(0))
 describe('isolated session administration', () => {
   it('renews the idle cookie, requires CSRF for renewal, caps absolute lifetime and revokes logout', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'quiet-admin-session-'));
-    const password = 'long-admin-session-test-password';
-    const config = await makeAdminConfig(password);
+    const config = await makeAdminConfig();
     const server = await startServer({ port: 0, host: '127.0.0.1', dataDir: dir, adminConfig: config, quiet: true });
     cleanups.push(async () => { await server.close(); await rm(dir, { recursive: true, force: true }); });
     const send = (route: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}) => new Promise<{ status: number; cookie: string; body: any }>((resolve, reject) => {
@@ -28,7 +27,7 @@ describe('isolated session administration', () => {
       request.on('error', reject); request.end(body === undefined ? undefined : JSON.stringify(body));
     });
     const start = Date.now(); vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(start);
-    const login = await send('login', 'POST', { password, code: totp(config.totpSecret) });
+    const login = await send('login', 'POST', { code: totp(config.totpSecret) });
     expect(login.status).toBe(200); expect(login.cookie).toContain('Max-Age=604800');
     const headers = { Cookie: login.cookie.split(';')[0]!, 'X-CSRF-Token': login.body.csrf };
     expect((await send('session', 'POST', undefined, { Cookie: headers.Cookie })).status).toBe(403);
@@ -43,11 +42,11 @@ describe('isolated session administration', () => {
     vi.setSystemTime(start + 7 * 24 * 60 * 60_000);
     const expired = await send('session', 'POST', undefined, headers);
     expect(expired.status).toBe(401); expect(expired.body.code).toBe('SESSION_EXPIRED'); expect(expired.cookie).toContain('Max-Age=0');
-    const next = await send('login', 'POST', { password, code: totp(config.totpSecret) });
+    const next = await send('login', 'POST', { code: totp(config.totpSecret) });
     const nextHeaders = { Cookie: next.cookie.split(';')[0]!, 'X-CSRF-Token': next.body.csrf };
     vi.setSystemTime(start + 14 * 24 * 60 * 60_000);
     expect((await send('session', 'POST', undefined, nextHeaders)).status).toBe(401);
-    const last = await send('login', 'POST', { password, code: totp(config.totpSecret) });
+    const last = await send('login', 'POST', { code: totp(config.totpSecret) });
     const lastHeaders = { Cookie: last.cookie.split(';')[0]!, 'X-CSRF-Token': last.body.csrf };
     expect((await send('session', 'GET', undefined, lastHeaders)).status).toBe(200);
     const logout = await send('logout', 'POST', undefined, lastHeaders);
@@ -58,16 +57,15 @@ describe('isolated session administration', () => {
     // RFC 6238 SHA-1 test secret; the application uses its six-digit suffix.
     const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
     expect(totp(secret, 1)).toBe('287082');
-    const config = await makeAdminConfig('a-long-test-password-only', secret);
-    expect(await verifyAdmin(config, 'a-long-test-password-only', '287082', -1, 59_000)).toBe(1);
-    expect(await verifyAdmin(config, 'a-long-test-password-only', '287082', 1, 59_000)).toBeNull();
-    expect(await verifyAdmin(config, 'incorrect-password', '287082', -1, 59_000)).toBeNull();
+    const config = await makeAdminConfig(secret);
+    expect(await verifyAdmin(config, '287082', -1, 59_000)).toBe(1);
+    expect(await verifyAdmin(config, '287082', 1, 59_000)).toBeNull();
+    expect(await verifyAdmin(config, 'invalid', -1, 59_000)).toBeNull();
   });
 
-  it('requires exact origin, password and TOTP; enforces CSRF and step-up deletion; persists replay protection', async () => {
+  it('requires exact origin and TOTP; enforces CSRF and step-up deletion; persists replay protection', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'quiet-admin-test-'));
-    const password = 'long-admin-test-password-only';
-    const config = await makeAdminConfig(password);
+    const config = await makeAdminConfig();
     let server = await startServer({ port: 0, host: '127.0.0.1', dataDir: dir, adminConfig: config, quiet: true });
     cleanups.push(async () => { await server.close(); await rm(dir, { recursive: true, force: true }); });
     const send = (route: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}) => new Promise<Response>((resolve, reject) => {
@@ -81,11 +79,11 @@ describe('isolated session administration', () => {
       request.on('error', error => reject(new Error(`${method} ${route}: ${error.message}`, { cause: error }))); request.end(body === undefined ? undefined : JSON.stringify(body));
     });
     const code = totp(config.totpSecret);
-    expect((await send('/admin-api/login', 'POST', { password, code }, { Host: 'ai.shui.click' })).status).toBe(404);
-    expect((await send('/admin-api/login', 'POST', { password, code }, { Origin: 'https://ai.shui.click' })).status).toBe(403);
+    expect((await send('/admin-api/login', 'POST', { code }, { Host: 'ai.shui.click' })).status).toBe(404);
+    expect((await send('/admin-api/login', 'POST', { code }, { Origin: 'https://ai.shui.click' })).status).toBe(403);
     expect((await send('/admin-api/rooms')).status).toBe(401);
     expect((await send('/api/rooms')).status).toBe(404);
-    const login = await send('/admin-api/login', 'POST', { password, code });
+    const login = await send('/admin-api/login', 'POST', { code });
     expect(login.status).toBe(200);
     const setCookie = login.headers.get('set-cookie')!;
     expect(setCookie).toContain('__Host-qr-admin=');
@@ -94,7 +92,7 @@ describe('isolated session administration', () => {
     expect(login.headers.get('cache-control')).toBe('no-store');
     const cookie = setCookie.split(';')[0]!;
     const { csrf } = await login.json();
-    expect((await send('/admin-api/login', 'POST', { password, code })).status).toBe(401);
+    expect((await send('/admin-api/login', 'POST', { code })).status).toBe(401);
     const identity = await generateIdentity();
     const { roomId } = server.store.createRoom(identity.publicBundle, 't'.repeat(43), 'i'.repeat(43), '<img src=x onerror=alert(1)>');
     const headers = { Cookie: cookie, 'X-CSRF-Token': csrf };
@@ -148,18 +146,18 @@ describe('isolated session administration', () => {
     expect(text).not.toContain('encryptionPrivateKey');
     expect(text).not.toContain('fetch_hash');
     expect(text).not.toContain(config.totpSecret);
-    expect((await send(`/admin-api/rooms/${roomId}`, 'DELETE', { confirmRoomId: roomId, password, code }, { Cookie: cookie })).status).toBe(403);
-    expect((await send(`/admin-api/rooms/${roomId}`, 'DELETE', { confirmRoomId: 'wrong', password, code }, headers)).status).toBe(400);
+    expect((await send(`/admin-api/rooms/${roomId}`, 'DELETE', { confirmRoomId: roomId, code }, { Cookie: cookie })).status).toBe(403);
+    expect((await send(`/admin-api/rooms/${roomId}`, 'DELETE', { confirmRoomId: 'wrong', code }, headers)).status).toBe(400);
     const now = Date.now();
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(now + 30_000);
     const nextCode = totp(config.totpSecret);
-    const deleted = await send(`/admin-api/rooms/${roomId}`, 'DELETE', { confirmRoomId: roomId, password, code: nextCode }, headers);
+    const deleted = await send(`/admin-api/rooms/${roomId}`, 'DELETE', { confirmRoomId: roomId, code: nextCode }, headers);
     expect({ status: deleted.status, body: await deleted.json() }).toEqual({ status: 200, body: { deleted: true } });
     expect(server.store.roomState(roomId)).toBeNull();
     const retained=await send('/admin-api/archives?source=removed','GET',undefined,headers);
     expect((await retained.json()).archives[0]).toMatchObject({id:archive.descriptor.id,sourceExists:0,writerActive:0,objects:1});
     await server.close();
     server = await startServer({ port: 0, host: '127.0.0.1', dataDir: dir, adminConfig: config, quiet: true });
-    expect((await send('/admin-api/login', 'POST', { password, code: nextCode })).status).toBe(401);
+    expect((await send('/admin-api/login', 'POST', { code: nextCode })).status).toBe(401);
   }, 15_000);
 });
