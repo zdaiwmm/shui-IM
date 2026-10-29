@@ -942,12 +942,20 @@ export class QuietRoomApp {
       const viewportScale = viewport?.scale ?? 1;
       // Pinch magnification changes CSS viewport size, not keyboard occupancy.
       // Preserve the layout until actual unscaled keyboard geometry changes.
-      const viewportHeight = Math.max(1, viewport ? viewport.height * viewportScale : window.innerHeight);
-      const viewportWidth = viewport ? viewport.width * viewportScale : window.innerWidth;
+      const measuredHeight = viewport ? viewport.height * viewportScale : window.innerHeight;
+      const measuredWidth = viewport ? viewport.width * viewportScale : window.innerWidth;
+      // Reopening WebViews can briefly expose zero/non-finite geometry. Do
+      // not persist that transient sample as a one-pixel application shell.
+      const usableViewport = Number.isFinite(viewportScale) && viewportScale > 0
+        && Number.isFinite(measuredHeight) && measuredHeight > 0
+        && Number.isFinite(measuredWidth) && measuredWidth > 0;
+      const viewportHeight = usableViewport ? measuredHeight : Math.max(1, measuredLayoutHeight, window.innerHeight);
+      const viewportWidth = usableViewport ? measuredWidth : document.documentElement.clientWidth || window.innerWidth;
       const keyboardSpace = Math.max(0, layoutHeight - viewportHeight);
       // Discard rubber-band and stale dismissal offsets once the full viewport
       // is visible. Panning never contributes to the document's keyboard space.
-      const viewportTop = Math.max(0, Math.min(viewport?.offsetTop ?? 0, keyboardSpace));
+      const measuredTop = usableViewport ? viewport?.offsetTop ?? 0 : 0;
+      const viewportTop = Number.isFinite(measuredTop) ? Math.max(0, Math.min(measuredTop, keyboardSpace)) : 0;
       const chatGeneration = chat ? this.chatLayoutGeneration : 0;
       const resized = previousViewportHeight !== viewportHeight || previousLayoutHeight !== layoutHeight;
       const widthChanged = previousViewportWidth !== viewportWidth;
@@ -1341,6 +1349,7 @@ export class QuietRoomApp {
     document.addEventListener('freeze', () => this.lockNow({ preserveFilePicker: false }), { capture: true });
     window.addEventListener('pageshow', event => {
       this.documentLeaving = false;
+      if (!this.session && !this.browserProfile) this.syncViewport();
       if (event.persisted) this.lockNow({ preserveFilePicker: false });
       else this.expireIdleSession();
       refreshUnread();
@@ -1407,6 +1416,10 @@ export class QuietRoomApp {
 
   private revealReturningForeground(): void {
     if (this.expireIdleSession() || document.hidden) return;
+    // A shell may restore its viewport without emitting a resize event. Only
+    // public entry/authentication surfaces need this extra foreground sample;
+    // chat retains its existing keyboard and reading-anchor ownership.
+    if (!this.session && !this.browserProfile) this.syncViewport();
     if (!this.deviceVerificationActive || document.hasFocus()) this.revealPrivacySurface();
   }
 

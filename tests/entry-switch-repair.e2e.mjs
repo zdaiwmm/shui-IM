@@ -3,10 +3,70 @@ import { mkdir } from 'node:fs/promises';
 import { privacyFixture } from './helpers/privacy-fixture.mjs';
 import { submitPassword } from './helpers/password.mjs';
 
-const fixture = await privacyFixture({ hasTouch: true });
+const fixture = await privacyFixture({ hasTouch: true, isMobile: true, deviceScaleFactor: 3,
+  userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 AliApp(DingTalk/7.6.0)' });
 const { page, errors } = fixture;
 try {
   await page.clock.resume();
+  const mobileProfile = await page.evaluate(() => ({ maxTouchPoints: navigator.maxTouchPoints,
+    coarse: matchMedia('(pointer: coarse)').matches, dpr: devicePixelRatio, width: innerWidth, ua: navigator.userAgent }));
+  assert.deepEqual({ coarse: mobileProfile.coarse, dpr: mobileProfile.dpr, width: mobileProfile.width },
+    { coarse: true, dpr: 3, width: 390 }, 'Use mobile touch/viewport emulation, not a narrow desktop window');
+  console.log('Synthetic entry profile:', JSON.stringify(mobileProfile));
+  // Embedded shells can publish a zero-sized viewport while reopening, then
+  // expose real geometry on foreground return without a viewport resize event.
+  await page.evaluate(async () => {
+    const { app } = fixture;
+    app.lockNow();
+    const native = visualViewport;
+    window.entryViewport = { height: native.height, width: native.width, scale: native.scale, offsetTop: native.offsetTop };
+    for (const key of ['height', 'width', 'scale', 'offsetTop']) {
+      Object.defineProperty(native, key, { configurable: true, get: () => entryViewport[key] });
+    }
+    Object.assign(entryViewport, { height: 0, width: 0 });
+    app.syncViewport();
+    await app.start();
+  });
+  const publicEntryFits = () => page.evaluate(() => {
+    const root = document.querySelector('#app'), copy = root.querySelector('.cover-error');
+    const bounds = root.getBoundingClientRect(), text = copy.getBoundingClientRect();
+    return bounds.height >= document.documentElement.clientHeight - 1 && bounds.top === 0
+      && text.top >= bounds.top && text.bottom <= bounds.bottom && !fixture.app.session
+      && fixture.app.privacyCovered && getComputedStyle(copy).visibility === 'visible';
+  });
+  assert.equal(await publicEntryFits(), true, 'A zero-sized startup viewport must not clip the locked cover to one pixel');
+  for (const invalid of [
+    { height: NaN, width: Infinity, scale: 1, offsetTop: NaN },
+    { height: Infinity, width: 0, scale: 1, offsetTop: Infinity },
+    { height: 844, width: 390, scale: 0, offsetTop: 0 },
+  ]) {
+    await page.evaluate(invalid => { Object.assign(entryViewport, invalid); fixture.app.syncViewport(); }, invalid);
+    assert.equal(await publicEntryFits(), true, 'Invalid shell geometry retains a complete locked cover');
+  }
+  await page.evaluate(() => {
+    Object.assign(entryViewport, { height: 422, width: 195, scale: 2, offsetTop: 0 });
+    fixture.app.syncViewport();
+  });
+  assert.equal(await publicEntryFits(), true, 'Valid zoom geometry still uses the scaled visual viewport');
+  for (const edge of ['focus', 'pageshow', 'visibilitychange', 'bfcache']) {
+    await page.evaluate(() => {
+      Object.assign(entryViewport, { height: 320, width: 390, scale: 1, offsetTop: 180 });
+      fixture.app.syncViewport();
+      Object.assign(entryViewport, { height: 844, width: 390, offsetTop: 0 });
+    });
+    await page.evaluate(edge => {
+      if (edge === 'focus') fixture.focus();
+      else if (edge === 'visibilitychange') fixture.visibility(false);
+      else window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: edge === 'bfcache' }));
+    }, edge);
+    assert.equal(await publicEntryFits(), true, `${edge} refreshes the public entry without relying on viewport resize`);
+    assert.equal(await page.locator('.numeric-password-page, #message-input').count(), 0, 'Geometry recovery cannot authenticate or reveal chat');
+  }
+  await page.evaluate(() => {
+    for (const key of ['height', 'width', 'scale', 'offsetTop']) delete visualViewport[key];
+    delete window.entryViewport;
+    fixture.app.syncViewport();
+  });
   await page.evaluate(async () => {
     const { app, session } = fixture;
     const vault = await import('/src/lib/vault.ts');
@@ -32,6 +92,20 @@ try {
       before: JSON.stringify(await vault.readStoredRoom(second.stored.spaceId)) };
     await app.renderGateway({ trustedCoverActivation: true, autoUnlock: false });
   });
+  await page.locator('.numeric-password-page').waitFor();
+  const samePasswordPage = await page.evaluate(() => {
+    window.savedPasswordPage = document.querySelector('.numeric-password-page');
+    let height = 320;
+    Object.defineProperty(visualViewport, 'height', { configurable: true, get: () => height });
+    fixture.app.syncViewport();
+    height = 844;
+    fixture.focus();
+    const result = savedPasswordPage === document.querySelector('.numeric-password-page')
+      && document.querySelector('#app').getBoundingClientRect().height === 844 && !fixture.app.session;
+    delete visualViewport.height; delete window.savedPasswordPage;
+    return result;
+  });
+  assert.equal(samePasswordPage, true, 'Foreground geometry recovery retains the original mandatory password request');
   await submitPassword(page, '012345');
   await page.locator('[data-retry-room-open]').waitFor();
   assert.equal(await page.locator('.numeric-password-page').count(), 0, 'A failed post-proof open must release the busy keypad');
@@ -204,5 +278,5 @@ try {
     }
   }
   assert.deepEqual(errors, []);
-  console.log('Entry repair passed: post-proof failure/retry, repeated cover holds, late-proof rejection, exact queued room switches, themed checks/heading/device rows and bounded connection cards.');
+  console.log('Entry repair passed: invalid startup viewport and event-only foreground recovery, mandatory password continuity, post-proof failure/retry, repeated cover holds, late-proof rejection, exact queued room switches, themed checks/heading/device rows and bounded connection cards.');
 } finally { await fixture.close(); }

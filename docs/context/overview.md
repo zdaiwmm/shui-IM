@@ -1,3 +1,5 @@
+内置浏览器重新进入的视口异常：`src/app.ts` 拒绝零／非有限尺寸并在公开入口返回时重新采样；`tests/entry-switch-repair.e2e.mjs` 覆盖无 resize 返回、有效缩放及原应用锁请求保持。可控模拟与钉钉真机证据分开，详见[白屏修复 V1](../requirements/2026-10-29-dingtalk-cover-reopen/README.md)。
+
 消息时间线呈现投影：`src/lib/message-timeline.ts`分离聊天排序／隐藏及本人私有归档去重，其他来源房间相同消息ID仍私有可见；由`app.ts`委托调用，不改变协议、回执或存储。验证为`tests/message-timeline-model.test.ts`及既有frontend-lifecycle／恢复／删除专项；`npm run perf:timeline`输出合成投影基线，`QUIET_ROOM_TIMELINE_PERF=1 node tests/frontend-lifecycle.e2e.mjs`另测真实DOM／输入／锁定清理。隔离灾备入口为`npm run test:restore-drill`；范围与证据见[治理V1](../requirements/2026-10-25-project-governance/README.md)。
 
 网页链接与卡片：`web-links.ts` 负责正文链接／预览候选；`link-preview-data.ts` 定义有界加密快照，`link-preview-ui.ts` 负责输入状态与图片生命周期，`src/link-preview.css` 接入现有编辑和消息样式。服务端 `server/link-preview.mjs` 以受限DNS固定抓取公开元数据，经 `server/index.mjs` 的认证同源配额入口调用。新回归为 `tests/link-preview.test.ts`、`tests/link-preview.e2e.mjs` 及已有crypto／language套件；需求确认及交付见[记录](../requirements/2026-10-28-chat-link-preview/README.md)。
