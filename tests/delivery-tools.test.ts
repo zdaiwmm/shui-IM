@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, rmSync, utimesSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, rmSync, symlinkSync, utimesSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 // @ts-expect-error Operational script.
 import { nextRelease, prepareRelease } from '../scripts/prepare-release.mjs';
 // @ts-expect-error Operational script.
-import { deliveryEvidence, executionFingerprint, reusableRecord, summarize } from '../scripts/delivery-evidence.mjs';
+import { deliveryEvidence, executionFingerprint, reusableRecord, summarize, verificationContent } from '../scripts/delivery-evidence.mjs';
 
 const current = { id: '2026.09.10.2', title: '版本更新', notes: ['existing'], createdAt: '2026-09-10T09:00:00Z' };
 describe('release preparation', () => {
@@ -130,5 +130,50 @@ describe('local verification reuse', () => {
       expect(executionFingerprint(root, { ...process.env, CODEX_TOOL_CALL_ID: 'first' }))
         .toBe(executionFingerprint(root, { ...process.env, CODEX_TOOL_CALL_ID: 'second' }));
     } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+  it('reuses across operational-document commits but reruns for contracts, runtime changes and non-regular documents', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'quiet-doc-reuse-'));
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+    const commit = () => {
+      git('add', '.'); git('-c', 'user.name=Synthetic', '-c', 'user.email=synthetic@example.invalid', 'commit', '-qm', 'fixture');
+    };
+    const previousExitCode = process.exitCode;
+    try {
+      git('init', '-b', 'codex/fixture');
+      writeFileSync(path.join(root, 'package.json'), JSON.stringify({ scripts: { test: `node -e "require('fs').appendFileSync('.git/count', 'x')"` } }));
+      writeFileSync(path.join(root, 'AGENTS.md'), '# Workflow\n');
+      writeFileSync(path.join(root, 'SECURITY.md'), '# Security contract\n');
+      commit();
+      const original = deliveryEvidence(['ensure', 'test'], root);
+      const identity = verificationContent(root);
+      writeFileSync(path.join(root, 'AGENTS.md'), '# Updated delivery record\n'); commit();
+      expect(verificationContent(root)).toBe(identity);
+      const reused = deliveryEvidence(['ensure', 'test'], root);
+      expect(reused.head).toBe(original.head);
+      expect(reused.head).not.toBe(git('rev-parse', 'HEAD'));
+      expect(readFileSync(path.join(root, '.git/count'), 'utf8')).toBe('x');
+      expect(deliveryEvidence(['summary'], root).checks[0].reusable).toBe(true);
+      writeFileSync(path.join(root, 'SECURITY.md'), '# Changed security boundary\n'); commit();
+      expect(verificationContent(root)).not.toBe(identity);
+      deliveryEvidence(['ensure', 'test'], root);
+      expect(readFileSync(path.join(root, '.git/count'), 'utf8')).toBe('xx');
+      const contractIdentity = verificationContent(root);
+      writeFileSync(path.join(root, 'runtime.mjs'), 'export const changed = true;\n'); commit();
+      expect(verificationContent(root)).not.toBe(contractIdentity);
+      const runtimeIdentity = verificationContent(root);
+      git('rm', 'AGENTS.md');
+      symlinkSync('SECURITY.md', path.join(root, 'AGENTS.md')); commit();
+      expect(verificationContent(root)).not.toBe(runtimeIdentity);
+    } finally { process.exitCode = previousExitCode; rmSync(root, { recursive: true, force: true }); }
+  }, 15_000);
+  it('never falls back across a newer failed check even when only operational documents changed', () => {
+    const content = 'e'.repeat(64);
+    const previous = { ...record, verificationContent: content };
+    const currentHead = 'f'.repeat(40), currentTree = 'c'.repeat(40);
+    expect(reusableRecord([previous], record.command, currentHead, currentTree, fingerprint, content)).toBe(previous);
+    expect(reusableRecord([previous], record.command, currentHead, currentTree, fingerprint, 'f'.repeat(64))).toBeUndefined();
+    for (const change of [{ result: 'failed' }, { result: 'interrupted' }, { clean: false }, { executionFingerprint: undefined }]) {
+      expect(reusableRecord([previous, { ...previous, ...change }], record.command, currentHead, currentTree, fingerprint, content)).toBeUndefined();
+    }
   });
 });

@@ -41,6 +41,8 @@ function publishApproved(args, run, timed) {
   const readbackOnly = args.includes('--readback-only');
   const withReadback = args.includes('--with-readback');
   const initialize = args.includes('--initialize');
+  const cacheImages = args.includes('--cache-images');
+  if (args.filter(value => value === '--cache-images').length > 1) throw new Error('Duplicate image cache flag');
   if (args.filter(value => value === '--initialize').length > 1) throw new Error('Duplicate initialization flag');
   const resumeIndex = args.indexOf('--resume');
   const resume = resumeIndex < 0 ? undefined : args[resumeIndex + 1];
@@ -48,10 +50,11 @@ function publishApproved(args, run, timed) {
     if (!/^[1-9][0-9]*$/.test(resume ?? '')) throw new Error('Exact workflow run ID required');
     args = args.filter((_value, index) => index !== resumeIndex && index !== resumeIndex + 1);
   }
-  args = args.filter(value => !['--cloud', '--prepare', '--readback-only', '--with-readback', '--initialize'].includes(value));
+  args = args.filter(value => !['--cloud', '--prepare', '--readback-only', '--with-readback', '--initialize', '--cache-images'].includes(value));
   const { environment } = targetArguments(args);
   const targetArgs = environment ? ['--environment', environment] : [];
   const sha = approvedCommit(args);
+  if (cacheImages && (cloud || readbackOnly || prepare || resume)) throw new Error('Image cache requires direct publishing');
   if (initialize) {
     if (cloud || prepare || readbackOnly || withReadback || resume) throw new Error('Initialization requires direct, standalone publishing');
     assertInitializationTarget(environment, loadConfig(root, environment).config);
@@ -100,6 +103,11 @@ function publishApproved(args, run, timed) {
   const { config, sourcePath } = loadConfig(root, environment);
   const key = process.env.QUIET_ROOM_GITHUB_KEY || config.githubKey;
   const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', GH_PROMPT_DISABLED: '1' };
+  if (cacheImages) {
+    const common = run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+    if (!path.isAbsolute(common)) throw new Error('Image cache requires an absolute Git common directory');
+    env.QUIET_ROOM_CI_IMAGE_CACHE = path.join(common, 'quiet-room-ci-image-cache-v1');
+  }
   let cloneUrl = `https://github.com/${repo}.git`;
   if (key) {
     const ssh = `ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -i '${key.replaceAll("'", "'\\''")}'`;

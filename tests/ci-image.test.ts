@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -74,6 +74,67 @@ describe('CI image provenance and transfer', () => {
       const operation = () => downloadCIImage(command, sha, path.join(parent, 'artifact'));
       if (changed) expect(operation).toThrow('CI changed');
       else expect(operation().sha).toBe(sha);
+    } finally { rmSync(parent, { recursive: true, force: true }); }
+  });
+  it.each(['reuse', 'corrupt', 'expired', 'changed-ci', 'wrong-platform', 'bad-download'])('binds cache reuse to live provenance and authenticated ZIP bytes (%s)', mode => {
+    const parent = mkdtempSync(path.join(tmpdir(), 'quiet-image-cache-'));
+    let downloads = 0, expired = false, reads = 0, changeCI = false;
+    try {
+      const source = path.join(parent, 'source'); mkdirSync(source); fixture(source);
+      const zip = path.join(parent, 'source.zip');
+      execFileSync('python3', ['-c', 'import sys,zipfile\nwith zipfile.ZipFile(sys.argv[1],"w") as z:\n for name in ["image.json","image.tar.gz"]: z.write(sys.argv[2]+"/"+name,name)', zip, source]);
+      const artifact = { id: 7, digest: `sha256:${hashFile(zip)}`, size_in_bytes: readFileSync(zip).length,
+        name: artifactName(sha, 2, 'linux/amd64'), expired: false, workflow_run: { id: 42, head_sha: sha } };
+      const cacheDirectory = path.join(parent, 'cache');
+      const command = (program: string, args: string[], options: any = {}) => {
+        const api = args[1] ?? '';
+        if (program === 'python3') return execFileSync(program, args, { encoding: 'utf8' });
+        if (api.includes('/jobs?')) return JSON.stringify({ jobs: [{ run_id: 42, head_sha: sha, name: 'verify', status: 'completed', conclusion: 'success' }] });
+        if (api.includes('runs?')) {
+          reads++;
+          return JSON.stringify({ workflow_runs: [{ ...run, run_attempt: changeCI && reads > 2 ? 3 : 2 }] });
+        }
+        if (api.includes('/artifacts?')) return JSON.stringify({ artifacts: [{ ...artifact, expired }] });
+        if (api.endsWith('/artifacts/7/zip')) {
+          downloads++; writeFileSync(options.stdio[1], mode === 'bad-download' ? 'invalid' : readFileSync(zip)); return '';
+        }
+        throw new Error('Unexpected command');
+      };
+      const first = () => downloadCIImage(command, sha, path.join(parent, 'first'), 'linux/amd64', { cacheDirectory });
+      if (mode === 'bad-download') {
+        expect(first).toThrow('checksum mismatch');
+        expect(readdirSync(cacheDirectory)).toEqual([]);
+        return;
+      }
+      expect(first().sha).toBe(sha);
+      expect(downloads).toBe(1);
+      const cached = path.join(cacheDirectory, readdirSync(cacheDirectory)[0]);
+      if (mode === 'corrupt') writeFileSync(cached, 'tampered');
+      if (mode === 'expired') expired = true;
+      if (mode === 'changed-ci') { reads = 0; changeCI = true; }
+      const second = () => downloadCIImage(command, sha, path.join(parent, 'second'),
+        mode === 'wrong-platform' ? 'linux/arm64' : 'linux/amd64', { cacheDirectory });
+      if (mode === 'reuse') {
+        expect(second().archiveSha256).toBe(JSON.parse(readFileSync(path.join(source, 'image.json'), 'utf8')).archiveSha256);
+      } else expect(second).toThrow();
+      expect(downloads).toBe(1);
+    } finally { rmSync(parent, { recursive: true, force: true }); }
+  });
+  it('rejects a cache directory symlink before downloading', () => {
+    const parent = mkdtempSync(path.join(tmpdir(), 'quiet-cache-symlink-'));
+    try {
+      const real = path.join(parent, 'real'); mkdirSync(real);
+      const cache = path.join(parent, 'cache'); symlinkSync(real, cache);
+      const command = (_program: string, args: string[]) => {
+        const api = args[1] ?? '';
+        if (api.includes('/jobs?')) return JSON.stringify({ jobs: [{ run_id: 42, head_sha: sha, name: 'verify', status: 'completed', conclusion: 'success' }] });
+        if (api.includes('runs?')) return JSON.stringify({ workflow_runs: [run] });
+        if (api.includes('/artifacts?')) return JSON.stringify({ artifacts: [{ id: 7, digest: 'sha256:' + 'a'.repeat(64), size_in_bytes: 100,
+          name: artifactName(sha, 2, 'linux/amd64'), expired: false, workflow_run: { id: 42, head_sha: sha } }] });
+        throw new Error('Unexpected download');
+      };
+      expect(() => downloadCIImage(command, sha, path.join(parent, 'image'), 'linux/amd64', { cacheDirectory: cache })).toThrow('private owned directory');
+      expect(readdirSync(real)).toEqual([]);
     } finally { rmSync(parent, { recursive: true, force: true }); }
   });
 });
