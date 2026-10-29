@@ -882,20 +882,23 @@ try {
     list.dispatchEvent(new WheelEvent('wheel', { deltaY: -160, bubbles: true }));
     window.scrollTo(0, document.documentElement.scrollHeight - innerHeight - 160);
   });
-  // The application commits native document-scroll bookkeeping on the next
-  // animation frame. Record the baseline after that commit so a slower CI
-  // runner cannot compare a pre-commit offset with the restored saved anchor.
-  await creator.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  const chatAnchorBeforeGallery = await creator.locator('#message-list').evaluate((list) => {
-    const listTop = window.visualViewport?.offsetTop ?? 0;
-    const visible = [...list.querySelectorAll('.message[data-client-msg-id]')]
-      .find((message) => message.getBoundingClientRect().bottom > listTop);
-    return {
-      id: visible?.getAttribute('data-client-msg-id') ?? '',
-      offset: visible ? visible.getBoundingClientRect().top - listTop : 0,
-    };
+  // Sample at the actual departure click: Playwright's actionability/focus
+  // work and late media layout may move the document after a separate RPC.
+  // The capture listener runs before the application's navigation handler.
+  await creator.locator('#open-gallery').evaluate(button => {
+    button.addEventListener('click', () => {
+      const listTop = window.visualViewport?.offsetTop ?? 0;
+      const visible = [...document.querySelectorAll('#message-list .message[data-client-msg-id]')]
+        .find(message => message.getBoundingClientRect().bottom > listTop);
+      window.__galleryDepartureAnchor = {
+        id: visible?.getAttribute('data-client-msg-id') ?? '',
+        offset: visible ? visible.getBoundingClientRect().top - listTop : 0,
+      };
+    }, { capture: true, once: true });
   });
   await creator.locator('#open-gallery').click();
+  const chatAnchorBeforeGallery = await creator.evaluate(() => window.__galleryDepartureAnchor);
+  invariant(chatAnchorBeforeGallery?.id, 'Gallery departure did not capture a visible chat message');
   await creator.locator('.gallery-shell').waitFor();
   await assertStablePage(creator, 'Gallery page');
   invariant(await creator.locator('#gallery-tab-images').getAttribute('aria-selected') === 'true', 'Gallery does not default to its images tab');
