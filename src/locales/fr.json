@@ -3124,5 +3124,9 @@
   "本地文件需自行保存，新聊天要重新导出。云备份默认关闭，开启后只在页面打开、已解锁且联网时运行；关闭不删除已有云备份。缺少的原文件不会凭空恢复。": "Les fichiers locaux doivent être sauvés par eux-mêmes, les nouveaux chats doivent être réexportés. la sauvegarde cloud est fermée par défaut, fonctionne seulement lorsque la page est ouverte, ouverte et connectée après l’ouverture; la sauf la saulegarde ne supprime pas la saule cloud existante. les fichières originaux manquants ne seront pas récupérés par la suite.",
   "凭证密码仅用于本浏览器加密，不上传服务器。": "Le mot de passe du justificatif chiffre les données uniquement dans ce navigateur et reste hors du serveur.",
   "密室数量已达上限，如需更多请联系客服": "Limite de salons atteinte. Contactez le support pour en obtenir davantage.",
-  "条新消息": "nouveaux messages"
+  "条新消息": "nouveaux messages",
+  "未能使用通行密钥": "Clé de connexion indisponible",
+  "可以重试通行密钥，或为此浏览器设置六位数字密码。": "Réessayez la clé de connexion ou définissez un code à six chiffres pour ce navigateur.",
+  "使用数字密码": "Utiliser un code numérique",
+  "重试通行密钥": "Réessayer la clé de connexion"
 }

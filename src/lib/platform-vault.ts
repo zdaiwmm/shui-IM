@@ -101,6 +101,7 @@ function randomBytes(length: number): Uint8Array<ArrayBuffer> {
 }
 
 let clientCapability: { credential: typeof PublicKeyCredential; probe: typeof PublicKeyCredential.getClientCapabilities; prf?: boolean; platform?: boolean } | null = null;
+type CredentialPolicy = { features?: () => string[]; allowsFeature: (feature: string) => boolean };
 
 /** Warm the optional probe without postponing a trusted-click ceremony. */
 export async function probePlatformVaultCapabilities(): Promise<void> {
@@ -113,7 +114,8 @@ export async function probePlatformVaultCapabilities(): Promise<void> {
     // Missing keys and rejected probes remain unknown. These probes
     // do not authenticate; a negative built-in probe selects new password setup by product policy.
     if (typeof capabilities['extension:prf'] === 'boolean') result.prf = capabilities['extension:prf'];
-    if (typeof capabilities.userVerifyingPlatformAuthenticator === 'boolean') result.platform = capabilities.userVerifyingPlatformAuthenticator;
+    const platform = capabilities.passkeyPlatformAuthenticator ?? capabilities.userVerifyingPlatformAuthenticator;
+    if (typeof platform === 'boolean') result.platform = platform;
   } catch { /* Unknown: attempt the normal ceremony from the next click. */ }
   if (result.platform === undefined && typeof credential.isUserVerifyingPlatformAuthenticatorAvailable === 'function') {
     try { result.platform = await credential.isUserVerifyingPlatformAuthenticatorAvailable(); } catch { /* Unknown remains unknown. */ }
@@ -126,8 +128,7 @@ export function platformVaultUsesExternalAuthenticator(): boolean {
     && clientCapability.probe === window.PublicKeyCredential?.getClientCapabilities && clientCapability.platform === false;
 }
 
-/** Known in-app browsers cannot reliably present the required PRF ceremony.
- * This only selects NEW protection; existing passkey wrappers never downgrade. */
+/** Browser-shell hint for presentation only; it does not prove WebAuthn support. */
 export function embeddedPasswordSetup(userAgent = navigator.userAgent): boolean {
   const standalone = Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
     || typeof matchMedia === 'function' && matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
@@ -139,8 +140,17 @@ export function embeddedPasswordSetup(userAgent = navigator.userAgent): boolean 
 /** New protection prefers a local password when the built-in verifier is explicitly unavailable; unknown still tries WebAuthn. */
 export function platformVaultSetupState(): 'unsupported' | 'available' | 'unknown' | 'insecure' {
   if (!window.isSecureContext) return 'insecure';
-  if (embeddedPasswordSetup()) return 'unsupported';
   if (!window.PublicKeyCredential || typeof navigator.credentials?.create !== 'function' || typeof navigator.credentials?.get !== 'function') return 'unsupported';
+  const context = typeof document === 'undefined' ? undefined : document as Document & {
+    permissionsPolicy?: CredentialPolicy; featurePolicy?: CredentialPolicy;
+  };
+  const policy = context?.permissionsPolicy ?? context?.featurePolicy;
+  try {
+    for (const feature of ['publickey-credentials-create', 'publickey-credentials-get']) {
+      // Do not mistake an unrecognized policy feature for an explicit denial.
+      if (policy?.features?.().includes(feature) && !policy.allowsFeature(feature)) return 'unsupported';
+    }
+  } catch { /* A failing policy probe is unknown, not a denial. */ }
   // WebAuthn RP IDs cannot be IP addresses, even on trustworthy loopback origins.
   const hostname = window.location?.hostname ?? '';
   if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname) || hostname.includes(':')) return 'unsupported';

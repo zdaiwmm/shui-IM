@@ -595,3 +595,7 @@ iPhone／iOS27／Safari 原生键盘栏、地址栏、真实切后台／选择�
 - `tests/own-space-directory.test.ts`：真实设备加密/签名、异角色/未知/撤销/篡改拒绝、逻辑冲突与移除保留。`tests/spaces.e2e.mjs` 的 own-space-directory：真实HTTP、独立浏览器及IndexedDB的新建发现、双向改名、离线移除、冷重入和不授予历史/成员资格。
 - `tests/system-media-session.test.ts`、语音及隐私/媒体回归：停止并清除来源后释放媒体会话，部分API不支持不阻断其余清理。
 - 最终候选须完整应用门禁及精确CI；原生iPhone/iOS27/Safari的工具栏颜色、触摸退出和锁屏播放卡片另作真机验收，当前未验证。
+
+## 2026-10-29 应用锁、键盘和媒体回执
+
+本次[需求V1](docs/requirements/2026-10-29-inapp-media-keyboard/README.md)纳入原应用锁／首次激活专项，并保留离线与跨纪元完整数量、顺序及加密回归。Safari补核原生关闭后DOM焦点及旧打开标记仍在的有效点按，草稿、选区、首次聚焦、IME及取消／移动边界不应受损。媒体专项核对双方实际可见20px／11px／横8px／R10和4px间距，原24px外槽、逐帧连续性、失败重试及确认前无时间断言保留。最终候选和证据见需求记录；浏览器合成行为不是真实iPhone／Telegram验收。

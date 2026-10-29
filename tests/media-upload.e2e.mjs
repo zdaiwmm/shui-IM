@@ -205,7 +205,7 @@ try {
     assert.deepEqual(await message.evaluate(node => ({ row:node===window.mediaFixture.row,
       shell:node.querySelector('.message-bubble')===window.mediaFixture.shell,
       status:node.querySelector('.media-send-status')===window.mediaFixture.status })), {row:true,shell:true,status:true}, 'Upload commits in the original row, media shell and status slot');
-    assert.equal(await message.locator('.message-meta > .media-capsule-content > time').isVisible(), false, 'Only server-confirmed media shows a send time');
+    assert.equal(await message.locator('.message-meta > .media-capsule-content time').isVisible(), false, 'Only server-confirmed media shows a send time');
     if (variant.includes('expression')) {
       const placed = await message.locator('.image-preview').evaluate(preview => {
         const media = preview.getBoundingClientRect();
@@ -248,14 +248,34 @@ try {
     }, { id, variant });
     assert.equal(await message.locator('.media-send-meta').count(), 0);
     sameSize(uploadBox, await geometry(message.locator('.message-bubble')), `${variant} complete shell server confirmation`);
-    assert.equal(await message.locator('.message-meta > .media-capsule-content > time').isVisible(), true, 'Time appears after server acceptance');
+    assert.equal(await message.locator('.message-meta > .media-capsule-content time').isVisible(), true, 'Time appears after server acceptance');
     await page.waitForFunction(id => !document.querySelector(`[data-client-msg-id="${id}"] .media-upload-handoff`), id);
+    const receiptProof = await message.evaluate(row => {
+      const f=window.mediaFixture;
+      const original=f.app.pending.get(row.dataset.clientMsgId) ?? [...f.app.messages.values()].find(m=>m.clientMsgId===row.dataset.clientMsgId);
+      const incoming=row.cloneNode(false); incoming.classList.remove('outgoing'); incoming.classList.add('incoming');
+      const bubble=row.querySelector('.message-bubble').cloneNode(false);
+      bubble.append(f.app.createMessageMeta({...original,senderId:f.session.vault.members.find(m=>m.role==='joiner').deviceId}));
+      incoming.append(bubble); row.after(incoming);
+      const metrics=container=>{
+        const cap=container.querySelector('.media-receipt'),time=cap.querySelector('time'),check=cap.querySelector('.message-delivery');
+        const style=getComputedStyle(cap),rect=cap.getBoundingClientRect(),t=time.getBoundingClientRect();
+        return {height:rect.height,font:getComputedStyle(time).fontSize,line:getComputedStyle(time).lineHeight,
+          padding:[style.paddingLeft,style.paddingRight],radius:style.borderRadius,
+          gap:check?check.getBoundingClientRect().left-t.right:null,background:style.backgroundColor};
+      };
+      const result={outgoing:metrics(row),incoming:metrics(incoming)}; incoming.remove();return result;
+    });
+    assert.deepEqual({...receiptProof.outgoing,gap:null},receiptProof.incoming,`${variant}: both directions share receipt geometry`);
+    assert.equal(receiptProof.outgoing.height,20);assert.equal(receiptProof.outgoing.font,'11px');
+    assert.deepEqual(receiptProof.outgoing.padding,['8px','8px']);assert.equal(receiptProof.outgoing.radius,'10px');
+    assert.ok(Math.abs(receiptProof.outgoing.gap-4)<.1,`${variant}: compact time/check gap ${JSON.stringify(receiptProof)}`);
     const animation = await page.evaluate(() => window.mediaFixture.confirmationFade);
     assert.ok(animation.some(item => item.duration === 180 && item.keyframes.join(',') === '1,0'), 'Status fades out instead of vanishing');
     await page.waitForFunction(id => !document.querySelector(`[data-client-msg-id="${id}"] .media-capsule-retiring`), id);
     if (process.argv[2]) await page.screenshot({ path: `${process.argv[2]}/${variant}-confirmed.png` });
     assert.equal(await message.locator('.message-meta').evaluate(node => node.offsetHeight), 24, 'Completed receipt retains its fixed 24px layout slot');
-    if (!variant.includes('expression')) assert.equal(await message.locator('.message-meta').evaluate(node => getComputedStyle(node,'::before').top), '2px', 'Completed 20px paint is centered inside the reserved 24px slot');
+    assert.equal(await message.locator('.media-receipt').evaluate(node => node.offsetHeight),20,'Completed capsule has the shared 20px visible height inside its reserved slot');
     for (const revealed of [false, true]) {
       await message.locator('.image-preview').first().evaluate((node, revealed) => { node.dataset.revealed = String(revealed); }, revealed);
       const original = await geometry(message.locator('.message-bubble'));
@@ -320,7 +340,7 @@ try {
   await continuity.getByRole('button',{name:'重试',exact:true}).click();
   await page.waitForFunction(()=>!window.mediaFixture.continuityRow.classList.contains('media-upload'));
   assert.equal(await page.evaluate(()=>window.mediaFixture.gate.requests),completedUploads,'Media submission failure reuses uploaded bytes');
-  assert.equal(await continuity.locator('.message-meta > .media-capsule-content > time').isVisible(),false);
+  assert.equal(await continuity.locator('.message-meta > .media-capsule-content time').isVisible(),false);
   await page.evaluate(async id=>{
     const f=window.mediaFixture;
     f.app.pending.get(id).status='stored';f.app.renderMessages();
@@ -336,7 +356,7 @@ try {
   },continuityId);
   assert.ok(geometryProof.samples>2&&geometryProof.maxDelta<1,`Full row, reply, status and neighbour moved: ${JSON.stringify(geometryProof)}`);
   assert.equal(geometryProof.sameRow&&geometryProof.sameStatus&&geometryProof.sameDate,true,JSON.stringify(geometryProof));
-  assert.equal(await continuity.locator('.message-meta > .media-capsule-content > time').isVisible(),true);
+  assert.equal(await continuity.locator('.message-meta > .media-capsule-content time').isVisible(),true);
   console.log('Whole-row/reply/neighbour continuity:',geometryProof);
 
   // Each ordinary file owns a fresh attempt, even after media reached 100%.

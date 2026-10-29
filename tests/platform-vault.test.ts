@@ -150,6 +150,34 @@ describe('platform vault WebAuthn cancellation', () => {
     } finally { delete (FakePublicKeyCredential as typeof FakePublicKeyCredential & { getClientCapabilities?: unknown }).getClientCapabilities; }
   });
 
+  it('uses current platform capability keys for every browser shell, without a UA veto', async () => {
+    installCredentials({ create: vi.fn() });
+    Object.defineProperty(FakePublicKeyCredential, 'getClientCapabilities', { configurable: true,
+      value: vi.fn().mockResolvedValue({ 'extension:prf': true, passkeyPlatformAuthenticator: true }) });
+    try {
+      await probePlatformVaultCapabilities();
+      for (const userAgent of ['Telegram/11.0', 'MicroMessenger/8.0', 'Instagram', 'UnknownApp/1.0',
+        'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile/15E148']) {
+        vi.stubGlobal('navigator', { userAgent, credentials: { create: vi.fn(), get: vi.fn() } });
+        expect(platformVaultSetupState()).toBe('available');
+      }
+      Object.defineProperty(FakePublicKeyCredential, 'getClientCapabilities', { configurable: true,
+        value: vi.fn().mockResolvedValue({ 'extension:prf': true, passkeyPlatformAuthenticator: false }) });
+      await probePlatformVaultCapabilities();
+      expect(platformVaultSetupState()).toBe('unsupported');
+    } finally { delete (FakePublicKeyCredential as typeof FakePublicKeyCredential & { getClientCapabilities?: unknown }).getClientCapabilities; }
+  });
+
+  it('selects password for an explicit permissions-policy denial, but ignores unrecognized features', () => {
+    installCredentials({ create: vi.fn() });
+    const policy = { features: () => ['publickey-credentials-create'], allowsFeature: vi.fn(() => false) };
+    vi.stubGlobal('document', { permissionsPolicy: policy });
+    expect(platformVaultSetupState()).toBe('unsupported');
+    policy.features = () => [];
+    expect(platformVaultSetupState()).toBe('unknown');
+    expect(policy.allowsFeature).toHaveBeenCalledTimes(1);
+  });
+
   it('permits explicit unsupported PRF only during new setup, preserving old-wrapper failure', async () => {
     installCredentials({create:vi.fn().mockResolvedValue(new FakePublicKeyCredential(new FakeAttestationResponse(),{prf:{enabled:true}} as AuthenticationExtensionsClientOutputs)),get:vi.fn().mockRejectedValue(new DOMException('unsupported','NotSupportedError'))});
     expect(isPlatformVaultUnavailable(await createPlatformCredential().catch(cause=>cause))).toBe(true);
