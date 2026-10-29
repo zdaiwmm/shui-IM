@@ -595,6 +595,7 @@ export class QuietRoomApp {
   private nativeClosedComposer: { minHeight: number; paddingBottom: number } | null = null;
   private nativeKeyboardOpening = false;
   private nativeKeyboardOpeningAt = 0;
+  private nativeComposerFocusReturn: HTMLTextAreaElement | null = null;
   private voicePermissionPrepared = false;
   private listKeyboardLayout = createChatKeyboardLayout();
   private composerHandoff: ReturnType<typeof coordinateComposerHandoff> | null = null;
@@ -975,6 +976,7 @@ export class QuietRoomApp {
           ? 'open'
           : 'intermediate';
       const previousKeyboardOpen = Math.max(0, previousLayoutHeight - previousViewportHeight) > 120;
+      if (keyboardGeometry === 'open' && focusedEditor && document.hasFocus()) this.nativeComposerFocusReturn = null;
       if (chat && previousKeyboardOpen && !keyboardOpen) this.nativeKeyboardOpening = false;
       if (chat && this.visualClientCoordinates && previousKeyboardOpen && viewportHeight > previousViewportHeight + 72) {
         this.beginNativeKeyboardDismiss(previousViewportHeight);
@@ -1332,6 +1334,16 @@ export class QuietRoomApp {
         if (!this.keepSessionWhenHidden()) this.lockNow({ preserveFilePicker: false, desktopContinuation: true }); return;
       }
       if (this.expireIdleSession()) return;
+      const chatInput = this.chatLayoutElements?.composer.querySelector<HTMLTextAreaElement>('#message-input');
+      if (this.visualClientCoordinates && !this.privacyCovered && this.activeSurface === 'chat'
+        && chatInput?.isConnected && document.activeElement === chatInput) {
+        // Safari's browser controls take UIKit focus without clearing
+        // activeElement. Release that stale editor while the page is unfocused;
+        // a returning programmatic focus() can otherwise be ignored forever.
+        this.nativeComposerFocusReturn = chatInput;
+        this.nativeKeyboardOpening = false;
+        if (chatInput.dataset.composing !== 'true') chatInput.blur();
+      }
       // Ordinary visible blur is not a privacy event. Keep read/focus semantics
       // and native-operation ownership without creating a second lock policy.
       if (this.deviceVerificationActive && !this.session && !this.browserProfile && !this.idleDeadline) this.showPrivacyCurtain();
@@ -7679,10 +7691,11 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       }
       prepareKeyboardTarget();
     }, { passive: true });
-    let focusTap: { x: number; y: number; retainedFocus: boolean } | null = null;
+    let focusTap: { x: number; y: number; retainedFocus: boolean; nativeFocusReturn: boolean } | null = null;
     textarea.addEventListener('touchstart', event => {
       const touch = event.touches.length === 1 ? event.touches[0] : undefined;
-      focusTap = touch ? { x: touch.clientX, y: touch.clientY, retainedFocus: document.activeElement === textarea } : null;
+      focusTap = touch ? { x: touch.clientX, y: touch.clientY, retainedFocus: document.activeElement === textarea,
+        nativeFocusReturn: this.nativeComposerFocusReturn === textarea } : null;
     }, { passive: true });
     textarea.addEventListener('touchmove', event => {
       const touch = event.touches[0];
@@ -7694,6 +7707,10 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       focusTap = null;
       if (!ownsActiveChat() || event.touches.length || !tap || document.hidden || textarea.disabled || textarea.readOnly) return;
       const expressionHandoff = Boolean(this.memePicker);
+      // Restoring Safari's native page/editor focus needs its compatibility
+      // click default. Do not replace it with a cancelled tap and focus(). Keep
+      // this path until open keyboard geometry confirms native focus returned.
+      if (!expressionHandoff && tap.nativeFocusReturn) return;
       const viewport = layoutViewport();
       // Use the sampler's layout baseline and scale. Native toolbar operations
       // can retain DOM focus even after the software keyboard has disappeared.
@@ -7939,6 +7956,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       lastCompositionEndValue = textarea.value;
       if (rawCommitPending) requestAnimationFrame(commitRawComposition);
       if (ownsActiveChat()) resizeTextarea();
+      if (ownsActiveChat() && this.nativeComposerFocusReturn === textarea && !document.hasFocus()) textarea.blur();
     });
     textarea.addEventListener('input', event => {
       this.composerDraftVersion += 1;
@@ -7983,7 +8001,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     textarea.addEventListener('blur', () => {
       if (!ownsActiveChat()) return;
       this.replyJumpVersion += 1;
-      if ((this.bottomControlRetainsKeyboard || replyCloseRetainsKeyboard) && !this.privacyCovered && this.activeSurface === 'chat') {
+      if ((this.bottomControlRetainsKeyboard || replyCloseRetainsKeyboard) && document.hasFocus() && !this.privacyCovered && this.activeSurface === 'chat') {
         // A few mobile browser builds still transfer focus after a prevented
         // pointerdown on the floating return control. Restore it before the
         // soft keyboard begins to dismiss, retaining the exact selection.
@@ -17256,6 +17274,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     this.chatViewportMotion = null;
     this.nativeChatFollow = null;
     this.chatLayoutElements = null;
+    this.nativeComposerFocusReturn = null;
     this.syncChatLayout = () => {};
     this.cancelViewportWork();
     if (this.chatScrollFrame !== null) cancelAnimationFrame(this.chatScrollFrame);

@@ -57,6 +57,59 @@ export async function verifySafariKeyboardHitArea(page) {
   });
   check(firstFocus,{focuses:1,blurs:0,focused:true},'First focus within a tap is never blurred and reopened');
 
+  const nativeReturn = await page.evaluate(async () => {
+    const input = document.querySelector('#message-input'), app = fixture.app;
+    input.focus(); setViewport(473); input.setSelectionRange(1, 4);
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const originalHasFocus = Object.getOwnPropertyDescriptor(document, 'hasFocus');
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => false });
+    // Safari's address bar takes native focus while activeElement retains the
+    // editor. Returning focus() calls can then be ignored by UIKit indefinitely.
+    window.dispatchEvent(new FocusEvent('blur'));
+    setViewport(844);
+    const released = document.activeElement !== input;
+    let prevented = false, programmaticFocuses = 0;
+    const originalFocus = input.focus;
+    input.focus = () => { programmaticFocuses++; };
+    for (const type of ['touchstart', 'touchend']) {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'touches', { value: type === 'touchstart' ? [{ clientX: 120, clientY: 400 }] : [] });
+      input.dispatchEvent(event); prevented ||= event.defaultPrevented;
+    }
+    input.focus = originalFocus;
+    if (originalHasFocus) Object.defineProperty(document, 'hasFocus', originalHasFocus);
+    else delete document.hasFocus;
+    // Browser default focus runs after touchend. It must remain available even
+    // when programmatic focus in the returning gesture would have been ignored.
+    if (!prevented) input.focus();
+    app.nativeKeyboardOpening = false;
+    return { released, prevented, programmaticFocuses, focused: document.activeElement === input,
+      same: input === document.querySelector('#message-input'), draft: input.value,
+      selection: [input.selectionStart, input.selectionEnd] };
+  });
+  check(nativeReturn, { released: true, prevented: false, programmaticFocuses: 0, focused: true,
+    same: true, draft: '键盘重开草稿', selection: [1, 4] }, 'Native browser focus loss releases the editor and preserves the next native tap default');
+
+  const blurScopes = await page.evaluate(() => {
+    const input = document.querySelector('#message-input'), app = fixture.app;
+    const originalHasFocus = Object.getOwnPropertyDescriptor(document, 'hasFocus');
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => false });
+    app.visualClientCoordinates = false;
+    window.dispatchEvent(new FocusEvent('blur'));
+    const desktopRetained = document.activeElement === input;
+    app.visualClientCoordinates = true;
+    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    window.dispatchEvent(new FocusEvent('blur'));
+    const composingRetained = document.activeElement === input;
+    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '' }));
+    const compositionReleased = document.activeElement !== input;
+    if (originalHasFocus) Object.defineProperty(document, 'hasFocus', originalHasFocus);
+    else delete document.hasFocus;
+    return { desktopRetained, composingRetained, compositionReleased, draft: input.value, selection: [input.selectionStart, input.selectionEnd] };
+  });
+  check(blurScopes, { desktopRetained: true, composingRetained: true, compositionReleased: true,
+    draft: '键盘重开草稿', selection: [1, 4] }, 'Native focus cleanup leaves desktop focus alone and waits for IME composition to finish');
+
   await page.evaluate(() => { document.querySelector('#message-input').focus(); setViewport(473); });
   await page.waitForFunction(() => !fixture.app.listKeyboardLayout.moving && !fixture.app.chatViewportMotion?.moving);
   const target = await page.evaluate(() => {
