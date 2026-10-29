@@ -60,6 +60,11 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     );
     CREATE TABLE IF NOT EXISTS pending_room_cleanup (room_id TEXT PRIMARY KEY, blob_bytes INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS admin_totp_counters (config_id TEXT PRIMARY KEY, counter INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS admin_auth_failures (
+      config_id TEXT PRIMARY KEY,
+      failures INTEGER NOT NULL,
+      blocked_until INTEGER NOT NULL
+    );
   `);
   if (!db.prepare('PRAGMA table_info(pending_room_cleanup)').all().some(column => column.name === 'blob_bytes')) {
     db.exec('ALTER TABLE pending_room_cleanup ADD COLUMN blob_bytes INTEGER NOT NULL DEFAULT 0');
@@ -264,6 +269,15 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     adminCounter: id => db.prepare('SELECT counter FROM admin_totp_counters WHERE config_id=?').get(id)?.counter ?? -1,
     consumeAdminCounter: (id, counter) => Boolean(db.prepare(`INSERT INTO admin_totp_counters VALUES(?,?)
       ON CONFLICT(config_id) DO UPDATE SET counter=excluded.counter WHERE excluded.counter > admin_totp_counters.counter`).run(id, counter).changes),
+    adminAuthRetryAfter: (id, now) => Math.max(0, Math.ceil(((db.prepare('SELECT blocked_until FROM admin_auth_failures WHERE config_id=?').get(id)?.blocked_until ?? 0) - now) / 1_000)),
+    recordAdminAuthFailure: (id, now) => {
+      db.prepare(`INSERT INTO admin_auth_failures VALUES(?,1,0)
+        ON CONFLICT(config_id) DO UPDATE SET
+          failures=CASE WHEN blocked_until>0 AND blocked_until<=? THEN 1 ELSE failures+1 END,
+          blocked_until=CASE WHEN blocked_until>0 AND blocked_until<=? THEN 0
+            WHEN failures+1>=5 THEN ? ELSE 0 END`).run(id, now, now, now + 15 * 60_000);
+    },
+    clearAdminAuthFailures: id => db.prepare('DELETE FROM admin_auth_failures WHERE config_id=?').run(id),
     enqueueRoomCleanup,
     cleanupPending: id => Boolean(db.prepare('SELECT 1 FROM pending_room_cleanup WHERE room_id=?').get(id)),
     pendingCleanup: () => db.prepare('SELECT room_id FROM pending_room_cleanup').all().map(r => r.room_id),

@@ -65,11 +65,14 @@ printf '%s\\n' "\${previous_compose_args[@]}" > old-args
 }
 
 describe('persistent optional administrator deployment', () => {
-  it('allows bounded expression uploads only on the exact authenticated catalog route', async () => {
-    const config = await readFile(new URL('../deploy/nginx-admin.mijiu.cloud.conf', import.meta.url), 'utf8');
+  it.each(['admin.mijiu.cloud', 'admin.shui.click'])('isolates %s and bounds expression uploads to the exact authenticated catalog route', async domain => {
+    const config = await readFile(new URL(`../deploy/nginx-${domain}.conf`, import.meta.url), 'utf8');
     expect(config).toContain('client_max_body_size 64k;');
-    expect(config).toContain('server_name admin.mijiu.cloud;');
-    expect(config).toContain('proxy_set_header Host admin.mijiu.cloud;');
+    expect(config).toContain(`server_name ${domain};`);
+    expect(config).toContain(`proxy_set_header Host ${domain};`);
+    expect(config).toContain(`/etc/letsencrypt/live/${domain}/fullchain.pem`);
+    expect(config).toContain(`return 301 https://${domain}$request_uri;`);
+    expect(config.match(/proxy_set_header X-Forwarded-For \$remote_addr;/g)).toHaveLength(2);
     expect(config).toContain('location /ws { return 404; }');
     expect(config).toContain('location ^~ /.well-known/acme-challenge/ { root /var/lib/letsencrypt; }');
     expect(config).toMatch(/location = \/admin-api\/expressions \{\s*client_max_body_size 70m;/);
@@ -112,12 +115,12 @@ describe('persistent optional administrator deployment', () => {
   });
 
   it('probes each independent administrator origin without exposing interpolated secrets', async () => {
-    for (const origin of ['https://admin.blue.example', 'https://admin.green.example/']) {
+    for (const origin of ['https://admin.mijiu.cloud', 'https://admin.shui.click']) {
       const result = await simulate('enabled', origin);
       expect(result.status).toBe(0);
       expect(result.adminOrigin).toBe(origin.replace(/\/$/, ''));
       expect(result.probes).toContain(`${result.adminOrigin}/admin-api/rooms`);
-      expect(result.probes).not.toContain('admin.mijiu.cloud');
+      expect(result.probes).not.toContain(origin.endsWith('mijiu.cloud') ? 'admin.shui.click' : 'admin.mijiu.cloud');
       expect(result.output).not.toContain('test-only-never-print-this-value');
       expect(result.trace).not.toContain('test-only-never-print-this-value');
     }

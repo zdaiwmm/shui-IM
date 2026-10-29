@@ -393,7 +393,7 @@ export class AdminWorkspace {
         const open = button('准备清理', () => {
             open.hidden = true;
             const form = el('form', 'admin-cleanup-form');
-            form.innerHTML = '<label>完整密室编号<input name="confirmRoomId" autocomplete="off" required></label><label>再次输入管理员密码<input name="password" type="password" autocomplete="current-password" required></label><label>新的动态验证码<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label><div class="actions"><button class="danger" type="submit">确认清理实时密室</button><button type="button" id="cancel-cleanup">取消</button></div>';
+            form.innerHTML = '<label>完整密室编号<input name="confirmRoomId" autocomplete="off" required></label><label>新的动态验证码<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label><div class="actions"><button class="danger" type="submit">确认清理实时密室</button><button type="button" id="cancel-cleanup">取消</button></div>';
             const identifier = form.elements.namedItem('confirmRoomId') as HTMLInputElement;
             identifier.addEventListener('input', () => identifier.setCustomValidity(identifier.value === id ? '' : '请完整输入当前密室编号'));
             form.querySelector('#cancel-cleanup')!.addEventListener('click', () => { form.remove(); open.hidden = false; open.focus(); });
@@ -403,7 +403,7 @@ export class AdminWorkspace {
                     return;
                 const controls = [...form.querySelectorAll<HTMLInputElement | HTMLButtonElement>('input,button')];
                 const values = new FormData(form);
-                const body = { confirmRoomId: String(values.get('confirmRoomId')), password: String(values.get('password')), code: String(values.get('code')) };
+                const body = { confirmRoomId: String(values.get('confirmRoomId')), code: String(values.get('code')) };
                 form.reset();
                 controls.forEach(n => n.disabled = true);
                 void this.c.api(`/rooms/${id}`, 'DELETE', body).then(() => {
@@ -415,7 +415,7 @@ export class AdminWorkspace {
                         this.c.report(error);
                         controls.forEach(n => n.disabled = false);
                     }
-                }).finally(() => { body.password = ''; body.code = ''; });
+                }).finally(() => { body.code = ''; });
             });
             formHost.replaceChildren(form);
             identifier.focus();
@@ -519,8 +519,8 @@ export class AdminWorkspace {
         }[];
         total: number;
     }>('安全与审计', `/events?offset=${this.auditOffset}&q=${encodeURIComponent(this.auditQuery)}`, (host, data) => {
-        const area = section('管理员会话', '密码与动态验证码双重验证，首次登录后最长 7 天。');
-        area.append(facts([['认证方式', '管理员密码 + TOTP'], ['会话绝对到期时间', '正在读取…'], ['敏感操作', '完整目标编号 + 再次验证密码和新动态码']]));
+        const area = section('管理员会话', '使用验证器动态码登录，首次登录后最长 7 天。');
+        area.append(facts([['认证方式', '6 位动态验证码'], ['会话绝对到期时间', '正在读取…'], ['敏感操作', '完整目标编号 + 新动态码']]));
         const expiry = area.querySelectorAll('dd')[1]!;
         void this.c.api<{
             expiresAt: string;
@@ -554,6 +554,6 @@ export class AdminWorkspace {
         if (!data.events.length)
             audit.append(emptyState('暂无匹配的管理操作记录。'));
         audit.append(pagination({ page: this.auditOffset / 50 + 1, total: data.total, pageSize: 50, label: '审计分页', change: page => { this.auditOffset = (page - 1) * 50; void this.security(); } }));
-        host.append(audit, note('审计不记录密码、动态码、Cookie、请求正文、邀请或恢复材料。密码只保存不可逆哈希，后台不提供明文查看。'));
+        host.append(audit, note('审计不记录动态码、验证器密钥、Cookie、请求正文、邀请或恢复材料。'));
     }, this.security);
 }

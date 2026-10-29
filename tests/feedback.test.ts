@@ -39,7 +39,7 @@ describe('explicit user feedback',()=>{
   }finally{db.close();}
  });
  it('enforces public origin/body limits, admin authentication/CSRF and source throttling',async()=>{
-  const dir=await mkdtemp(path.join(tmpdir(),'quiet-feedback-'));const password='test-feedback-admin-strong-password';const config=await makeAdminConfig(password);
+  const dir=await mkdtemp(path.join(tmpdir(),'quiet-feedback-'));const config=await makeAdminConfig();
   const server=await startServer({port:0,host:'127.0.0.1',dataDir:dir,adminConfig:config,quiet:true});cleanup.push(async()=>{await server.close();await rm(dir,{recursive:true,force:true});});
   const send=(route:string,method='POST',body:unknown={},headers:Record<string,string>={})=>new Promise<{status:number;body:any;cookie:string}>((resolve,reject)=>{
    const req=httpRequest({hostname:'127.0.0.1',port:server.port,path:route,method,headers:{Host:'app.example.com',Origin:'https://app.example.com','Content-Type':'application/json',...headers}},res=>{
@@ -52,7 +52,7 @@ describe('explicit user feedback',()=>{
   expect((await send('/api/feedback','POST',value)).status).toBe(200);
   const admin={Host:'admin.mijiu.cloud',Origin:'https://admin.mijiu.cloud'};
   expect((await send('/admin-api/feedback','GET',{},admin)).status).toBe(401);
-  const login=await send('/admin-api/login','POST',{password,code:totp(config.totpSecret)},admin);expect(login.status).toBe(200);
+  const login=await send('/admin-api/login','POST',{code:totp(config.totpSecret)},admin);expect(login.status).toBe(200);
   const authorized={...admin,Cookie:login.cookie,'X-CSRF-Token':login.body.csrf};
   expect((await send('/admin-api/feedback','GET',{},authorized)).body.total).toBe(1);
   expect((await send(`/admin-api/feedback/${value.id}`,'GET',{},authorized)).body.message).toBe(value.message);

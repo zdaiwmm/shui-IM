@@ -29,8 +29,7 @@ try {
   await new Promise(resolve => reservation.listen(0, '127.0.0.1', resolve));
   const port = reservation.address().port;
   await new Promise(resolve => reservation.close(resolve));
-  const password = 'synthetic-admin-browser-password';
-  const config = await makeAdminConfig(password);
+  const config = await makeAdminConfig();
   service = await startServer({ port, host: '127.0.0.1', dataDir: directory, adminConfig: config, adminOrigin: `http://localhost:${port}`, quiet: true });
   vite = await createServer({ configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error',
     server: { host: '127.0.0.1', port: 0, hmr: false, proxy: { '/api': `http://127.0.0.1:${port}` } },
@@ -191,7 +190,6 @@ try {
   await admin.goto(`http://localhost:${port}`);
   await admin.getByRole('heading', { name: '登录管理工作区' }).waitFor();
   await snapshot(admin, 'admin-login-desktop');
-  await admin.locator('[name=password]').fill(password);
   await admin.locator('[name=code]').fill(totp(config.totpSecret));
   await admin.getByRole('button', { name: '验证并登录' }).click();
   await admin.getByRole('heading', { name: '总览', exact: true }).waitFor();
