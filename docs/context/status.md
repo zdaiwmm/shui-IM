@@ -1,14 +1,6 @@
 # Quiet Room 当前状态
 
-<<<<<<< HEAD
-## 后台仅动态码登录与双域名 V1：本地完整验收通过，生产未切换（2026-10-29）
-
-用户明确直接实施并要求准备东京后台、发布前确认。目标为原生产 `admin.shui.click`、东京 `admin.mijiu.cloud`；原生产保留绑定，东京独立初始化。TOTP 单因素、完整编号加新码清理、持久化五次失败冷却及旧配置兼容已完成，本地159文件／1,253项及89／89浏览器通过，Chromium和本机HTTPS WebKit后台专项通过；东京绑定已在本机回验，0600配置未安装。[本次需求](../requirements/2026-10-29-admin-totp-only/README.md)拥有授权与验证，远端精确head／CI／合并入口为[PR #474](https://github.com/zdaiwmm/shui-IM/pull/474)。尚未执行 DNS、配置安装或生产发布；下方生产快照保持历史事实。
-
-## 应用锁、聊天键盘与媒体回执 V1：已合并，两环境待精确发布确认（2026-10-29）
-=======
 ## 当前生产：两个环境运行 2026.10.29.2（2026-10-29）
->>>>>>> origin/main
 
 用户精确确认后，production／https://ai.shui.click和tokyo-public／https://mijiu.cloud均已更新为应用`4dd34c7df8bcae76d246bca2df86d7e7ac34a693`／`2026.10.29.2`。固定入口分别核对DEPLOY_VERIFIED，独立READBACK_OK分别于UTC11:12:53.346和11:28:32.381完成，均首次通过。两环境应用与备份running／healthy，TURN running／none，维护门absent；精确SHA／镜像、HTTPS、公开与容器产物、新WebSocket一致，production管理员开启、东京关闭，通话均开启。[发布记录](../../RELEASING.md#release-inapp-media-keyboard-both-20261029)拥有精确授权、前版、批次、冷备份、镜像及分段计时；后续文档SHA不替换线上应用。
 
@@ -145,6 +137,10 @@
 ## 语言与反馈 V1.1：已包含两个环境2026.10.28.8
 
 功能由PR #454合入，已随精确应用c1b3a9a2815bf36206f6e39cdb50fcd68e255b07发布至两个环境；本页顶部生产证据拥有实际发布终点。旧PR #460仍未合并，但其续发请求合并修复已通过PR #465在当前应用重新实现、验证和交付，不再列为缺失功能。原CI重复失败及未定位动画证据仍由[原需求](../requirements/2026-10-28-language-feedback/README.md)保留，不将后续通过改写为旧候选通过。
+
+## 后台仅动态码登录与双域名 V1：本地完整验收通过，生产未切换（2026-10-29）
+
+用户明确直接实施并要求准备东京后台、发布前确认。目标为原生产 `admin.shui.click`、东京 `admin.mijiu.cloud`；原生产保留绑定，东京独立初始化。TOTP 单因素、完整编号加新码清理、持久化五次失败冷却及旧配置兼容已完成，本地159文件／1,253项及89／89浏览器通过，Chromium和本机HTTPS WebKit后台专项通过；东京绑定已在本机回验，0600配置未安装。[本次需求](../requirements/2026-10-29-admin-totp-only/README.md)拥有授权与验证，远端精确head／CI／合并入口为[PR #474](https://github.com/zdaiwmm/shui-IM/pull/474)。尚未执行 DNS、配置安装或生产发布。
 
 ## 仍开放的边界与证据缺口
 
