@@ -1,5 +1,9 @@
 # Quiet Room 当前状态
 
+## PC适配 #405 接续：候选验证中（2026-10-29）
+
+旧源4d72486a已在独立树与当前产品基线组合；用户确认保留后来#418的PC设置内容页，撤除旧居中弹窗冲突，仅补720px阅读轨／28px内距、导航焦点、列表返回设置和图库头部。旧WebKit验证阻塞由已合并的控制器同步等待修复，重新采样两浏览器均0px，原0.5px断言保留；PC两浏览器及现有三浏览器真实授权链路开发专项通过。唯一候选版本2026.10.29.3，最终干净完整门禁与PR／main CI待完成；两个环境仍运行下方2026.10.29.2。源映射、历史失败、确认与未验证项见[同一需求记录](../requirements/2026-10-25-pc-ui/README.md)。
+
 ## 当前生产：两个环境运行 2026.10.29.2（2026-10-29）
 
 用户精确确认后，production／https://ai.shui.click和tokyo-public／https://mijiu.cloud均已更新为应用`4dd34c7df8bcae76d246bca2df86d7e7ac34a693`／`2026.10.29.2`。固定入口分别核对DEPLOY_VERIFIED，独立READBACK_OK分别于UTC11:12:53.346和11:28:32.381完成，均首次通过。两环境应用与备份running／healthy，TURN running／none，维护门absent；精确SHA／镜像、HTTPS、公开与容器产物、新WebSocket一致，production管理员开启、东京关闭，通话均开启。[发布记录](../../RELEASING.md#release-inapp-media-keyboard-both-20261029)拥有精确授权、前版、批次、冷备份、镜像及分段计时；后续文档SHA不替换线上应用。
