@@ -62,7 +62,9 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
   let busy = false, listScrollTop = options.listScrollTop ?? 0, settingsScrollTop = options.settingsScrollTop ?? 0;
   let pageLifetime = new AbortController();
   signal.addEventListener('abort', () => pageLifetime.abort(), { once: true });
-  const dialog = embedded ? { close: (_options?: { animate?: boolean; restoreFocus?: boolean }) => { /* Embedded navigation owns its page lifetime. */ } } : mountDialog(sheet, { signal: options.signal, isActive: () => !options.signal.aborted, beforeClose: () => !busy, onClose: () => {
+  const dialog = embedded ? { close: (_options?: { animate?: boolean; restoreFocus?: boolean }) => { /* Embedded navigation owns its page lifetime. */ } } : mountDialog(sheet, { signal: options.signal, isActive: () => !options.signal.aborted,
+    returnFocus: root.querySelector<HTMLElement>(options.initialSettings ? ':scope > .chat-shell #chat-settings' : ':scope > .chat-shell #open-spaces'),
+    beforeClose: () => !busy, onClose: () => {
     lifetime.abort(); if (!handingOff) options.closed(sheet);
   } });
   if (embedded) signal.addEventListener('abort', () => sheet.remove(), { once: true });
@@ -242,7 +244,7 @@ const expiry = pendingSpaceExpiry(s);
     const focusedRoom = focused?.dataset.space ? options.spaces[Number(focused.dataset.space)]?.roomId : undefined;
     const focusedId = focused?.id;
     const current = options.spaces.find(s => s.roomId === options.currentRoom), others = options.spaces.filter(s => s !== current);
-    page(uiLiteral('切换密室'), `<div class="space-list">${current ? row(current) : ''}${others.map(row).join('')}${!options.spaces.length ? uiTemplate`<p class="space-empty">当前没有可进入的密室${options.allowCreate===false?'':uiLiteral('<br>点击右上角新增密室。')}</p>` : ''}</div>`);
+    page(uiLiteral('切换密室'), `<div class="space-list">${current ? row(current) : ''}${others.map(row).join('')}${!options.spaces.length ? uiTemplate`<p class="space-empty">当前没有可进入的密室${options.allowCreate===false?'':uiLiteral('<br>点击右上角新增密室。')}</p>` : ''}</div>`, '', options.presentation === 'settings' && listReturnSettings ? settings : undefined);
     sheet.querySelector('.space-drawer-scroll')!.scrollTop = listScrollTop; badges();authorizations();
     if (focusedRoom) sheet.querySelector<HTMLButtonElement>(`[data-space="${options.spaces.findIndex(s => s.roomId === focusedRoom)}"]`)?.focus({ preventScroll: true });
     else if (focusedId) sheet.querySelector<HTMLElement>(`#${CSS.escape(focusedId)}`)?.focus({ preventScroll: true });

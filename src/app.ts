@@ -7322,7 +7322,11 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       styleChanged: () => this.applyPresenceStyle(),
       closed: sheet => {
         if (presentation === 'sidebar') { this.desktopWorkspace.collapse(); return; }
-        if (presentation === 'settings') { this.spaceDrawerOpen = false; this.settingsReturn = null; this.renderChat(); return; }
+        if (presentation === 'settings') {
+          this.spaceDrawerOpen = false; this.settingsReturn = null; this.renderChat();
+          this.root.querySelector<HTMLButtonElement>('#chat-settings')?.focus({ preventScroll: true });
+          return;
+        }
         if (!sheet.isConnected) {
           // A route replacement still releases the old dialog's resources,
           // but its detached owner must not navigate over the new page.
@@ -7331,7 +7335,10 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         }
         this.spaceDrawerOpen = false;
         if (!signal.aborted && !this.privacyCovered && this.session === session && !this.root.querySelector('.space-invite-overlay:not(.is-closing),.space-profile-overlay')) {
-          if (previousSurface === 'chat' && !this.root.querySelector('.chat-shell')) this.renderChat(sheet);
+          if (previousSurface === 'chat' && !this.root.querySelector('.chat-shell')) {
+            this.renderChat(sheet);
+            this.root.querySelector<HTMLButtonElement>('#chat-settings')?.focus({ preventScroll: true });
+          }
           else { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); }
         }
       },

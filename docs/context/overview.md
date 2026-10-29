@@ -34,6 +34,8 @@ Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请�
 
 # Quiet Room 项目地图
 
+PC适配V1：`desktop-polish.css`在当前完整样式后管理PC设置内容页及子页720px阅读轨、28px内距与图库头部；`space-drawer.ts`与`app.ts`保持同一焦点／返回所有者。真实双端`tests/pc-ui.e2e.mjs`覆盖九主题明暗与桌面／手机断点，续接、验证阻塞及交付见[PC适配记录](../requirements/2026-10-25-pc-ui/README.md)。
+
 所有浏览器的新保护分流由`src/lib/platform-vault.ts`、`src/lib/new-protection.ts`及`src/app.ts`共用；App标识不替代能力验证，未知／取消由用户明确选择新密码。新格式首次聊天原位激活由`handleMembership`／`refreshChamberChatActivation`负责。回归为`platform-vault.test.ts`、`inapp-lock-first-chat.e2e.mjs`、`webview-password.e2e.mjs`和`new-room-passkey.e2e.mjs`；确认与模拟限制见[修复V1](../requirements/2026-10-28-inapp-lock-first-chat/README.md)。
 
 本浏览器创建数量限制：`vault.ts`核验本机原始创建端及去重，复用跨标签页租约保存创建意图；`own-space-directory.ts`只读移除记录释放名额。`app.ts`入口预检并复核，加入不占名额。回归为`tests/new-room-creation-limit.e2e.mjs`，已纳入完整浏览器门禁；产品边界由NEW_ROOM_ARCHIVES与[需求V1](../requirements/2026-10-28-browser-created-room-limit/README.md)拥有。
