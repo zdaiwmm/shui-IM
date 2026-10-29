@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+<a id="release-inapp-media-keyboard-both-20261029"></a>
+## 应用锁、聊天键盘与媒体回执：两个环境已发布并回读（2026-10-29）
+
+- 用户在完整SHA、版本、两个目标、CI／预检及未验证项展示后明确回复「确认，按这个提交发布到两个环境。」本批应用固定 `4dd34c7df8bcae76d246bca2df86d7e7ac34a693`／`2026.10.29.2`，无独立消息permalink。包含PR #470的应用锁能力分流、首次聊天节点保留和双方媒体回执规格，以及PR #471的Safari原生工具栏失焦恢复；[需求记录](docs/requirements/2026-10-29-inapp-media-keyboard/README.md)拥有边界与历史失败。
+- [精确应用main CI40859735589](https://github.com/zdaiwmm/shui-IM/actions/runs/40859735589) attempt1完整成功，Full application verification、全部浏览器、原生通话、文档、扫描及同轮双架构镜像通过；固定精确核验器确认最新run／attempt。干净源1ae60192的158文件／1248项、89/89浏览器入口全部通过，合并树相同。后续纯文档main不替换该应用。
+- `production`／`https://ai.shui.click`：固定隔离入口仅执行一次，核对精确DEPLOY_VERIFIED，725006ms；本机镜像准备440642ms，服务器总计218000ms，其中导入104000ms、冷备份73000ms。前版c1b3a9a2815bf36206f6e39cdb50fcd68e255b07；批次20261029T110904Z，发布目录`/opt/quiet-room/git-releases/20261029T110904Z-4dd34c7df8bc`，切换前冷备份校验通过。独立同SHA回读于`2026-10-29T11:12:53.346Z`首次取得READBACK_OK，3945ms。
+- `tokyo-public`／`https://mijiu.cloud`：固定隔离入口仅执行一次，核对精确DEPLOY_VERIFIED，845589ms；本机镜像准备326684ms，服务器总计458000ms，其中导入441000ms。前版同为c1b3a9a；批次20261029T111941Z，发布目录`/opt/quiet-room/git-releases/20261029T111941Z-4dd34c7df8bc`，切换前冷备份校验通过。独立同SHA回读于`2026-10-29T11:28:32.381Z`首次取得READBACK_OK，12120ms。批次标识是发布开始时间，不是上线完成时间。
+- 两环境应用与备份均running且healthy，TURN running但健康探针none，维护门absent；精确SHA／实际镜像、HTTPS的ok／database／storage、公开与容器产物及新WebSocket均一致。production管理员启用、东京关闭，通话均启用。两个独立来源、配置与数据保持；无初始化、helper安装、配置迁移、失败重发或回滚。
+- 两环境共同linux/amd64镜像`sha256:f799e4154d2a3032306e41a7498e12fdfd99fa67bd9c4e903920d830f5b8ebdf`，归档SHA-256 `78db17516387f1ad098386c432d25f46922a70bcef05e5b5fb6286b1e9b3da8d`、212530104字节，均绑定上述main CI／attempt1。外层固定发布核对成功和独立回读分别留证，不用子程序退出码替代精确回执。
+- Safari键盘的物理iPhone／iOS27.2本机实际组件验收保持有效；本次未新增Telegram原生应用锁、真实双设备公网通话或独立外审证据。脱敏授权、发布、镜像、回读及开发门禁摘要保存在公共Git目录`quiet-room-deliveries/evidence/inapp-media-keyboard-20261029/`。对账在第二个不含部署配置的工作树进行，文档提交不再次部署；资源依固定工具核验，保留项与证据另存同一任务载体。
+
 <a id="release-chat-link-preview-both-20261028"></a>
 ## 网页预览与续发修复：两个环境已回读（2026-10-28）
 

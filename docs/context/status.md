@@ -1,16 +1,16 @@
 # Quiet Room 当前状态
 
-## 应用锁、聊天键盘与媒体回执 V1：已合并，两环境待精确发布确认（2026-10-29）
+## 当前生产：两个环境运行 2026.10.29.2（2026-10-29）
 
-首批[PR #470](https://github.com/zdaiwmm/shui-IM/pull/470)纳入原应用锁／首次聊天PR #453，补双方媒体20px／11px／横8px／R10与4px时间／对勾间距，发送24px外槽及消息连续性保持。真机持续焦点失效由[PR #471](https://github.com/zdaiwmm/shui-IM/pull/471)续修：Safari可见窗口失焦释放残留编辑器焦点，返回点按保留原生默认聚焦；IME完成前不主动打断。用户在同一USB iPhone／iOS27.2、本机可信HTTPS实际组件重复验收，确认每次可直接重开。Telegram原生应用锁未实测；原生显示服务不可用，没有截图／录屏证据。
+用户精确确认后，production／https://ai.shui.click和tokyo-public／https://mijiu.cloud均已更新为应用`4dd34c7df8bcae76d246bca2df86d7e7ac34a693`／`2026.10.29.2`。固定入口分别核对DEPLOY_VERIFIED，独立READBACK_OK分别于UTC11:12:53.346和11:28:32.381完成，均首次通过。两环境应用与备份running／healthy，TURN running／none，维护门absent；精确SHA／镜像、HTTPS、公开与容器产物、新WebSocket一致，production管理员开启、东京关闭，通话均开启。[发布记录](../../RELEASING.md#release-inapp-media-keyboard-both-20261029)拥有精确授权、前版、批次、冷备份、镜像及分段计时；后续文档SHA不替换线上应用。
 
-最终应用4dd34c7df8bcae76d246bca2df86d7e7ac34a693／2026.10.29.2，合并完整树与干净验证源1ae60192一致。本地158文件／1248项、89/89浏览器入口全部通过；[精确PR完整CI40855611623](https://github.com/zdaiwmm/shui-IM/actions/runs/40855611623)及[精确main完整CI40859735589](https://github.com/zdaiwmm/shui-IM/actions/runs/40859735589)均attempt1成功，含全部浏览器、原生通话和同轮双架构镜像；固定精确核验器通过。本机main已快进，同步时无该目录Node服务；物理证据与自动测试分别计证，首批旧失败保留于[需求记录](../requirements/2026-10-29-inapp-media-keyboard/README.md)。
+本批PR #470纳入原应用锁／首次聊天PR #453并统一媒体时间回执，PR #471补Safari原生窗口失焦后的编辑器恢复。最终干净源158文件／1248项及89/89浏览器入口全部通过；精确PR与[精确main CI40859735589](https://github.com/zdaiwmm/shui-IM/actions/runs/40859735589)均attempt1完整成功，合并树与验证源一致。用户在同一USB iPhone／iOS27.2本机实际组件重复验收，确认每次可直接重开键盘；Telegram原生应用锁和真实公网双设备通话未新增实测，截图／录屏证据缺口保持。
 
-2026-10-29T10:55:24Z，production／https://ai.shui.click与tokyo-public／https://mijiu.cloud的固定doctor、容量、身份、前版祖先及未过期精确镜像元数据核验全部通过；实际前版仍均为c1b3a9a／2026.10.28.8。尚未执行生产切换，须用户确认上述完整应用SHA及两个环境；后续纯文档提交不替换该候选。近期旧PC适配#405仍有未合并增量，旧#460续发已由#465交付，#463仅文档对账，盘点明细见需求记录。
+[需求记录](../requirements/2026-10-29-inapp-media-keyboard/README.md)拥有首批失败、真机焦点证据及近期盘点。旧PC适配#405仍有未合并增量；旧#460续发已由#465交付，#463为旧文档对账，未混入本批。对账不再次发布；工作树与证据按固定工具核验。
 
-## 当前生产：两个环境运行 2026.10.28.8（2026-10-28）
+## 上一批生产：两个环境运行 2026.10.28.8（2026-10-28历史）
 
-用户在展示完整SHA、两个来源、CI／预检与未验证项后明确回复「确认，两个环境都发布」。两环境当前应用均为 `c1b3a9a2815bf36206f6e39cdb50fcd68e255b07`／`2026.10.28.8`；[精确main完整CI40693257651](https://github.com/zdaiwmm/shui-IM/actions/runs/40693257651) attempt1通过，包含本任务及此前已合并更新。后续知识库提交不替换线上应用SHA。
+用户在展示完整SHA、两个来源、CI／预检与未验证项后明确回复「确认，两个环境都发布」。当批两环境应用均为 `c1b3a9a2815bf36206f6e39cdb50fcd68e255b07`／`2026.10.28.8`；[精确main完整CI40693257651](https://github.com/zdaiwmm/shui-IM/actions/runs/40693257651) attempt1通过，包含本任务及此前已合并更新。后续知识库提交不替换线上应用SHA。
 
 | 环境 | 本次前版 | 独立回读完成（UTC） | 当前证据 |
 | --- | --- | --- | --- |
