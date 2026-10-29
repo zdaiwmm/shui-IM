@@ -31,26 +31,38 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
   const setCookie = (response, token, expires, now) => response.setHeader('Set-Cookie',
     `${cookieName}=${token}; Path=/; Max-Age=${Math.ceil((expires - now) / 1000)}; Secure; HttpOnly; SameSite=Strict`);
 
-  async function authenticate(password, code) {
+  async function authenticate(code) {
     const now = Date.now();
     if (authBusy) return { busy: true };
+    const retryAfter = data.adminAuthRetryAfter(configId, now);
+    if (retryAfter) return { retryAfter };
     authBusy = true;
     try {
-      const counter = await verifyAdmin(config, password, code, data.adminCounter(configId), now);
-      if (counter === null || !data.consumeAdminCounter(configId, counter)) return { ok: false };
+      const counter = await verifyAdmin(config, code, data.adminCounter(configId), now);
+      if (counter === null || !data.consumeAdminCounter(configId, counter)) {
+        data.recordAdminAuthFailure(configId, now);
+        return { ok: false };
+      }
+      data.clearAdminAuthFailures(configId);
       return { ok: true };
     } finally { authBusy = false; }
   }
 
   function allowAuthentication(request, response) {
     const result = attempts.take(clientAddress(request), 8);
-    if (result.allowed) return true;
-    response.setHeader('Retry-After', String(result.retryAfter));
+    const retryAfter = data.adminAuthRetryAfter(configId, Date.now());
+    if (result.allowed && !retryAfter) return true;
+    response.setHeader('Retry-After', String(Math.max(result.allowed ? 0 : result.retryAfter, retryAfter)));
     json(request, response, 429, { error: '尝试过于频繁，请稍后重试', code: 'RATE_LIMITED' });
     return false;
   }
 
   function authenticationBusy(request, response, verified) {
+    if (verified.retryAfter) {
+      response.setHeader('Retry-After', String(verified.retryAfter));
+      json(request, response, 429, { error: '尝试过于频繁，请稍后重试', code: 'RATE_LIMITED' });
+      return true;
+    }
     if (!verified.busy) return false;
     response.setHeader('Retry-After', '1');
     json(request, response, 503, { error: '后台验证繁忙，请稍后重试', code: 'AUTH_BUSY' });
@@ -77,9 +89,9 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
     if (pathname === '/admin-api/login' && request.method === 'POST') {
       if (!allowAuthentication(request, response)) return true;
       const body = await readJson(request);
-      const verified = await authenticate(body?.password, body?.code);
+      const verified = await authenticate(body?.code);
       if (authenticationBusy(request, response, verified)) return true;
-      if (!verified.ok) { json(request, response, 401, { error: '密码或动态验证码不正确，已使用的动态码不能重复使用' }); return true; }
+      if (!verified.ok) { json(request, response, 401, { error: '动态验证码不正确或已使用，请输入新的 6 位动态码' }); return true; }
       const token = secret(); const csrf = secret(); const now = Date.now();
       for (const [key, session] of sessions) if (session.expires < now || session.absolute < now) sessions.delete(key);
       while (sessions.size >= 20) sessions.delete(sessions.keys().next().value);
@@ -205,9 +217,9 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
         if (!allowAuthentication(request, response)) return true;
         const body = await readJson(request);
         if (body?.confirmRoomId !== match[1]) { json(request, response, 400, { error: '请完整输入会话编号确认清理' }); return true; }
-        const verified = await authenticate(body?.password, body?.code);
+        const verified = await authenticate(body?.code);
         if (authenticationBusy(request, response, verified)) return true;
-        if (!verified.ok) { json(request, response, 401, { error: '清理需要重新验证密码和未使用的动态码' }); return true; }
+        if (!verified.ok) { json(request, response, 401, { error: '清理需要重新验证未使用的 6 位动态码' }); return true; }
         const result = data.deleteRoom(match[1]);
         await onDelete(match[1]);
         json(request, response, 200, result); return true;

@@ -223,7 +223,14 @@ try {
     await b.getByText(`COUNT history ${index}\nsecond line\nthird line`,{exact:true}).waitFor();
   }
   await b.setViewportSize({width:390,height:600});
-  await b.evaluate(()=>{auditApp.chatScrollIntent='up';auditApp.chatPinnedToBottom=false;auditApp.setChatScrollTop(0);auditApp.updateChatBottomControl();});
+  // Resizing has its own viewport/anchor presentation. Establish the historical
+  // reading position only after it settles, before counting real arrivals.
+  await b.waitForFunction(()=>auditApp.chatViewportHeight===600 && !auditApp.listKeyboardLayout.moving
+    && !auditApp.chatViewportMotion?.moving && !auditApp.composerHeightMotion);
+  await b.evaluate(async()=>{
+    await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+    auditApp.chatScrollIntent='up';auditApp.chatPinnedToBottom=false;auditApp.setChatScrollTop(0);auditApp.updateChatBottomControl();
+  });
   await a.locator('#message-input').fill('COUNT real-time');await a.locator('#composer').evaluate(form=>form.requestSubmit());
   await b.locator('.chat-new-count').filter({hasText:'1 条新消息'}).waitFor();
   await disconnectB();

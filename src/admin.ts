@@ -153,8 +153,8 @@ function login() {
   view += 1;
   try { sessionStorage.removeItem('quiet-admin-view'); } catch { /* Storage may be unavailable. */ } csrf = '';
   expressionPage = 1; expressionStatus = 'all';
-  root.innerHTML = `<div class="login"><div class="login-brand">${chamberMark()}</div><p class="eyebrow">CHAMBER / ADMIN</p><h1>登录管理工作区</h1><p>使用管理员密码与 Google Authenticator 动态验证码。</p>
-    <form><label>管理员密码<input name="password" type="password" autocomplete="current-password" required /></label>
+  root.innerHTML = `<div class="login"><div class="login-brand">${chamberMark()}</div><p class="eyebrow">CHAMBER / ADMIN</p><h1>登录管理工作区</h1>
+    <form>
     <label>动态验证码<input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required /></label>
     <button class="primary" type="submit">验证并登录</button></form><p id="status" role="alert"></p></div>`;
   const form = root.querySelector('form')!;
@@ -163,11 +163,11 @@ function login() {
     if (button.disabled) return;
     button.disabled = true;
     const values = new FormData(form);
-    const body = { password: String(values.get('password')), code: String(values.get('code')) };
+    const body = { code: String(values.get('code')) };
     form.reset();
     try { const result = await api<{ csrf: string }>('/login', 'POST', body); if (!form.isConnected) return; csrf = result.csrf; startSessionRenewal(); await workspace.overview(); }
     catch (error) { if (form.isConnected) report(error); }
-    finally { body.password = ''; body.code = ''; if (button.isConnected) button.disabled = false; }
+    finally { body.code = ''; if (button.isConnected) button.disabled = false; }
   });
 }
 

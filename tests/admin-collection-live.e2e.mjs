@@ -13,7 +13,7 @@ await mkdir(output, { recursive: true });
 let service, browser, page;
 const evidence = [];
 try {
-  const config = await makeAdminConfig('synthetic-live-test-password');
+  const config = await makeAdminConfig();
   // Reserve a local ephemeral port, then use its exact admin origin.
   const { createServer } = await import('node:net');
   const reservation = createServer(); await new Promise(r => reservation.listen(0, '127.0.0.1', r));
@@ -22,7 +22,6 @@ try {
   browser = await chromium.launch(process.env.CHROME_CHANNEL ? { channel: process.env.CHROME_CHANNEL } : {});
   page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 1280, height: 900 } });
   await page.goto(`http://localhost:${port}`);
-  await page.locator('[name=password]').fill('synthetic-live-test-password');
   await page.locator('[name=code]').fill(totp(config.totpSecret));
   await page.getByRole('button', { name: '验证并登录' }).click();
   await page.getByRole('button', { name: '表情资源', exact: true }).click();

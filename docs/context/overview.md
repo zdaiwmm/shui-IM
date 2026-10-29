@@ -84,6 +84,8 @@ CI 镜像与双独立环境：`scripts/ci-image.mjs`、`scripts/deploy-config.mj
 
 后台工作区 V1：`src/admin/workspace.ts` 实现六入口的查询与详情，`server/admin-data.mjs` 投影新旧归档元数据，`server/admin-diagnostics.mjs` 有界读取只读回执。回归为 `admin-data.test.ts`、`admin-workspace.e2e.mjs` 与既有后台专项；来源删除不影响新版归档。范围见[本次需求](../requirements/2026-10-25-admin-v1/README.md)。
 
+后台单因素登录（2026-10-29）：`server/admin-auth.mjs` 兼容原 v1 绑定并生成无密码 v2；`admin.mjs` 与 `cloud-backups.mjs` 实现 TOTP、防重放及持久化全局冷却。原生产 `admin.shui.click`、东京 `admin.mijiu.cloud` 的两份 Nginx 模板及启用准备由[本次 V1](../requirements/2026-10-29-admin-totp-only/README.md)拥有；验证入口为 admin-totp-only、admin-abuse、admin、deploy-admin 与 admin-workspace。代码交付不代表域名或生产已切换。
+
 后台组件层：`src/admin/ui.ts`、`src/admin.css`，页面与验证契约见
 [后台组件与页面](../workflows/admin-ui.md)。后台页面由 `src/admin.ts` 编排，共用表格、分页、状态与错误处理组件。
 
