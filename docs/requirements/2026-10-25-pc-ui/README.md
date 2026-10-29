@@ -2,7 +2,7 @@
 
 ## 身份与授权
 
-- 阶段：2026-10-29继续处理旧PR #405；已从当前main独立集成，正在验证，合并与两环境发布准备待完成。生产仍待本批最终精确SHA确认。
+- 阶段：2026-10-29最终组合验证通过，PR #477及原#405均已合并；精确主线CI与两个环境只读发布准备完成。生产仍待本批最终精确SHA确认。
 - 规则来源：本机 main `4356531cea264dd01bd9110da90b9ff62cfd7a59` 的 AGENTS 与 workflow；远端规则差异已核对。
 - 起始基线：GitHub 实时 main 与本机 origin/main 均为 `171ca9a6173e696372277a0530a9daa95781c6d6`；本机 main 较旧，不作为实施基线。
 - 分支：`codex/pc-ui-v1-20261025`；本会话新建独占树 `.worktrees/pc-ui-v1-20261025`，接续须核验实际路径和 HEAD。
@@ -83,3 +83,12 @@ PR #405 的 f3a83e4 完整CI40117058236构建、1075项单元、通话与双架�
 保留第二组合证据：干净`58006e6d626c0ca2d3bbdaf6cec3f1c696daebf3`／树`b3b8dbdd45c392dafacfad525e78863552a19f4d`的[完整PR CI40875932450](https://github.com/zdaiwmm/shui-IM/actions/runs/40875932450) attempt1 success，Full application verification成功。本地构建及158文件／1263项通过，但浏览器在offline-outbox第228行等待“1条新消息”30秒超时：38通过／1失败／51未运行，check:full失败，780377ms，不能拼写为全绿。
 
 只在忽略目录进行诊断：第一次探针误调用不存在的方法，已修正为只读scroll getter，不作为产品验证。有效采样显示原用例在缩窗后立即设置历史位置时，viewport motion仍在frame0–11运行；frame12才结束，原计数断言在此次采样中通过。根因判断为夹具基线存在时序依赖，未改消息计数产品代码。一次针对性修复仅在缩窗后等待实际600px视口及布局／视口／输入栏控制器结束，再经过两帧绘制建立历史阅读位置；原实时1条、重连2条、重复同步不增计数、保留历史及主动返回清零的断言与时限全部保留。最终候选须先通过受影响专项，并重新执行完整本地及精确PR／main CI；同类失败再现则按规则停止，不放宽断言。
+
+## 最终合并与两环境准备（2026-10-29）
+
+- 最终干净源`ed9e388d2c460dfe4e0596c45195fba95a1257f9`，完整树`679ccf885266a974f9971c5fac724a1d449ee8b8`。针对离线计数夹具的一次修复后，独立完整offline-outbox专项通过；同一干净源的本地check:full通过159文件／1268项、90/90浏览器、0失败／0未运行，1818798ms。旧第二组合失败保持上方记录，未修改产品计数、超时或安全断言。
+- [最终PR完整CI40878438586](https://github.com/zdaiwmm/shui-IM/actions/runs/40878438586) attempt1完整成功，Full application verification成功。按精确head正常合并[PR #477](https://github.com/zdaiwmm/shui-IM/pull/477)为应用`3ed5f8a907e7c73be7aa05c7a53b8fc039900014`／2026.10.29.5，合并文件树与上述验证源完全一致；#405同步标记merged，旧4d72486a是该应用祖先。
+- 共享集成锁内核验并快进干净本机main到该应用，未重启局域网服务，未把Git同步称为真机或服务验收。独立记录树`codex/pc-ui-unblock-record-20261029`以该应用为基线，只更新交付记录，不含部署配置。
+- [精确main CI40883165466](https://github.com/zdaiwmm/shui-IM/actions/runs/40883165466) attempt1完整成功，已独立核对push／main／完整应用SHA及Full application verification成功。未在该完整CI结束前合并记录PR，避免取消在途main检查；记录提交不替换应用发布目标。
+- 两环境SSH／GitHub连接、固定helper协议与来源、既有capacity preflight及前版祖先校验通过。production／https://ai.shui.click可用23902629888字节，要求4580614444；tokyo-public／https://mijiu.cloud可用74936717312，要求4294967296，均无容量问题。预检时两环境前版均为`4dd34c7df8bcae76d246bca2df86d7e7ac34a693`，只是当时快照，正式切换仍重验。
+- 同一精确main CI／attempt1的linux/amd64产物12902016282已按GitHub认证ZIP摘要下载、镜像清单／平台／标签与归档哈希校验，并在下载后再次核对CI身份；本机公共Git私有缓存已保存，可供两环境同架构发布显式复用。镜像`sha256:11e4b4a1a4faf044b59e5b9e145092c2d262070a0d37754a83a483f2c770f32f`，归档212530878字节、SHA-256`622e026bf4035a6ba9aa9c7736d1367a762ee4eb806724443e4fcec791699a91`。脱敏验证、两个预检和镜像准备JSON保存在公共Git目录`quiet-room-deliveries/evidence/pc-ui-unblock-20261029/`，不随单个工作树删除。发布准备完成，仍待用户确认完整应用SHA及两个来源。本任务不切换生产、不安装helper／配置或变更DNS；已合并#472入口修复与#474后台动态码代码随本应用存在，后台域名维护另由原任务拥有。物理iPhone、Windows及新公网后台没有新增验收。
