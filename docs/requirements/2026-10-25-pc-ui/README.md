@@ -2,7 +2,7 @@
 
 ## 身份与授权
 
-- 阶段：2026-10-29最终组合验证通过，PR #477及原#405均已合并；精确主线CI与两个环境只读发布准备完成。生产仍待本批最终精确SHA确认。
+- 阶段：最终组合验证通过，PR #477及原#405均已合并；用户精确确认后，于2026-10-30完成两个环境发布与独立回读。历史候选、失败和准备状态保留，下方最终发布事实拥有当前终点。
 - 规则来源：本机 main `4356531cea264dd01bd9110da90b9ff62cfd7a59` 的 AGENTS 与 workflow；远端规则差异已核对。
 - 起始基线：GitHub 实时 main 与本机 origin/main 均为 `171ca9a6173e696372277a0530a9daa95781c6d6`；本机 main 较旧，不作为实施基线。
 - 分支：`codex/pc-ui-v1-20261025`；本会话新建独占树 `.worktrees/pc-ui-v1-20261025`，接续须核验实际路径和 HEAD。
@@ -92,3 +92,11 @@ PR #405 的 f3a83e4 完整CI40117058236构建、1075项单元、通话与双架�
 - [精确main CI40883165466](https://github.com/zdaiwmm/shui-IM/actions/runs/40883165466) attempt1完整成功，已独立核对push／main／完整应用SHA及Full application verification成功。未在该完整CI结束前合并记录PR，避免取消在途main检查；记录提交不替换应用发布目标。
 - 两环境SSH／GitHub连接、固定helper协议与来源、既有capacity preflight及前版祖先校验通过。production／https://ai.shui.click可用23902629888字节，要求4580614444；tokyo-public／https://mijiu.cloud可用74936717312，要求4294967296，均无容量问题。预检时两环境前版均为`4dd34c7df8bcae76d246bca2df86d7e7ac34a693`，只是当时快照，正式切换仍重验。
 - 同一精确main CI／attempt1的linux/amd64产物12902016282已按GitHub认证ZIP摘要下载、镜像清单／平台／标签与归档哈希校验，并在下载后再次核对CI身份；本机公共Git私有缓存已保存，可供两环境同架构发布显式复用。镜像`sha256:11e4b4a1a4faf044b59e5b9e145092c2d262070a0d37754a83a483f2c770f32f`，归档212530878字节、SHA-256`622e026bf4035a6ba9aa9c7736d1367a762ee4eb806724443e4fcec791699a91`。脱敏验证、两个预检和镜像准备JSON保存在公共Git目录`quiet-room-deliveries/evidence/pc-ui-unblock-20261029/`，不随单个工作树删除。发布准备完成，仍待用户确认完整应用SHA及两个来源。本任务不切换生产、不安装helper／配置或变更DNS；已合并#472入口修复与#474后台动态码代码随本应用存在，后台域名维护另由原任务拥有。物理iPhone、Windows及新公网后台没有新增验收。
+
+## 最终双环境发布与后续域名待办（2026-10-30）
+
+- 用户在精确SHA与双环境准备展示后确认「确认，发布生产，并且要保证今天处理的问题都发布」，随后要求继续。应用固定`3ed5f8a907e7c73be7aa05c7a53b8fc039900014`／2026.10.29.5；不追逐后续文档main，无独立消息permalink。
+- production与tokyo-public依次使用固定隔离入口，各一次取得精确DEPLOY_VERIFIED、退出0，并分别于UTC00:06:32.268／00:14:49.619完成独立READBACK_OK。应用与备份healthy、维护门absent、HTTPS／产物／新WebSocket和镜像一致。[发布记录](../../../RELEASING.md#release-pc-day-batch-both-20261030)拥有前版、批次、冷备份、镜像及分段计时。
+- 逐项祖先核验包含10月29日已完成的应用锁／首次聊天、Safari键盘重开、媒体时间规格、钉钉入口、PC增量、后台动态码与交付效率代码。未新增物理iPhone、Windows或钉钉原生验收；旧失败不改写为通过。
+- 后台代码已发布，域名操作单列待办：production保留旧admin.mijiu.cloud和原v1绑定，东京后台仍关闭；新admin.shui.click与东京admin.mijiu.cloud仍待DNS／证书／来源迁移及首次启用。两服务器只准备HTTP证书引导站点，未改DNS或安装东京凭据。阿里云网页登录不是SSH应用发布前提，不因Mac锁屏暂停应用发布，也不得再部署旧后台版本4。
+- 对账复用本任务独占记录树，在新分支`codex/pc-ui-publish-record-20261030`从已核实main 5a7e6242开始；没有部署配置，只更新既有文档、执行文档检查并走PR／CI。完整发布／独立回读和后台前后元数据持久保存在上方公共Git证据目录；清理按固定入口核验，活动目录与忽略证据按实际结果保留，不再次发布。

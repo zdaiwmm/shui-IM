@@ -1,5 +1,17 @@
 # Quiet Room 固定发布流程
 
+<a id="release-pc-day-batch-both-20261030"></a>
+## PC适配与10月29日修复批次：两个环境已发布并回读（2026-10-30）
+
+- 用户在完整应用SHA、版本、双环境、CI／预检与未验证项展示后明确回复「确认，发布生产，并且要保证今天处理的问题都发布」，随后要求继续。固定应用为`3ed5f8a907e7c73be7aa05c7a53b8fc039900014`／`2026.10.29.5`；无独立消息permalink。此处“今天”指已确认的10月29日批次，实际完成时间为10月30日。后续文档main不替换获批应用。
+- [PR #477](https://github.com/zdaiwmm/shui-IM/pull/477)及原#405已合并；干净验证源ed9e388d与应用完整树均为`679ccf885266a974f9971c5fac724a1d449ee8b8`。本地159文件／1268项、90/90浏览器通过；[精确PR CI40878438586](https://github.com/zdaiwmm/shui-IM/actions/runs/40878438586)和[精确main CI40883165466](https://github.com/zdaiwmm/shui-IM/actions/runs/40883165466)均attempt1完整成功，Full application verification成功。历史失败及内容页取舍由[PC需求记录](docs/requirements/2026-10-25-pc-ui/README.md)保留。
+- 逐项祖先核验确认本应用包含应用锁／首次聊天／双方媒体时间规格（63992025）、Safari原生工具栏收起后键盘重开（1ae60192）、钉钉入口白屏（cc52b30f）、旧PC增量（4d72486a）、后台仅动态码（f94997b9）和交付效率（dd67eead）。没有把旧#460／#463或其他历史开放PR默认纳入。PC保留已上线#418的设置内容页；自动覆盖不代表新增物理iPhone、Windows或钉钉原生验收。
+- `production`／`https://ai.shui.click`：固定隔离入口执行一次并核对精确DEPLOY_VERIFIED，287281ms；服务器204000ms，其中镜像导入85000ms、冷备份78000ms。批次`20261030T000254Z`，发布目录`/opt/quiet-room/git-releases/20261030T000254Z-3ed5f8a907e7`；切换前冷备份校验通过。独立同SHA回读于`2026-10-30T00:06:32.268Z`首次取得READBACK_OK，14134ms，包含备份starting的既有只读等待，没有重发。
+- `tokyo-public`／`https://mijiu.cloud`：随后固定隔离入口执行一次并核对精确DEPLOY_VERIFIED，452919ms；服务器366000ms，其中镜像流式导入347000ms、冷备份3000ms。批次`20261030T000806Z`，发布目录`/opt/quiet-room/git-releases/20261030T000806Z-3ed5f8a907e7`；冷备份校验通过。独立同SHA回读于`2026-10-30T00:14:49.619Z`首次取得READBACK_OK，15453ms。两个环境前版均为`4dd34c7df8bcae76d246bca2df86d7e7ac34a693`；批次标识不是完成时间。
+- 两环境应用与备份均running／healthy，TURN running／探针none，维护门absent；精确SHA／镜像、HTTPS的ok／database／storage、公开与容器产物及新WebSocket全部一致，通话均启用。共同linux/amd64镜像`sha256:11e4b4a1a4faf044b59e5b9e145092c2d262070a0d37754a83a483f2c770f32f`，归档212530878字节、SHA-256`622e026bf4035a6ba9aa9c7736d1367a762ee4eb806724443e4fcec791699a91`，绑定上述main CI／attempt1／产物12902016282。两次显式缓存命中仍重验GitHub认证摘要、CI归属和镜像；不复用服务器切换或回读。
+- 后台动态码代码已发布，域名迁移尚未完成：production保持原`admin.mijiu.cloud`和既有v1绑定，东京后台仍关闭，配置未安装；发布后独立核对原生产JSON／admin.env的权限与摘要保持，东京两文件仍不存在。`admin.shui.click`及迁往东京的`admin.mijiu.cloud`仍待DNS、证书、显式来源与首次启用验收。已在两个服务器部署锁内仅准备HTTP证书引导站点，nginx检查／重载通过，审计目录分别为`/opt/quiet-room/deploy-state/admin-maintenance-20261029T234317Z`和`/opt/quiet-room/deploy-state/admin-maintenance-20261029T234323Z`；未改DNS、申请证书或迁移凭据。阿里云网页登录仅影响后续DNS维护，Mac锁屏不阻塞既有SSH应用发布。不得改发旧后台版本4来补域名配置。
+- 脱敏发布、独立回读、覆盖、镜像、后台前后元数据与HTTP准备证据保存在公共Git目录`quiet-room-deliveries/evidence/pc-ui-unblock-20261029/`。第二个不含部署配置的工作树对账，仅检查文档并走PR／CI，不再次部署；资源按固定入口逐项核验，活动目录、忽略证据及待域名维护资源保留。
+
 <a id="release-inapp-media-keyboard-both-20261029"></a>
 ## 应用锁、聊天键盘与媒体回执：两个环境已发布并回读（2026-10-29）
 
