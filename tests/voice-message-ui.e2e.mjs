@@ -134,6 +134,17 @@ try{
    assert.equal(await page.locator('[data-client-msg-id=voice-geometry-1] .message-pending').count(),1);
    await page.evaluate(()=>{const app=window.__voiceUiApp;app.messages.get(2).status='stored';app.renderMessages();});
    await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await first.locator('.voice-wave-1').evaluate(element=>getComputedStyle(element).animationName),'none');
+   await page.evaluate(()=>{const app=window.__voiceUiApp,original=app.messages.get(1);app.messages.set(12,{...original,seq:12,clientMsgId:'incoming-voice-with-reply',payload:{...original.payload,durationMs:8000,replyTo:{clientMsgId:'text-reference-0',serverSeq:8,senderId:'other',kind:'text',preview:'长引用内容'}}});app.renderMessages();});
+   for(const width of [320,390,1440])for(const scheme of ['light','dark']){
+    await page.setViewportSize({width,height:844});
+    await page.evaluate(scheme=>document.documentElement.dataset.colorScheme=scheme,scheme);
+    for(const id of ['voice-with-reply','incoming-voice-with-reply']){
+     const quote=page.locator(`[data-client-msg-id="${id}"] .voice-bubble`);
+     assert(await quote.evaluate(bubble=>{const b=bubble.getBoundingClientRect(),m=bubble.querySelector('.message-meta').getBoundingClientRect();return Math.abs(b.right-m.right-8)<.6&&Math.abs(b.bottom-m.bottom-6)<.6;}),`${name}/${width}/${scheme}/${id}: quoted voice timestamp must stay 8px from the bubble right, 6px from its bottom`);
+     if(evidence&&width===390)await quote.screenshot({path:`${evidence}/quoted-${name}-${scheme}-${id}.png`});
+    }
+   }
+   await page.setViewportSize({width:390,height:844});
    await page.evaluate(()=>window.__voiceUiApp.lockNow());assert(await page.evaluate(()=>!window.__firstVoice.url&&!window.__firstVoice.audio.hasAttribute('src')));assert.deepEqual(errors,[]);
    console.log(`${name}: integrated single-row voice geometry, nine palettes, 200% copy, native playback/pause/switch resume, silent load/cancel, failure/retry, receipt preservation and lock cleanup passed (${geometry.length} layouts)`);
    await context.close();

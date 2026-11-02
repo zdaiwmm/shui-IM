@@ -1,4 +1,5 @@
 import { uiLiteral, uiTemplate } from './language';
+import { recoverDatabaseRead } from './database-recovery';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { compareOutboxItems } from './outbox-order';
 import { isWindowMessage, expiredMessage } from './message-window';
@@ -247,11 +248,17 @@ type UnlockThrottle = {
 };
 
 function openDatabase(): Promise<IDBDatabase> {
+  return recoverDatabaseRead(() => openDatabaseOnce());
+}
+
+function openDatabaseOnce(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     let blocked=false;
+    let upgrading=false;
     request.onblocked=()=>{blocked=true;reject(new Error(uiLiteral('请关闭或刷新其他标签页后重试，本机数据仍保留')));};
     request.onupgradeneeded = () => {
+      upgrading=true;
       const database = request.result;
       if (!database.objectStoreNames.contains('restoredGallery')) {
         const gallery = database.createObjectStore('restoredGallery', { keyPath: 'id' });
@@ -311,7 +318,8 @@ function openDatabase(): Promise<IDBDatabase> {
       }
       if (!database.objectStoreNames.contains('security')) database.createObjectStore('security');
     };
-    request.onerror = () => reject(request.error);
+    // Schema changes can write. Never replay an upgrade after an uncertain abort.
+    request.onerror = () => reject(upgrading ? new Error(request.error?.message ?? 'Database upgrade failed', { cause: request.error }) : request.error);
     request.onsuccess = () => { if(blocked){request.result.close();return;}request.result.onversionchange = () => request.result.close(); resolve(request.result); };
   });
 }
@@ -343,24 +351,28 @@ async function transaction<T>(
   action: (store: IDBObjectStore) => IDBRequest<T>,
   expectedVault?: StoredVault | (() => StoredVault),
 ): Promise<T> {
-  const database = await openDatabase();
-  return new Promise((resolve, reject) => {
-    const tx = database.transaction(expectedVault ? [storeName, 'vault'] : storeName, mode);
-    let stale = false;
-    if (expectedVault) {
-      const snapshot = () => typeof expectedVault === 'function' ? expectedVault() : expectedVault;
-      const current = tx.objectStore('vault').get(vaultSpaceId(snapshot()));
-      current.onsuccess = () => { if (!sameStoredVault(current.result, snapshot())) { stale = true; tx.abort(); } };
-    }
-    const request = action(tx.objectStore(storeName));
-    // An explicit stale-session abort also aborts requests. Let the transaction
-    // report its cause instead of turning it into a misleading AbortError.
-    tx.onabort = () => { database.close(); reject(stale ? staleVaultError() : tx.error ?? request.error ?? new Error(uiLiteral('本机数据读取失败'))); };
-    tx.oncomplete = () => {
-      resolve(request.result);
-      database.close();
-    };
-  });
+  const execute = async (): Promise<T> => {
+    const database = await (mode === 'readonly' ? openDatabaseOnce() : openDatabase());
+    try {
+      return await new Promise<T>((resolve, reject) => {
+        const tx = database.transaction(expectedVault ? [storeName, 'vault'] : storeName, mode);
+        let stale = false;
+        if (expectedVault) {
+          const snapshot = () => typeof expectedVault === 'function' ? expectedVault() : expectedVault;
+          const current = tx.objectStore('vault').get(vaultSpaceId(snapshot()));
+          current.onsuccess = () => { if (!sameStoredVault(current.result, snapshot())) { stale = true; tx.abort(); } };
+        }
+        let request: IDBRequest<T>;
+        try { request = action(tx.objectStore(storeName)); }
+        catch (cause) { tx.abort(); reject(cause); return; }
+        // A stale-session abort also aborts requests. Report the actual owner error.
+        tx.onabort = () => reject(stale ? staleVaultError() : tx.error ?? request.error ?? new Error(uiLiteral('本机数据读取失败')));
+        tx.oncomplete = () => resolve(request.result);
+      });
+    } finally { database.close(); }
+  };
+  // A fresh read can safely restart from durable data. Writes execute once.
+  return mode === 'readonly' ? recoverDatabaseRead(execute) : execute();
 }
 
 /** New-room browser key is separate from legacy personal roots and never exported. */

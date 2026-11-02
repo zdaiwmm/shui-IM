@@ -15024,8 +15024,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     try {
       delete button.dataset.loadStage;
       button.removeAttribute('title');
-      if (!button.querySelector('.media-load-capsule > .media-capsule-content > .media-load-progress')) this.mountChatImageLoadingFeedback(button, isVideoFile(manifest));
-      this.renderChatImageLoadFeedback(button, isVideoFile(manifest), { stage: 'queued' });
+      if (button.querySelector('.media-load-capsule.is-error') || !button.querySelector('.media-load-capsule > .media-capsule-content > .media-load-progress')) this.mountChatImageLoadingFeedback(button, isVideoFile(manifest));
+      this.renderChatImageLoadFeedback(button, isVideoFile(manifest), this.imageLoadStatus.get(manifest.blobId) ?? { stage: 'queued' });
       const cached = await this.loadImage(manifest, true);
       if (!button.isConnected || this.privacyCovered) return;
       await this.renderImageIntoButton(button, manifest, cached);
@@ -15039,10 +15039,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       const processing = ['decrypt', 'decode'].includes(button.dataset.loadStage ?? '');
       error.className = 'media-load-status';
       error.textContent = uiTemplate`${processing ? uiLiteral('处理失败') : uiLiteral('下载失败')} · 重试`;
-      const capsule = button.querySelector<HTMLElement>('.media-load-capsule') ?? document.createElement('span');
+      if (!button.querySelector('.media-load-capsule')) this.mountChatImageLoadingFeedback(button, isVideoFile(manifest));
+      const capsule = button.querySelector<HTMLElement>('.media-load-capsule')!;
       transitionMediaCapsule(capsule, () => {
         capsule.className = 'media-load-capsule is-error';
-        capsule.querySelector('.media-capsule-content')!.replaceChildren(error);
+        capsule.querySelector<HTMLElement>('.media-load-progress')!.hidden = true;
+        capsule.querySelector('.media-load-status')!.replaceWith(error);
       }, true, this.runtimeAbort?.signal);
       button.replaceChildren(capsule);
       button.setAttribute('aria-label', cause instanceof Error ? uiTemplate`${cause.message}，点按重试` : error.textContent);
@@ -15223,10 +15225,20 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       capsule = document.createElement('span'); button.append(capsule);
     }
     const host = capsule;
+    host.className = 'media-load-capsule';
     transitionMediaCapsule(host, () => {
-      host.className = 'media-load-capsule';
       button.dataset.loadStage = 'queued';
       host.querySelector('.media-capsule-content')!.innerHTML = uiLiteral('<span class="media-load-progress" data-indeterminate="false" role="progressbar" aria-label="媒体准备进度" aria-valuemin="0" aria-valuemax="100"><i></i></span><span class="media-load-status" role="status" aria-live="polite">等待加载</span>');
+      // All stages share one intrinsic slot, including both image/video labels
+      // and retry. Hidden text follows the active language and text size.
+      const sizing = document.createElement('span');
+      sizing.className = 'media-load-sizing'; sizing.setAttribute('aria-hidden', 'true');
+      for (const text of [uiLiteral('等待加载'), uiTemplate`下载中 · ${100}%`, uiTemplate`解密中 · ${100}%`,
+        uiLiteral('生成预览中'), uiLiteral('生成遮罩中'),
+        uiTemplate`${uiLiteral('处理失败')} · 重试`, uiTemplate`${uiLiteral('下载失败')} · 重试`]) {
+        const label = document.createElement('span'); label.textContent = text; sizing.append(label);
+      }
+      host.querySelector('.media-capsule-content')!.append(sizing);
     }, true, this.runtimeAbort?.signal);
   }
 

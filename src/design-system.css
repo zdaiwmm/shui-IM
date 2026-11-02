@@ -491,6 +491,12 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .media-upload-status { padding: 0; background: var(--surface-raised); }
 #app .media-upload-status[data-state='failed'] { background: var(--danger-soft); }
 #app .media-load-capsule { display: block; position: absolute; width: max-content; max-width: calc(100% - 14px); padding: 0; background: var(--surface-raised); color: var(--ink); }
+#app .media-load-capsule > .media-capsule-content { display: grid; grid-template-columns: 12px minmax(0,1fr); box-sizing: border-box; max-width: 100%; }
+#app .media-load-capsule :is(.media-load-status,.media-load-sizing) { grid-area: 1 / 2; font-size: .75rem; line-height: 1.4; font-weight: 400; font-variant-numeric: tabular-nums; }
+#app .media-load-capsule .media-load-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+#app .media-load-sizing { display: grid; visibility: hidden; pointer-events: none; white-space: nowrap; }
+#app .media-load-sizing > span { grid-area: 1 / 1; }
+#app .media-load-capsule .media-load-progress { grid-area: 1 / 1; }
 #app .media-load-status { font-size: .75rem; line-height: 1.4; color: inherit; font-weight: 400; white-space: nowrap; }
 #app .media-load-progress { width: 12px; height: 12px; flex: 0 0 12px; border-radius: 50%; background: conic-gradient(var(--accent) var(--media-load-progress,0%),var(--accent-soft) 0); mask: radial-gradient(farthest-side,transparent calc(100% - 2px),#fff 0); -webkit-mask: radial-gradient(farthest-side,transparent calc(100% - 2px),#fff 0); }
 #app .media-load-progress > i { display: none; }

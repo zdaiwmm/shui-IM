@@ -17,6 +17,16 @@ export function clearMediaCapsule(host: HTMLElement): void {
  * updates to the newest state without an empty frame. */
 export function transitionMediaCapsule(host: HTMLElement, paint: () => void, contentChanged = true, signal?: AbortSignal): void {
   if (signal?.aborted) return;
+  if (host.classList.contains('media-load-capsule')) {
+    // Loading owns a fixed slot and reports current work, never a queued stage.
+    clearMediaCapsule(host);
+    if (!host.querySelector(':scope > .media-capsule-content')) {
+      const content = document.createElement('div'); content.className = 'media-capsule-content';
+      content.append(...host.childNodes); host.append(content);
+    }
+    paint();
+    return;
+  }
   if (host.classList.contains('media-send-status')) {
     transitionSendStatus(host, paint, contentChanged, signal);
     return;
@@ -144,6 +154,9 @@ function transitionSendStatus(host: HTMLElement, paint: () => void, contentChang
 /** Loaded content replaces progress without a blank flash. Privacy owners can
  * synchronously abort and remove the retiring label. */
 export function retireMediaCapsule(host: HTMLElement, signal?: AbortSignal, onRetired?: () => void): void {
+  if (host.classList.contains('media-load-capsule')) {
+    clearMediaCapsule(host); host.remove(); onRetired?.(); return;
+  }
   if(signal?.aborted){clearMediaCapsule(host);host.remove();onRetired?.();return;}
   const running=effects.get(host);
   if(running&&!reducedMotion()&&!document.hidden&&host.isConnected){running.pending=()=>retireMediaCapsule(host,signal,onRetired);return;}

@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { privacyFixture } from './helpers/privacy-fixture.mjs';
 import { submitPassword } from './helpers/password.mjs';
+import { verifyStorageRecovery } from './fixtures/storage-recovery.mjs';
 
 const fixture = await privacyFixture({ hasTouch: true, isMobile: true, deviceScaleFactor: 3,
   userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 AliApp(DingTalk/7.6.0)' });
 const { page, errors } = fixture;
 try {
   await page.clock.resume();
+  await verifyStorageRecovery(page);
   const mobileProfile = await page.evaluate(() => ({ maxTouchPoints: navigator.maxTouchPoints,
     coarse: matchMedia('(pointer: coarse)').matches, dpr: devicePixelRatio, width: innerWidth, ua: navigator.userAgent }));
   assert.deepEqual({ coarse: mobileProfile.coarse, dpr: mobileProfile.dpr, width: mobileProfile.width },

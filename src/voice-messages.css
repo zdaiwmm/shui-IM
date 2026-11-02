@@ -181,6 +181,9 @@
 }
 .message-bubble.voice-bubble, .voice-player { --voice-max-width: max(220px, calc(6.1875rem + 59px)); }
 .message-bubble.voice-bubble { min-width: 0; width: max-content; max-width: min(100%, var(--voice-max-width)); padding: 0; }
+/* Quotes can exceed the duration-derived width. Keep metadata at the bubble's
+   trailing edge and preserve the full playback target. */
+.voice-bubble:has(> .message-reply-quote) > .voice-player { width: 100%; grid-template-columns: minmax(0, 1fr); }
 .voice-player {
   --voice-meta-space: calc(5ch + 1.45em + 27px);
   display: grid; width: max-content; max-width: 100%; min-width: 0;

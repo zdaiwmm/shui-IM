@@ -36,6 +36,8 @@ Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请�
 
 # Quiet Room 项目地图
 
+Safari存储恢复与加载/语音修复：`database-recovery.ts`仅对连接获取和纯读取做有限重试，`vault.ts`禁止写事务重放；`media-capsule.ts`及中央加载内容以固定尺寸直接显示最新事实；`voice-messages.css`令引用语音播放器与气泡同宽。真实IDB故障注入由entry-switch-repair加载storage-recovery，中央胶囊/引用语音实际组件由media-upload、voice-message-ui覆盖。[V1记录](../requirements/2026-11-02-safari-storage-media-loading/README.md)分开保留本地/CI/真机/生产证据。
+
 2026-11-02媒体发送紧凑尺寸：`message-date.ts`共享时间格式，`media-upload-view.ts`及`app.ts`传递不可见尺寸标签，`room-polish.css`按最终回执预留20px同宽胶囊；实际组件样例／验证沿用media-upload、video-upload及language-feedback专项。[本次记录](../requirements/2026-11-02-media-capsule-feedback/README.md)同时拥有反馈占位文字和macOS旧包只读排查，生产与真机证据分开。
 
 PC适配V1：`desktop-polish.css`在当前完整样式后管理PC设置内容页及子页720px阅读轨、28px内距与图库头部；`space-drawer.ts`与`app.ts`保持同一焦点／返回所有者。真实双端`tests/pc-ui.e2e.mjs`覆盖九主题明暗与桌面／手机断点，续接、验证阻塞及交付见[PC适配记录](../requirements/2026-10-25-pc-ui/README.md)。
