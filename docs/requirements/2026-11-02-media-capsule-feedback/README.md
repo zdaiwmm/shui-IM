@@ -50,7 +50,7 @@
 - 用户后续明确“第一条也要处理呀”，授权实际修复；询问通行密钥后，用户确认没有Apple开发者账号，并选择“改用桌面网页App，使用通行密钥”。本机操作授权来自本聊天，无独立消息permalink，不改变站点页面或生产发布范围。
 - 已核对原交付DMG及签名完整性，安装正确包至`/Applications/Chamber.app`，正常退出旧任务目录的旧构建并启动已安装包。实际原生UI验证文件菜单／打开密室链接与Command-O、取消、非正式来源测试链接拒绝、重开清空均通过；未输入真实邀请、未清空或迁移本机数据，其他任务源码未改。
 - 该临时签名的WKWebView原生包没有Associated Domains，系统无有效Apple开发签名身份；网站也明确将ChamberDesktop归为新密码保护路径。仅安装正确包不会获得通行密钥支持，没有删除检测或降级已有凭据。[Apple要求](https://developer.apple.com/documentation/authenticationservices/supporting-passkeys)与本机事实分别核对。
-- 按用户选择，通过Safari原生“添加到程序坞”安装`~/Applications/Chamber 网页版.app`，来源固定`https://ai.shui.click/`，已打开并显示真实首页。用户后来将原生设置中的显示名改为Chamber；用安装路径与Safari.WebApp身份区分原生包，未读取其聊天数据。原包和本机数据保留，网页源码不改。
+- 按用户选择，通过Safari原生“添加到程序坞”安装`~/Applications/Chamber 网页版.app`，来源固定`https://ai.shui.click/`，已打开并显示真实首页。当前原生设置中的显示名为Chamber；用安装路径与Safari.WebApp身份区分原生包，未读取其聊天数据。原包和本机数据保留，网页源码不改。
 - Safari网页App的文件菜单和Command-L不提供临时地址栏。已核对其原生设置有“应用程序URL”；用户自行在此填入本人加入链接。关闭设置后用“前往 → 前往主页”按新URL进入，加入后可“设定为当前页面”恢复正常启动地址。记录不保存该链接；系统通行密钥创建／认证及实际加入由用户亲自完成，尚无完成证据。
 - 桌面网页App与原生包使用独立存储，需按普通新增设备边界接入，不能自动迁移加入前历史。[Apple网页App说明](https://support.apple.com/en-gb/104996)仅证明平台功能与设置，不代表本次真实通行密钥已验证。此追加为本机安装维护，未改原生源码、签名权限、服务器关联、MLS或归档策略。
 - 尚未新增物理iPhone或真实公网消息证据。正式验证、CI、合并、生产分别记录，代码存在不代表通过或上线。
