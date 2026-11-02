@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { verifyMediaLoadingFeedback } from './fixtures/media-loading-feedback.mjs';
 import { mkdir } from 'node:fs/promises';
 import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
@@ -80,6 +81,7 @@ try {
     app.enqueuePayload = async (...args) => { if (gate.failCommit) throw Error('Synthetic local commit failure'); return enqueue(...args); };
     window.mediaFixture = { app, session, own, files, gate, blobs, vault, run: null, fileFor(variant) { return variant === 'tall-photo' ? files[3] : variant === 'wide-photo' ? files[4] : variant === 'small-photo' ? files[5] : variant === 'tall-expression' || variant === 'tall-gif-expression' ? files[6] : variant.includes('expression') ? files[2] : files[0]; }, start(files, expression = false, autoHide = false, kind) { this.run = app.processImageBatch(files, 'chat', undefined, expression, undefined, autoHide, kind); } };
   });
+  await verifyMediaLoadingFeedback(page);
   await page.evaluate(() => {
     const { app, session } = window.mediaFixture;
     const payload = { v: 1, kind: 'image', image: {}, presentation: 'expression', expressionKind: 'gifs' };

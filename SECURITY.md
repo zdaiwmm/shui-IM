@@ -1,5 +1,9 @@
 # Security model
 
+## Bounded local database connection recovery (2026-11-02)
+
+Only recognized IndexedDB connection-loss/closing errors may retry connection acquisition or a read-only transaction, up to three attempts with 100/250ms backoff while visible. A schema upgrade is never retried after starting. Permission, quota, arbitrary UnknownError and generic AbortError outcomes remain failures. Dispatched writes, authentication and cryptographic operations are not replayed; synchronous write-action failure aborts the transaction, and every standard read/write transaction releases its connection. Existing durable-wrapper ownership checks, lifecycle fences and atomic MLS/history/outbox commits remain authoritative. Browser fault injection is not proof of the cause of a particular physical-device incident.
+
 ## Sender-initiated webpage previews (2026-10-28)
 
 The confirmed [link-preview V1.1](docs/requirements/2026-10-28-chat-link-preview/README.md) explicitly allows a narrow exception to server ignorance of message URLs: after the sender types or pastes a previewable address, an authenticated, same-origin POST discloses that URL (including ordinary query parameters) and fetches its public metadata before the message is sent. Cancellation or never sending the message cannot recall this disclosure. The remainder of the draft is not submitted. The endpoint does not log targets, cache results, persist plaintext metadata, forward cookies/device authorization to websites, execute scripts, or render remote HTML. This is not an anonymity claim: the service can associate the request with its active device and sees fetched public content.
