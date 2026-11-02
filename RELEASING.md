@@ -1,5 +1,18 @@
 # Quiet Room 固定发布流程
 
+<a id="release-old-device-catchup-both-20261102"></a>
+## 旧设备大量消息补拉修复：两环境已发布，东京独立回读待完成（2026-11-02）
+
+- 用户在本聊天明确确认「确认，将 2026.11.02.2（18275d5d）发布到两个环境」，完整应用固定为 `18275d5d4b7cb47dcb2ef357c42ded37f7e012a2`，目标为 production／`https://ai.shui.click` 和 tokyo-public／`https://mijiu.cloud`。没有独立消息 permalink；后续文档 main 不替换本次获批应用。
+- 应用由 [PR #484](https://github.com/zdaiwmm/shui-IM/pull/484) 合并，交付记录由 [PR #485](https://github.com/zdaiwmm/shui-IM/pull/485) 保存。干净源 bffaaea2 的本地159文件／1272项、91/91浏览器及独立通话专项通过；[精确应用 main CI41421734394](https://github.com/zdaiwmm/shui-IM/actions/runs/41421734394/attempts/2) attempt2完整成功，Full application verification、同轮双架构镜像和现有精确CI核验器通过。首次入口清单、PR重发次数与主线动画断言失败及有界原样复验由[需求记录](docs/requirements/2026-11-02-old-device-catchup/README.md)保留。
+- 两环境只读预检均通过，预检前版均为 `bd251525cc385084db9261e7bedde0015abe596a`／2026.11.02.1。production首轮固定入口的独立克隆耗时508798ms，随后在ci-image下载超时退出，906212ms，外层总1453696ms；没有调用server-deploy、没有维护门或服务器切换，也没有DEPLOY_VERIFIED。
+- 随后经同一GitHub认证接口分段取得精确ZIP，全部Range／总字节212537445及SHA-256 `340850bc082cf138ee88bab746789df848fe9723e6c4732393ba03104b355b3c`与重新读取的认证元数据一致，764175ms；没有导出令牌、改变下载器超时、发布器、helper或网络配置。续发仍从固定publish入口重验缓存、CI、manifest和归档。
+- linux/amd64镜像清单为 `sha256:6894dfa4950728f289d493ce914ba4830b9a9f37615bc4172dddf5b5f6e40dd3`，归档212536883字节，SHA-256 `55e169900f4a8543e8ebf2aba12ab26fa6b7eabb369733e1824edb2cbc13b79c`，绑定CI41421734394／attempt2／产物13130433219。此为认证镜像准备证据，实际发布与独立回读分别取证。
+- production：续发固定入口核对精确DEPLOY_VERIFIED，655593ms，其中独立克隆390298ms、服务器发布228000ms、镜像导入113000ms、冷备份76000ms；这是本环境唯一实际切换。批次`20261102T103934Z`，目录`/opt/quiet-room/git-releases/20261102T103934Z-18275d5d4b7c`，冷备份校验通过。独立READBACK_OK于`2026-11-02T10:43:39.775Z`完成，3163ms；应用和备份running／healthy、TURN running／探针none、维护门absent，精确SHA／镜像、HTTPS／数据库／存储、公开和容器资源、新WebSocket全部通过，管理员及通话保持开启。
+- tokyo-public：固定入口取得精确DEPLOY_VERIFIED，1609989ms，其中独立克隆202725ms、服务器发布1354000ms、镜像导入1337000ms、冷备份1000ms；这是本环境唯一实际切换。批次`20261102T104802Z`，目录`/opt/quiet-room/git-releases/20261102T104802Z-18275d5d4b7c`，冷备份校验通过。独立固定回读及唯一一次同SHA只读重试均在public-artifacts下载超时，分别14561ms／28322ms，最后结束于`2026-11-02T11:12:43.324Z`，分类public-artifact，保持READBACK_REQUIRED。两轮服务器SHA／来源／镜像、应用与备份running／healthy、TURN running／探针none、维护门absent、HTTPS／数据库／存储均通过；管理员关闭、通话开启。独立公开与容器资源比较、新WebSocket未执行，不用发布器内置检查代替独立完整回读。
+- 东京追加一次限时30秒公开主脚本下载诊断，30007ms仍超时；没有取得完整字节或摘要，补充检查不算READBACK_OK。没有可用的本机环境或系统代理；未改网络配置、helper、发布器或固定回读超时，不重复生产切换，也不自动开始第三轮固定回读。
+- 脱敏准备失败、授权、认证缓存、两次发布回执、主站成功回读及东京两次失败和补充诊断保存在公共Git目录 `quiet-room-deliveries/evidence/old-device-catchup-20261102/`。在独立、不含部署配置的`docs/old-device-catchup-production-20261102`工作树对账；对账时实时main已前进为`3733af5ceb840737ce5eb1e87f5bbac0cc6277fc`，规则与原5ffd0fc9相同，后续2026.11.02.3代码不纳入本批应用。东京未满足独立回读成功门禁，本批资源保留，未执行清理或把readbackVerified填成true；具体资源见[需求记录](docs/requirements/2026-11-02-old-device-catchup/README.md)。不发布文档提交或清理其他任务。真实旧端及既有误跳过历史的恢复仍未验证。
+
 <a id="release-media-feedback-both-20261102"></a>
 ## 媒体胶囊与反馈占位文字：双环境发布记录（2026-11-02）
 

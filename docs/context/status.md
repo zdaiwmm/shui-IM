@@ -4,9 +4,13 @@
 
 [PR #486](https://github.com/zdaiwmm/shui-IM/pull/486)已正常合并为应用`54c104fb24149683e8392ae7e306bbab072bb904`/2026.11.02.3，与冻结源9ef494c5文件树一致。存储连接/纯读取有限恢复且不重放写事务；中央媒体胶囊固定尺寸、跳过旧阶段；引用语音时间右8px/底6px。159文件/1272项及91个浏览器入口完成本地覆盖：首次完整命令在发送重试次数上限处失败，同树原样定向复验一次通过（254≤266），再顺序接续49/49，首次失败保留、差异原因未定位。精确PR完整CI41428184898 attempt1成功；[精确应用main CI41432875130](https://github.com/zdaiwmm/shui-IM/actions/runs/41432875130) attempt1完整成功，同轮双架构镜像通过。三项专项双引擎通过，真实iPhone后台故障未复现；未发布。[需求V1](../requirements/2026-11-02-safari-storage-media-loading/README.md)拥有确认、失败与证据；下方生产快照保持原值。
 
-## 旧设备大量消息补拉 V1（2026-11-02，已合并、未发布）
+## 当前生产：两环境2026.11.02.2，东京独立回读待完成（2026-11-02）
 
-用户确认修复并授权验证后合并 PR，发布前另行确认。[PR #484](https://github.com/zdaiwmm/shui-IM/pull/484) 已正常合并为应用 `18275d5d4b7cb47dcb2ef357c42ded37f7e012a2`／2026.11.02.2，树与冻结源 bffaaea2 相同。保留字节分页续页标志、原子写失败不误记过期、成员同步中断重连续传；三设备 Chromium／WebKit、完整159文件／1272项及91/91浏览器、本地独立通话专项通过。精确 PR CI41417202541 attempt2成功，[精确应用主线CI41421734394](https://github.com/zdaiwmm/shui-IM/actions/runs/41421734394/attempts/2) attempt2完整成功并核对同轮双架构产物。首次入口清单失败、PR重发次数超限与原样复验、主线动画断言失败后取消剩余作业及一次完整原样复验由[需求V1](../requirements/2026-11-02-old-device-catchup/README.md)保留。未发布、未核验真实旧端；已被旧版误跳过且纪元密钥已销毁的历史不承诺自动补回。下方生产快照不因本次代码合并而更新。
+用户在本聊天精确确认`2026.11.02.2`／`18275d5d4b7cb47dcb2ef357c42ded37f7e012a2`至production／https://ai.shui.click及tokyo-public／https://mijiu.cloud。两个环境固定入口均取得DEPLOY_VERIFIED，各仅一次实际切换且冷备份校验通过；主站于UTC10:43:39.775独立READBACK_OK，3163ms，公开／容器资源及新WebSocket完整通过。东京独立回读及一次同SHA只读重试均在public-artifacts超时（14561ms／28322ms），仍为READBACK_REQUIRED；一次30秒补充下载诊断也超时，未完成独立资源比较和新WebSocket验证。两环境服务器SHA／镜像、应用及备份running／healthy、TURN running／探针none、维护门absent、HTTPS／数据库／存储通过；管理员主站开／东京关，通话均开。[本次发布记录](../../RELEASING.md#release-old-device-catchup-both-20261102)保存发布、回读及下载证据；不再次切换，不将补充检查冒记成功。未新增真实旧端、物理iPhone或历史补回验证；东京回读门禁未满足，本批资源保留，文档及后续应用main不替换获批应用。
+
+## 旧设备大量消息补拉 V1（2026-11-02，两环境已发布）
+
+用户确认修复并授权验证后合并 PR，随后精确确认双环境发布。[PR #484](https://github.com/zdaiwmm/shui-IM/pull/484) 已正常合并为应用 `18275d5d4b7cb47dcb2ef357c42ded37f7e012a2`／2026.11.02.2，树与冻结源 bffaaea2 相同。保留字节分页续页标志、原子写失败不误记过期、成员同步中断重连续传；三设备 Chromium／WebKit、完整159文件／1272项及91/91浏览器、本地独立通话专项通过。精确 PR CI41417202541 attempt2成功，[精确应用主线CI41421734394](https://github.com/zdaiwmm/shui-IM/actions/runs/41421734394/attempts/2) attempt2完整成功并核对同轮双架构产物。首次入口清单失败、PR重发次数超限与原样复验、主线动画断言失败后取消剩余作业及一次完整原样复验由[需求V1](../requirements/2026-11-02-old-device-catchup/README.md)保留。当前两个环境已发布，主站独立回读成功、东京完整回读待完成，以顶部发布节点为准；未核验真实旧端，已被旧版误跳过且纪元密钥已销毁的历史不承诺自动补回。
 
 ## 媒体发送尺寸与反馈占位文字 V1（2026-11-02）
 
@@ -18,9 +22,9 @@ macOS先只读定位旧构建缺少文件菜单与Command-O，用户随后明确
 
 用户确认保留后来#418的PC设置内容页，补齐720px阅读轨／28px内距、返回焦点、列表返回设置与图库头部。原#405动画阻塞由控制器同步等待解决，另修复离线计数夹具的缩窗基线；原断言与安全边界保持。最终干净源159文件／1268项及90/90浏览器通过；[PR #477](https://github.com/zdaiwmm/shui-IM/pull/477)及#405均合并为应用`3ed5f8a907e7c73be7aa05c7a53b8fc039900014`／2026.10.29.5，树与验证源相同。精确PR CI40878438586与main CI40883165466均attempt1完整成功。用户随后精确确认，本批现已发布至两个环境并独立回读；未启动局域网服务，也未新增物理iPhone或Windows实机验收。[同一需求记录](../requirements/2026-10-25-pc-ui/README.md)保留源映射、用户协调顺序及历史失败。
 
-## 当前生产：两个环境 2026.11.02.1，东京固定回读待完成（2026-11-02）
+## 上一批生产：2026.11.02.1，东京该版回读未完成（2026-11-02历史）
 
-用户本聊天确认媒体胶囊与反馈占位文字修复发布生产，随后追加东京环境；应用固定`bd251525cc385084db9261e7bedde0015abe596a`／`2026.11.02.1`。production／https://ai.shui.click与tokyo-public／https://mijiu.cloud均由固定入口核对DEPLOY_VERIFIED，各只有一次实际切换，冷备份校验通过。主站独立READBACK_OK于UTC07:53:51.687完成；东京固定回读两次在public-artifacts超时，仍为READBACK_REQUIRED，不能写成完整回读成功。两环境应用与备份running／healthy，TURN running／探针none，维护门absent，SHA／镜像及HTTPS健康一致。主站公开与容器产物、新WebSocket完整通过。[发布记录](../../RELEASING.md#release-media-feedback-both-20261102)保留切换前下载失败、认证分段下载、两个精确发布及东京主脚本响应超过10秒的诊断；只续东京同SHA只读回读，不重发。文档main不替换线上应用SHA；原生App安装及真实用户通行密钥状态独立记录。
+用户当时确认媒体胶囊与反馈占位文字修复发布生产，随后追加东京环境；应用固定`bd251525cc385084db9261e7bedde0015abe596a`／`2026.11.02.1`。production／https://ai.shui.click与tokyo-public／https://mijiu.cloud均由固定入口核对DEPLOY_VERIFIED，各只有一次实际切换，冷备份校验通过。主站独立READBACK_OK于UTC07:53:51.687完成；东京该版固定回读两次在public-artifacts超时，未取得READBACK_OK，不能把历史失败改写成完整回读成功。当时两环境应用与备份running／healthy，TURN running／探针none，维护门absent，SHA／镜像及HTTPS健康一致，主站公开与容器产物及新WebSocket完整通过。[发布记录](../../RELEASING.md#release-media-feedback-both-20261102)保留下载失败、两个精确发布及东京主脚本响应超过10秒的诊断。现已获批上方新版本接续，不再续发旧版；只对本轮实际发布的精确SHA回读。文档main不替换线上应用SHA，原生App安装及真实用户通行密钥状态独立记录。
 
 ## 上一批生产：两个环境运行 2026.10.29.5（2026-10-30历史）
 
