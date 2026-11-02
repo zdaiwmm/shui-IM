@@ -3135,5 +3135,7 @@
   "未能使用通行密钥": "Passkey unavailable",
   "可以重试通行密钥，或为此浏览器设置六位数字密码。": "Try the passkey again or set a six-digit passcode for this browser.",
   "使用数字密码": "Use a numeric passcode",
-  "重试通行密钥": "Retry passkey"
+  "重试通行密钥": "Retry passkey",
+  "请输入邮箱地址": "Enter your email address",
+  "请描述你遇到的问题或建议": "Describe the problem you encountered or your suggestion"
 }

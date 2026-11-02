@@ -6,6 +6,7 @@
 .language-choice:last-child{border:0}.language-choice input{accent-color:var(--action-surface);width:20px;height:20px;flex-shrink:0}
 .feedback-form label{display:flex;align-items:center;gap:8px;font-size:14px;margin-bottom:8px}.feedback-form label span{font-size:12px;color:var(--ink-muted)}
 .feedback-form input,.feedback-form textarea{display:block;width:100%;border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px;color:var(--ink);font-size:16px;line-height:1.6;min-height:48px;resize:vertical}
+.feedback-form input::placeholder,.feedback-form textarea::placeholder{color:var(--ink-muted);opacity:1}
 .feedback-form [aria-invalid=true]{border-color:var(--danger)}.feedback-form .primary-button{width:100%;margin-top:16px;min-height:44px}
 .feedback-form .feedback-error{min-height:18px;margin:6px 0 14px;color:var(--danger);font-size:12px}.feedback-count{text-align:end;font-size:12px;color:var(--ink-muted);margin:6px 0 0}
 .feedback-success{margin:20vh auto 0;width:64px;height:64px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);font-size:28px}

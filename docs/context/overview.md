@@ -34,6 +34,8 @@ Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请�
 
 # Quiet Room 项目地图
 
+2026-11-02媒体发送紧凑尺寸：`message-date.ts`共享时间格式，`media-upload-view.ts`及`app.ts`传递不可见尺寸标签，`room-polish.css`按最终回执预留20px同宽胶囊；实际组件样例／验证沿用media-upload、video-upload及language-feedback专项。[本次记录](../requirements/2026-11-02-media-capsule-feedback/README.md)同时拥有反馈占位文字和macOS旧包只读排查，生产与真机证据分开。
+
 PC适配V1：`desktop-polish.css`在当前完整样式后管理PC设置内容页及子页720px阅读轨、28px内距与图库头部；`space-drawer.ts`与`app.ts`保持同一焦点／返回所有者。真实双端`tests/pc-ui.e2e.mjs`覆盖九主题明暗与桌面／手机断点，续接、验证阻塞及交付见[PC适配记录](../requirements/2026-10-25-pc-ui/README.md)。
 
 所有浏览器的新保护分流由`src/lib/platform-vault.ts`、`src/lib/new-protection.ts`及`src/app.ts`共用；App标识不替代能力验证，未知／取消由用户明确选择新密码。新格式首次聊天原位激活由`handleMembership`／`refreshChamberChatActivation`负责。回归为`platform-vault.test.ts`、`inapp-lock-first-chat.e2e.mjs`、`webview-password.e2e.mjs`和`new-room-passkey.e2e.mjs`；确认与模拟限制见[修复V1](../requirements/2026-10-28-inapp-lock-first-chat/README.md)。

@@ -112,6 +112,8 @@ try {
     await page.waitForFunction(() => [...document.querySelectorAll('.media-upload-preview')].every(cell => cell.querySelector('img')?.complete));
     const id = await draft.getAttribute('data-client-msg-id');
     const uploadBox = await geometry(draft.locator('.message-bubble'));
+    const uploadStatusBox = await geometry(draft.locator('.media-send-status'));
+    assert.ok(Math.abs(uploadStatusBox.height-20)<.01, 'Sending uses the completed capsule height');
     const uploadMediaBox = await geometry(draft.locator('.media-upload-previews'));
     assert.equal(new Set(uploadBox.corners).size, 1, 'Upload has four equal corners');
     if (variant.includes('gif-')) {
@@ -167,7 +169,8 @@ try {
     const statusGeometry = await draft.locator('.media-upload-status').evaluate(status=>({height:status.getBoundingClientRect().height,
       corners:status.querySelectorAll('.media-upload-cancel').length,
       retiring:status.querySelectorAll('.media-capsule-retiring').length}));
-    assert.ok(Math.abs(statusGeometry.height-24)<.01,`${variant}: 24px process/error capsule`);
+    assert.ok(Math.abs(statusGeometry.height-20)<.01,`${variant}: 20px process/error capsule`);
+    sameSize(uploadStatusBox, await geometry(draft.locator('.media-send-status')), `${variant} failed capsule stays compact`);
     assert.equal(statusGeometry.corners,0,'failure has no corner X');
     assert.equal(await draft.getAttribute('data-concealed'), String(!variant.includes('expression') || variant === 'hidden-expression'));
     if (process.argv[2]) {
@@ -212,10 +215,10 @@ try {
         const meta = preview.parentElement.querySelector('.message-meta');
         const status = meta?.querySelector('.message-pending, .message-delivery')?.getBoundingClientRect();
         const box = meta?.getBoundingClientRect();
-        return { valid: Boolean(box && status && box.top >= media.bottom - 1 && Math.abs(box.height-24)<.01),
+        return { valid: Boolean(box && status && box.top >= media.bottom - 1 && Math.abs(box.height-20)<.01),
           media: media.toJSON(), box: box?.toJSON(), status: status?.toJSON() };
       });
-      assert.equal(placed.valid, true, `${variant}: fixed transparent 24px status row below the image: ${JSON.stringify(placed)}`);
+      assert.equal(placed.valid, true, `${variant}: fixed transparent 20px status row below the image: ${JSON.stringify(placed)}`);
     }
     if (variant !== 'album') sameSize(uploadMediaBox, await geometry(message.locator('.image-preview')), `${variant} content fills media frame`);
     assert.match(await message.locator('.message-meta').innerText(), /等待连接/);
@@ -274,8 +277,9 @@ try {
     assert.ok(animation.some(item => item.duration === 180 && item.keyframes.join(',') === '1,0'), 'Status fades out instead of vanishing');
     await page.waitForFunction(id => !document.querySelector(`[data-client-msg-id="${id}"] .media-capsule-retiring`), id);
     if (process.argv[2]) await page.screenshot({ path: `${process.argv[2]}/${variant}-confirmed.png` });
-    assert.equal(await message.locator('.message-meta').evaluate(node => node.offsetHeight), 24, 'Completed receipt retains its fixed 24px layout slot');
-    assert.equal(await message.locator('.media-receipt').evaluate(node => node.offsetHeight),20,'Completed capsule has the shared 20px visible height inside its reserved slot');
+    sameSize(uploadStatusBox, await geometry(message.locator('.media-send-status')), `${variant} upload to confirmed capsule`);
+    sameSize(uploadStatusBox, await geometry(message.locator('.media-receipt')), `${variant} sending and visible completion match`);
+    assert.equal(await message.locator('.message-meta').evaluate(node => node.offsetHeight), 20, 'Sending slot and completed receipt share 20px geometry');
     for (const revealed of [false, true]) {
       await message.locator('.image-preview').first().evaluate((node, revealed) => { node.dataset.revealed = String(revealed); }, revealed);
       const original = await geometry(message.locator('.message-bubble'));
@@ -294,6 +298,43 @@ try {
     assert.equal(await message.locator('.image-preview').first().evaluate(node => node === window.mediaFixture.preview), true);
     console.log(`${variant}: immediate bubble, concealed policy, same-ID retry, ${outcome} original(s), confirmation continuity`);
   }
+  // The final time can contain a day period or localized digits. Size from
+  // that actual label rather than a Chinese-only pixel or character count.
+  await page.setViewportSize({width:1440,height:900});
+  const localeGeometry = await page.evaluate(async () => {
+    const { LANGUAGES, setLanguage } = await import('/src/lib/language.ts');
+    const { MediaUploadView } = await import('/src/lib/media-upload-view.ts');
+    const f=window.mediaFixture, results=[];
+    for (const {id} of LANGUAGES) {
+      await setLanguage(id);
+      const sentAt='2026-11-02T13:07:00.000Z';
+      const view=new MediaUploadView(crypto.randomUUID(),[f.files[0]],false,false,()=>{},()=>{},()=>{},false,undefined,sentAt);
+      document.querySelector('#message-list').append(view.element);
+      const status=view.element.querySelector('.media-send-status');
+      const initial=status.getBoundingClientRect(), stages=[];
+      for(const [state,ratio] of [['preparing'],['uploading'],['uploading',0],['uploading',1],['failed'],['finishing']]) {
+        view.update(state,ratio);
+        const box=status.getBoundingClientRect();
+        stages.push({state,width:box.width,height:box.height});
+      }
+      const meta=f.app.createMessageMeta({clientMsgId:crypto.randomUUID(),senderId:f.own.deviceId,status:'stored',
+        payload:{v:1,kind:'image',image:{},sentAt}});
+      status.replaceWith(meta);
+      const receipt=meta.querySelector('.media-receipt').getBoundingClientRect();
+      results.push({language:id,width:initial.width,height:initial.height,stages,receipt:{width:receipt.width,height:receipt.height}});
+      view.destroy();
+    }
+    await setLanguage('zh-Hans');
+    return results;
+  });
+  for(const result of localeGeometry) {
+    for(const stage of [...result.stages,result.receipt]) {
+      assert.ok(Math.abs(stage.width-result.width)<.1&&Math.abs(stage.height-result.height)<.1,
+        `Localized capsule changed geometry: ${JSON.stringify(result)}`);
+    }
+  }
+  console.log('Compact sending and completion geometry passed in eleven languages');
+  await page.setViewportSize({width:390,height:844});
   // An actual upload with a reply and a following message must keep the entire
   // row, status anchor and reader's position through both kinds of failure.
   const continuityId = await page.evaluate(async () => {

@@ -3128,5 +3128,7 @@
   "未能使用通行密钥": "Clé de connexion indisponible",
   "可以重试通行密钥，或为此浏览器设置六位数字密码。": "Réessayez la clé de connexion ou définissez un code à six chiffres pour ce navigateur.",
   "使用数字密码": "Utiliser un code numérique",
-  "重试通行密钥": "Réessayer la clé de connexion"
+  "重试通行密钥": "Réessayer la clé de connexion",
+  "请输入邮箱地址": "Saisissez votre adresse e-mail",
+  "请描述你遇到的问题或建议": "Décrivez le problème rencontré ou votre suggestion"
 }
