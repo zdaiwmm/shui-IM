@@ -66,7 +66,7 @@ import { AppAccess } from './lib/app-access';
 import './appearance.css';
 import { bindBlankDoubleLock, readBlankDoubleLock, saveBlankDoubleLock, BLANK_DOUBLE_LOCK_PREFERENCE_KEY } from './lib/blank-double-lock';
 import { MESSAGE_WINDOW_CAPABILITY, MLS_WINDOW_MESSAGES, maySkipWindowMessage, appendExpiredRange, expiredMessage } from './lib/message-window';
-import { getWindowMessages } from './lib/api';
+import { getWindowMessagePage, getWindowMessages } from './lib/api';
 import { prepareMlsWindowUpdate, verifyMembershipEnvelope } from './lib/mls';
 import { createMediaPreview } from './lib/media-preview';
 import { createAnimatedDisplayCopy, createVideoPlaybackCopy } from './lib/display-copy';
@@ -5980,7 +5980,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     } catch (cause) {
       if (!this.isRuntimeActive(epoch, session)) return;
       if (cause instanceof SecurityViolation) this.fatalSecurityError(cause);
-      else this.operationalError(cause);
+      else {
+        this.operationalError(cause);
+        // A partial membership catch-up is not readiness. Retire this socket
+        // before its queued newer-epoch frames run, then replay from durable state.
+        this.socket?.reconnectForBackpressure();
+      }
     }
   }
 
@@ -6061,14 +6066,18 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const epoch = this.runtimeEpoch;
     let skipped = false;
     while (session.vault.lastSeq < boundary.afterSeq) {
-      const page = await getWindowMessages(session.vault.roomId, session.vault.accessToken, session.vault.lastSeq, this.runtimeAbort?.signal);
+      const page = await getWindowMessagePage(session.vault.roomId, session.vault.accessToken, session.vault.lastSeq, this.runtimeAbort?.signal);
       if (!this.isRuntimeActive(epoch, session)) return;
-      for (const message of page) if (message.seq <= boundary.afterSeq) this.serverQueue.set(message.seq, message);
+      for (const message of page.messages) if (message.seq <= boundary.afterSeq) this.serverQueue.set(message.seq, message);
       const before = session.vault.lastSeq;
       await this.drainServerQueueLocked(false, mutation, boundary.afterSeq);
       if (!this.isRuntimeActive(epoch, session)) return;
       if (session.vault.lastSeq === boundary.afterSeq) break;
       const missing = session.vault.lastSeq + 1;
+      // A present record that failed persistence must never become an expired
+      // range. Likewise, a consumed partial page proves no absence in its tail.
+      if (this.serverQueue.has(missing)) throw new Error(uiLiteral('当前消息尚未同步完成，暂不能更新密钥'));
+      if (page.hasMore && session.vault.lastSeq > before) continue;
       if (!maySkipWindowMessage(boundary, missing)) throw new SecurityViolation(uiLiteral('在线历史已超出可安全同步的范围，需要另一台已授权设备帮助修复；本机历史仍保留'));
       let through = missing;
       while (through < boundary.afterSeq && !this.serverQueue.has(through + 1) && maySkipWindowMessage(boundary, through + 1)) through += 1;

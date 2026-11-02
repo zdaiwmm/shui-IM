@@ -48,6 +48,7 @@ export const browserGroups = Object.freeze({
     'tests/vault-lifecycle.e2e.mjs',
     'tests/media-cache.e2e.mjs',
     'tests/message-window.e2e.mjs',
+    'tests/old-device-catchup.e2e.mjs',
     'tests/offline-outbox.e2e.mjs',
     'tests/cancelled-send.e2e.mjs',
     'tests/outbox-epoch-review.e2e.mjs',
