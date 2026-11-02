@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { RoomSocket, responseError } from '../src/lib/api';
+import { RoomSocket, responseError, getWindowMessagePage } from '../src/lib/api';
 import type { DeliveryReceipt, MessageEnvelope, RoomState } from '../src/lib/types';
 
 type Listener = (event: { data?: string; code?: number; reason?: string }) => void;
@@ -46,6 +46,24 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
   vi.restoreAllMocks();
+});
+
+describe('HTTP window pages', () => {
+  it('preserves explicit continuation and leaves cursors derived from authenticated persisted records', async () => {
+    const fetchPage = vi.fn().mockResolvedValue(new Response(JSON.stringify({ messages: [{ seq: 8 }], hasMore: true, nextSeq: 9999 })));
+    vi.stubGlobal('fetch', fetchPage);
+    await expect(getWindowMessagePage('room', 'token', 7)).resolves.toEqual({ messages: [{ seq: 8 }], hasMore: true });
+    expect(fetchPage.mock.calls[0]![0]).toContain('after=7&syncProtocol=byte-pages-v1');
+  });
+
+  it.each([
+    { messages: [], hasMore: true },
+    { messages: [{ seq: 7 }], hasMore: false },
+    { messages: [{ seq: 9 }, { seq: 8 }], hasMore: false },
+  ])('rejects pages that cannot safely advance ($messages)', async page => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(page))));
+    await expect(getWindowMessagePage('room', 'token', 7)).rejects.toThrow();
+  });
 });
 
 describe('RoomSocket membership ordering', () => {

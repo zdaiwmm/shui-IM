@@ -116,9 +116,20 @@ export async function getRoomState(roomId: string, accessToken: string, signal?:
   return response.json();
 }
 
-export async function getWindowMessages(roomId: string, accessToken: string, after: number, signal?: AbortSignal): Promise<ServerMessage[]> {
+export async function getWindowMessagePage(roomId: string, accessToken: string, after: number, signal?: AbortSignal): Promise<{ messages: ServerMessage[]; hasMore: boolean }> {
   const response = await authorizedFetch(`/api/rooms/${roomId}/window-sync?after=${after}&syncProtocol=byte-pages-v1`, accessToken, { signal: boundedSignal(signal, 15_000), cache: 'no-store' });
-  return (await response.json()).messages;
+  const page = await response.json() as { messages: ServerMessage[]; hasMore?: boolean };
+  const hasMore = typeof page.hasMore === 'boolean' ? page.hasMore : page.messages?.length === 500;
+  let previous = after;
+  if (!Array.isArray(page.messages) || (hasMore && !page.messages.length) || page.messages.some(message => {
+    if (!Number.isSafeInteger(message.seq) || message.seq <= previous) return true;
+    previous = message.seq; return false;
+  })) throw new Error(uiLiteral('收到无法识别的实时数据'));
+  return { messages: page.messages, hasMore };
+}
+
+export async function getWindowMessages(roomId: string, accessToken: string, after: number, signal?: AbortSignal): Promise<ServerMessage[]> {
+  return (await getWindowMessagePage(roomId, accessToken, after, signal)).messages;
 }
 
 export async function getCallConfiguration(roomId: string, accessToken: string, signal?: AbortSignal): Promise<CallIceConfiguration> {
