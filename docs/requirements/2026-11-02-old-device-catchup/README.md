@@ -2,7 +2,7 @@
 
 ## 身份、方案与授权
 
-- 阶段：已合并，等待精确主线 CI；下一步为交付记录对账。生产另行确认精确提交。
+- 阶段：代码已合并、精确主线完整 CI 已通过；交付记录随独立文档 PR 保存。生产另行确认精确提交。
 - 规则来源与起始基线：`7c952acbb87c34c0688be131239a3ebcd9e1aa9b`；开工时本机 main、origin/main 与 GitHub 实时 main 一致且干净。
 - 本任务新建分支：`codex/old-device-catchup-20261102`；本机目录 `/Users/zhouding/ss-worktrees/old-device-catchup-20261102`。接续须重新核验 HEAD 和归属。
 - 用户报告：主站新增设备连接并大量收发后，旧设备只能刷新分段取得消息且无法发送。
@@ -34,6 +34,7 @@
 - [PR #484](https://github.com/zdaiwmm/shui-IM/pull/484) 于 2026-11-02T09:34:06Z 正常合并为应用 `18275d5d4b7cb47dcb2ef357c42ded37f7e012a2`／2026.11.02.2。合并树 `e8f313e72ceea238409a4f9a97e5573d6f115744` 与验证源完全相同。
 - [精确 PR CI41417202541](https://github.com/zdaiwmm/shui-IM/actions/runs/41417202541/attempts/2) attempt2 完整汇总成功。首次 outbox-epoch-review 中129条全部接受且接收，发送268次超过266上限；同候选本地原断言为235次，云端失败分组仅原样复验一次后通过。未调整产品或断言，首次差异根因未定位；其他首轮成功作业由 GitHub 沿用，不声称重跑了所有成功作业。一次watch查询502、一次状态查询超时后仅恢复同run查询，未另派CI。
 - 精确应用 main CI41421734394 首轮 frontend-lifecycle 的反应插入 follower FLIP 动画断言失败（job125198738232，1通过／1失败／21未运行）。该断言在本地及 PR 同树通过，首次差异未定位。随后取消其余在途浏览器分片，首轮最终 cancelled，不能称为首轮完整通过。为满足发布镜像 manifest 对 run_attempt 的严格绑定，仅对同一提交完整原样复验一次（不是只重跑失败组），不修改产品／动画或断言。
-- [精确应用 main CI41421734394 attempt2](https://github.com/zdaiwmm/shui-IM/actions/runs/41421734394/attempts/2)：运行中，尚不标记通过。
+- [精确应用 main CI41421734394 attempt2](https://github.com/zdaiwmm/shui-IM/actions/runs/41421734394/attempts/2) 已完整成功，全部浏览器分片、完整应用汇总及双架构镜像均属本轮；通过现有 release-ci 只读校验，远端两个本应用 attempt2 产物未过期且 SHA 一致。没有下载或部署镜像，也未执行生产预检、切换或回读。
 - 材料检查：必要源码与 Markdown，没有凭据、真实消息、二进制或截图／录屏；依赖与构建产物不提交。
-- 真机及生产：未验证、未发布；用户明确要求发布前再确认。
+- 真机及生产：未验证、未发布；用户明确要求发布前再确认。应用候选固定为上述18275d5d，后续交付文档提交不替换它。
+- 工作树与本机证据保留等待后续发布；不提前清理本批开发资源，不触碰其他任务或旧 PR。
