@@ -1,16 +1,20 @@
 # Quiet Room 当前状态
 
-## Safari 存储恢复与媒体/引用语音 V1（2026-11-02，已合并、未发布）
+## 当前生产：两环境2026.11.02.3，东京独立回读待完成（2026-11-02）
 
-[PR #486](https://github.com/zdaiwmm/shui-IM/pull/486)已正常合并为应用`54c104fb24149683e8392ae7e306bbab072bb904`/2026.11.02.3，与冻结源9ef494c5文件树一致。存储连接/纯读取有限恢复且不重放写事务；中央媒体胶囊固定尺寸、跳过旧阶段；引用语音时间右8px/底6px。159文件/1272项及91个浏览器入口完成本地覆盖：首次完整命令在发送重试次数上限处失败，同树原样定向复验一次通过（254≤266），再顺序接续49/49，首次失败保留、差异原因未定位。精确PR完整CI41428184898 attempt1成功；[精确应用main CI41432875130](https://github.com/zdaiwmm/shui-IM/actions/runs/41432875130) attempt1完整成功，同轮双架构镜像通过。三项专项双引擎通过，真实iPhone后台故障未复现；未发布。[需求V1](../requirements/2026-11-02-safari-storage-media-loading/README.md)拥有确认、失败与证据；下方生产快照保持原值。
+用户确认应用`54c104fb24149683e8392ae7e306bbab072bb904`／2026.11.02.3发布至production／https://ai.shui.click与tokyo-public／https://mijiu.cloud。两环境固定入口均取得DEPLOY_VERIFIED，各仅一次实际切换且冷备份校验通过；主站独立READBACK_OK于UTC12:17:51.347完成，8643ms，公开／容器资源及新WebSocket完整通过。东京独立回读与唯一一次同SHA只读重试均在public-artifacts阶段失败（17401ms／16146ms），仍为READBACK_REQUIRED；独立公开与容器资源比较、新WebSocket未执行。两环境SHA／镜像、应用与备份running／healthy、TURN running／探针none、维护门absent、HTTPS／数据库／存储通过，管理员主站开／东京关，通话均开。[本批发布记录](../../RELEASING.md#release-safari-storage-media-both-20261102)与[需求V1](../requirements/2026-11-02-safari-storage-media-loading/README.md)保存授权、准备失败和实际结果。东京回读门禁未满足，本批资源保留，未执行清理；真实iPhone后台故障仍未复现，文档提交不替换获批应用。
 
-## 当前生产：两环境2026.11.02.2，东京独立回读待完成（2026-11-02）
+## Safari 存储恢复与媒体/引用语音 V1（2026-11-02，两环境已发布）
+
+[PR #486](https://github.com/zdaiwmm/shui-IM/pull/486)已正常合并为应用`54c104fb24149683e8392ae7e306bbab072bb904`/2026.11.02.3，与冻结源9ef494c5文件树一致。存储连接/纯读取有限恢复且不重放写事务；中央媒体胶囊固定尺寸、跳过旧阶段；引用语音时间右8px/底6px。159文件/1272项及91个浏览器入口完成本地覆盖：首次完整命令在发送重试次数上限处失败，同树原样定向复验一次通过（254≤266），再顺序接续49/49，首次失败保留、差异原因未定位。精确PR完整CI41428184898 attempt1成功；[精确应用main CI41432875130](https://github.com/zdaiwmm/shui-IM/actions/runs/41432875130) attempt1完整成功，同轮双架构镜像通过。三项专项双引擎通过，真实iPhone后台故障未复现。[需求V1](../requirements/2026-11-02-safari-storage-media-loading/README.md)拥有确认、失败与证据；实际发布和独立回读以上方当前节点为准。
+
+## 上一批生产：两环境2026.11.02.2，东京该版独立回读未完成（2026-11-02历史）
 
 用户在本聊天精确确认`2026.11.02.2`／`18275d5d4b7cb47dcb2ef357c42ded37f7e012a2`至production／https://ai.shui.click及tokyo-public／https://mijiu.cloud。两个环境固定入口均取得DEPLOY_VERIFIED，各仅一次实际切换且冷备份校验通过；主站于UTC10:43:39.775独立READBACK_OK，3163ms，公开／容器资源及新WebSocket完整通过。东京独立回读及一次同SHA只读重试均在public-artifacts超时（14561ms／28322ms），仍为READBACK_REQUIRED；一次30秒补充下载诊断也超时，未完成独立资源比较和新WebSocket验证。两环境服务器SHA／镜像、应用及备份running／healthy、TURN running／探针none、维护门absent、HTTPS／数据库／存储通过；管理员主站开／东京关，通话均开。[本次发布记录](../../RELEASING.md#release-old-device-catchup-both-20261102)保存发布、回读及下载证据；不再次切换，不将补充检查冒记成功。未新增真实旧端、物理iPhone或历史补回验证；东京回读门禁未满足，本批资源保留，文档及后续应用main不替换获批应用。
 
 ## 旧设备大量消息补拉 V1（2026-11-02，两环境已发布）
 
-用户确认修复并授权验证后合并 PR，随后精确确认双环境发布。[PR #484](https://github.com/zdaiwmm/shui-IM/pull/484) 已正常合并为应用 `18275d5d4b7cb47dcb2ef357c42ded37f7e012a2`／2026.11.02.2，树与冻结源 bffaaea2 相同。保留字节分页续页标志、原子写失败不误记过期、成员同步中断重连续传；三设备 Chromium／WebKit、完整159文件／1272项及91/91浏览器、本地独立通话专项通过。精确 PR CI41417202541 attempt2成功，[精确应用主线CI41421734394](https://github.com/zdaiwmm/shui-IM/actions/runs/41421734394/attempts/2) attempt2完整成功并核对同轮双架构产物。首次入口清单失败、PR重发次数超限与原样复验、主线动画断言失败后取消剩余作业及一次完整原样复验由[需求V1](../requirements/2026-11-02-old-device-catchup/README.md)保留。当前两个环境已发布，主站独立回读成功、东京完整回读待完成，以顶部发布节点为准；未核验真实旧端，已被旧版误跳过且纪元密钥已销毁的历史不承诺自动补回。
+用户确认修复并授权验证后合并 PR，随后精确确认双环境发布。[PR #484](https://github.com/zdaiwmm/shui-IM/pull/484) 已正常合并为应用 `18275d5d4b7cb47dcb2ef357c42ded37f7e012a2`／2026.11.02.2，树与冻结源 bffaaea2 相同。保留字节分页续页标志、原子写失败不误记过期、成员同步中断重连续传；三设备 Chromium／WebKit、完整159文件／1272项及91/91浏览器、本地独立通话专项通过。精确 PR CI41417202541 attempt2成功，[精确应用主线CI41421734394](https://github.com/zdaiwmm/shui-IM/actions/runs/41421734394/attempts/2) attempt2完整成功并核对同轮双架构产物。首次入口清单失败、PR重发次数超限与原样复验、主线动画断言失败后取消剩余作业及一次完整原样复验由[需求V1](../requirements/2026-11-02-old-device-catchup/README.md)保留。该批两个环境已发布，主站独立回读成功、东京该版完整回读未完成；当前版本以顶部发布节点为准。未核验真实旧端，已被旧版误跳过且纪元密钥已销毁的历史不承诺自动补回。
 
 ## 媒体发送尺寸与反馈占位文字 V1（2026-11-02）
 
