@@ -1,6 +1,18 @@
 # Quiet Room 固定发布流程
 
 <a id="release-old-device-catchup-both-20261102"></a>
+## Safari 存储恢复、媒体加载与引用语音：两环境已发布，东京独立回读待完成（2026-11-02）
+<a id="release-safari-storage-media-both-20261102"></a>
+
+- 用户在交付本批精确应用`54c104fb24149683e8392ae7e306bbab072bb904`／2026.11.02.3后明确「确认发布」，并答复「两个环境都发布」；目标为production／https://ai.shui.click与tokyo-public／https://mijiu.cloud。后续文档main不纳入应用。本批包含Safari连接获取／纯读取有限恢复、中央媒体胶囊固定尺寸并跳过已完成阶段、引用语音时间锚点修复；实际iPhone后台故障未复现，不认定连接失效为唯一根因。
+- 应用[PR #486](https://github.com/zdaiwmm/shui-IM/pull/486)及交付记录[PR #487](https://github.com/zdaiwmm/shui-IM/pull/487)已合并。精确应用[main CI41432875130](https://github.com/zdaiwmm/shui-IM/actions/runs/41432875130) attempt1完整成功，五个浏览器分片、通话／TURN、依赖审计、凭据扫描、verify及双架构镜像通过。159文件／1272项、本地91个浏览器入口覆盖和首次完整命令失败、唯一原样定向复验及49项接续的边界由[需求记录](docs/requirements/2026-11-02-safari-storage-media-loading/README.md)保留，不将原完整命令改写为通过。
+- 两环境只读预检通过，前版均为`18275d5d4b7cb47dcb2ef357c42ded37f7e012a2`／2026.11.02.2。主站准备先后在GitHub SSH连接（36739ms）、CI API TLS（19491ms）、隔离克隆（616605ms，克隆600017ms）与镜像整包连接重置（260027ms，下载179983ms）处停止；这些失败均未调用server-deploy、未开维护门或切换服务器。仅对本次进程使用现有GitHub HTTPS认证与只读Git对象缓存，未修改全局／仓库配置、发布器、超时、helper或服务器网络。
+- 经同一GitHub认证接口分段取得ZIP；首轮保留172/203片段，降低并发后保留201/203，两个剩余片段再拆为8个256KiB范围一次补齐，30818ms。每次要求准确206／Content-Range；最终212551719字节及SHA-256`b8d44617bbff1cb0289458e58b1cdbc33890e37eb721354fbd8da84a8c26ef4f`与重新读取的认证元数据一致，不导出令牌或保存签名URL。续发仍由固定入口重新核验精确CI、缓存、manifest及归档。
+- linux/amd64镜像`sha256:3f0470ac84037c180d7be63e7b1621af9325e4c118010d0d31cdc0c81894e4a8`，归档212551157字节、SHA-256`627259c0608b78eaad8c8ab9fdb65b65672b537e4bb3cca55b995c7eca1964b9`，绑定CI41432875130／attempt1／产物13134918755。两环境复用经核验的下载缓存，实际导入、备份、切换和独立回读分别取证。
+- production：固定入口核对精确DEPLOY_VERIFIED，819971ms，其中服务器发布772199ms、镜像导入650000ms、冷备份80000ms；这是本环境唯一实际切换。批次`20261102T120444Z`，目录`/opt/quiet-room/git-releases/20261102T120444Z-54c104fb2414`，冷备份校验通过。独立READBACK_OK于`2026-11-02T12:17:51.347Z`完成，8643ms；应用与备份running／healthy、TURN running／探针none、维护门absent，精确SHA／镜像、HTTPS／数据库／存储、公开与容器资源及新WebSocket完整通过，管理员和通话均开启。
+- tokyo-public：固定入口核对精确DEPLOY_VERIFIED，1941276ms，其中服务器发布1881603ms、镜像导入1858000ms、冷备份0ms（原计时粒度）；这是本环境唯一实际切换。批次`20261102T121901Z`，目录`/opt/quiet-room/git-releases/20261102T121901Z-54c104fb2414`，冷备份校验通过。独立固定回读及唯一一次同SHA只读重试均在public-artifacts阶段失败，总17401ms／16146ms、该阶段11675ms／10762ms，保持READBACK_REQUIRED。耗时与既有下载超时现象相符，本批具体失败请求与底层原因未单独取证。两轮服务器SHA／来源／镜像、应用和备份running／healthy、TURN running／探针none、维护门absent、HTTPS／数据库／存储均通过；管理员关闭、通话开启。独立公开与容器资源比较、新WebSocket未执行，不用发布器内置检查替代独立完整回读，不改变每响应10000ms上限。
+- 脱敏授权、准备失败、认证ZIP／镜像、两个精确发布回执、主站成功回读及东京两次失败保存在公共Git目录`quiet-room-deliveries/evidence/safari-storage-media-loading-20261102/`。第二个不含部署配置的`docs/safari-storage-media-production-20261102`工作树对账，基线为f812cd378e67de5d954b8e3b95dbb8fbd4b5371e；文档提交不替换线上应用。东京独立回读成功门禁未满足，保留本批资源，不将readbackVerified填写为true或执行清理；具体资源见[需求记录](docs/requirements/2026-11-02-safari-storage-media-loading/README.md)。iPhone 15 Pro实际后台故障与独立安全审阅仍无新增证据。
+
 ## 旧设备大量消息补拉修复：两环境已发布，东京独立回读待完成（2026-11-02）
 
 - 用户在本聊天明确确认「确认，将 2026.11.02.2（18275d5d）发布到两个环境」，完整应用固定为 `18275d5d4b7cb47dcb2ef357c42ded37f7e012a2`，目标为 production／`https://ai.shui.click` 和 tokyo-public／`https://mijiu.cloud`。没有独立消息 permalink；后续文档 main 不替换本次获批应用。
