@@ -57,6 +57,18 @@ try{
   await page.evaluate(async id=>{await(await import('/src/lib/language.ts')).setLanguage(id);window.fixture.app.renderLanguageFeedback('feedback');},language);
   assert.equal(await page.locator('.feedback-form input[required]').count(),1);
   assert.equal(await page.locator('.feedback-form textarea[required]').count(),1);
+  const placeholders=await page.evaluate(async()=>{
+   const {t}=await import('/src/lib/language.ts');
+   return [document.querySelector('#feedback-email').placeholder,document.querySelector('#feedback-message').placeholder,
+    t('请输入邮箱地址'),t('请描述你遇到的问题或建议')];
+  });
+  assert.equal(placeholders[0],placeholders[2],language+' email placeholder follows language');
+  assert.equal(placeholders[1],placeholders[3],language+' message placeholder follows language');
+  assert.ok(placeholders[0]&&placeholders[1],language+' nonempty placeholders');
+  if(language!=='zh-Hans'){
+   assert.notEqual(placeholders[0],'请输入邮箱地址',language+' translated email placeholder');
+   assert.notEqual(placeholders[1],'请描述你遇到的问题或建议',language+' translated message placeholder');
+  }
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,language+' overflow');
  }
  await page.evaluate(async()=>{await(await import('/src/lib/language.ts')).setLanguage('en');});

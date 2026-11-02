@@ -8,6 +8,7 @@ import { createVideoPoster } from './video-poster';
 import { createConcealedImage } from './concealed-image';
 import { isVideoFile, videoMimeType } from './video-media';
 import { createFileFormatIcon } from './file-format';
+import { messageTimeLabel } from './message-date';
 
 type UploadState = 'preparing' | 'uploading' | 'finishing' | 'failed';
 
@@ -31,7 +32,7 @@ export class MediaUploadView {
   private uploadState?: UploadState;
 
   constructor(id: string, files: File[], expression: boolean, autoHide: boolean,
-    retry: () => void, remove: () => void, changed: () => void, gif = false, quote?: HTMLElement) {
+    retry: () => void, remove: () => void, changed: () => void, gif = false, quote?: HTMLElement, sentAt = new Date().toISOString()) {
     const video = isVideoFile({ mimeType: files[0]!.type, originalName: files[0]!.name });
     const plainFile = !video && !files[0]!.type.startsWith('image/');
     this.plainFile = plainFile;
@@ -49,7 +50,10 @@ export class MediaUploadView {
       : 'media-upload-previews';
     this.tile.classList.toggle('media-upload-album', files.length > 1);
     this.status.className = `media-upload-status${plainFile ? '' : ' media-send-status'}`;
-    if (!plainFile) this.status.dataset.newSend = 'true';
+    if (!plainFile) {
+      this.status.dataset.newSend = 'true';
+      this.status.dataset.receiptTime = messageTimeLabel(sentAt);
+    }
     this.ring.className = 'media-upload-ring';
     this.ring.setAttribute('role', 'progressbar');
     this.ring.setAttribute('aria-label', uiTemplate`${this.kind}上传进度`);
@@ -243,7 +247,7 @@ export class MediaUploadView {
       this.status.style.animationDelay = `${200 - (performance.now() - this.startedAt)}ms`;
       transitionMediaCapsule(this.status, () => {
         this.status.className = meta.className;
-        for (const name of ['title', 'aria-label', 'data-state', 'data-confirmed', 'data-waiting']) {
+        for (const name of ['title', 'aria-label', 'data-state', 'data-confirmed', 'data-waiting', 'data-receipt-time']) {
           const value = meta.getAttribute(name);
           if (value === null) this.status.removeAttribute(name); else this.status.setAttribute(name,value);
         }

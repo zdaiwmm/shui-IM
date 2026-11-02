@@ -181,7 +181,7 @@ import {
   type RepairInvite,
   type ParticipantInvite as Invite,
 } from './lib/invite-link';
-import { messageLocalDay } from './lib/message-date';
+import { messageLocalDay, messageTimeLabel as timeLabel } from './lib/message-date';
 import { VoicePlayback, VoicePlayer } from './lib/voice-player';
 import { CallController } from './lib/call-controller';
 import { CallView } from './lib/call-view';
@@ -400,12 +400,6 @@ async function deviceLinkSafetyCode(linkId: string, authorizer: RoomMember, targ
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(material)));
   const digits = (digest[0]! << 16) | (digest[1]! << 8) | digest[2]!;
   return String(digits % 1_000_000).padStart(6, '0').replace(/(\d{3})(\d{3})/, '$1 $2');
-}
-
-function timeLabel(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat(currentLanguage(), { hour: '2-digit', minute: '2-digit' }).format(date);
 }
 
 function memberBundle(member: RoomMember) {
@@ -10885,6 +10879,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     let mediaUpload = existingMedia;
     if (inlineMedia) {
       if (!mediaUpload) {
+        const sentAt = new Date().toISOString();
         const view = new MediaUploadView(clientMsgId, files, expression, expressionAutoHide, () => {
           const draft = this.mediaUploads.get(clientMsgId);
           if (!draft || draft.busy || !this.isRuntimeActive(epoch, session)) return;
@@ -10903,8 +10898,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           this.animateChatReactionReflow(origins);
         }, () => {
           if (this.isRuntimeActive(epoch, session)) this.renderMessages({ scroll: 'preserve' });
-        }, expressionKind === 'gifs', replyTarget ? this.createMessageReplyQuote(this.replyReference(replyTarget)) : undefined);
-        mediaUpload = { view, files, expression, autoHide: expressionAutoHide, expressionKind, reply: replyTarget, sentAt: new Date().toISOString(), busy: true };
+        }, expressionKind === 'gifs', replyTarget ? this.createMessageReplyQuote(this.replyReference(replyTarget)) : undefined, sentAt);
+        mediaUpload = { view, files, expression, autoHide: expressionAutoHide, expressionKind, reply: replyTarget, sentAt, busy: true };
         this.mediaUploads.set(clientMsgId, mediaUpload);
       }
       mediaUpload.busy = true;
@@ -12332,7 +12327,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           const updated = this.createMessageMeta(message);
           if (meta) {
             const syncAttributes = () => {
-              for (const attribute of ['title', 'aria-label', 'data-state', 'data-confirmed', 'data-waiting']) {
+              for (const attribute of ['title', 'aria-label', 'data-state', 'data-confirmed', 'data-waiting', 'data-receipt-time']) {
                 const value = updated.getAttribute(attribute);
                 if (value === null) meta.removeAttribute(attribute);
                 else meta.setAttribute(attribute, value);
@@ -12719,6 +12714,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (sendingMedia) meta.classList.add('media-send-meta');
     if (stableMedia) {
       meta.classList.add('media-send-status');
+      meta.dataset.receiptTime = timeLabel(message.payload.sentAt);
       meta.dataset.confirmed = String(confirmed);
       meta.dataset.state = message.status;
       meta.dataset.waiting = String(Boolean(this.accessFailure) || this.connectionState !== 'connected');

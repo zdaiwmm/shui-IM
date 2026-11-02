@@ -1,4 +1,10 @@
 import { currentLanguage } from './language';
+export function messageTimeLabel(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat(currentLanguage(), { hour: '2-digit', minute: '2-digit' }).format(date);
+}
+
 /** Calendar labels follow the viewing device, without changing message order. */
 export function messageLocalDay(value: string, currentYear: number): { key: string; label: string; description: string } | null {
   const date = new Date(value);

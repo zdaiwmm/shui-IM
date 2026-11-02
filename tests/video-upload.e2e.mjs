@@ -90,6 +90,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.video-upload')?.dataset.poster === 'ready');
   const id = await draft.getAttribute('data-client-msg-id');
   const uploadBox = await draft.locator('.message-bubble').boundingBox();
+  const uploadStatusBox = await draft.locator('.media-send-status').boundingBox();
   await page.evaluate(() => {
     const f=window.uploadFixture; f.row = document.querySelector('.video-upload');
     f.shell=f.row.querySelector('.message-bubble');f.status=f.row.querySelector('.media-send-status');
@@ -149,6 +150,9 @@ try {
   });
   assert.equal(receipt.height,20);assert.equal(receipt.font,'11px');assert.deepEqual(receipt.padding,['8px','8px']);
   assert.ok(Math.abs(receipt.gap-4)<.1,JSON.stringify(receipt));
+  const completedStatusBox=await message.locator('.media-receipt').boundingBox();
+  assert.ok(Math.abs(completedStatusBox.width-uploadStatusBox.width)<.1&&Math.abs(completedStatusBox.height-uploadStatusBox.height)<.1,
+    `Video sending and completion sizes differ: ${JSON.stringify({uploadStatusBox,completedStatusBox})}`);
   // Retry restores feedback after the failure removed the original ring.
   await page.evaluate(async id => {
     const f = window.uploadFixture, manifest = f.app.pending.get(id).payload.file;

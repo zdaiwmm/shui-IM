@@ -3128,5 +3128,7 @@
   "未能使用通行密钥": "Passkey nicht verfügbar",
   "可以重试通行密钥，或为此浏览器设置六位数字密码。": "Versuche den Passkey erneut oder richte einen sechsstelligen Zahlencode für diesen Browser ein.",
   "使用数字密码": "Zahlencode verwenden",
-  "重试通行密钥": "Passkey erneut versuchen"
+  "重试通行密钥": "Passkey erneut versuchen",
+  "请输入邮箱地址": "E-Mail-Adresse eingeben",
+  "请描述你遇到的问题或建议": "Beschreibe das aufgetretene Problem oder deinen Vorschlag"
 }
