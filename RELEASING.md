@@ -1,5 +1,17 @@
 # Quiet Room 固定发布流程
 
+<a id="release-media-feedback-both-20261102"></a>
+## 媒体胶囊与反馈占位文字：双环境发布记录（2026-11-02）
+
+- 用户在本聊天确认“确认，把媒体胶囊和反馈占位文字的修复发布到生产。”本轮明确完整应用提交`bd251525cc385084db9261e7bedde0015abe596a`／版本`2026.11.02.1`及production／`https://ai.shui.click`；用户随后追加“东京环境也要发布”，授权同一批次至tokyo-public／`https://mijiu.cloud`。无独立消息permalink。后续文档main不替换获批应用。
+- [PR #481](https://github.com/zdaiwmm/shui-IM/pull/481)已合并；最终源e2b62a04的159文件／1268项与受影响Chromium／WebKit媒体、视频、语言反馈及Safari交互专项通过。精确[应用main CI41402998712](https://github.com/zdaiwmm/shui-IM/actions/runs/41402998712)attempt1完整成功，Full application verification成功，固定发布器重验最新run／attempt。范围、原断言失败与一次原样失败分组复验由[本次需求](docs/requirements/2026-11-02-media-capsule-feedback/README.md)保留。
+- production首轮固定隔离入口在ci-image下载超时退出，904595ms，外层1021784ms；未调用server-deploy，未进入维护门或切换，没有DEPLOY_VERIFIED。随后仅将同一GitHub认证ZIP分段下载至私有缓存，完整212531277字节及SHA-256`7fc8519bb59ec69aed3a0e212589dbb71b86f79962a22abcb06bbec45356361e`与实时认证元数据一致；没有改发布器、超时、网络配置或helper。续发仍由固定入口重验缓存、CI、镜像manifest及归档摘要，不凭本机manifest自证来源。
+- `production`／`https://ai.shui.click`：续发固定入口核对精确DEPLOY_VERIFIED，333133ms，服务器220000ms，其中镜像导入99000ms、冷备份79000ms；这是本环境唯一实际服务器切换。前版`3ed5f8a907e7c73be7aa05c7a53b8fc039900014`，批次`20261102T074955Z`，发布目录`/opt/quiet-room/git-releases/20261102T074955Z-bd251525cc38`，冷备份校验通过。独立同SHA回读于`2026-11-02T07:53:51.687Z`首次取得READBACK_OK，14403ms，含既有备份starting只读等待；没有再次切换。
+- `tokyo-public`／`https://mijiu.cloud`：固定隔离入口首次核对精确DEPLOY_VERIFIED，934228ms，独立副本准备349818ms，服务器536000ms，其中镜像导入520000ms。前版同为3ed5f8a9，批次`20261102T080037Z`，发布目录`/opt/quiet-room/git-releases/20261102T080037Z-bd251525cc38`；冷备份校验成功，计时低于1秒精度记0ms，不代表没有备份。这是本环境唯一实际切换。独立固定回读两次分别在public-artifacts阶段超时，15680ms／14236ms，均为public-artifact；尚无READBACK_OK。两次服务器SHA／来源／镜像、容器与HTTPS健康通过，维护门absent，不把已完成的实际发布写成旧版，也不再次切换。
+- linux/amd64镜像`sha256:4ff3d9f1d7299ba49364ec8e9f4e613a557d81d58e600bf3cc661ee4913cacc6`，归档212530715字节，SHA-256`c5acd060b65fc69c7608772b55e413d93661abb4ab298f2db9dbf66963a98c17`，绑定精确main CI41402998712／attempt1／产物13122557042。缓存只复用镜像下载，各环境依次单独传输、导入、备份、切换和回读。
+- 两环境应用与备份running／healthy，TURN running／探针none，维护门absent，精确SHA／镜像和HTTPS的ok／database／storage通过。主站公开与容器产物及新WebSocket完整通过；东京公开主脚本2715779字节实测一次完整响应21636ms，超过固定回读每响应10000ms上限，首页和SW摘要与主站一致，但固定独立回读仍待完成，不把补充检查冒记为READBACK_OK。管理员主站开启／东京关闭，通话均启用；未做后台域名迁移或真实用户消息／通行密钥操作。物理iPhone及用户本人Safari网页App的实际通行密钥／加入尚未新增证据。
+- 脱敏授权、首次下载失败、认证ZIP／镜像、两个精确发布、主站成功回读及东京两次失败回读保存在公共Git目录`quiet-room-deliveries/evidence/media-capsule-feedback-20261102/`。第二个不含部署配置的工作树对账，仅纳入发布记录、状态和本次需求，走文档检查、PR／CI及合并，不再次部署文档提交。东京保持READBACK_REQUIRED，只续同环境／同SHA只读回读；无完整回读前不填清理门禁true。本批调用树含忽略的dist／node_modules且head9cb8为应用后的接续记录，当前对账树仍活动，任务资源保留，不强制清理。
+
 <a id="release-pc-day-batch-both-20261030"></a>
 ## PC适配与10月29日修复批次：两个环境已发布并回读（2026-10-30）
 
