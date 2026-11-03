@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>故障反馈 · V1</title>
+<style>
+*{box-sizing:border-box} :root{color-scheme:light dark;--bg:#f2f5f1;--ink:#18231c;--sub:#536159;--line:#dce3dc;--paper:white;--green:#34784a;--on:white}
+@media(prefers-color-scheme:dark){:root{--bg:#18231c;--ink:#edf4ed;--sub:#bbc8bc;--line:#465749;--paper:#253128;--green:#aad5b0;--on:#18231c}}
+body{margin:auto;max-width:960px;background:var(--bg);color:var(--ink);font:16px/1.55 -apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;padding:24px 20px}
+header,nav,.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}header{justify-content:space-between}header small,small,p{color:var(--sub)}h1{font-size:26px;margin:.2em 0}h2{font-size:21px;margin:0 0 16px}header small{letter-spacing:.12em}
+nav{border-block:1px solid var(--line);padding:12px 0;margin:16px 0}button,select,input,textarea{font:inherit;color:inherit;background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:9px 13px;min-height:44px}button{cursor:pointer}button[aria-pressed=true],button.primary{background:var(--green);color:var(--on)}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--green)}
+main{display:grid;grid-template-columns:minmax(175px,1fr) minmax(0,2fr);gap:28px}aside label,form>label{display:block;margin:12px 0 5px}aside select,form>input,textarea{width:100%}.phone{border-radius:0;background:var(--paper);border:1px solid var(--line);padding:24px 20px;min-height:330px}.box{border-block:1px solid var(--line);padding:16px 0;margin:15px 0}.box strong,code,output{display:block;overflow-wrap:anywhere}code{font:600 18px/1.8 ui-monospace,monospace}.row{margin-top:12px}input[type=checkbox]{width:20px;min-height:20px;vertical-align:middle}ol{padding-left:22px}li{margin:12px 0}output{white-space:pre-line;margin-top:14px}@media(max-width:650px){main{display:block}aside{margin-bottom:16px}.phone{min-height:260px}body{padding:16px}}
+</style>
+<header><div><small>QUIET ROOM　/　V1</small><h1 id="title"></h1></div><button id="lang">EN</button></header><nav id="nav"></nav>
+<main><aside id="settings"></aside><section id="panel" class="phone"></section></main>
+<script>
+let english=false, tab=0, site=0, scenario=0, offline=false, screen='ready', fault=null;
+const records=new Map(), sites=['ai.shui.click','mijiu.cloud'];
+const tr=(zh,en)=>english?en:zh;
+const cases=[
+ ['进入聊天','Open chat','读取本机会话','Read local session','LOCAL_STORE_UNAVAILABLE'],
+ ['发送消息','Send message','持久化发件箱','Save to outbox','OUTBOX_WRITE_FAILED'],
+ ['上传附件','Upload attachment','读取所选文件','Read selected file','FILE_READ_FAILED'],
+ ['上传附件','Upload attachment','写入附件分片','Write attachment chunk','CHUNK_WRITE_FAILED']
+];
+const T=(s,i)=>s[i+(english?1:0)];
+function options(labels,index){return labels.map((label,i)=>'<option value="'+i+'" '+(index===i?'selected':'')+'>'+label+'</option>').join('')}
+function btn(id,label,primary=false){return '<button id="'+id+'" class="'+(primary?'primary':'')+'">'+label+'</button>'}
+function attach(id,fn){document.getElementById(id)?.addEventListener('click',fn)}
+function reset(){screen='ready';fault=null;render()}
+function render(){
+ document.documentElement.lang=english?'en':'zh-CN';document.title=document.querySelector('#title').textContent=tr('故障反馈','Fault reporting');lang.textContent=english?'中文':'EN';
+ const tabs=[tr('用户端','User'),tr('运维查询','Operator lookup'),tr('业务流程','Workflow')];
+ nav.innerHTML=tabs.map((s,i)=>'<button aria-pressed="'+(tab===i)+'">'+s+'</button>').join('');
+ [...nav.children].forEach((b,i)=>b.onclick=()=>{tab=i;render()});
+ settings.innerHTML='<small>'+tr('评审设置 · 仅模拟数据','Preview controls · simulated data')+'</small><label for="site">'+tr('环境','Environment')+'</label><select id="site">'+options(sites,site)+'</select>';
+ const env=document.querySelector('#site');env.onchange=()=>{site=+env.value;reset()};
+ if(tab===2){panel.innerHTML='<h2>'+tabs[2]+'</h2><ol>'+[
+ tr('用户进入聊天、发送消息或上传附件。','The user opens a chat, sends a message or uploads a file.'),
+ tr('某一步失败，生成随机编号，标记操作、失败阶段和原因码。','A step fails. Allocate a random ID with the operation, stage and reason code.'),
+ tr('服务端故障随响应返回编号。浏览器故障仅向当前站点上报。','Server failures return an ID. Browser failures report only to the current origin.'),
+ tr('收到保存回执后可按编号查询。未获回执时可复制本地诊断，稍后重试上报。','After acknowledgement the ID is searchable. Otherwise copy local details or retry reporting later.'),
+ tr('用户复制编号或自选附在反馈里。运维在相应环境按编号只读查询，记录保留 7 天。','Copy the ID or attach it to feedback. Operators look it up on that site within seven days.')].map(x=>'<li>'+x+'</li>').join('')+'</ol>';return}
+ if(tab===1){panel.innerHTML='<h2>'+tabs[1]+'</h2><small>'+tr('仅运维 · 本机模拟查询','Operator only · local simulation')+'</small><form id="lookup"><label for="key">'+tr('故障编号','Fault ID')+'</label><input id="key" required autocomplete="off"><div class="row"><button class="primary">'+tr('查询','Look up')+'</button></div></form><output id="result" aria-live="polite"></output>';
+ key.value=fault?.id||'';lookup.onsubmit=e=>{e.preventDefault();const f=records.get(sites[site]+'/'+key.value.trim().toUpperCase());result.textContent=f?details(f):tr('本环境未查到。请核对域名、编号、上报状态和 7 天保留期。','No match. Check the site, ID, reporting status and seven-day retention.');};return}
+ settings.insertAdjacentHTML('beforeend','<label for="scenario">'+tr('模拟故障','Simulated failure')+'</label><select id="scenario">'+options(cases.map(r=>T(r,0)+' · '+T(r,2)),scenario)+'</select>');
+ const pick=document.querySelector('#scenario');pick.onchange=()=>{scenario=+pick.value;reset()};
+ if(scenario!==3){settings.insertAdjacentHTML('beforeend','<label><input type="checkbox" id="offline"> '+tr('模拟离线','Simulate offline')+'</label>');const box=document.querySelector('#offline');box.checked=offline;box.onchange=()=>{offline=box.checked}}
+ const r=cases[scenario]; const name=T(r,0);
+ if(screen==='ready'){panel.innerHTML='<h2>'+name+'</h2>'+btn('run',tr('模拟此步骤失败','Simulate failure'),true);attach('run',()=>{fault={id:'E-'+crypto.randomUUID().replaceAll('-','').slice(0,16).toUpperCase(),site:sites[site],scenario,time:new Date().toISOString(),saved:scenario===3||!offline};if(fault.saved)records.set(fault.site+'/'+fault.id,fault);screen='error';render()});return}
+ if(screen==='sent'){panel.innerHTML='<h2>'+tr('反馈已提交','Feedback submitted')+'</h2><output></output>'+btn('back',tr('返回','Back'));panel.querySelector('output').textContent=fault.attached?fault.id:tr('未附故障编号','No ID attached');attach('back',reset);return}
+ if(screen==='form'){panel.innerHTML='<h2>'+tr('用户反馈','Feedback')+'</h2><form id="feedback"><label for="email">'+tr('邮箱（必填）','Email (required)')+'</label><input id="email" required type="email"><label for="msg">'+tr('反馈内容（必填）','Feedback (required)')+'</label><textarea id="msg" required maxlength="5000"></textarea><label><input type="checkbox" id="include"> '+tr('附上故障编号','Attach fault ID')+' '+fault.id+'</label><div class="row"><button class="primary">'+tr('提交反馈','Submit feedback')+'</button><button type="button" id="back">'+tr('返回','Back')+'</button></div><output id="status"></output></form>';feedback.onsubmit=e=>{e.preventDefault();if(offline&&scenario!==3){document.querySelector('#status').textContent=tr('当前离线，请恢复联网后提交。','Offline. Reconnect to submit.');return}fault.attached=include.checked;screen='sent';render()};attach('back',()=>{screen='error';render()});return}
+ panel.innerHTML='<h2>'+name+tr('失败',' failed')+'</h2><div class="box"><small>'+tr('故障编号','Fault ID')+'</small><code>'+fault.id+'</code><strong>'+(fault.saved?tr('服务器已记录','Recorded on server'):tr('尚未上报','Not yet reported'))+'</strong></div><div class="row">'+btn('copy',fault.saved?tr('复制故障编号','Copy fault ID'):tr('复制本地诊断','Copy local details'),true)+btn('form',tr('反馈问题','Give feedback'))+(fault.saved?'':btn('retry',tr('重试上报','Retry report')))+'</div><output id="notice" aria-live="polite"></output>';
+ attach('copy',async()=>{const value=fault.saved?fault.id:details(fault);try{await navigator.clipboard.writeText(value);notice.textContent=tr('已复制','Copied')}catch{notice.textContent=value}});
+ attach('retry',()=>{if(offline){notice.textContent=tr('仍处于离线状态。','Still offline.');return}fault.saved=true;records.set(fault.site+'/'+fault.id,fault);render()});
+ attach('form',()=>{screen='form';render()});
+}
+function details(f){const r=cases[f.scenario];return [f.site,f.id,tr('时间','Time')+'　'+f.time,tr('版本','Version')+'　demo-v1',T(r,0)+' → '+T(r,2),r[4]].join('\n')}
+lang.onclick=()=>{english=!english;render()};render();
+</script></html>
