@@ -1,5 +1,9 @@
 # 多设备聊天进入速度与桌面回复动效 V1
 
+## 多设备聊天进入与桌面回复已发布到两环境（2026-11-03）
+
+2026.11.03.1 对应应用提交 `1b4fdf9113c793bfc9e8be704363cf9b1d1375a0`。用户在本聊天确认“发布到两个环境”。[精确主线完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/41577532838) 首轮通过。production（ai.shui.click）和 tokyo-public（mijiu.cloud）各执行一次固定入口切换，均获得 DEPLOY_VERIFIED。独立 READBACK_OK 分别于 04:52:39 UTC 和 05:00:32 UTC 取得。脱敏证据位于公共 Git 目录 quiet-room-deliveries/evidence/chat-entry-reply-20261103。
+
 2026-11-03 本聊天确认「按照方案实施，不需要制作原型和流程图」。授权本地实施及仓库规定的验证、PR 和合并。本次生产发布需要另行确认精确提交。起始 main、origin/main 和 GitHub main 均为 `1936e6b9c98f4a0bc107820c475defbe24badc63`，任务分支 `codex/chat-entry-reply-20261103`。
 
 ## 实现与验收

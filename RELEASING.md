@@ -1,5 +1,9 @@
 # Quiet Room 固定发布流程
 
+## 多设备聊天进入与桌面回复已发布到两环境（2026-11-03）
+
+2026.11.03.1 对应应用提交 `1b4fdf9113c793bfc9e8be704363cf9b1d1375a0`。用户在本聊天确认“发布到两个环境”。[精确主线完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/41577532838) 首轮通过。production（ai.shui.click）和 tokyo-public（mijiu.cloud）各执行一次固定入口切换，均获得 DEPLOY_VERIFIED。独立 READBACK_OK 分别于 04:52:39 UTC 和 05:00:32 UTC 取得。脱敏证据位于公共 Git 目录 quiet-room-deliveries/evidence/chat-entry-reply-20261103。
+
 <a id="release-old-device-catchup-both-20261102"></a>
 ## Safari 存储恢复、媒体加载与引用语音：两环境已发布，东京独立回读待完成（2026-11-02）
 <a id="release-safari-storage-media-both-20261102"></a>
