@@ -3136,5 +3136,9 @@
   "复制故障编号": "Fehlernummer kopieren",
   "复制本地诊断": "Lokale Diagnose kopieren",
   "重试上报": "Meldung erneut senden",
-  "附上故障编号": "Fehlernummer beifügen"
+  "附上故障编号": "Fehlernummer beifügen",
+  "以下是新消息": "Ab hier neue Nachrichten",
+  "有新消息": "Neue Nachrichten",
+  "查看第一条未读消息": "Zur ersten ungelesenen Nachricht",
+  "条新消息，查看第一条未读消息": "neue Nachrichten, zur ersten ungelesenen Nachricht"
 }

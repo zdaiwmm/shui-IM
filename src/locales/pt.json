@@ -3136,5 +3136,9 @@
   "复制故障编号": "Copiar código de erro",
   "复制本地诊断": "Copiar diagnóstico local",
   "重试上报": "Reenviar relatório",
-  "附上故障编号": "Anexar código de erro"
+  "附上故障编号": "Anexar código de erro",
+  "以下是新消息": "Novas mensagens abaixo",
+  "有新消息": "Novas mensagens",
+  "查看第一条未读消息": "Ir para a primeira mensagem não lida",
+  "条新消息，查看第一条未读消息": "novas mensagens, ir para a primeira não lida"
 }

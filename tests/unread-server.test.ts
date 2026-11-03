@@ -73,7 +73,7 @@ function nextFrame(socket: WebSocket, type: string): Promise<any> {
 
 describe('restricted unread observer', () => {
   it('shares reads across a participant devices without clearing unread history before a companion joined', async () => {
-    const { db, server, vault, observerToken, post, get, envelope } = await setup();
+    const { db, server, vault, observerToken, post, get, envelope, route } = await setup();
     await post({ token: observerToken });
     const old = server.store.insertMessage(vault.roomId, await envelope());
     const companionId = crypto.randomUUID();
@@ -89,6 +89,9 @@ describe('restricted unread observer', () => {
     expect(await (await get()).json()).toEqual({ count: 2 });
     server.store.saveUnreadObserver(vault.roomId, companionId, { readSeq: next.seq });
     expect(await (await get()).json()).toEqual({ count: 1 }); // Only the visible history range is shared.
+    const positions = `${route}?positionsAfter=0`;
+    expect(await (await get(vault.accessToken, positions)).json()).toEqual({ positions: [old.seq] });
+    expect((await get(observerToken, positions)).status).toBe(401);
     await post({ readSeq: old.seq });
     expect(await (await get()).json()).toEqual({ count: 0 });
     const latest = server.store.insertMessage(vault.roomId, await envelope());

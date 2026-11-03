@@ -13,6 +13,7 @@ type BottomControlOptions = {
   active: () => boolean;
   measure?: () => boolean;
   begin: () => void;
+  openUnread?: () => boolean;
   prepare: (signal: AbortSignal) => Promise<boolean> | undefined;
   resized: () => void;
   complete: () => void;
@@ -95,6 +96,7 @@ export function mountChatBottomControl(options: BottomControlOptions) {
   const scroll = async () => {
     if (destroyed || !options.active()) return;
     cancel(); options.begin();
+    if (options.openUnread?.()) { update(); return; }
     const current = new AbortController(); request = current;
     button.dataset.scrolling = 'true';
     const preparation = options.prepare(current.signal);

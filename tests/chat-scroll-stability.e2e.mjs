@@ -292,6 +292,45 @@ try {
         assert.ok(Math.abs(bottoms.at(-1) - 450) <= 2);
       }
 
+      // Keep the position lookup in flight while the previous screen is
+      // restored. Only a reader who has not started scrolling may be moved.
+      for (const interacted of [false, true]) {
+        let reply;
+        const requested = page.waitForRequest(request => request.url().includes('positionsAfter='));
+        await page.route('**/unread/*?positionsAfter=*', route => {
+          reply = () => route.fulfill({ json: { positions: [145] } });
+
+        });
+        await page.evaluate(() => {
+          const { app } = window.scrollFixture;
+          app.setActiveSurface('away');
+          app.uiPreferences.chatVisibleThrough = 140;
+          app.uiPreferences.chatAnchor = { clientMsgId: 'scroll-90', seq: 90, offset: 70, pinnedToBottom: false };
+          app.restoreChatAnchorOnNextRender = true;
+          app.renderChat();
+        });
+        await requested;
+        await page.waitForFunction(() => Boolean(window.scrollFixture.app.chatEntryLookup));
+        assert.ok(reply, 'entry requested authenticated unread positions');
+        if (interacted) await page.evaluate(() => window.scrollFixture.up(240));
+        await reply();
+        await page.waitForFunction(() => !window.scrollFixture.app.chatEntryLookup);
+        if (interacted) {
+          assert.equal(await page.locator('.chat-unread-divider').count(), 0);
+          await page.locator('#chat-bottom-control').click();
+        }
+        const divider = page.locator('.chat-unread-divider');
+        await divider.waitFor();
+        assert.equal(await divider.evaluate(el => el.nextElementSibling.dataset.clientMsgId), 'scroll-145');
+        await settle();
+        assert.ok(await divider.evaluate(el => {
+          const box = el.getBoundingClientRect();
+          return box.top >= document.querySelector('.chat-header').getBoundingClientRect().bottom - 2
+            && box.bottom < document.querySelector('#composer').getBoundingClientRect().top;
+        }), 'first unread boundary stays inside the reading viewport');
+        await page.unroute('**/unread/*?positionsAfter=*');
+      }
+
       if (process.argv[2]) { await mkdir(process.argv[2], { recursive: true }); await page.screenshot({ path: `${process.argv[2]}/${engine}-${desktop ? 'desktop' : 'mobile'}.png` }); }
       assert.deepEqual(errors, []);
       console.log(`${engine}/${desktop ? 'desktop' : 'mobile'} chat scroll combinations passed`);

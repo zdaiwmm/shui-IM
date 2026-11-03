@@ -121,6 +121,15 @@ export async function getRoomState(roomId: string, accessToken: string, signal?:
   return response.json();
 }
 
+export async function getUnreadPositions(roomId: string, deviceId: string, token: string, after: number, signal: AbortSignal): Promise<number[]> {
+  const response = await authorizedFetch(`/api/rooms/${roomId}/unread/${deviceId}?positionsAfter=${after}`, token,
+    { signal: boundedSignal(signal, 4000), cache: 'no-store' });
+  const { positions } = await response.json();
+  if (!Array.isArray(positions) || positions.length > 64 || !positions.every((seq, index) =>
+    Number.isSafeInteger(seq) && seq > (index ? positions[index - 1] : after))) throw new Error('INVALID_UNREAD_POSITIONS');
+  return positions;
+}
+
 export async function getWindowMessagePage(roomId: string, accessToken: string, after: number, signal?: AbortSignal): Promise<{ messages: ServerMessage[]; hasMore: boolean }> {
   const response = await authorizedFetch(`/api/rooms/${roomId}/window-sync?after=${after}&syncProtocol=byte-pages-v1`, accessToken, { signal: boundedSignal(signal, 15_000), cache: 'no-store' });
   const page = await response.json() as { messages: ServerMessage[]; hasMore?: boolean };
