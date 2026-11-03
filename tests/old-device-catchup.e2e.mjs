@@ -71,8 +71,10 @@ for (const engine of [chromium, webkit]) {
       await healthy(page);
     };
     const send = async (page, text) => {
-      const seq = backend.store.roomState(room.roomId).nextSeq + 1;
       await page.evaluate(text => app.enqueuePayload({ v: 1, kind: 'text', text, sentAt: new Date().toISOString() }), text);
+      const row = await page.waitForFunction(text => [...app.messages.values()].find(row =>
+        row.senderId === identity.publicBundle.deviceId && row.payload.text === text), text);
+      const { seq } = await row.jsonValue(); await row.dispose();
       await caughtUp(page, seq); return seq;
     };
     await send(old, 'before admission'); await caughtUp(peer, 1);
@@ -152,16 +154,17 @@ for (const engine of [chromium, webkit]) {
     const entry = await old.evaluate(() => ({ firstRowMs, finalRowMs: performance.now() - entryStart, draft: document.querySelector('#message-input').value }));
     assert.equal(entry.draft, 'synthetic local draft');
     console.log(`ENTRY ${engine.name()}: first local row ${Math.round(entry.firstRowMs)} ms, backlog visible ${Math.round(entry.finalRowMs)} ms`);
-    const result = await old.evaluate(async () => {
+    const result = await old.evaluate(async tail => {
       const rows = []; let cursor = 0;
       while (true) {
         const page = await v.loadHistoryPageAfter(app.session, { afterSeq: cursor, limit: 200 });
         if (!page.length) break; rows.push(...page); cursor = page.at(-1).seq;
       }
-      return { seqs: rows.map(row => row.seq), gaps: app.session.vault.expiredMessageRanges ?? [],
+      return { seqs: rows.map(row => row.seq), trailing: rows.filter(row => row.seq > tail).map(row => row.payload.kind), gaps: app.session.vault.expiredMessageRanges ?? [],
         deletes: rows.filter(row => row.payload.kind === 'message-delete').length };
-    });
-    assert.deepEqual(result.seqs, Array.from({ length: tail }, (_, i) => i + 1));
+    }, tail);
+    assert.ok(result.seqs.length >= tail && result.trailing.every(kind => kind === 'message-read'));
+    assert.deepEqual(result.seqs, Array.from({ length: result.seqs.length }, (_, i) => i + 1));
     assert.deepEqual(result.gaps, []); assert.equal(result.deletes, 1);
     assert.equal(await added.evaluate(() => app.messages.has(1)), false, 'Admission cannot grant earlier history');
     const sent = await send(old, 'old endpoint sends after catch-up');
@@ -193,11 +196,14 @@ for (const engine of [chromium, webkit]) {
     // publishes the row to messages after that transaction has committed.
     await old.waitForFunction(seq => app.messages.has(seq), retryTail, { timeout: 60_000 });
     assert.equal(networkFailed, true);
-    const retried = await old.evaluate(async () => ({ aborted: writeAborted, errors: transientFailures.length,
-      seqs: (await v.loadHistoryPageAfter(app.session, { afterSeq: 0, limit: 200 })).map(row => row.seq),
-      gaps: app.session.vault.expiredMessageRanges ?? [] }));
+    const retried = await old.evaluate(async tail => {
+      const rows = await v.loadHistoryPageAfter(app.session, { afterSeq: 0, limit: 200 });
+      return { aborted: writeAborted, errors: transientFailures.length, seqs: rows.map(row => row.seq),
+        trailing: rows.filter(row => row.seq > tail).map(row => row.payload.kind), gaps: app.session.vault.expiredMessageRanges ?? [] };
+    }, retryTail);
     assert.equal(retried.aborted, true); assert.ok(retried.errors >= 2);
-    assert.deepEqual(retried.seqs, Array.from({ length: retryTail }, (_, i) => i + 1));
+    assert.ok(retried.seqs.length >= retryTail && retried.trailing.every(kind => kind === 'message-read'));
+    assert.deepEqual(retried.seqs, Array.from({ length: retried.seqs.length }, (_, i) => i + 1));
     assert.deepEqual(retried.gaps, []);
     await old.unroute('**/window-sync?*');
     const finalText = 'old endpoint sends after automatic retries';

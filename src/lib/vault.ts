@@ -227,6 +227,7 @@ export type ChatScrollAnchor = {
 export type UiPreferences = {
   composerDraft?: string;
   chatAnchor?: ChatScrollAnchor;
+  chatVisibleThrough?: number;
   privateArchiveAnchor?: {id:string;offset:number};
   recoveryReminderDismissed?: boolean;
   entranceCardDismissed?: boolean;
@@ -2808,6 +2809,7 @@ function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: b
   return {
     composerDraft: typeof source.composerDraft === 'string' ? source.composerDraft.slice(0, 4000) : '',
     ...(chatAnchor ? { chatAnchor } : {}),
+    ...(Number.isSafeInteger(source.chatVisibleThrough) && source.chatVisibleThrough! >= 0 ? { chatVisibleThrough: source.chatVisibleThrough } : {}),
     ...(source.privateArchiveAnchor&&typeof source.privateArchiveAnchor.id==='string'&&source.privateArchiveAnchor.id.length<=260&&Number.isFinite(source.privateArchiveAnchor.offset)&&Math.abs(source.privateArchiveAnchor.offset)<=100_000?{privateArchiveAnchor:{id:source.privateArchiveAnchor.id,offset:source.privateArchiveAnchor.offset}}:{}),
     recoveryReminderDismissed: source.recoveryReminderDismissed === true,
     entranceCardDismissed: source.entranceCardDismissed === true,

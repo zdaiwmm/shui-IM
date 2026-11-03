@@ -196,7 +196,7 @@ try {
       app.idleLease.start(60);app.idleDeadline=Date.now()+5000;app.idleMonotonicDeadline=performance.now()+5000;app.updateIdlePrompt();await settle();
       const news=button().getBoundingClientRect(),lock=idle.element.getBoundingClientRect();
       if(Math.abs(news.left+news.width/2-innerWidth/2)>1||news.height!==44||lock.height!==44||news.top-lock.bottom<7)throw Error(`Capsules overlap or are not centered: ${JSON.stringify({news:news.toJSON(),lock:lock.toJSON()})}`);
-      if(button().textContent.trim()!=='2 条新消息'||button().getAttribute('aria-label')!=='2 条新消息，回到最新消息')throw Error('Capsule lost count or accessible action');
+      if(button().textContent.trim()!=='2 条新消息'||button().getAttribute('aria-label')!=='2 条新消息，查看第一条未读消息')throw Error('Capsule lost count or accessible action');
       app.idleLease.clear();idle.hide();await settle();
       if(Math.abs(button().getBoundingClientRect().top-news.top)>1||list.getBoundingClientRect().height!==before.height||input.getBoundingClientRect().top!==before.top)throw Error('Lock warning changed chat layout or moved the news capsule');
       app.chatNewMessageIds=new Set(Array.from({length:101},(_,i)=>String(i)));app.updateChatBottomControl();

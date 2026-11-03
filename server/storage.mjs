@@ -378,6 +378,15 @@ export async function createStore({
     assertDeviceActive(roomId,deviceId);
     if(chamberInvitations.exists(roomId))throw new Error('PERSONAL_IDENTITY_REQUIRED');
   }, roomState });
+  const unreadRows = `FROM messages
+      JOIN members AS sender ON sender.room_id = messages.room_id AND sender.device_id = messages.sender_device_id
+      WHERE messages.room_id = ?1 AND messages.server_seq > ?2 AND messages.count_unread = 1 AND sender.role <> ?3
+      AND NOT EXISTS (
+        SELECT 1 FROM unread_observers AS observer
+        JOIN members AS reader ON reader.room_id = observer.room_id AND reader.device_id = observer.device_id
+        WHERE observer.room_id = messages.room_id AND reader.role = ?3
+          AND messages.server_seq > reader.join_seq AND messages.server_seq <= observer.read_seq
+      )`;
   const statements = {
     chatLastSeen: db.prepare('SELECT role, last_seen_at FROM chat_presence WHERE room_id = ?'),
     recordChatPresence: db.prepare(`INSERT INTO chat_presence(room_id, role, last_seen_at)
@@ -473,15 +482,8 @@ export async function createStore({
     upsertUnreadObserver: db.prepare(`INSERT INTO unread_observers(room_id, device_id, token_hash, read_seq)
       VALUES (?, ?, ?, ?) ON CONFLICT(room_id, device_id) DO UPDATE SET
       token_hash = excluded.token_hash, read_seq = MAX(unread_observers.read_seq, excluded.read_seq)`),
-    unreadCount: db.prepare(`SELECT COUNT(*) AS count FROM messages
-      JOIN members AS sender ON sender.room_id = messages.room_id AND sender.device_id = messages.sender_device_id
-      WHERE messages.room_id = ?1 AND messages.server_seq > ?2 AND messages.count_unread = 1 AND sender.role <> ?3
-      AND NOT EXISTS (
-        SELECT 1 FROM unread_observers AS observer
-        JOIN members AS reader ON reader.room_id = observer.room_id AND reader.device_id = observer.device_id
-        WHERE observer.room_id = messages.room_id AND reader.role = ?3
-          AND messages.server_seq > reader.join_seq AND messages.server_seq <= observer.read_seq
-      )`),
+    unreadCount: db.prepare(`SELECT COUNT(*) AS count ${unreadRows}`),
+    unreadPositions: db.prepare(`SELECT messages.server_seq AS seq ${unreadRows} ORDER BY messages.server_seq LIMIT 64`),
     saveMlsWelcome: db.prepare('UPDATE rooms SET mls_welcome = ? WHERE room_id = ? AND mls_welcome IS NULL'),
     insertDeviceLink: db.prepare(`INSERT INTO device_links(
       link_id, room_id, authorizer_id, role, secret_hash, expires_at, created_at
@@ -1774,6 +1776,11 @@ export async function createStore({
     receiptsAfter,
     roomState,
     savePushSubscription,
+    unreadPositions(roomId, deviceId, after) {
+      const member = getMember(roomId, deviceId);
+      const observer = statements.unreadObserver.get(roomId, deviceId);
+      return statements.unreadPositions.all(roomId, Math.max(after, member.joinSeq ?? 0, observer?.read_seq ?? 0), member.role).map(row => row.seq);
+    },
     saveUnreadObserver,
     unreadCount,
     saveMlsWelcome,

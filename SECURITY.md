@@ -1,5 +1,9 @@
 # Security model
 
+## Unlocked chat unread positions (2026-11-03)
+
+An active device credential can request up to 64 unread sequence numbers after a supplied sequence for its own device. The query applies the same join boundary, counted-message and same-role read intervals as the cover count. The locked count-only credential cannot request positions. The client checks decrypted rows against its local chat projection before navigating. Its offline visible cursor uses encrypted room preferences. Position lookup itself does not advance read state.
+
 ## Bounded local database connection recovery (2026-11-02)
 
 Only recognized IndexedDB connection-loss/closing errors may retry connection acquisition or a read-only transaction, up to three attempts with 100/250ms backoff while visible. A schema upgrade is never retried after starting. Permission, quota, arbitrary UnknownError and generic AbortError outcomes remain failures. Dispatched writes, authentication and cryptographic operations are not replayed; synchronous write-action failure aborts the transaction, and every standard read/write transaction releases its connection. Existing durable-wrapper ownership checks, lifecycle fences and atomic MLS/history/outbox commits remain authoritative. Browser fault injection is not proof of the cause of a particular physical-device incident.

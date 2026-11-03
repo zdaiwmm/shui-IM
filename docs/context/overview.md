@@ -1,3 +1,5 @@
+聊天首条未读使用已解锁设备的未读位置查询及本机可读投影。未读边界、分页及交互样例见[需求记录](../requirements/2026-11-03-chat-entry-first-unread/README.md)。
+
 旧设备消息补拉：`src/lib/api.ts` 的 `getWindowMessagePage` 保留字节分页续页标志，`app.ts` 的保留边界消费按持久游标连续拉取，成员同步暂时失败重连续传；原子写失败不能误记为过期。专项 `tests/old-device-catchup.e2e.mjs` 使用 Chromium／WebKit 三设备、跨页纪元及网络／IDB 中断，既有 message-window 保留真实缺口验收。[V1记录](../requirements/2026-11-02-old-device-catchup/README.md)拥有确认、复现与历史恢复限制。
 
 双环境故障反馈 V1 使用 server/faults.mjs、src/lib/fault-report.ts 和 scripts/fault-lookup.mjs，各环境独立按编号查询。三种业务操作及重启／隔离验收见[确认记录](../requirements/2026-11-03-fault-feedback/README.md)。

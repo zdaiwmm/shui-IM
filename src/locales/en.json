@@ -3143,5 +3143,9 @@
   "复制故障编号": "Copy fault ID",
   "复制本地诊断": "Copy local diagnostics",
   "重试上报": "Retry report",
-  "附上故障编号": "Attach fault ID"
+  "附上故障编号": "Attach fault ID",
+  "以下是新消息": "New messages below",
+  "有新消息": "New messages",
+  "查看第一条未读消息": "Go to first unread message",
+  "条新消息，查看第一条未读消息": "new messages, go to first unread message"
 }

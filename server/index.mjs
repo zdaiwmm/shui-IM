@@ -1338,6 +1338,13 @@ export async function startServer(options = {}) {
           json(request, response, 429, { error: '请求过于频繁', code: 'RATE_LIMITED' });
           return;
         }
+        if (request.method === 'GET' && url.searchParams.has('positionsAfter')) {
+          requireActiveDevice(request, roomId, deviceId);
+          const after = Number(url.searchParams.get('positionsAfter'));
+          if (!Number.isSafeInteger(after) || after < 0) throw new Error('INVALID_UNREAD_OBSERVER');
+          json(request, response, 200, { positions: store.unreadPositions(roomId, deviceId, after) });
+          return;
+        }
         if (request.method === 'GET') {
           // This route deliberately does not accept a normal device credential.
           json(request, response, 200, store.unreadCount(roomId, deviceId, bearerToken(request)));
