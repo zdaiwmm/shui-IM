@@ -1,5 +1,7 @@
 旧设备消息补拉：`src/lib/api.ts` 的 `getWindowMessagePage` 保留字节分页续页标志，`app.ts` 的保留边界消费按持久游标连续拉取，成员同步暂时失败重连续传；原子写失败不能误记为过期。专项 `tests/old-device-catchup.e2e.mjs` 使用 Chromium／WebKit 三设备、跨页纪元及网络／IDB 中断，既有 message-window 保留真实缺口验收。[V1记录](../requirements/2026-11-02-old-device-catchup/README.md)拥有确认、复现与历史恢复限制。
 
+多设备进页与 PC 回复：历史页校验及冲突比对在 `vault.ts` 与 `history-projection.ts`，首屏及菜单交接在 `app.ts`。专项入口及本次原型豁免见[需求记录](../requirements/2026-11-03-chat-entry-reply/README.md)。
+
 消息时间线呈现投影：`src/lib/message-timeline.ts`分离聊天排序／隐藏及本人私有归档去重，其他来源房间相同消息ID仍私有可见；由`app.ts`委托调用，不改变协议、回执或存储。验证为`tests/message-timeline-model.test.ts`及既有frontend-lifecycle／恢复／删除专项；`npm run perf:timeline`输出合成投影基线，`QUIET_ROOM_TIMELINE_PERF=1 node tests/frontend-lifecycle.e2e.mjs`另测真实DOM／输入／锁定清理。隔离灾备入口为`npm run test:restore-drill`；范围与证据见[治理V1](../requirements/2026-10-25-project-governance/README.md)。
 
 网页链接与卡片：`web-links.ts` 负责正文链接／预览候选；`link-preview-data.ts` 定义有界加密快照，`link-preview-ui.ts` 负责输入状态与图片生命周期，`src/link-preview.css` 接入现有编辑和消息样式。服务端 `server/link-preview.mjs` 以受限DNS固定抓取公开元数据，经 `server/index.mjs` 的认证同源配额入口调用。新回归为 `tests/link-preview.test.ts`、`tests/link-preview.e2e.mjs` 及已有crypto／language套件；需求确认及交付见[记录](../requirements/2026-10-28-chat-link-preview/README.md)。

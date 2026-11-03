@@ -4984,26 +4984,33 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     // their encrypted scan alongside the visible-page work and do not expose
     // chat rows until tombstones are known; otherwise a previously deleted
     // target can flash on screen between unlock and the trailing event scan.
-    const messageEventsPromise = loadMessageEventHistory(session, { signal: runtime.signal });
     const anchor = this.uiPreferences.chatAnchor;
     const beforeSeq = anchor && !anchor.pinnedToBottom
       ? Math.min(Number.MAX_SAFE_INTEGER, anchor.seq + 101)
       : undefined;
-    const initialPage = await loadHistoryPage(session, { limit: 200, ...(beforeSeq ? { beforeSeq } : {}), signal: runtime.signal });
+    const loadVisibleHistory = async () => {
+      const initialPage = await loadHistoryPage(session, { limit: 200, ...(beforeSeq ? { beforeSeq } : {}), signal: runtime.signal });
+      const pages = [initialPage];
+      let page = initialPage;
+      let historyHasMore = page.length >= 200 && Math.min(...page.map(message => message.seq)) > 1;
+      // Reaction/gallery events share the encrypted stream. An all-hidden tail
+      // has no scrollbar, so fill backwards until there is a chat row to show.
+      while (historyHasMore && !page.some(message => message.payload.kind !== 'gallery-image' && message.payload.kind !== 'gallery-file'
+        && message.payload.kind !== 'reaction' && message.payload.kind !== 'message-delete' && message.payload.kind !== 'media-read' && message.payload.kind !== 'message-read')) {
+        page = await loadHistoryPage(session, { limit: 200, beforeSeq: Math.min(...page.map(message => message.seq)), signal: runtime.signal });
+        pages.unshift(page);
+        historyHasMore = page.length >= 200 && Math.min(...page.map(message => message.seq)) > 1;
+      }
+      return { cached: pages.flat(), historyHasMore };
+    };
+    const [{ cached, historyHasMore }, messageEvents, outbox, pendingReceipts, uploadPlans] = await Promise.all([
+      loadVisibleHistory(),
+      loadMessageEventHistory(session, { signal: runtime.signal, reuseVerifiedPages: true }),
+      loadOutbox(session),
+      loadPendingReceipts(session),
+      loadUploadPlans(session),
+    ]);
     if (!runtime.isCurrent()) return;
-    const pages = [initialPage];
-    let page = initialPage;
-    let historyHasMore = page.length >= 200 && Math.min(...page.map(message => message.seq)) > 1;
-    // Reaction/gallery events share the encrypted stream. An all-hidden tail
-    // has no scrollbar, so fill backwards until there is a chat row to show.
-    while (historyHasMore && !page.some(message => message.payload.kind !== 'gallery-image' && message.payload.kind !== 'gallery-file'
-      && message.payload.kind !== 'reaction' && message.payload.kind !== 'message-delete' && message.payload.kind !== 'media-read' && message.payload.kind !== 'message-read')) {
-      page = await loadHistoryPage(session, { limit: 200, beforeSeq: Math.min(...page.map(message => message.seq)), signal: runtime.signal });
-      if (!runtime.isCurrent()) return;
-      pages.unshift(page);
-      historyHasMore = page.length >= 200 && Math.min(...page.map(message => message.seq)) > 1;
-    }
-    const cached = pages.flat();
     this.messages = new Map(cached.map((message) => [message.seq, {
       ...message,
       status: message.status === 'sent'
@@ -5017,13 +5024,6 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     this.historyHasNewer = this.historyForwardCursor < session.vault.lastSeq;
     let contiguousSeq = session.vault.historyUnavailableBeforeSeq ?? 0;
     while (this.messages.has(contiguousSeq + 1)) contiguousSeq += 1;
-    const [outbox, pendingReceipts, uploadPlans, messageEvents] = await Promise.all([
-      loadOutbox(session),
-      loadPendingReceipts(session),
-      loadUploadPlans(session),
-      messageEventsPromise,
-    ]);
-    if (!runtime.isCurrent()) return;
     // Same-browser replacement retains encrypted local records. Old-device
     // ciphertext/receipts must stay durable without being replayed as this identity.
     const ownId = session.vault.identity.publicBundle.deviceId;
@@ -6154,7 +6154,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     await withVaultMutation(session, async (mutation) => {
       if (this.isRuntimeActive(epoch, session)) await this.drainServerQueueLocked(requestMore, mutation);
     });
-    if (this.isRuntimeActive(epoch, session)) await this.drainReceiptQueue();
+    if (this.isRuntimeActive(epoch, session) && this.receiptQueue.size) await this.drainReceiptQueue();
   }
 
   private async drainServerQueueLocked(requestMore: boolean, mutation: VaultMutation, throughSeq = Number.MAX_SAFE_INTEGER): Promise<void> {
@@ -6304,6 +6304,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (!session || this.privacyCovered || this.receiptDraining) return;
     const epoch = this.runtimeEpoch;
     this.receiptDraining = true;
+    let visibleStatusChanged = false;
     try {
       let expected = (session.vault.lastReceiptSeq ?? 0) + 1;
       while (this.receiptQueue.has(expected)) {
@@ -6359,6 +6360,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           if (this.isOwnMessage(message)) {
             message.status = 'delivered';
             await saveHistoryMessage(session, message, mutation);
+            if (this.messages.has(message.seq)) visibleStatusChanged = true;
           }
           if (!this.isRuntimeActive(epoch, session)) return;
           const previousReceiptSeq = session.vault.lastReceiptSeq ?? 0;
@@ -6378,7 +6380,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         }
       }
       if (!this.isRuntimeActive(epoch, session)) return;
-      this.renderMessages();
+      if (visibleStatusChanged) this.renderMessages();
       if (requestMore || [...this.receiptQueue.keys()].some((seq) => seq > (session.vault.lastReceiptSeq ?? 0) + 1)) {
         this.socket?.requestReceiptSync(session.vault.lastReceiptSeq ?? 0);
       }
@@ -11341,6 +11343,11 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       return;
     }
     this.replyTarget = message;
+    if (this.desktopBrowser) {
+      // Hand the pixels back before the composer measures and moves the list.
+      this.root.querySelector('.message-actions .message-action-preview')?.remove();
+      this.root.querySelector('.message.is-action-preview-ready')?.classList.remove('is-action-preview-ready');
+    }
     this.closeMessageActions();
     this.renderReplyDraft();
     this.restoreComposerFocus();

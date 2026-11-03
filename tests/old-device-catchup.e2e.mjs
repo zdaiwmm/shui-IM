@@ -6,8 +6,8 @@ import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
 import { startServer } from '../server/index.mjs';
 
-// Real independent keys, MLS, HTTP/WS and encrypted IDB. Only presentation is
-// omitted; the returning endpoint must consume every retained record once.
+// Real independent keys, MLS, HTTP/WS and encrypted IDB. Presentation is
+// enabled on the returning endpoint so entry, typing and the backlog share the real timeline.
 for (const engine of [chromium, webkit]) {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'qr-old-device-'));
   let backend, vite, browser;
@@ -124,8 +124,34 @@ for (const engine of [chromium, webkit]) {
       }
     }
     const tail = backend.store.roomState(room.roomId).nextSeq;
-    await old.evaluate(() => app.connectSocket());
+    await old.evaluate(async tail => {
+      await import('/src/styles.css'); await import('/src/chat-layout.css');
+      delete app.renderMessages;
+      window.entryStart = performance.now();
+      await app.openSession();
+      const first = document.querySelector('#message-list .message');
+      if (!first) throw Error('First local message unavailable at chat entry');
+      window.firstRowMs = performance.now() - entryStart;
+      await new Promise((resolve, reject) => {
+        const sample = () => {
+          const seq = app.session.vault.lastSeq;
+          if (seq >= tail || performance.now() - entryStart > 30000) return reject(Error('Did not observe partial catch-up'));
+          if (seq > 1) resolve(); else requestAnimationFrame(sample);
+        };
+        sample();
+      });
+      const input = document.querySelector('#message-input');
+      input.value = 'synthetic local draft';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }, tail);
     await caughtUp(old, tail);
+    await old.waitForFunction(seq => {
+      const id = app.messages.get(seq)?.clientMsgId;
+      return id && document.querySelector(`.message[data-client-msg-id="${id}"]`);
+    }, tail);
+    const entry = await old.evaluate(() => ({ firstRowMs, finalRowMs: performance.now() - entryStart, draft: document.querySelector('#message-input').value }));
+    assert.equal(entry.draft, 'synthetic local draft');
+    console.log(`ENTRY ${engine.name()}: first local row ${Math.round(entry.firstRowMs)} ms, backlog visible ${Math.round(entry.finalRowMs)} ms`);
     const result = await old.evaluate(async () => {
       const rows = []; let cursor = 0;
       while (true) {

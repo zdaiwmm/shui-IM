@@ -2237,14 +2237,13 @@ async function loadHistoryRecordsAfter(
   const records = await new Promise<StoredHistory[]>((resolve, reject) => {
     const tx = database.transaction(storeName, 'readonly');
     const index = tx.objectStore(storeName).index('roomSeq');
-    const request = index.openCursor(
+    const request = index.getAll(
       IDBKeyRange.bound(
         [localDataScope(session.vault), lower],
         [localDataScope(session.vault), Number.MAX_SAFE_INTEGER],
       ),
-      'next',
+      boundedLimit,
     );
-    const collected: StoredHistory[] = [];
     const abort = () => { try { tx.abort(); } catch { /* The readonly transaction has already finished. */ } };
     const release = () => {
       signal?.removeEventListener('abort', abort);
@@ -2252,17 +2251,11 @@ async function loadHistoryRecordsAfter(
     };
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) abort();
-    request.onsuccess = () => {
-      const cursor = request.result;
-      if (!cursor || collected.length >= boundedLimit) return;
-      collected.push(cursor.value as StoredHistory);
-      cursor.continue();
-    };
     tx.onabort = () => { release(); reject(signal?.reason ?? tx.error ?? new DOMException('History scan aborted', 'AbortError')); };
     tx.onerror = () => { release(); reject(tx.error); };
     tx.oncomplete = () => {
       release();
-      resolve(collected);
+      resolve(request.result as StoredHistory[]);
     };
   });
   signal?.throwIfAborted();
@@ -2271,6 +2264,61 @@ async function loadHistoryRecordsAfter(
 
 export class HistoryIntegrityError extends Error {}
 
+function isProjectionEvent(message: DecryptedMessage): boolean {
+  return ['reaction', 'message-delete', 'media-read', 'message-read'].includes(message.payload?.kind) && isMessagePayload(message.payload);
+}
+
+type HistoryStore = 'galleryHistory' | 'restoredGallery' | 'history';
+type ProjectionRow = {
+  seq: number;
+  clientMsgId: string;
+  record: StoredHistory;
+  message?: DecryptedMessage;
+  event: boolean;
+};
+
+async function readProjectionPage(session: VaultSession, store: HistoryStore, records: StoredHistory[],
+  signal: AbortSignal | undefined, cache: boolean): Promise<ProjectionRow[]> {
+  // Bind the encrypted event positions to every input byte and its location.
+  // Limit scratch space for unusually large pages; they use strict verification.
+  const useProof = cache && records.reduce((bytes, row) => bytes + row.ciphertext.length, 0) <= 4 * 1024 * 1024;
+  const id = `history-proof-v1:${store}:${records[0]!.seq}`;
+  const scopedId = `${localDataScope(session.vault)}:${id}`;
+  let digest = '';
+  let positions: string | undefined;
+  if (useProof) {
+    const bytes = encoder.encode(JSON.stringify(records.map(row => [row.roomId, row.seq, row.iv, row.ciphertext])));
+    digest = toBase64Url(await crypto.subtle.digest('SHA-256', bytes));
+    const proof = await transaction<StoredLocalRecord | undefined>('preferences', 'readonly', s => s.get(scopedId));
+    if (proof?.id === scopedId) {
+      try {
+        const saved = await decryptLocalRecord<{ digest: string; events: string }>(session, 'preferences', proof);
+        if (saved.digest === digest && saved.events?.length === records.length && /^[01]+$/.test(saved.events)) positions = saved.events;
+      } catch { /* An unreadable optional proof falls back to strict verification. */ }
+    }
+  }
+  const selected = positions ? records.filter((_, index) => positions![index] === '1') : records;
+  const messages = await decryptHistoryRecords(session, selected, signal, { strict: true });
+  const verified = new Map<number, DecryptedMessage>();
+  messages.forEach((message, index) => {
+    if (message.seq !== selected[index]!.seq) throw new HistoryIntegrityError(uiLiteral('本机加密历史记录序号存在冲突'));
+    verified.set(message.seq, message);
+  });
+  const rows = records.map(record => {
+    const message = verified.get(record.seq);
+    return { seq: record.seq, clientMsgId: message?.clientMsgId ?? '', record, message, event: !!message && isProjectionEvent(message) };
+  });
+  if (useProof && !positions) {
+    signal?.throwIfAborted();
+    const proof = await encryptLocalRecord(session, 'preferences', id, { digest, events: rows.map(row => row.event ? '1' : '0').join('') });
+    signal?.throwIfAborted();
+    // Optional acceleration must never prevent a verified page from opening on a full disk.
+    await transaction('preferences', 'readwrite', s => s.put(proof), session.stored).catch(() => undefined);
+  }
+  signal?.throwIfAborted();
+  return rows;
+}
+
 /**
  * Rebuild timeline projection events beyond the visible history page without
  * a plaintext index. All ciphertext is strictly verified, including paged-out ordinary rows;
@@ -2278,13 +2326,13 @@ export class HistoryIntegrityError extends Error {}
  */
 export async function loadMessageEventHistory(
   session: VaultSession,
-  { signal, mutation }: { signal?: AbortSignal; mutation?: VaultMutation } = {},
+  { signal, mutation, reuseVerifiedPages = false }: { signal?: AbortSignal; mutation?: VaultMutation; reuseVerifiedPages?: boolean } = {},
 ): Promise<DecryptedMessage[]> {
   if (mutation && !ownsVaultMutation(session, mutation)) throw new Error(uiLiteral('历史快照读取必须使用当前保险库事务'));
   if (session.stored && !mutation) {
     // Snapshot acquisition joins the existing lifecycle queue. Capturing a
     // version outside this lock races a normal same-session atomic commit.
-    return withVaultMutation(session, held => loadMessageEventHistory(session, { signal, mutation: held }));
+    return withVaultMutation(session, held => loadMessageEventHistory(session, { signal, mutation: held, reuseVerifiedPages }));
   }
   const expectedStored = session.stored;
   const assertCurrent = async () => {
@@ -2298,41 +2346,41 @@ export async function loadMessageEventHistory(
   const coverage = Number.isSafeInteger(throughSeq) && throughSeq >= boundary;
   let expected = boundary + 1;
   const missing = () => { throw new HistoryIntegrityError(uiTemplate`本机加密历史记录 ${expected} 缺失，已停止显示以避免撤回内容重新出现`); };
-  async function* stream(storeName: 'history' | 'galleryHistory' | 'restoredGallery') {
+  async function* stream(storeName: HistoryStore) {
     let afterSeq = 0;
     for (;;) {
       signal?.throwIfAborted();
       const records = await loadHistoryRecordsAfter(session, { limit: 200, afterSeq, signal }, storeName);
       if (!records.length) return;
-      const page = await decryptHistoryRecords(session, records, signal, { strict: true });
-      for (let index = 0; index < records.length; index++) {
-        const record = records[index]!;
-        const message = page[index]!;
-        if (!Number.isSafeInteger(record.seq) || record.seq <= afterSeq || message.seq !== record.seq) {
-          throw new Error(uiLiteral('本机加密历史记录序号存在冲突'));
-        }
-        afterSeq = record.seq;
-        yield message;
+      const rows = await readProjectionPage(session, storeName, records, signal, reuseVerifiedPages && !!session.stored);
+      for (const row of rows) {
+        if (!Number.isSafeInteger(row.seq) || row.seq <= afterSeq) throw new HistoryIntegrityError(uiLiteral('本机加密历史记录序号存在冲突'));
+        afterSeq = row.seq;
+        yield row;
       }
       if (records.length < 200) return;
     }
   }
-  const events = await mergeHistoryProjection(
-    ['galleryHistory', 'restoredGallery', 'history'].map(name => stream(name as 'history' | 'galleryHistory' | 'restoredGallery')),
-    { signal, same: sameHistoryMessage,
-      event: message => ['reaction', 'message-delete', 'media-read', 'message-read'].includes(message.payload?.kind) && isMessagePayload(message.payload),
-      live: message => {
-        if (!coverage || message.seq <= boundary || message.seq > throughSeq) return;
-        while (expected < message.seq && expiredMessage(session.vault, expected)) expected++;
-        if (message.seq !== expected) missing();
-        expected++;
-      },
+  const materialize = async (row: ProjectionRow) =>
+    row.message ?? (await decryptHistoryRecords(session, [row.record], signal, { strict: true }))[0]!;
+  const stores: HistoryStore[] = ['galleryHistory', 'restoredGallery', 'history'];
+  const events = await mergeHistoryProjection(stores.map(stream), {
+    same: async (a, b) => {
+      if (a.record.iv === b.record.iv && a.record.ciphertext === b.record.ciphertext && a.record.roomId === b.record.roomId) return true;
+      return sameHistoryMessage(await materialize(a), await materialize(b));
     },
-  );
+    event: row => row.event,
+    live: message => {
+      if (!coverage || message.seq <= boundary || message.seq > throughSeq) return;
+      while (expected < message.seq && expiredMessage(session.vault, expected)) expected++;
+      if (message.seq !== expected) missing();
+      expected++;
+    },
+  });
   while (coverage && expected <= throughSeq && expiredMessage(session.vault, expected)) expected++;
   if (coverage && expected <= throughSeq) missing();
   await assertCurrent();
-  return events;
+  return events.map(row => row.message!);
 }
 
 /** Backward-compatible narrow reader used by reaction-specific diagnostics. */
@@ -2443,7 +2491,7 @@ async function decryptHistoryRecords(
   { strict = false }: { strict?: boolean } = {},
 ): Promise<DecryptedMessage[]> {
   const messages: DecryptedMessage[] = [];
-  for (const record of records) {
+  const decrypt = async (record: StoredHistory) => {
     signal?.throwIfAborted();
     try {
       const additionalData = encoder.encode(`quiet-room-history-v1:${record.roomId}:${record.seq}`);
@@ -2452,14 +2500,19 @@ async function decryptHistoryRecords(
         session.key,
         fromBase64Url(record.ciphertext),
       );
-      messages.push(JSON.parse(decoder.decode(plaintext)) as DecryptedMessage);
+      const message: DecryptedMessage = JSON.parse(decoder.decode(plaintext));
+      if (!message || typeof message !== 'object') throw new Error();
+      return message;
     } catch {
       if (strict) throw new HistoryIntegrityError(uiTemplate`本机加密历史记录 ${record.seq} 已损坏，已停止显示以避免撤回内容重新出现`);
-      // Ordinary bounded history pages may omit a damaged cache row. The
-      // strict full projection scan above still blocks every chat/Safe first
-      // frame because encrypted payload kind cannot reveal whether it was a
-      // deletion tombstone.
+      return undefined;
     }
+  };
+  // Independent local AES-GCM records can be opened together. Bound the
+  // live plaintext and check cancellation between submissions and batches.
+  for (let start = 0; start < records.length; start += 8) {
+    const batch = await Promise.all(records.slice(start, start + 8).map(decrypt));
+    for (const message of batch) if (message) messages.push(message);
   }
   signal?.throwIfAborted();
   return messages;
