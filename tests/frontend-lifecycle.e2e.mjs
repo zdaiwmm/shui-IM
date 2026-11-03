@@ -2615,9 +2615,32 @@ try {
       samples.push({ width, height, positions, wheelFrames: 32, hoverQuickReply: false });
     }
     await desktopPage.locator('.message.incoming').last().click({ button: 'right' });
+    await desktopPage.locator('.message.is-action-preview-ready').waitFor({ state: 'attached' });
+    await desktopPage.evaluate(() => {
+      const source = document.querySelector('.message.is-action-preview-ready');
+      const bubble = source.querySelector('.message-bubble');
+      const previous = source.previousElementSibling.querySelector('.message-bubble');
+      const gap = () => bubble.getBoundingClientRect().top - previous.getBoundingClientRect().top;
+      const initial = gap();
+      const startTop = bubble.getBoundingClientRect().top;
+      window.replyFrames = new Promise(resolve => {
+        document.querySelector('[data-message-action="reply"]').addEventListener('click', () => {
+          const frames = [];
+          const sample = () => {
+            frames.push({ travel: bubble.getBoundingClientRect().top - startTop, drift: Math.abs(gap() - initial), visible: getComputedStyle(bubble).visibility === 'visible',
+              overlay: !!document.querySelector('.message-action-preview') });
+            if (frames.length >= 20) resolve(frames); else requestAnimationFrame(sample);
+          };
+          sample();
+        }, { once: true });
+      });
+    });
     await desktopPage.locator('[data-message-action="reply"]').click();
     await desktopPage.locator('#reply-draft').waitFor({ state: 'visible' });
     assert.equal(await desktopPage.evaluate(() => window.regression.app.replyTarget?.clientMsgId), 'message-120');
+    const frames = await desktopPage.evaluate(() => window.replyFrames);
+    assert.ok(frames.some(frame => Math.abs(frame.travel) > 1), 'Reply bar must move the timeline in the desktop fixture');
+    assert.ok(frames.every(frame => frame.visible && !frame.overlay && frame.drift <= 1), JSON.stringify(frames));
     results.desktopPaneScroll = { desktopIdentity: true, samples, contextMenuReply: true };
   } finally { await desktopPage.close(); }
   if (process.env.QUIET_ROOM_TIMELINE_PERF === '1') {

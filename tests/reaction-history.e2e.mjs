@@ -15,15 +15,16 @@ try {
   await page.goto(`http://localhost:${server.httpServer.address().port}/__reaction_history`);
   const result = await page.evaluate(async () => {
     const importBrowser = new Function('path', 'return import(path)');
-    const { loadHistoryPageAfter, loadReactionHistory } = await importBrowser('/src/lib/vault.ts');
+    const { createVault, loadHistoryPageAfter, loadReactionHistory, loadMessageEventHistory } = await importBrowser('/src/lib/vault.ts');
     const { reduceMessageReactions } = await importBrowser('/src/lib/reactions.ts');
     const { toBase64Url } = await importBrowser('/src/lib/base64.ts');
     const roomId = crypto.randomUUID();
     const senderId = crypto.randomUUID();
     const targetId = crypto.randomUUID();
     const sentAt = '2026-09-04T10:00:00.000Z';
-    const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-    const session = { vault: { roomId }, key };
+    const session = await createVault({ v: 1, roomId, role: 'creator', accessToken: 'test', protocol: 'legacy-v1',
+      lastSeq: 450, members: [], identity: { publicBundle: { deviceId: senderId } } }, 'synthetic-page-proof-password', 'password');
+    const key = session.key;
     const target = { seq: 1, senderId, clientMsgId: targetId, status: 'stored', acceptedAt: sentAt, payload: { v: 1, kind: 'text', text: 'old target', sentAt } };
     // Initialize the real production database schema before inserting fixtures.
     await loadHistoryPageAfter(session);
@@ -91,17 +92,38 @@ try {
       operations(tx); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
     });
     await mutate(tx => { tx.objectStore('galleryHistory').put(validRecords[4]); tx.objectStore('restoredGallery').put(validRecords[404]); });
+    const scan = () => loadMessageEventHistory(session, { reuseVerifiedPages: true });
+    const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+    let opened = 0;
+    Object.defineProperty(crypto.subtle, 'decrypt', { configurable: true, value: (...args) => {
+      if (new TextDecoder().decode(args[0].additionalData).startsWith('quiet-room-history-v1:')) opened++;
+      return decrypt(...args);
+    } });
+    const coldAt = performance.now();
+    const first = await scan();
+    const coldMs = performance.now() - coldAt, coldRows = opened;
+    opened = 0;
+    const warmAt = performance.now();
+    const second = await scan();
+    const warmMs = performance.now() - warmAt, warmRows = opened;
+    delete crypto.subtle.decrypt;
+    if (JSON.stringify(first) !== JSON.stringify(second) || coldRows < 450 || warmRows > 4) throw Error('Invalid projection proof reuse');
+    await mutate(tx => tx.objectStore('history').put({ ...validRecords[90], ciphertext: 'damaged' }));
+    let damagedClosed = false;
+    try { await scan(); } catch (error) { damagedClosed = error.message.includes('已损坏'); }
+    if (!damagedClosed) throw Error('Verified page hid a changed ciphertext');
+    await mutate(tx => tx.objectStore('history').put(validRecords[90]));
     const duplicated = await loadReactionHistory(session);
     const conflict = { ...target, payload: { ...target.payload, text: 'conflicting restored body' } };
     const conflictIv = crypto.getRandomValues(new Uint8Array(12));
     const conflictCipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: conflictIv, additionalData: encoder.encode(`quiet-room-history-v1:${roomId}:1`) }, key, encoder.encode(JSON.stringify(conflict)));
     await mutate(tx => tx.objectStore('galleryHistory').put({ ...validRecords[0], iv: toBase64Url(conflictIv), ciphertext: toBase64Url(conflictCipher) }));
     let conflictClosed = false;
-    try { await loadReactionHistory(session); } catch (error) { conflictClosed = error.message.includes('冲突'); }
+    try { await scan(); } catch (error) { conflictClosed = error.message.includes('冲突'); }
     await mutate(tx => { tx.objectStore('galleryHistory').delete(`${roomId}:1`); tx.objectStore('history').delete(`${roomId}:300`); });
     session.vault.lastSeq = 450;
     let missingClosed = false;
-    try { await loadReactionHistory(session); } catch (error) { missingClosed = error.message.includes('300 缺失'); }
+    try { await scan(); } catch (error) { missingClosed = error.message.includes('300 缺失'); }
     await mutate(tx => { tx.objectStore('history').put(validRecords[299]); tx.objectStore('galleryHistory').clear(); tx.objectStore('restoredGallery').clear(); });
     copiesDb.close();
 
@@ -118,6 +140,7 @@ try {
     catch (error) { abortName = error.name; }
     finally { Object.defineProperty(crypto.subtle, 'decrypt', { configurable: true, value: originalDecrypt }); }
     return {
+      timings: { coldMs, warmMs, coldRows, warmRows },
       duplicateEvents: duplicated.length,
       conflictClosed,
       missingClosed,
@@ -129,6 +152,8 @@ try {
       decryptions,
     };
   });
+  console.log('Projection benchmark (ms / history decryptions)', result.timings);
+  delete result.timings;
   assert.deepEqual(result, {
     duplicateEvents: 2,
     conflictClosed: true,
