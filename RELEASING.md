@@ -1,5 +1,21 @@
 # Quiet Room 固定发布流程
 
+## 聊天首条未读、输入性能和东京访客统计（2026-11-03）
+<a id="release-chat-unread-dual-20261103"></a>
+
+用户确认将 `2026.11.03.6`、`b56e277e61f7403d0ea9178d3c7aa42ff7a1ffcd` 发布至两个环境。[未读定位 PR #497](https://github.com/zdaiwmm/shui-IM/pull/497) 的候选与合并提交树一致。最终本地构建、1,279 项测试和 92 个浏览器脚本通过。[主线 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/41644846028/attempts/2) 第二轮完整通过，首轮在消息回应动画专项失败。
+
+| 环境 | 上一版 | 发布批次（UTC） | 独立回读完成（北京时间） |
+| --- | --- | --- | --- |
+| production / ai.shui.click | 2026.11.03.3 | 20261103T141009Z | 22:14:28 |
+| tokyo-public / mijiu.cloud | 2026.11.03.3 | 20261103T141535Z | 22:22:39 |
+
+两站各执行一次固定入口并校验冷备份，均获得 DEPLOY_VERIFIED 和独立 READBACK_OK。线上 SHA 相同，使用同轮 amd64 镜像产物 13235932264。应用及备份健康、维护门解除，HTTPS、数据库、存储、公开资源和新建 WebSocket 均通过。脱敏回执保存在公共 Git 目录 `quiet-room-deliveries/evidence/chat-entry-first-unread-20261103/`。
+
+两站从 .3 直升 .6，同时纳入 [iPhone 输入与发送响应 #495](https://github.com/zdaiwmm/shui-IM/pull/495)、[按站点隔离访客统计 #496](https://github.com/zdaiwmm/shui-IM/pull/496) 和首条未读。东京已设置两个专属安装值。以隔离浏览器打开线上访客页，主站运行时接口返回空脚本、SDK 请求为零；东京运行时和 SDK 各加载一次，观测到一次 PageView 请求，测试请求在发出前拦截。未验证 Lead 后台收数或 iPhone 真机体验。
+
+按 GitHub 合并日期核对 10 月 28 日至 11 月 3 日的 54 个 PR，合并提交全部属于本次发布的历史。11 月 2–3 日核查的 18 个近期任务工作树均干净。旧 #460 的离线续发修复由 #465 交付，#463 为历史文档。后台双域名迁移仍待单独运维验收。此次主站后台开启、东京后台关闭，admin.shui.click 在核验端无法解析，admin.mijiu.cloud HTTPS 返回 200。
+
 ## 故障编号与用户反馈已发布到两个环境（2026-11-03）
 <a id="release-fault-feedback-20261103"></a>
 
