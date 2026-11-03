@@ -665,3 +665,7 @@ helper separately using the atomic procedure above; `--describe` reports
 `expectedPreviousProtocol:1`. Ordinary three-argument publishers remain compatible.
 The production workflow never installs its own privileged helper or changes RAM policies.
 Its doctor mode verifies the actual RunCommand/DescribeInvocationResult permission before deployment.
+
+### Optional Tokyo visitor pixel
+
+Set `LEAD_PIXEL_CONNECTION` and `LEAD_PIXEL_KEY` together in the Tokyo deployment’s private `shared/production.env`. Leave both unset on ai.shui.click. Compose passes the pair only to the application service. The server validates the pair at startup and serves the browser bootstrap only for the mijiu.cloud host. The shared frontend build contains neither value. Removing the pair and recreating the application service disables collection at the next document load.

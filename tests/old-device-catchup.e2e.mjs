@@ -192,6 +192,9 @@ for (const engine of [chromium, webkit]) {
     });
     await old.evaluate(() => app.connectSocket());
     await caughtUp(old, retryTail);
+    // lastSeq is staged before commitMlsReceive finishes. The receiver only
+    // publishes the row to messages after that transaction has committed.
+    await old.waitForFunction(seq => app.messages.has(seq), retryTail, { timeout: 60_000 });
     assert.equal(networkFailed, true);
     const retried = await old.evaluate(async tail => {
       const rows = await v.loadHistoryPageAfter(app.session, { afterSeq: 0, limit: 200 });
