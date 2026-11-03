@@ -1,5 +1,19 @@
 # Quiet Room 固定发布流程
 
+## 故障编号与用户反馈已发布到两个环境（2026-11-03）
+<a id="release-fault-feedback-20261103"></a>
+
+用户在本聊天确认将 `60882de7a9eb2c6572784b28c2f52ff0a44ff6b2` 发布到 ai.shui.click 和 mijiu.cloud。版本为 `2026.11.03.3`。[应用 PR #493](https://github.com/zdaiwmm/shui-IM/pull/493) 已合并，[精确主线 CI 41621486153](https://github.com/zdaiwmm/shui-IM/actions/runs/41621486153) 首轮完整通过。
+
+| 环境 | 发布批次（UTC） | 独立回读完成（UTC） | 合成编号查询 |
+| --- | --- | --- | --- |
+| production / ai.shui.click | 20261103T114034Z | 11:44:49.659 | 本站 3/3 命中，东京编号 0/3 命中 |
+| tokyo-public / mijiu.cloud | 20261103T114733Z | 11:55:05.493 | 本站 3/3 命中，主站编号 0/3 命中 |
+
+主站首轮下载 CI 镜像时连接重置，尚未进入服务器切换。分段下载的认证产物 13224381095 共 212561714 字节，完整 SHA-256 与 GitHub 摘要一致。两站通过固定入口分别校验相同镜像，各完成一次实际切换、冷备份校验并取得精确 DEPLOY_VERIFIED。独立 READBACK_OK 核对线上提交、镜像、维护门、容器、HTTPS、数据库、存储、公开资源与新建 WebSocket。
+
+专项通过各站公网同源接口提交三条合成浏览器故障，再从各站运行中的容器使用只读运维入口按编号核对。两站均返回读取本机设置、写入本机加密待发箱、读取所选文件这三个具体步骤，原因码及前后端版本一致。交叉查询的六次结果均为 FAULT_NOT_FOUND。生产专项未触发真实用户故障或额外重启，真实业务入口注入故障及重启持久性证据见[需求记录](docs/requirements/2026-11-03-fault-feedback/README.md)。脱敏回执存于公共 Git 目录的 quiet-room-deliveries/evidence/fault-feedback-20261103/release.json。
+
 ## 本人设备加入中断后的发送恢复（两环境，2026-11-03）
 <a id="release-device-add-send-recovery"></a>
 
