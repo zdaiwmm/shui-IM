@@ -4100,7 +4100,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if(!session?.vault.roomArchiveV2||session.vault.pairingState!=='ready'||this.ownDeviceAdmissionBusy||this.privacyCovered||document.hidden)return;
     const epoch=this.runtimeEpoch,ownId=session.vault.identity.publicBundle.deviceId;const active=()=>this.isRuntimeActive(epoch,session)&&!document.hidden;this.ownDeviceAdmissionBusy=true;
     try{for(const pending of [...(session.vault.pendingDeviceLinks??[])]){
-      if(!pending.admissionSecret)continue;
+      if(!pending.admissionSecret || Date.parse(pending.expiresAt)<=Date.now())continue;
       const status=await getDeviceLinkStatus(pending.linkId,pending.secret,session.vault.accessToken,this.runtimeAbort?.signal);
       if(!active()||!status.link.claimedDeviceId)continue;
       const target=status.state.members.find(member=>member.deviceId===status.link.claimedDeviceId);
@@ -6102,9 +6102,48 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     // Network waits must not hold the vault lease: local intents and drafts can
     // still commit. Lock/identity changes cancel the bounded transport wait.
     const signal = AbortSignal.any([...(this.runtimeAbort ? [this.runtimeAbort.signal] : []), AbortSignal.timeout(15_000)]);
-    const state = await getRoomState(session.vault.roomId, session.vault.accessToken, signal);
+    const event = session.vault.mls.pendingMembership?.event;
+    const ownId = session.vault.identity.publicBundle.deviceId;
+    const checkedDeviceAddId = event?.action === 'add' && !event.personalAccess && !event.browserAccess &&
+      event.senderId === ownId && event.roomId === session.vault.roomId && event.target?.addedBy === ownId &&
+      event.target.deviceId === event.targetId && event.target.role === session.vault.role ? event.eventId : undefined;
+    const state = checkedDeviceAddId
+      ? (await listDeviceLinks(session.vault.roomId, session.vault.accessToken, signal)).state
+      : await getRoomState(session.vault.roomId, session.vault.accessToken, signal);
     if (!this.isRuntimeActive(epoch, session)) return;
-    await withVaultMutation(session, async mutation => { if(this.isRuntimeActive(epoch,session))await this.applyRoomState(state, mutation); });
+    await withVaultMutation(session, async mutation => {
+      if (!this.isRuntimeActive(epoch, session)) return;
+      await this.applyRoomState(state, mutation);
+      const mls = session.vault.mls, pending = mls?.pendingMembership;
+      if (!this.isRuntimeActive(epoch, session) || !checkedDeviceAddId || !mls ||
+          pending?.event.eventId !== checkedDeviceAddId || !pending.event.target) return;
+
+      // A lost response may already have committed the Add. Only reconcile
+      // against a complete, current chain after processing its signed events.
+      const target = pending.event.target;
+      if (state.nextMlsEventSeq !== (mls.lastEventSeq ?? 0) ||
+          state.nextMlsEventSeq < pending.event.previousEventSeq ||
+          state.mlsEvents?.length !== state.nextMlsEventSeq ||
+          !state.mlsEvents.every((entry, index) => entry.eventSeq === index + 1 &&
+            entry.event.eventId !== checkedDeviceAddId && entry.event.targetId !== target.deviceId) ||
+          state.members.some(member => member.deviceId === target.deviceId)) return;
+
+      // Device-link reads atomically expire reservations before the snapshot.
+      // Also verify expiry locally. A newer link may have pruned the old
+      // secret; a claimed link cannot outlive 15 minutes after target creation
+      // (the server's maximum lifetime starts before the claim).
+      let expired = Date.parse(target.createdAt ?? '') + 15 * 60_000 <= Date.now();
+      for (const link of session.vault.pendingDeviceLinks ?? []) {
+        if (expired) break;
+        if (link.admissionSecret && Date.parse(link.expiresAt) <= Date.now() && target.joinProof) {
+          expired = await verifyJoinProof(link.admissionSecret, memberBundle(target), target.joinProof);
+        }
+      }
+      if (!expired || !this.isRuntimeActive(epoch, session)) return;
+      mls.pendingMembership = undefined;
+      try { await saveVault(session, mutation); }
+      catch (cause) { mls.pendingMembership = pending; throw cause; }
+    });
     if (!this.isRuntimeActive(epoch, session) || !session.vault.mls) return;
     const capable = state.members.filter(m => m.status === 'active').every(m => m.capabilities?.includes(MESSAGE_WINDOW_CAPABILITY));
     if (!capable) { if (session.vault.mls.window) throw new Error(uiLiteral('请先让所有设备打开最新版')); return; }
