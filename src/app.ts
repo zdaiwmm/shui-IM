@@ -8052,7 +8052,14 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     });
     textarea.addEventListener('input', event => {
       this.composerDraftVersion += 1;
-      resizeTextarea(true, true, event instanceof InputEvent && event.isComposing);
+      // At the minimum height the live editor can detect wrapping itself.
+      // A taller editor still needs the mirror to detect intrinsic shrink.
+      const composing = event instanceof InputEvent && event.isComposing;
+      if (activeComposition || composing || this.composerHeightMotion
+        || textarea.offsetHeight !== parseFloat(getComputedStyle(textarea).minHeight)
+        || textarea.scrollHeight > textarea.clientHeight) {
+        resizeTextarea(true, true, composing);
+      }
       this.uiPreferences.composerDraft = textarea.value;
       if (this.composerCheckpoint && ownsActiveChat()) {
         try { this.composerCheckpoint.write(textarea.value); }
@@ -10271,7 +10278,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         this.flushUiPreferencesSave();
         if (retainKeyboard) this.restoreComposerFocus();
       }
-      if (this.replyTarget === replyTarget) {
+      if (replyTarget && this.replyTarget === replyTarget) {
         this.replyTarget = null;
         this.renderReplyDraft();
       }
@@ -12472,8 +12479,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       const currentYear = new Date().getFullYear();
       const sequences = new Map<string, number>();
       const appendDate = (sentAt: string) => {
-        const day = messageLocalDay(sentAt, currentYear);
-        if (day && !dateKeys.has(day.key)) {
+        const day = messageLocalDay(sentAt, currentYear, dateKeys);
+        if (day) {
           dateKeys.add(day.key);
           let separator = this.renderedMessageDates.get(day.key);
           if (!separator) {
