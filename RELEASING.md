@@ -1,5 +1,17 @@
 # Quiet Room 固定发布流程
 
+## 本人设备加入中断后的发送恢复（两环境，2026-11-03）
+<a id="release-device-add-send-recovery"></a>
+
+用户在本聊天确认将 `2026.11.03.2`（`ff60bc63846b8fdd2b1540db80ec667019f81541`）发布到两个环境。[应用 PR #492](https://github.com/zdaiwmm/shui-IM/pull/492) 对应的[精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/41614714885) 在 attempt 1 通过。两个环境分别执行一次固定入口发布，各自完成冷备份校验并取得精确 DEPLOY_VERIFIED。主站下载 CI 产物 13221072050，东京复用经校验的同一镜像。
+
+| 环境 | 发布批次（UTC） | 独立 READBACK_OK（UTC） |
+| --- | --- | --- |
+| production / ai.shui.click | 20261103T102011Z | 10:24:18.711 |
+| tokyo-public / mijiu.cloud | 20261103T102456Z | 10:32:04.864 |
+
+两次独立回读均核实目标 SHA、运行镜像、公开资源、HTTPS／数据库／存储及新建 WebSocket。应用与备份均为 healthy，维护门已解除。脱敏回执位于公共 Git 目录 `quiet-room-deliveries/evidence/device-add-send-recovery-20261103/`。[需求与自动恢复验收](docs/requirements/2026-11-03-device-add-send-recovery/README.md) 区分测试设备结果和真实用户状态。
+
 ## 多设备聊天进入与桌面回复已发布到两环境（2026-11-03）
 
 2026.11.03.1 对应应用提交 `1b4fdf9113c793bfc9e8be704363cf9b1d1375a0`。用户在本聊天确认“发布到两个环境”。[精确主线完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/41577532838) 首轮通过。production（ai.shui.click）和 tokyo-public（mijiu.cloud）各执行一次固定入口切换，均获得 DEPLOY_VERIFIED。独立 READBACK_OK 分别于 04:52:39 UTC 和 05:00:32 UTC 取得。脱敏证据位于公共 Git 目录 quiet-room-deliveries/evidence/chat-entry-reply-20261103。

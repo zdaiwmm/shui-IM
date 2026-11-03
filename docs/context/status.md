@@ -1,5 +1,9 @@
 # Quiet Room 当前状态
 
+## 两环境已上线设备加入中断后的发送恢复（2026-11-03）
+
+production 与 tokyo-public 均已发布 `2026.11.03.2` / `ff60bc63846b8fdd2b1540db80ec667019f81541`。北京时间 18:24 和 18:32 分别完成独立回读。原设备在加载新版后由正常待发流程核对旧申请。实际用户恢复结果尚未观测。[两环境回执](../../RELEASING.md#release-device-add-send-recovery)
+
 ## 多设备聊天进入与桌面回复已发布到两环境（2026-11-03）
 
 2026.11.03.1 对应应用提交 `1b4fdf9113c793bfc9e8be704363cf9b1d1375a0`。用户在本聊天确认“发布到两个环境”。[精确主线完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/41577532838) 首轮通过。production（ai.shui.click）和 tokyo-public（mijiu.cloud）各执行一次固定入口切换，均获得 DEPLOY_VERIFIED。独立 READBACK_OK 分别于 04:52:39 UTC 和 05:00:32 UTC 取得。脱敏证据位于公共 Git 目录 quiet-room-deliveries/evidence/chat-entry-reply-20261103。
