@@ -1,3 +1,4 @@
+import { clientVersion, openFaultStore } from './faults.mjs';
 import { createSocketBudget, SOCKET_LIMITS } from './socket-budget.mjs';
 import { createServer as createHttpServer } from 'node:http';
 import { createLinkPreviewService } from './link-preview.mjs';
@@ -244,6 +245,10 @@ export async function startServer(options = {}) {
     maxRoomMessageBytes: numericOption(options.maxRoomMessageBytes ?? process.env.MAX_ROOM_MESSAGE_BYTES, 512 * 1024 * 1024),
     maxTotalMessageBytes: numericOption(options.maxTotalMessageBytes ?? process.env.MAX_TOTAL_MESSAGE_BYTES, 1024 * 1024 * 1024),
   });
+  // Logging must never prevent the chat service from starting or handling an error.
+  let faults;
+  try { faults = openFaultStore(dataDir, await adminReleaseId(staticDir)); }
+  catch { console.error('Fault diagnostics unavailable'); }
   const pushService = options.pushService ?? createPushService({
     publicKey: options.vapidPublicKey,
     privateKey: options.vapidPrivateKey,
@@ -424,6 +429,7 @@ export async function startServer(options = {}) {
 
   const linkPreview = createLinkPreviewService();
   const httpServer = createHttpServer(async (request, response) => {
+    let faultStage;
     try {
       const url = new URL(request.url ?? '/', 'http://localhost');
       let pathname;
@@ -437,19 +443,29 @@ export async function startServer(options = {}) {
       if (scopedRoom && store.chamberLifecycle.closed(scopedRoom[1]) && !pathname.endsWith('/chamber-lifecycle')) throw new Error('ROOM_CLOSED');
       if (await admin(request, response, pathname)) return;
 
-      if (pathname === '/api/feedback') {
+      if (pathname === '/api/feedback' || pathname === '/api/faults') {
+        const incident = pathname === '/api/faults';
         if (request.method !== 'POST') { json(request,response,405,{code:'METHOD_NOT_ALLOWED'}); return; }
         let sameOrigin = false;
         try { const origin = new URL(request.headers.origin); sameOrigin = ['https:','http:'].includes(origin.protocol) && origin.host === request.headers.host; } catch { /* Fail closed. */ }
         if (!sameOrigin || request.headers['sec-fetch-site'] === 'cross-site' || !/^application\/json(?:;|$)/i.test(request.headers['content-type'] ?? '')) { json(request,response,403,{code:'INVALID_ORIGIN'}); return; }
-        const rate = rateLimits.take(JSON.stringify(['feedback',clientAddress(request)]),5,10*60_000);
+        const rate = rateLimits.take(JSON.stringify([incident ? 'fault' : 'feedback',clientAddress(request)]),incident ? 30 : 5,10*60_000);
         if (!rate.allowed) { response.setHeader('Retry-After',String(rate.retryAfter)); json(request,response,429,{code:'RATE_LIMITED'}); return; }
         try {
-          const body = JSON.parse((await readBody(request,32*1024)).toString('utf8'));
+          const body = JSON.parse((await readBody(request,incident ? 512 : 32*1024)).toString('utf8'));
+          if (incident) {
+            const status = faults?.client(body) ?? 503;
+            json(request,response,status,status === 200 ? {id:body.id,recorded:true} : {recorded:false});
+            return;
+          }
           store.feedback.submit(body);
           json(request,response,200,{accepted:true});
         } catch (error) {
           const code = error.message;
+          if (incident) {
+            json(request,response,error instanceof SyntaxError ? 400 : code === 'BODY_TOO_LARGE' ? 413 : 503,{recorded:false});
+            return;
+          }
           const invalid = error instanceof SyntaxError || ['INVALID_FEEDBACK','INVALID_FEEDBACK_EMAIL','INVALID_FEEDBACK_MESSAGE'].includes(code);
           const status = code === 'FEEDBACK_CAPACITY' ? 503 : code === 'FEEDBACK_CONFLICT' ? 409 : code === 'BODY_TOO_LARGE' ? 413 : invalid ? 400 : 500;
           json(request,response,status,{code: ['FEEDBACK_CAPACITY','FEEDBACK_CONFLICT','INVALID_FEEDBACK_EMAIL','INVALID_FEEDBACK_MESSAGE','BODY_TOO_LARGE'].includes(code) ? code : invalid ? 'INVALID_FEEDBACK' : 'FEEDBACK_UNAVAILABLE'});
@@ -1450,6 +1466,7 @@ export async function startServer(options = {}) {
           return;
         }
         const actor = requireActiveDevice(request, roomId);
+        faultStage = 'upload.reserve';
         const blob = store.createBlob(roomId, body.blobId, body.chunkCount, body.encryptedSize, actor.deviceId);
         json(request, response, 201, blob);
         return;
@@ -1486,6 +1503,7 @@ export async function startServer(options = {}) {
           }
           const bytes = await readBody(request, MAX_CHUNK_BYTES);
           const actor = requireActiveDevice(request, roomId);
+          faultStage = 'upload.write';
           await store.putBlobChunk(roomId, blobId, index, bytes, actor.deviceId);
           json(request, response, 200, { stored: true, index });
         } else {
@@ -1512,6 +1530,7 @@ export async function startServer(options = {}) {
         }
         const actor = requireActiveDevice(request, roomId);
         if (!allowWrite(request, response, 'blob-complete', roomId, actor.deviceId)) return;
+        faultStage = 'upload.complete';
         const completed = await store.completeBlob(roomId, blobId, actor.deviceId);
         json(request, response, 200, completed);
         return;
@@ -1545,8 +1564,10 @@ export async function startServer(options = {}) {
       response.end(bytes);
     } catch (error) {
       const [status, message, code] = normalizeError(error);
-      if (status === 500) console.error('Request failed:', error instanceof Error ? error.message : 'unknown');
-      json(request, response, status, { error: message, code });
+      const faultId = faultStage && faults?.server(faultStage,error,request.headers['x-client-release']);
+      if (faultId) response.setHeader('X-Fault-Id',faultId);
+      if (status === 500 && !faultStage) console.error('Request failed:', error instanceof Error ? error.message : 'unknown');
+      json(request, response, status, { error: message, code: faultStage && status === 500 ? 'INTERNAL_ERROR' : code });
     }
   });
 
@@ -1602,7 +1623,7 @@ export async function startServer(options = {}) {
       if (!releaseInput) { closeOverloaded(socket, true); return; }
       processing = processing.then(async () => {
         if (socket.readyState !== WebSocket.OPEN) return;
-        let rejectedClientMsgId;
+        let rejectedClientMsgId, persistingMessage = false;
         try {
           const message = JSON.parse(raw.toString());
           if (message.type === 'send' && isUuid(message.envelope?.clientMsgId)) rejectedClientMsgId = message.envelope.clientMsgId;
@@ -1640,7 +1661,7 @@ export async function startServer(options = {}) {
             const capabilitiesChanged = offeredCapabilities !== null &&
               JSON.stringify(device.capabilities ?? []) !== JSON.stringify([...new Set(offeredCapabilities)]);
             if (capabilitiesChanged) store.updateMemberCapabilities(message.roomId, device.deviceId, offeredCapabilities);
-            session = { bytePages: message.syncProtocol === 'byte-pages-v1', roomId: message.roomId, deviceId: device.deviceId, role: device.role, view: 'away',
+            session = { release: clientVersion(message.release), bytePages: message.syncProtocol === 'byte-pages-v1', roomId: message.roomId, deviceId: device.deviceId, role: device.role, view: 'away',
               ...(message.callIdentity ? { callIdentity: message.callIdentity } : {}) };
             if ((clientsByRoom.get(session.roomId)?.size ?? 0) >= maxConnectionsPerRoom) {
               socket.close(4429, 'Room connection limit exceeded');
@@ -1804,7 +1825,9 @@ export async function startServer(options = {}) {
           }
           // This authenticated transport hint conveys countability only; it is
           // never used to validate or interpret the end-to-end encrypted payload.
+          persistingMessage = true;
           const stored = store.insertMessage(session.roomId, message.envelope, message.countUnread ?? true);
+          persistingMessage = false;
           send(socket, { type: 'ack', clientMsgId: message.envelope.clientMsgId, seq: stored.seq });
           if (!stored.duplicate) {
             broadcast(session.roomId, {
@@ -1816,8 +1839,9 @@ export async function startServer(options = {}) {
             if (message.countUnread !== false) void notifyOtherDevices(session.roomId, message.envelope.senderId);
           }
         } catch (error) {
-          const [, message, code] = normalizeError(error);
-          send(socket, { type: 'error', code, message, ...(rejectedClientMsgId ? { clientMsgId: rejectedClientMsgId } : {}) });
+          const [failureStatus, message, code] = normalizeError(error);
+          const faultId = persistingMessage ? faults?.server('send.store',error,session?.release) : undefined;
+          send(socket, { type: 'error', code: persistingMessage && failureStatus === 500 ? 'INTERNAL_ERROR' : code, message, ...(faultId ? {faultId} : {}), ...(rejectedClientMsgId ? { clientMsgId: rejectedClientMsgId } : {}) });
         }
       }).finally(releaseInput);
     });
@@ -1847,9 +1871,11 @@ export async function startServer(options = {}) {
   if (!options.quiet) console.log(`Quiet Room listening on http://${host}:${resolvedPort}`);
 
   const cleanupTimer = setInterval(() => {
+    try { faults?.sweep(); } catch { console.error('Fault retention sweep failed'); }
     void store.cleanupDeletedRooms().catch(() => console.error('Deleted room file cleanup pending'));
     const cutoff = new Date(Date.now() - incompleteBlobTtlMs).toISOString();
     try {
+
       store.cleanupExpiredDeviceLinks();
       store.browserAccess.sweep();
       store.cleanupExpiredRecoveryRequests();
@@ -1894,6 +1920,7 @@ export async function startServer(options = {}) {
       await new Promise((resolve) => webSocketServer.close(resolve));
       await new Promise((resolve) => httpServer.close(resolve));
       await memes.close();
+      faults?.close();
       store.close();
     },
   };

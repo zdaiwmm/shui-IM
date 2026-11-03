@@ -12,3 +12,9 @@
 .feedback-success{margin:20vh auto 0;width:64px;height:64px;border-radius:50%;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);font-size:28px}
 [dir=rtl] .language-feedback-page,[dir=rtl] .space-drawer,[dir=rtl] .preference-content{direction:rtl}
 [dir=rtl] :is(.message-text,.message-copy-content,.space-message-preview){unicode-bidi:plaintext}
+
+.fault-notice{position:fixed;z-index:32;inset-block-start:calc(env(safe-area-inset-top) + 54px);inset-inline-end:12px;max-width:calc(100vw - 24px);padding:10px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-raised);color:var(--ink);font:14px/1.4 var(--font-ui)}
+.fault-notice code{display:block;overflow-wrap:anywhere;user-select:all}
+.fault-notice button{min-height:44px;padding-inline:8px;background:transparent;color:var(--accent);border:0}
+.privacy-obscured .fault-notice{display:none}
+.feedback-form .fault-attach input{width:20px;min-height:20px}

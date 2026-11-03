@@ -242,11 +242,12 @@ export class AdminWorkspace {
                 detail.replaceChildren(loadingState('正在读取…'));
                 const selected=item.id;detail.dataset.selected=selected;
                 try{
-                    const value=await this.c.api<{id:string;email:string;message:string;createdAt:string;readAt:string|null}>(`/feedback/${selected}`);
+                    const value=await this.c.api<{id:string;email:string;message:string;faultId?:string;createdAt:string;readAt:string|null}>(`/feedback/${selected}`);
                     if(epoch!==this.c.epoch()||detail.dataset.selected!==selected)return;
                     const title=el('h2','','反馈详情');title.tabIndex=-1;
                     const message=el('p','feedback-admin-message',value.message);message.dir='auto';
                     detail.replaceChildren(title,el('p','admin-stamp',`${value.email} · ${date(value.createdAt)}`),message);
+                    if(value.faultId)detail.append(el('p','admin-stamp','故障编号 '+value.faultId));
                     if(!value.readAt){const mark=el('button','','标记为已读');mark.addEventListener('click',async()=>{
                         mark.disabled=true;try{await this.c.api(`/feedback/${selected}/read`,'POST',{});if(epoch===this.c.epoch())await this.feedback(offset,status);}catch(error){if(epoch===this.c.epoch()){mark.disabled=false;this.c.report(error);}}
                     });detail.append(mark);}title.focus();

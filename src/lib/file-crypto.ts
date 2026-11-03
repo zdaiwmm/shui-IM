@@ -1,3 +1,4 @@
+import { atFaultStage } from './fault-report';
 import { uiLiteral, uiTemplate } from './language';
 import { VoiceNetworkError } from './voice-network';
 import { createSHA256 } from 'hash-wasm';
@@ -33,7 +34,7 @@ async function hashFile(file: File, signal?: AbortSignal): Promise<string> {
   for (let offset = 0; offset < file.size; offset += IMAGE_CHUNK_SIZE) {
     signal?.throwIfAborted();
     const end = Math.min(offset + IMAGE_CHUNK_SIZE, file.size);
-    hash.update(new Uint8Array(await file.slice(offset, end).arrayBuffer()));
+    hash.update(new Uint8Array(await atFaultStage('upload.read',file.slice(offset, end).arrayBuffer())));
   }
   signal?.throwIfAborted();
   return hash.digest('hex');
@@ -116,20 +117,20 @@ async function encryptAttachmentFile(
   const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
   const ivPrefix = fromBase64Url(plan.ivPrefix);
   if (ivPrefix.length !== 8) throw new Error(uiTemplate`${fileLabel}续传参数已损坏`);
-  await callbacks.savePlan(plan);
+  await atFaultStage('upload.plan',callbacks.savePlan(plan));
   callbacks.signal?.throwIfAborted();
   callbacks.started?.();
-  await callbacks.reserve(plan.blobId, chunkCount, plan.encryptedSize);
+  await atFaultStage('upload.reserve',callbacks.reserve(plan.blobId, chunkCount, plan.encryptedSize));
   callbacks.signal?.throwIfAborted();
-  const remote = await callbacks.status(plan.blobId);
+  const remote = await atFaultStage('upload.status',callbacks.status(plan.blobId));
   const uploaded = new Set(remote.uploadedIndexes);
   for (let index = 0; index < chunkCount; index += 1) {
     callbacks.signal?.throwIfAborted();
     const start = index * IMAGE_CHUNK_SIZE;
     const end = Math.min(start + IMAGE_CHUNK_SIZE, file.size);
-    const plaintext = new Uint8Array(await file.slice(start, end).arrayBuffer());
+    const plaintext = new Uint8Array(await atFaultStage('upload.read',file.slice(start, end).arrayBuffer()));
     if (!uploaded.has(index)) {
-      const ciphertext = await crypto.subtle.encrypt(
+      const ciphertext = await atFaultStage('upload.encrypt',crypto.subtle.encrypt(
         {
           name: 'AES-GCM',
           iv: chunkIv(ivPrefix, index),
@@ -138,13 +139,13 @@ async function encryptAttachmentFile(
         },
         key,
         plaintext,
-      );
-      await callbacks.upload(plan.blobId, index, ciphertext);
+      ));
+      await atFaultStage('upload.chunk',callbacks.upload(plan.blobId, index, ciphertext));
       callbacks.signal?.throwIfAborted();
     }
     callbacks.progress?.((index + 1) / chunkCount);
   }
-  if (!remote.completed) await callbacks.complete(plan.blobId);
+  if (!remote.completed) await atFaultStage('upload.complete',callbacks.complete(plan.blobId));
   const dimensionsResult = await dimensionsPromise;
   if ('error' in dimensionsResult) throw dimensionsResult.error;
   const { dimensions } = dimensionsResult;

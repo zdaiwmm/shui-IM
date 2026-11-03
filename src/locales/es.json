@@ -3130,5 +3130,11 @@
   "使用数字密码": "Usar un código numérico",
   "重试通行密钥": "Reintentar clave de acceso",
   "请输入邮箱地址": "Introduce tu correo electrónico",
-  "请描述你遇到的问题或建议": "Describe el problema que has encontrado o tu sugerencia"
+  "请描述你遇到的问题或建议": "Describe el problema que has encontrado o tu sugerencia",
+  "服务器已记录": "Registrado en el servidor",
+  "尚未上报": "Registro sin confirmar",
+  "复制故障编号": "Copiar código de error",
+  "复制本地诊断": "Copiar diagnóstico local",
+  "重试上报": "Reintentar envío",
+  "附上故障编号": "Adjuntar código de error"
 }
