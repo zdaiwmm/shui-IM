@@ -3137,5 +3137,11 @@
   "使用数字密码": "Use a numeric passcode",
   "重试通行密钥": "Retry passkey",
   "请输入邮箱地址": "Enter your email address",
-  "请描述你遇到的问题或建议": "Describe the problem you encountered or your suggestion"
+  "请描述你遇到的问题或建议": "Describe the problem you encountered or your suggestion",
+  "服务器已记录": "Recorded on server",
+  "尚未上报": "Report unconfirmed",
+  "复制故障编号": "Copy fault ID",
+  "复制本地诊断": "Copy local diagnostics",
+  "重试上报": "Retry report",
+  "附上故障编号": "Attach fault ID"
 }

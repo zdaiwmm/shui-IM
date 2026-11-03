@@ -2,6 +2,7 @@ import { ComposerLinkPreview, renderPreviewCard, concealLinkPreviews, revealLink
 import { LINK_PREVIEW_CAPABILITY } from './lib/link-preview-data';
 import { renderLinkedText } from './lib/web-links';
 import { uiLiteral, uiTemplate, t, currentLanguage, matchesSourceText } from './lib/language';
+import { atFaultStage, makeFault, showFaultPanel, type FaultReport, type FaultStage } from './lib/fault-report';
 import { renderLanguagePage, renderFeedbackPage } from './lib/language-feedback-ui';
 import { roomBusinessState } from './lib/room-business-state';
 import { PrivateHistoryController } from './lib/private-history-controller';
@@ -649,6 +650,20 @@ export class QuietRoomApp {
   private documentLeaving = false;
   private locking = false;
   private runtimeAbort: AbortController | null = null;
+  private latestFault?: FaultReport;
+  private faultPanel?: HTMLElement;
+  private faultLifetime = new AbortController();
+  private captureFault(stage: FaultStage, error: unknown, serverId?: string): void {
+    if (this.privacyCovered || document.hidden || this.root.getAttribute('aria-hidden') === 'true' ||
+      error instanceof DOMException && error.name === 'AbortError') return;
+    const fault = makeFault(stage,error,serverId ?? (error instanceof ApiError ? error.faultId : undefined));
+    this.faultPanel?.remove();
+    this.latestFault = fault;
+    this.faultPanel = showFaultPanel(fault,this.faultLifetime.signal,this.session || this.browserProfile ? () => {
+      this.faultPanel?.remove(); this.renderLanguageFeedback('feedback');
+    } : undefined);
+  }
+
   private runtimeEpoch = 0;
   private roomRuntime: RoomRuntime<VaultSession> | null = null;
   private filePickerActive = false;
@@ -1792,8 +1807,13 @@ export class QuietRoomApp {
         if (current() && !abort.signal.aborted) {
           abort.abort();
           clearBrowserRoomKey();
+          const openingFault = this.session ? this.latestFault : undefined;
           this.cleanupRuntime();
           this.gatewayTemplate(uiLiteral('密室暂未打开'), uiLiteral('暂时无法读取这间密室的本机数据。原有数据仍保留，请重试。'), uiLiteral('<p class="field-hint" role="alert" data-room-open-error></p><button class="primary-button" data-retry-room-open type="button">重新打开</button>'));
+          if (openingFault) {
+            this.latestFault=openingFault;
+            this.faultPanel=showFaultPanel(openingFault,this.faultLifetime.signal,undefined);
+          } else this.captureFault('chat.session',cause);
           this.root.querySelector('[data-room-open-error]')!.textContent = cause instanceof Error ? t(cause.message) : uiLiteral('请稍后重试');
           this.root.querySelector('[data-retry-room-open]')!.addEventListener('click', () => {
             this.lockNow();
@@ -4958,7 +4978,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (!runtime.isCurrent()) return;
     this.privateHistory=null;
     this.privateArchiveRows.clear();
-    const preferences = await loadUiPreferences(session);
+    const preferences = await atFaultStage('chat.preferences',loadUiPreferences(session));
     if (!runtime.isCurrent()) return;
     if(session.vault.roomArchiveV2){
       const history=new PrivateHistoryController(session,runtime.signal,()=>runtime.isCurrent(),()=>{
@@ -4974,7 +4994,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
     this.composerLinkPreview?.destroy();this.composerLinkPreview=null;
     this.composerCheckpoint?.dispose(); this.composerCheckpoint = null;
-    const checkpoint = await prepareComposerDraft(session, preferences.composerDraft ?? '', () => runtime.isCurrent());
+    const checkpoint = await atFaultStage('chat.draft',prepareComposerDraft(session, preferences.composerDraft ?? '', () => runtime.isCurrent()));
     if (!runtime.isCurrent()) { checkpoint.dispose(); return; }
     this.composerCheckpoint = checkpoint;
     preferences.composerDraft = checkpoint.draft;
@@ -5004,11 +5024,11 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       return { cached: pages.flat(), historyHasMore };
     };
     const [{ cached, historyHasMore }, messageEvents, outbox, pendingReceipts, uploadPlans] = await Promise.all([
-      loadVisibleHistory(),
-      loadMessageEventHistory(session, { signal: runtime.signal, reuseVerifiedPages: true }),
-      loadOutbox(session),
-      loadPendingReceipts(session),
-      loadUploadPlans(session),
+      atFaultStage('chat.history',loadVisibleHistory()),
+      atFaultStage('chat.events',loadMessageEventHistory(session, { signal: runtime.signal, reuseVerifiedPages: true })),
+      atFaultStage('chat.outbox',loadOutbox(session)),
+      atFaultStage('chat.receipts',loadPendingReceipts(session)),
+      atFaultStage('chat.plans',loadUploadPlans(session)),
     ]);
     if (!runtime.isCurrent()) return;
     this.messages = new Map(cached.map((message) => [message.seq, {
@@ -5089,12 +5109,14 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     else if (activeRoles.size < 2) this.renderChat();
     else this.resumeUnlockedPage();
     configureUnread();
-    void this.connectSocket().catch(cause => { if (runtime.isCurrent()) this.operationalError(cause, uiLiteral('安全通话身份准备失败，请重新解锁')); });
+    void this.connectSocket().catch(cause => { if (runtime.isCurrent()) {this.captureFault('chat.identity',cause);this.operationalError(cause, uiLiteral('安全通话身份准备失败，请重新解锁'));} });
     if (activeRoles.size === 2) { void this.resumeDeferredImage(); this.showPairingWelcome(); }
     this.startAutomaticBackup();
     this.startOwnDirectoryServices(session, runtime.signal);
     void this.startBrowserAccessServices(session,runtime.signal);
-    } catch(cause) { if(runtime.isCurrent())throw cause; }
+    } catch(cause) {
+      if (runtime.isCurrent()) { this.captureFault('chat.session',cause); throw cause; }
+    }
   }
 
   private startOwnDirectoryServices(session: VaultSession, signal: AbortSignal): void {
@@ -5744,6 +5766,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         accessFailure: reason => {
           if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
           this.accessFailure = reason;
+          this.captureFault('chat.identity',new ApiError('',reason==='denied'?403:409,'ACCESS_FAILURE'));
           for (const id of this.retryTimers.keys()) this.clearRetry(id, false);
           if (reason === 'denied') {
             this.renderAccessDenied();
@@ -5826,6 +5849,10 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           this.renderMessages();
           return this.reconcileMessageAck(clientMsgId, seq, roomSocket, epoch, session);
         },
+        ackTimeout: clientMsgId => {
+          if (this.isRuntimeActive(epoch,session) && this.socket === roomSocket && this.pending.get(clientMsgId)?.payload.kind === 'text')
+            this.captureFault('send.accept',new DOMException('','TimeoutError'));
+        },
         receiptAck: (clientMsgId) => {
           if (this.isRuntimeActive(epoch, session) && this.socket === roomSocket) return this.acknowledgeReceipt(clientMsgId);
         },
@@ -5834,8 +5861,9 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           void this.resumeOutbox();
           void this.resendPendingReceipts();
         },
-        error: async (message, code, clientMsgId, rejectedEnvelope) => {
+        error: async (message, code, clientMsgId, rejectedEnvelope, faultId) => {
           if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
+          if (clientMsgId && this.pending.get(clientMsgId)?.payload.kind === 'text' && code !== 'MLS_EPOCH_STALE' && code !== 'MLS_UPDATE_REQUIRED') this.captureFault('send.accept',undefined,faultId);
           if (code === 'MESSAGE_RETRY_EXPIRED' && clientMsgId) {
             this.clearRetry(clientMsgId); this.expiredOutboxIds.add(clientMsgId);
             const item = this.pending.get(clientMsgId); if (item) item.status = 'failed';
@@ -5913,6 +5941,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
       if (cause instanceof SecurityViolation) this.fatalSecurityError(cause);
       else {
+        if(this.outbox.get(clientMsgId)?.payload.kind==='text')this.captureFault('send.ack',cause);
         this.operationalError(cause, uiLiteral('已确认消息的本机待发记录未能清理，将继续重试'));
         if (this.outbox.has(clientMsgId)) this.scheduleRetry(clientMsgId);
       }
@@ -9991,7 +10020,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const epoch=this.runtimeEpoch;
     const active=()=>!this.privacyCovered&&this.runtimeEpoch===epoch;
     const back=()=>this.transitionPage('backward',()=>{if(this.session)this.renderChat();else{this.renderBrowserShell();this.openBrowserSpaceList(undefined,undefined,true);}});
-    (kind==='language'?renderLanguagePage:renderFeedbackPage)({root:this.root,signal:this.runtimeAbort.signal,active,back,notice:message=>this.showNotice(message)});
+    (kind==='language'?renderLanguagePage:renderFeedbackPage)({root:this.root,signal:this.runtimeAbort.signal,active,back,faultId:this.latestFault?.id,notice:message=>this.showNotice(message)});
   }
 
   private renderAppearanceSettings(): void {
@@ -10194,6 +10223,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         await saveOutboxItem(session, outboxItem, mutation, draft);
       }
     } catch (cause) {
+      if (payload.kind === 'text' && this.isRuntimeActive(epoch,session)) this.captureFault('send.outbox',cause);
       this.operationalError(cause, uiLiteral('消息未能写入本机加密待发箱，因此没有发送'));
       throw cause;
     }
@@ -10252,7 +10282,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           if (!item.intent || item.intent.senderId !== session.vault.identity.publicBundle.deviceId) throw new Error(uiLiteral('MLS 待发密文缺失，已停止发送'));
           if (!this.isRuntimeActive(epoch, session) || this.accessFailure || this.cancellingOutbox.has(clientMsgId)) return;
           if(!await hasOutboxItem(session,clientMsgId,mutation))return;
-          const encrypted = await encryptMlsApplication(session.vault, item.payload, clientMsgId);
+          const encrypted = await atFaultStage('send.encrypt',encryptMlsApplication(session.vault, item.payload, clientMsgId));
           if (!this.isRuntimeActive(epoch, session) || this.accessFailure || this.cancellingOutbox.has(clientMsgId)) return;
           const next = { ...item, intent: {...item.intent, windowEventSeq: undefined}, envelope: encrypted.envelope };
           await commitMlsSend(session, next, encrypted.nextGroupState, mutation); return next;
@@ -10266,17 +10296,18 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       this.outbox.set(clientMsgId, Object.assign(item, prepared));
       if (this.accessFailure) return false;
       if (this.deferUnsupportedPayload(item)) return false;
-      const accepted=await withVaultMutation(session,async mutation=>{
+      const accepted=await atFaultStage('send.submit',withVaultMutation(session,async mutation=>{
         if(!this.isRuntimeActive(epoch,session)||this.accessFailure||this.cancellingOutbox.has(clientMsgId)||this.outbox.get(clientMsgId)!==item||!await hasOutboxItem(session,clientMsgId,mutation))return false;
         if(!this.isRuntimeActive(epoch,session)||this.cancellingOutbox.has(clientMsgId))return false;
         return this.socket?.sendEnvelope(envelope,item.payload.kind!=='gallery-image'&&item.payload.kind!=='gallery-file'
           &&item.payload.kind!=='reaction'&&item.payload.kind!=='message-delete'&&item.payload.kind!=='media-read'&&item.payload.kind!=='message-read');
-      });
+      }));
       this.scheduleRetry(clientMsgId);
       return accepted === true;
     } catch (cause) {
       if (!this.isRuntimeActive(epoch, session)) return false;
       const pending = this.pending.get(clientMsgId);
+      if (item.payload.kind === 'text' && !this.retryCounts.has(clientMsgId)) this.captureFault('send.prepare',cause);
       if (pending && this.connectionState === 'connected') pending.status = 'failed';
       this.showNotice(cause instanceof Error ? t(cause.message) : uiLiteral('消息发送失败，稍后将自动重试'), 'error');
       this.renderMessages();
@@ -11038,7 +11069,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       mediaUpload?.view.update('finishing');
       // The inline preview already consumed the explicit send positioning.
       // Upload completion/retry only replaces that row and follows current intent.
-      await this.enqueuePayload(payload, clientMsgId, operationSignal, undefined, inlineMedia ? null : scrollRevision);
+      await atFaultStage('upload.message',this.enqueuePayload(payload, clientMsgId, operationSignal, undefined, inlineMedia ? null : scrollRevision));
       if (!this.isRuntimeActive(epoch, session)) return false;
       mediaUpload?.view.destroy();
       this.mediaUploads.delete(clientMsgId);
@@ -11060,6 +11091,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         this.renderMessages({ scroll: 'position' });
         return false;
       }
+      if (destination === 'chat') this.captureFault('upload.prepare',cause);
       mediaUpload?.view.update('failed');
       const suffix = !mediaUpload && this.uploadPlans.length > 0 ? uiLiteral('。重新选择同一文件可从已完成分块继续') : '';
       if (!mediaUpload) this.showNotice(`${cause instanceof Error ? t(cause.message) : uiLiteral('文件上传失败')}${suffix}`, 'error');
@@ -17202,6 +17234,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     this.privateHistory?.dispose(); this.privateHistory=null; this.archiveBackup=null;
     this.roomRuntime?.dispose(); this.roomRuntime=null;
     this.privateArchiveRows.clear();
+    this.faultLifetime.abort(); this.faultLifetime = new AbortController();
+    this.faultPanel?.remove(); this.faultPanel = undefined; this.latestFault = undefined;
     this.runtimeEpoch += 1;
     this.runtimeAbort?.abort();
     this.runtimeAbort = null;

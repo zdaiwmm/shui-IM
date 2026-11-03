@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RoomSocket } from '../src/lib/api';
 import WebSocket from 'ws';
+import { lookupFault } from '../server/faults.mjs';
 import { startServer } from '../server/index.mjs';
 import { randomBase64Url } from '../src/lib/base64';
 import {
@@ -104,6 +105,28 @@ describe('HTTP and WebSocket integration', () => {
         expect(await closed).toBe(modern ? 4413 : 4403);
       } finally { release(); verify.mockRestore(); client.close(); }
     }
+  });
+  it('returns a durable server fault number for a failed authenticated message write', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(),'room-send-fault-'));
+    const server = await startServer({port:0, dataDir:dir, quiet:true});
+    cleanup.push(async()=>{await server.close();await rm(dir,{recursive:true,force:true});});
+    const [creator,peer] = await Promise.all([generateIdentity(),generateIdentity()]);
+    const token=randomBase64Url(32),secret=randomBase64Url(32);
+    const {roomId}=server.store.createRoom(creator.publicBundle,token,randomBase64Url(32));
+    const state=server.store.joinRoom(roomId,peer.publicBundle,await createJoinProof(secret,peer.publicBundle),randomBase64Url(32));
+    const vault:Vault={v:1,roomId,pairingSecret:secret,role:'creator',identity:creator,accessToken:token,members:state.members,
+      createdAt:new Date().toISOString(),creatorFingerprint:await bundleFingerprint(creator.publicBundle),lastSeq:0};
+    const envelope=await encryptMessage(vault,{v:1,kind:'text',text:'synthetic',sentAt:new Date().toISOString()});
+    const transport=await FrameClient.connect(`ws://127.0.0.1:${server.port}/ws`);
+    try {
+      transport.send({type:'auth',roomId,deviceId:creator.publicBundle.deviceId,accessToken:token,release:'2026.11.03.2'});
+      await transport.waitFor(frame=>frame.type==='ready');
+      vi.spyOn(server.store,'insertMessage').mockImplementation(()=>{throw Object.assign(new Error('private fixture'),{code:'EIO'});});
+      transport.send({type:'send',envelope});
+      const response=await transport.waitFor(frame=>frame.type==='error');
+      expect(response.code).toBe('INTERNAL_ERROR');
+      expect(lookupFault(dir,response.faultId)).toMatchObject({stage:'send.store',source:'server',reason:'EIO',client_version:'2026.11.03.2'});
+    } finally {transport.close();}
   });
   it('drains 40 signed outbox messages and their receipts without exceeding ingress capacity', async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-bulk-replay-'));

@@ -2,7 +2,7 @@ import '../language-feedback.css';
 import { LANGUAGES, languagePreference, setLanguage, t } from './language';
 
 const escape=(s:string)=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
-type Options={ root:HTMLElement; signal:AbortSignal; active:()=>boolean; back:()=>void; notice:(message:string)=>void };
+type Options={ faultId?:string; root:HTMLElement; signal:AbortSignal; active:()=>boolean; back:()=>void; notice:(message:string)=>void };
 const page=(root:HTMLElement,title:string,body:string,back:()=>void)=>{
   root.innerHTML=`<section class="language-feedback-page"><main class="language-feedback-content"><h1>${escape(title)}</h1>${body}</main><footer class="page-back-footer"><button class="page-back-button" type="button">${escape(t('返回'))}</button></footer></section>`;
   root.querySelector('.page-back-button')!.addEventListener('click',back);
@@ -20,10 +20,15 @@ export function renderLanguagePage(options:Options):void {
     catch {if(active()&&host.isConnected){renderLanguagePage(options);notice(t('未能保存，请重试'));}}
   },{signal});
 }
-export function renderFeedbackPage({root,signal,active,back,notice}:Options):void {
+export function renderFeedbackPage({root,signal,active,back,notice,faultId}:Options):void {
   let clear=()=>{};
   const host=page(root,t('用户反馈'),`<form class="feedback-form" novalidate><label for="feedback-email">${escape(t('邮箱'))}<span>${escape(t('必填'))}</span></label><input id="feedback-email" name="email" type="email" dir="ltr" autocomplete="email" autocapitalize="none" maxlength="254" placeholder="${escape(t('请输入邮箱地址'))}" required aria-describedby="feedback-email-error"><p id="feedback-email-error" class="feedback-error" role="alert"></p><label for="feedback-message">${escape(t('反馈内容'))}<span>${escape(t('必填'))}</span></label><textarea id="feedback-message" name="message" rows="7" dir="auto" placeholder="${escape(t('请描述你遇到的问题或建议'))}" required aria-describedby="feedback-message-error feedback-count"></textarea><p id="feedback-count" class="feedback-count">0 / 5,000</p><p id="feedback-message-error" class="feedback-error" role="alert"></p><button class="primary-button" type="submit">${escape(t('提交反馈'))}</button></form>`,()=>{clear();back();});
   const form=host.querySelector('form')!,email=host.querySelector<HTMLInputElement>('#feedback-email')!,message=host.querySelector<HTMLTextAreaElement>('#feedback-message')!,submit=host.querySelector<HTMLButtonElement>('[type="submit"]')!;
+  const attach=document.createElement('input');attach.type='checkbox';
+  if(faultId){
+    const label=document.createElement('label');label.className='fault-attach';
+    label.append(attach,document.createTextNode(t('附上故障编号')+' '+faultId));submit.before(label);
+  }
   let busy=false,requestId=crypto.randomUUID(),payload='';
   const pageAbort=new AbortController(),pageSignal=AbortSignal.any([signal,pageAbort.signal]);
   const live=()=>!pageSignal.aborted&&active()&&host.isConnected;
@@ -42,10 +47,11 @@ export function renderFeedbackPage({root,signal,active,back,notice}:Options):voi
     host.querySelector('#feedback-message-error')!.textContent=messageError?t('请填写 1 至 5,000 字的反馈内容'):'';
     email.setAttribute('aria-invalid',String(emailError));message.setAttribute('aria-invalid',String(messageError));
     if(emailError||messageError){(emailError?email:message).focus();return;}
-    const fingerprint=JSON.stringify([e,m]);if(payload&&payload!==fingerprint)requestId=crypto.randomUUID();payload=fingerprint;
+    const attachment=attach.checked && faultId ? {faultId} : {};
+    const fingerprint=JSON.stringify([e,m,attachment]);if(payload&&payload!==fingerprint)requestId=crypto.randomUUID();payload=fingerprint;
     busy=true;submit.disabled=true;submit.textContent=t('正在提交…');email.readOnly=true;message.readOnly=true;
     try {
-      const response=await fetch('/api/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:requestId,email:e,message:m}),signal:AbortSignal.any([pageSignal,AbortSignal.timeout(15000)]),credentials:'same-origin'});
+      const response=await fetch('/api/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:requestId,email:e,message:m,...attachment}),signal:AbortSignal.any([pageSignal,AbortSignal.timeout(15000)]),credentials:'same-origin'});
       if(!response.ok)throw new Error(response.status===429?'RATE_LIMITED':'FAILED');
       const result=await response.json();if(result.accepted!==true)throw new Error('FAILED');
       if(!live())return;

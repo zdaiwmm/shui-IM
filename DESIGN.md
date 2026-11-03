@@ -312,3 +312,5 @@ The [approved prototype and flow](docs/requirements/2026-10-23-media-status-comp
 ## 2026-10-29 媒体完成时间
 
 图片、视频、相册与表情的双方完成时间共用20px高／11px字／20px行高／横8px／R10；发送时间与对勾4px。发送外槽继续预留24px和固定几何，可见完成内容在其右端紧凑排列；表情透明。规范、实际组件样例与验收由[本次记录](docs/requirements/2026-10-29-inapp-media-keyboard/README.md)拥有。
+
+已确认的故障反馈 V1 在失败提示中提供故障编号、复制、反馈和未确认时的重报操作，按[移动规范](docs/design/mobile-visual-standard.md#故障反馈-v12026-11-03)和[需求样例](docs/requirements/2026-11-03-fault-feedback/README.md)验收。

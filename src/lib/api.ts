@@ -39,12 +39,16 @@ export type RepairLinkRecord = {
 };
 export type RepairLinkState = { link: RepairLinkRecord; state: RoomState };
 
+import { validFaultId } from './fault-report';
+import { currentRelease } from './release-update';
+
 export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
     readonly code: string,
     readonly retryAfterMs = 0,
+    readonly faultId?: string,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -64,7 +68,7 @@ export function responseRetryAfterMs(response: Response): number {
 export async function responseError(response: Response): Promise<ApiError> {
   try {
     const body = await response.json() as { error?: string; code?: string };
-    return new ApiError(body.error || uiTemplate`请求失败（${response.status}）`, response.status, body.code ?? 'REQUEST_FAILED', responseRetryAfterMs(response));
+    return new ApiError(body.error || uiTemplate`请求失败（${response.status}）`, response.status, body.code ?? 'REQUEST_FAILED', responseRetryAfterMs(response), validFaultId(response.headers.get('X-Fault-Id')) ? response.headers.get('X-Fault-Id')! : undefined);
   } catch {
     return new ApiError(uiTemplate`请求失败（${response.status}）`, response.status, 'REQUEST_FAILED', responseRetryAfterMs(response));
   }
@@ -75,6 +79,7 @@ export async function authorizedFetch(path: string, accessToken: string, init: R
     ...init,
     headers: {
       Authorization: `Bearer ${accessToken}`,
+      ...(path.includes('/blobs') && init.method ? {'X-Client-Release':currentRelease.id} : {}),
       ...init.headers,
     },
   });
@@ -410,8 +415,9 @@ type SocketHandlers = {
   ack: (clientMsgId: string, seq: number) => AsyncSocketHandler;
   receiptAck: (clientMsgId: string, receiptSeq: number) => AsyncSocketHandler;
   writable?: () => void;
+  ackTimeout?: (clientMsgId: string) => void;
   // false retains application retry/backoff ownership after a failed repair.
-  error: (message: string, code?: string, clientMsgId?: string, rejectedEnvelope?: MessageEnvelope) => void | boolean | Promise<void | boolean>;
+  error: (message: string, code?: string, clientMsgId?: string, rejectedEnvelope?: MessageEnvelope, faultId?: string) => void | boolean | Promise<void | boolean>;
 };
 
 export class RoomSocket {
@@ -474,6 +480,7 @@ export class RoomSocket {
       this.lastSentPresenceView = null;
       this.socket?.send(JSON.stringify({
         type: 'auth',
+        release: currentRelease.id,
         syncProtocol: 'byte-pages-v1',
         roomId: this.roomId,
         accessToken: this.accessToken,
@@ -597,7 +604,7 @@ export class RoomSocket {
           try {
             const result = await this.handlers.error(
               String(frame.message ?? uiLiteral('实时连接发生错误')),
-              String(frame.code ?? 'SOCKET_ERROR'), clientMsgId, rejectedEnvelope,
+              String(frame.code ?? 'SOCKET_ERROR'), clientMsgId, rejectedEnvelope, ...(validFaultId(frame.faultId) ? [frame.faultId] : []),
             );
             repaired = result !== false && (frame.code === 'MLS_EPOCH_STALE' || frame.code === 'MLS_UPDATE_REQUIRED');
           } finally {
@@ -715,7 +722,10 @@ export class RoomSocket {
     if (this.pendingSends.size >= 8 || this.pendingSendBytes + bytes > 512 * 1024
       || socket.bufferedAmount > 512 * 1024) return false;
     const deadline = setTimeout(() => {
-      if (this.socket === socket && this.pendingSends.has(key)) socket.close(4000, 'Send acknowledgement timeout');
+      if (this.socket === socket && this.pendingSends.has(key)) {
+        socket.close(4000, 'Send acknowledgement timeout');
+        if(key.startsWith('message:')) this.handlers.ackTimeout?.(key.slice(8));
+      }
     }, 15_000);
     this.pendingSends.set(key, { bytes, deadline }); this.pendingSendBytes += bytes;
     try { socket.send(serialized); }
