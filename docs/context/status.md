@@ -1,5 +1,9 @@
 # Quiet Room 当前状态
 
+## 当前生产：两个环境均为 2026.11.03.6（2026-11-03）
+
+主站与东京均运行 `b56e277e61f7403d0ea9178d3c7aa42ff7a1ffcd`。聊天首条未读、长会话输入与发送优化已上线。东京访客统计启用，主站关闭。独立回读分别于北京时间 22:14、22:22 通过。近期已合并功能盘点和后台域名待办见[双环境发布记录](../../RELEASING.md#release-chat-unread-dual-20261103)。
+
 ## 两环境故障编号查询已上线（2026-11-03）
 
 两个环境均已发布 `2026.11.03.3` / `60882de7a9eb2c6572784b28c2f52ff0a44ff6b2`。主站和东京分别于北京时间 19:44 和 19:55 完成独立回读。三种合成故障在本站均可按编号查到具体步骤，跨站均查无记录。[发布回执与验收范围](../../RELEASING.md#release-fault-feedback-20261103)
@@ -12,7 +16,7 @@ production 与 tokyo-public 均已发布 `2026.11.03.2` / `ff60bc63846b8fdd2b154
 
 2026.11.03.1 对应应用提交 `1b4fdf9113c793bfc9e8be704363cf9b1d1375a0`。用户在本聊天确认“发布到两个环境”。[精确主线完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/41577532838) 首轮通过。production（ai.shui.click）和 tokyo-public（mijiu.cloud）各执行一次固定入口切换，均获得 DEPLOY_VERIFIED。独立 READBACK_OK 分别于 04:52:39 UTC 和 05:00:32 UTC 取得。脱敏证据位于公共 Git 目录 quiet-room-deliveries/evidence/chat-entry-reply-20261103。
 
-## 当前生产：两环境2026.11.02.3，东京独立回读待完成（2026-11-02）
+## 历史发布：两环境2026.11.02.3，东京独立回读待完成（2026-11-02）
 
 用户确认应用`54c104fb24149683e8392ae7e306bbab072bb904`／2026.11.02.3发布至production／https://ai.shui.click与tokyo-public／https://mijiu.cloud。两环境固定入口均取得DEPLOY_VERIFIED，各仅一次实际切换且冷备份校验通过；主站独立READBACK_OK于UTC12:17:51.347完成，8643ms，公开／容器资源及新WebSocket完整通过。东京独立回读与唯一一次同SHA只读重试均在public-artifacts阶段失败（17401ms／16146ms），仍为READBACK_REQUIRED；独立公开与容器资源比较、新WebSocket未执行。两环境SHA／镜像、应用与备份running／healthy、TURN running／探针none、维护门absent、HTTPS／数据库／存储通过，管理员主站开／东京关，通话均开。[本批发布记录](../../RELEASING.md#release-safari-storage-media-both-20261102)与[需求V1](../requirements/2026-11-02-safari-storage-media-loading/README.md)保存授权、准备失败和实际结果。东京回读门禁未满足，本批资源保留，未执行清理；真实iPhone后台故障仍未复现，文档提交不替换获批应用。
 
