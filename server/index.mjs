@@ -1,3 +1,4 @@
+import { leadPixelConfig } from './lead-pixel.mjs';
 import { clientVersion, openFaultStore } from './faults.mjs';
 import { createSocketBudget, SOCKET_LIMITS } from './socket-budget.mjs';
 import { createServer as createHttpServer } from 'node:http';
@@ -47,22 +48,24 @@ const MIME_TYPES = new Map([
   ['.woff2', 'font/woff2'],
 ]);
 
-function applySecurityHeaders(request, response) {
+function applySecurityHeaders(request, response, leadCollector = null) {
   const hostHeader = typeof request.headers.host === 'string' && /^[A-Za-z0-9.:[\]-]+$/.test(request.headers.host)
     ? request.headers.host
     : null;
   const socketSources = hostHeader ? ` ws://${hostHeader} wss://${hostHeader}` : '';
+  // Lead's test-control endpoint sends the full invitation URL. Only grant base pixel endpoints.
+  const leadConnections = leadCollector ? ` ${leadCollector} ${leadCollector}/batch ${leadCollector}/receipts` : '';
   response.setHeader('Content-Security-Policy', [
     "default-src 'self'",
     "base-uri 'none'",
     "frame-ancestors 'none'",
     "form-action 'self'",
     "object-src 'none'",
-    "script-src 'self' 'wasm-unsafe-eval'",
+    `script-src 'self' 'wasm-unsafe-eval'${leadCollector ? ' https://shui.click/lead.js' : ''}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' blob: data:",
     "media-src 'self' blob:",
-    `connect-src 'self'${socketSources}`,
+    `connect-src 'self'${socketSources}${leadConnections}`,
     "worker-src 'self'",
     "manifest-src 'self'",
   ].join('; '));
@@ -230,6 +233,7 @@ function callIdentityMatchesDevice(proof, roomId, device) {
 }
 
 export async function startServer(options = {}) {
+  const pixel = leadPixelConfig(process.env);
   const port = Number(options.port ?? process.env.PORT ?? 8787);
   const host = options.host ?? process.env.HOST ?? '127.0.0.1';
   const dataDir = path.resolve(options.dataDir ?? process.env.DATA_DIR ?? path.join(PROJECT_DIR, 'data'));
@@ -442,6 +446,14 @@ export async function startServer(options = {}) {
       const scopedRoom = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})(?:/|$)`));
       if (scopedRoom && store.chamberLifecycle.closed(scopedRoom[1]) && !pathname.endsWith('/chamber-lifecycle')) throw new Error('ROOM_CLOSED');
       if (await admin(request, response, pathname)) return;
+
+      const publicPixel = pixel && ['mijiu.cloud', 'mijiu.cloud:443'].includes(request.headers.host?.toLowerCase()) ? pixel : null;
+      if (request.method === 'GET' && pathname === '/api/site-runtime.js') {
+        applySecurityHeaders(request, response);
+        response.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
+        response.end(publicPixel?.bootstrap ?? '');
+        return;
+      }
 
       if (pathname === '/api/feedback' || pathname === '/api/faults') {
         const incident = pathname === '/api/faults';
@@ -1554,7 +1566,7 @@ export async function startServer(options = {}) {
         target = path.join(staticDir, 'index.html');
       }
       const bytes = await readFile(target);
-      applySecurityHeaders(request, response);
+      applySecurityHeaders(request, response, target === path.join(staticDir, 'index.html') ? publicPixel?.collector : null);
       response.writeHead(200, {
         'Content-Type': MIME_TYPES.get(path.extname(target)) ?? 'application/octet-stream',
         'Cache-Control': ['index.html', 'sw.js', 'manifest.webmanifest'].includes(path.basename(target))

@@ -23,6 +23,14 @@ import { mountSettingsLayout } from './lib/settings-layout';
 import { mountFormInputs } from './lib/form-input';
 import { mountGatewayIntros } from './lib/gateway-intro';
 
+// The public deployment supplies its optional integration at runtime.
+if (location.origin === 'https://mijiu.cloud') {
+  const script = document.createElement('script');
+  script.src = '/api/site-runtime.js';
+  script.async = true;
+  document.head.append(script);
+}
+
 // Keep zooming inside purpose-built media viewers instead of allowing a
 // double tap/click to scale the whole browser page. The viewport declaration
 // and touch-action CSS provide the mobile path; this covers emitted dblclicks.

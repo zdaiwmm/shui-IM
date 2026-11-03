@@ -26,6 +26,8 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 8080
+      LEAD_PIXEL_CONNECTION: ${LEAD_PIXEL_CONNECTION:-}
+      LEAD_PIXEL_KEY: ${LEAD_PIXEL_KEY:-}
       DATA_DIR: /app/data
       ADMIN_BACKUP_STATUS_FILE: /app/admin-status/backup.json
       MAX_BLOB_BYTES: 268437504
