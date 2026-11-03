@@ -950,7 +950,10 @@ try {
     const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
     let blocked = false;
     Object.defineProperty(crypto.subtle, 'decrypt', { configurable: true, value: async (...args) => {
-      if (!blocked) { blocked = true; await new Promise(resolve => { window.releaseReplyLookup = resolve; }); }
+      const aad = new TextDecoder().decode(args[0].additionalData);
+      if (!blocked && aad.startsWith('quiet-room-history-v1:') && aad.endsWith(':3')) {
+        blocked = true; await new Promise(resolve => { window.releaseReplyLookup = resolve; });
+      }
       return decrypt(...args);
     } });
     window.restoreReplyDecrypt = () => Object.defineProperty(crypto.subtle, 'decrypt', { configurable: true, value: decrypt });

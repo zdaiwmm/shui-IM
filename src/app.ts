@@ -9256,14 +9256,16 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const lookup = new AbortController();
     this.chatEntryLookup = lookup;
     const signal = AbortSignal.any([lookup.signal, lifetime]);
-    const active = () => !signal.aborted && this.chatEntryLookup === lookup && this.activeSurface === 'chat' && !this.privacyCovered;
+    const epoch = this.runtimeEpoch;
+    const active = () => !signal.aborted && this.runtimeEpoch === epoch && this.session === session && this.chatEntryLookup === lookup && this.activeSurface === 'chat' && !this.privacyCovered;
     const lookupPositions = async () => {
       let after = this.uiPreferences.chatVisibleThrough ?? 0;
       while (active()) {
         let positions: number[];
         try {
           positions = await getUnreadPositions(session.vault.roomId, session.vault.identity.publicBundle.deviceId, session.vault.accessToken, after, signal);
-        } catch {
+        } catch (error) {
+          if (error instanceof ApiError && !error.retryable) return;
           // On an upgraded device without a visible cursor the offline cache
           // cannot distinguish old history from unread messages.
           if (!active() || this.uiPreferences.chatVisibleThrough === undefined) return;
