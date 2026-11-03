@@ -51,6 +51,35 @@ try {
   async function send(text) {
     await a.evaluate(text => app.enqueuePayload({ v: 1, kind: 'text', text, sentAt: new Date().toISOString() }), text);
   }
+  // Old clients persisted the prepared Add before transport. Model a dropped
+  // request with the original vault format and a real server-side reservation.
+  const stageDeviceAdd = lifetime => a.evaluate(async lifetime => {
+    const api = await import('/src/lib/api.ts');
+    const cryptoLib = await import('/src/lib/crypto.ts');
+    const { randomBase64Url } = await import('/src/lib/base64.ts');
+    const { prepareMlsMembership } = await import('/src/lib/mls.ts');
+    const { saveVault, withVaultMutation } = await import('/src/lib/vault.ts');
+    const session = app.session, vault = session.vault;
+    const linkId = crypto.randomUUID(), secret = randomBase64Url(32);
+    const admissionSecret = randomBase64Url(32);
+    const expiresAt = new Date(Date.now() + lifetime).toISOString();
+    await api.createDeviceLink(vault.roomId, vault.accessToken, identity.publicBundle.deviceId, linkId, secret, expiresAt);
+    const candidate = await cryptoLib.generateIdentity();
+    const proof = await cryptoLib.createJoinProof(admissionSecret, candidate.publicBundle);
+    const claim = await api.claimDeviceLink(linkId, secret, candidate.publicBundle, randomBase64Url(32), 'PC', ['message-window-v1'], undefined, proof);
+    const target = claim.state.members.find(member => member.deviceId === candidate.publicBundle.deviceId);
+    await withVaultMutation(session, async mutation => {
+      vault.pendingDeviceLinks = [{ linkId, secret, admissionSecret, expiresAt, createdAt: new Date().toISOString() }];
+      vault.mls.pendingMembership = await prepareMlsMembership(vault, 'add', target);
+      await saveVault(session, mutation);
+    });
+    return { expiresAt, targetId: target.deviceId };
+  }, lifetime);
+  const { expiresAt } = await stageDeviceAdd(8000);
+  assert.match(await a.evaluate(() => app.ensureMessageWindow(true).then(() => '', e => e.message)), /设备变更尚未确认/);
+  // Leave the original intent in the outbox before expiry, then let normal
+  // retries deliver it. No refresh or manual resubmission on either endpoint.
+  assert.ok(Date.now() < Date.parse(expiresAt));
   await send('kept locally');
   for (const page of pages) await page.waitForFunction(() => app.session.vault.lastSeq === 1 || failures.length);
   assert.deepEqual(await a.evaluate(() => failures), []); assert.deepEqual(await b.evaluate(() => failures), []);
@@ -79,6 +108,19 @@ try {
       assert.deepEqual(await page.evaluate(() => failures), []);
     }
   }
+  // Commit another Add without consuming its HTTP response or broadcast on
+  // the authorizer. Recovery must install the exact saved successor instead.
+  await a.evaluate(() => app.socket.close());
+  const { targetId } = await stageDeviceAdd(600_000);
+  const recovered = await a.evaluate(async targetId => {
+    const api = await import('/src/lib/api.ts');
+    const vault = app.session.vault, pending = vault.mls.pendingMembership;
+    await api.publishMlsMembership(vault.roomId, vault.accessToken, pending.event);
+    await app.ensureMessageWindow(false);
+    return !vault.mls.pendingMembership && vault.mls.groupState === pending.nextGroupState &&
+      vault.members.some(member => member.deviceId === targetId && member.status === 'active');
+  }, targetId);
+  assert.ok(recovered, 'A committed Add with a lost response installs its saved group state');
   await b.reload();
   const durable = await b.evaluate(async () => {
     const v = await import('/src/lib/vault.ts'); const session = await v.unlockVault();

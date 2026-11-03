@@ -227,8 +227,9 @@ export async function createDeviceLink(
 export async function listDeviceLinks(
   roomId: string,
   accessToken: string,
+  signal?: AbortSignal,
 ): Promise<{ links: DeviceLinkRecord[]; state: RoomState }> {
-  const response = await authorizedFetch(`/api/rooms/${roomId}/device-links`, accessToken);
+  const response = await authorizedFetch(`/api/rooms/${roomId}/device-links`, accessToken, { signal, cache: 'no-store' });
   return response.json();
 }
 
