@@ -164,7 +164,7 @@ for (const engine of [chromium, webkit]) {
     assert.deepEqual(result.seqs, Array.from({ length: tail }, (_, i) => i + 1));
     assert.deepEqual(result.gaps, []); assert.equal(result.deletes, 1);
     assert.equal(await added.evaluate(() => app.messages.has(1)), false, 'Admission cannot grant earlier history');
-    let sent = await send(old, 'old endpoint sends after catch-up');
+    const sent = await send(old, 'old endpoint sends after catch-up');
     await caughtUp(added, sent); await caughtUp(peer, sent);
     await old.evaluate(() => app.socket.close());
     for (let i = 0; i < 4; i++) await send(added, `interrupted catch-up ${i}`);
@@ -197,14 +197,23 @@ for (const engine of [chromium, webkit]) {
     assert.deepEqual(retried.seqs, Array.from({ length: retryTail }, (_, i) => i + 1));
     assert.deepEqual(retried.gaps, []);
     await old.unroute('**/window-sync?*');
-    sent = await send(old, 'old endpoint sends after automatic retries');
-    await caughtUp(added, sent); await caughtUp(peer, sent);
+    const finalText = 'old endpoint sends after automatic retries';
+    await send(old, finalText);
+    // A read-control event can take the next sequence before or after the text.
+    // Check the message actually accepted, including its identity after reload.
+    const finalMessage = await (await old.waitForFunction(text => {
+      const row = [...app.messages.values()].find(item => item.payload.text === text && item.seq <= app.session.vault.lastSeq);
+      return row && { seq: row.seq, clientMsgId: row.clientMsgId };
+    }, finalText)).jsonValue();
+    await caughtUp(added, finalMessage.seq); await caughtUp(peer, finalMessage.seq);
     await old.reload();
-    const durable = await old.evaluate(async () => {
+    const durable = await old.evaluate(async finalMessage => {
       const v = await import('/src/lib/vault.ts'); const session = await v.unlockVault('synthetic-catchup-password');
-      return { seq: session.vault.lastSeq, gaps: session.vault.expiredMessageRanges ?? [] };
-    });
-    assert.equal(durable.seq, sent); assert.deepEqual(durable.gaps, []);
+      const [row] = await v.loadHistoryPageAfter(session, { afterSeq: finalMessage.seq - 1, limit: 1 });
+      return { seq: session.vault.lastSeq, id: row?.clientMsgId, text: row?.payload.text, gaps: session.vault.expiredMessageRanges ?? [] };
+    }, finalMessage);
+    assert.equal(durable.id, finalMessage.clientMsgId); assert.equal(durable.text, finalText);
+    assert.ok(durable.seq >= finalMessage.seq); assert.deepEqual(durable.gaps, []);
     for (const page of [peer, added]) await healthy(page);
     console.log(`PASS ${engine.name()}: three-device admission, multipage epochs, network/IDB interruption retries, complete history, send and durable reload`);
   } finally {
