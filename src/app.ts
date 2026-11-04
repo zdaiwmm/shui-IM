@@ -1458,6 +1458,7 @@ export class QuietRoomApp {
   }
 
   private showPrivacyCurtain(): void {
+    this.videoDownloads?.dispose();
     this.composerLinkPreview?.clear();
     document.title = 'Chamber';
     cancelFormInput();
@@ -7628,6 +7629,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       }
     }));
     this.mountChatLayout();
+    this.videoDownloads?.refresh();
     this.updateBackupStatus();
     requestAnimationFrame(() => this.showHiddenAlbumHint());
     const memeButton = this.root.querySelector<HTMLButtonElement>('#open-memes')!;
@@ -9400,7 +9402,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   }
 
   private setActiveSurface(surface: 'away' | 'chat', preservePresence = false): boolean {
-    if (surface === 'away') this.composerLinkPreview?.clear();
+    if (surface === 'away') { this.videoDownloads?.dispose(); this.composerLinkPreview?.clear(); }
     if (surface === 'away' && this.activeSurface === 'chat') this.captureChatAnchor(true);
     if (surface !== this.activeSurface) this.chatScrollRevision += 1;
     if (surface === 'away') { this.privateHistory?.pauseMedia();this.privateArchiveRows.clear();this.closeMemePicker(); this.memeCache.view = undefined; }
@@ -16353,9 +16355,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     });
   }
 
+  private videoDownloads?: ReturnType<typeof openLinkVideoSheet>;
+
   private openVideoDownloads(start?:SavedLinkVideo):void {
     const session=this.session, epoch=this.runtimeEpoch, signal=this.runtimeAbort?.signal;
     if(!session||!signal||this.privacyCovered)return;
+    if (this.videoDownloads) { this.videoDownloads.show(); return; }
     const active=()=>this.isRuntimeActive(epoch,session)&&!this.privacyCovered;
     const send = async (file: File, id: string, op: AbortSignal) => {
       const submit = async () => {
@@ -16372,7 +16377,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       };
       return navigator.locks ? navigator.locks.request('chamber-link-send:' + id, { signal: op }, submit) : submit();
     };
-    openLinkVideoSheet({ root: this.root, session, signal, active, start, send, largeVideoReady: () => this.activeDevicesSupport(LARGE_VIDEO_CAPABILITY) });
+    this.videoDownloads = openLinkVideoSheet({ root: this.root, session, signal, active, start, send, onDispose: () => { this.videoDownloads = undefined; }, largeVideoReady: () => this.activeDevicesSupport(LARGE_VIDEO_CAPABILITY) });
   }
 
   private renderGallery(tab: GalleryTab = 'images'): void {

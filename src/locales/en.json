@@ -3186,5 +3186,6 @@
   "超过 256 MiB，已保留在本机": "Over 256 MiB. Kept on this device.",
   "超过本机下载大小限制": "Exceeds the local download limit",
   "长按视频封面可发送至聊天": "Press and hold a cover for chat sharing",
-  "浏览器无法处理此视频。请在普通窗口重试，并检查设备可用空间。": "Open a regular browser window to retry, and check the available space on this device."
+  "浏览器无法处理此视频。请在普通窗口重试，并检查设备可用空间。": "Open a regular browser window to retry, and check the available space on this device.",
+  "查看视频": "View video"
 }
