@@ -215,7 +215,7 @@ type StoredMediaChunk = {
   mimeType?: string;
 };
 
-type LocalStore = 'linkVideos' | 'privateCatalog' | 'privateArchiveStaging' | 'privateMedia' | 'privateArchive' | 'outbox' | 'receiptOutbox' | 'uploads' | 'preferences' | 'memeFavorites';
+type LocalStore = 'linkVideos' | 'linkVideoParts' | 'privateCatalog' | 'privateArchiveStaging' | 'privateMedia' | 'privateArchive' | 'outbox' | 'receiptOutbox' | 'uploads' | 'preferences' | 'memeFavorites';
 
 export type ChatScrollAnchor = {
   clientMsgId: string;
@@ -311,7 +311,7 @@ function openDatabaseOnce(): Promise<IDBDatabase> {
           grouped.set(entry.id, entry); cursor.continue();
         };
       }
-      for (const storeName of ['outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging', 'privateCatalog', 'linkVideos'] as const) {
+      for (const storeName of ['outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging', 'privateCatalog', 'linkVideos', 'linkVideoParts'] as const) {
         if (!database.objectStoreNames.contains(storeName)) {
           const store = database.createObjectStore(storeName, { keyPath: 'id' });
           store.createIndex('roomId', 'roomId', { unique: false });
@@ -1041,7 +1041,7 @@ export async function clearLocalBrowserData(session: VaultSession): Promise<void
   await withVaultLifecycle(async () => {
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
-      const stores = ['history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging', 'linkVideos'];
+      const stores = ['history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging', 'linkVideos', 'linkVideoParts'];
       const tx = database.transaction(['vault', ...stores], 'readwrite');
       const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
       current.onsuccess = () => {
@@ -1325,7 +1325,7 @@ export async function finishJointRecovery(session: VaultSession, nextVault: Vaul
     signal.throwIfAborted();
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
-      const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging', 'linkVideos'];
+      const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging', 'linkVideos', 'linkVideoParts'];
       const tx = database.transaction(stores, 'readwrite');
       putCurrentVault(tx, nextStored, session.stored);
       for (const name of stores.slice(1)) {
@@ -3023,7 +3023,7 @@ export async function finishVaultRecovery(session: VaultSession, nextVault: Vaul
   const nextStored: StoredPlatformVault | StoredPasswordVault = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging', 'linkVideos'];
+    const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging', 'linkVideos', 'linkVideoParts'];
     const tx = database.transaction(stores, 'readwrite');
     putCurrentVault(tx, nextStored, session.stored);
     for (const name of stores.slice(1)) {
@@ -3437,7 +3437,7 @@ export async function deleteNewRoomLocal(session:VaultSession, directory?: {owne
     if(directory&&!ownsVaultMutation(directory.owner,directory.mutation))throw staleVaultError();
     const database=await openDatabase(),scope=localDataScope(session.vault);
     await new Promise<void>((resolve,reject)=>{
-      const names=['history','galleryHistory','restoredGallery','mediaCacheEntries','mediaChunks','outbox','receiptOutbox','uploads','preferences','memeFavorites','privateArchive','privateMedia','privateArchiveStaging','privateCatalog','linkVideos'];
+      const names=['history','galleryHistory','restoredGallery','mediaCacheEntries','mediaChunks','outbox','receiptOutbox','uploads','preferences','memeFavorites','privateArchive','privateMedia','privateArchiveStaging','privateCatalog','linkVideos', 'linkVideoParts'];
       const tx=database.transaction(['vault','spaces',...names],'readwrite');
       if(directory){const owner=tx.objectStore('vault').get(vaultSpaceId(directory.owner.stored));owner.onsuccess=()=>{if(!sameStoredVault(owner.result,directory.owner.stored))tx.abort();else tx.objectStore('spaces').put(directory.value,directory.id);};}
       const request=tx.objectStore('vault').get(vaultSpaceId(session.stored));
@@ -3473,54 +3473,77 @@ export async function loadPrivateMediaChunk(session:VaultSession,blobId:string,i
 
 // This room/device-scoped store is deliberately outside history, galleries exchanged with peers, and recovery exports.
 export interface SavedLinkVideo {id:string; key:string; name:string; size:number; created:number; duration:number; poster?:string; shared?:boolean}
-type LinkVideoRecord=StoredLocalRecord & {body:Blob};
-const linkChunk=2**20;
-const linkAAD=(scope:string,id:string,index:number)=>encoder.encode(`chamber-link-video-body-v1:${scope}:${id}:${index}`);
+const linkChunk = 2 ** 20;
+const linkAAD = (id: string, index: number) => encoder.encode(`chamber-link-video-body-v1:${id}:${index}`);
+type LinkVideoPart = { id: string; roomId: string; iv: Uint8Array<ArrayBuffer>; ciphertext: ArrayBuffer };
 
-export async function listLinkVideos(session:VaultSession,signal:AbortSignal):Promise<SavedLinkVideo[]> {
-  return (await loadLocalRecords<SavedLinkVideo>(session,'linkVideos',signal)).sort((a,b)=>b.created-a.created);
+export async function listLinkVideos(session: VaultSession, signal: AbortSignal): Promise<SavedLinkVideo[]> {
+  return (await loadLocalRecords<SavedLinkVideo>(session, 'linkVideos', signal)).sort((a,b) => b.created-a.created);
 }
-export async function storeLinkVideo(session:VaultSession,meta:SavedLinkVideo,file:Blob,signal:AbortSignal):Promise<SavedLinkVideo> {
-  const parts:Blob[]=[];
-  const scope=localDataScope(session.vault);
-  for(let pos=0;pos<file.size;pos+=linkChunk){
+
+export async function storeLinkVideo(session: VaultSession, meta: SavedLinkVideo, file: Blob, signal: AbortSignal): Promise<SavedLinkVideo> {
+  const scope = localDataScope(session.vault);
+  const record = await encryptLocalRecord(session, 'linkVideos', meta.id, meta);
+  const parts: LinkVideoPart[] = [];
+  for (let offset = 0; offset < file.size; offset += linkChunk) {
     signal.throwIfAborted();
-    const iv=crypto.getRandomValues(new Uint8Array(12));
-    const encrypted=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:linkAAD(scope,meta.id,pos/linkChunk)},session.key,await file.slice(pos,pos+linkChunk).arrayBuffer());
-    parts.push(new Blob([iv,encrypted]));
+    const index = offset / linkChunk;
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const bytes = await file.slice(offset, offset + linkChunk).arrayBuffer();
+    const ciphertext = await crypto.subtle.encrypt({name:'AES-GCM', iv, additionalData:linkAAD(record.id, index)}, session.key, bytes);
+    parts.push({id:record.id + ':' + index, roomId:scope, iv, ciphertext});
   }
-  return withVaultMutation(session,async()=>{
-    const previous=(await listLinkVideos(session,signal)).find(x=>x.key===meta.key);
-    if(previous)return previous;
-    const record=await encryptLocalRecord(session,'linkVideos',meta.id,meta);
-    signal.throwIfAborted();
-    await transaction('linkVideos','readwrite',s=>s.add({...record,body:new Blob(parts)}),()=>session.stored);
+  return withVaultMutation(session, async () => {
+    const previous = (await listLinkVideos(session, signal)).find(item => item.key === meta.key);
+    if (previous) return previous;
+    // Store ArrayBuffers instead of Blobs so private Safari sessions can commit them.
+    // Metadata, authenticated parts and the vault guard share one atomic transaction.
+    const database = await openDatabase();
+    try {
+      signal.throwIfAborted();
+      await new Promise<void>((resolve, reject) => {
+        const tx = database.transaction(['vault','linkVideos','linkVideoParts'], 'readwrite');
+        const cancel = () => tx.abort();
+        signal.addEventListener('abort', cancel, {once:true});
+        const guard = tx.objectStore('vault').get(vaultSpaceId(session.stored));
+        guard.onsuccess = () => {
+          if (!sameStoredVault(guard.result, session.stored)) { tx.abort(); return; }
+          tx.objectStore('linkVideos').add(record);
+          const store = tx.objectStore('linkVideoParts');
+          for (const part of parts) store.add(part);
+          parts.length = 0;
+        };
+        tx.oncomplete = () => { signal.removeEventListener('abort', cancel); resolve(); };
+        tx.onabort = () => { signal.removeEventListener('abort', cancel); reject(signal.reason ?? tx.error ?? staleVaultError()); };
+      });
+    } finally { database.close(); }
     return meta;
   });
 }
-export async function readLinkVideo(session:VaultSession,id:string,signal:AbortSignal):Promise<File>{
-  const scope=localDataScope(session.vault);
-  const row=await transaction<LinkVideoRecord|undefined>('linkVideos','readonly',s=>s.get(scope+':'+id));
-  if(!row)throw new Error(uiLiteral('找不到本机视频'));
-  const meta=await decryptLocalRecord<SavedLinkVideo>(session,'linkVideos',row);
-  if(meta.id!==id || row.body.size!==meta.size+28*Math.ceil(meta.size/linkChunk))throw new Error(uiLiteral('本机视频校验失败'));
-  const parts:Blob[]=[];
-  for(let pos=0,i=0;pos<meta.size;pos+=linkChunk,i++){
+export async function readLinkVideo(session: VaultSession, id: string, signal: AbortSignal): Promise<File> {
+  const recordId = localDataScope(session.vault) + ':' + id;
+  const row = await transaction<StoredLocalRecord|undefined>('linkVideos','readonly',store=>store.get(recordId));
+  if (!row) throw new Error(uiLiteral('找不到本机视频'));
+  const meta = await decryptLocalRecord<SavedLinkVideo>(session,'linkVideos',row);
+  if (meta.id !== id) throw new Error(uiLiteral('本机视频校验失败'));
+  const parts: Blob[] = [];
+  for (let offset = 0; offset < meta.size; offset += linkChunk) {
     signal.throwIfAborted();
-    const offset=i*(linkChunk+28);
-    const block=new Uint8Array(await row.body.slice(offset,offset+28+Math.min(linkChunk,meta.size-pos)).arrayBuffer());
-    const clear=await crypto.subtle.decrypt({name:'AES-GCM',iv:block.subarray(0,12),additionalData:linkAAD(scope,id,i)},session.key,block.subarray(12));
+    const index = offset / linkChunk;
+    const block = await transaction<LinkVideoPart|undefined>('linkVideoParts','readonly',store=>store.get(recordId+':'+index));
+    if (!block || block.ciphertext.byteLength !== 16 + Math.min(linkChunk,meta.size-offset)) throw new Error(uiLiteral('本机视频校验失败'));
+    const clear = await crypto.subtle.decrypt({name:'AES-GCM',iv:block.iv,additionalData:linkAAD(recordId,index)},session.key,block.ciphertext);
     parts.push(new Blob([clear]));
   }
   signal.throwIfAborted();
   return new File(parts,meta.name,{type:'video/mp4',lastModified:meta.created});
 }
 /** Called under the existing vault mutation after verified own-device history is durable. */
-export async function confirmLinkVideoShared(session:VaultSession,id:string):Promise<void>{
-  const row=await transaction<LinkVideoRecord|undefined>('linkVideos','readonly',s=>s.get(localDataScope(session.vault)+':'+id));
-  if(!row)return;
-  const meta=await decryptLocalRecord<SavedLinkVideo>(session,'linkVideos',row);
-  if(meta.shared)return;
-  const record=await encryptLocalRecord(session,'linkVideos',id,{...meta,shared:true});
-  await transaction('linkVideos','readwrite',s=>s.put({...record,body:row.body}),()=>session.stored);
+export async function confirmLinkVideoShared(session: VaultSession, id: string): Promise<void> {
+  const row = await transaction<StoredLocalRecord|undefined>('linkVideos','readonly',store=>store.get(localDataScope(session.vault)+':'+id));
+  if (!row) return;
+  const meta = await decryptLocalRecord<SavedLinkVideo>(session,'linkVideos',row);
+  if (meta.shared) return;
+  const record = await encryptLocalRecord(session,'linkVideos',id,{...meta,shared:true});
+  await transaction('linkVideos','readwrite',store=>store.put(record),()=>session.stored);
 }
