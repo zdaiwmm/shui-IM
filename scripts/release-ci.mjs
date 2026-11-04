@@ -17,7 +17,7 @@ export function selectRun(response, sha) {
   return run;
 }
 
-export function requireSuccessfulCI(response, sha, jobsResponse) {
+export function requireSuccessfulCI(response, sha, jobsResponse, { requireFull = false } = {}) {
   const run = selectRun(response, sha);
   if (run.status !== 'completed' || run.conclusion !== 'success') throw new Error('Latest CI run for the exact main commit has not passed.');
   const allJobs = pageItems(jobsResponse, 'jobs');
@@ -28,10 +28,12 @@ export function requireSuccessfulCI(response, sha, jobsResponse) {
   }
   // New scoped pipelines expose a release-only step. Historical application CI
   // predates delivery scope and keeps its original exact-SHA aggregate contract.
-  if (allJobs.some(job => job.name === 'Delivery tool verification')) {
-    const proof = jobs[0].steps?.filter(step => step.name === 'Full application verification');
-    if (proof?.length !== 1 || proof[0].status !== 'completed' || proof[0].conclusion !== 'success') {
-      throw new Error('Scoped CI cannot authorize an application release; full application verification required.');
+  if (requireFull || allJobs.some(job => job.name === 'Delivery tool verification')) {
+    const accepted = ['Full application verification'];
+    if (!requireFull) accepted.push('Focused application verification');
+    const proof = (jobs[0].steps ?? []).filter(step => accepted.includes(step.name) && step.conclusion !== 'skipped');
+    if (proof.length !== 1 || proof[0].status !== 'completed' || proof[0].conclusion !== 'success') {
+      throw new Error('Scoped CI lacks the required application verification proof.');
     }
   }
   return run.html_url;
@@ -42,7 +44,7 @@ export function readCIRuns(command, sha) {
   return JSON.parse(command('gh', ['api', `repos/${repository}/actions/workflows/ci.yml/runs?head_sha=${sha}&branch=main&per_page=100`, '--paginate', '--slurp']));
 }
 
-export function verifySuccessfulCI(command, sha, { details = false } = {}) {
+export function verifySuccessfulCI(command, sha, { details = false, requireFull = false } = {}) {
   const response = readCIRuns(command, sha);
   const run = selectRun(response, sha);
   if (run.status !== 'completed' || run.conclusion !== 'success') throw new Error('Latest CI run for the exact main commit has not passed.');
@@ -52,6 +54,6 @@ export function verifySuccessfulCI(command, sha, { details = false } = {}) {
   const latest = readCIRuns(command, sha);
   const current = selectRun(latest, sha);
   if (current.id !== run.id || current.run_attempt !== run.run_attempt) throw new Error('Latest CI run changed during verification. Inspect it before publishing.');
-  const url = requireSuccessfulCI(latest, sha, jobs);
+  const url = requireSuccessfulCI(latest, sha, jobs, { requireFull });
   return details ? { ...current, html_url: url } : url;
 }

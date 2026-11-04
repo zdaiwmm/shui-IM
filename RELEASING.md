@@ -1,5 +1,7 @@
 # Quiet Room 固定发布流程
 
+发布准备先按[上线复用合并结果](docs/workflows/publish-efficiency.md#上线复用合并结果)核对生产到候选的累计差异、精确 main CI 与同轮镜像。记录全量或专项结论，匹配时直接复用；每个环境仍须预检及独立回读。
+
 ## 聊天首条未读、输入性能和东京访客统计（2026-11-03）
 <a id="release-chat-unread-dual-20261103"></a>
 
@@ -2188,7 +2190,7 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 本机固定入口支持 `node scripts/publish.mjs --cloud --environment production --sha <获批完整SHA>`。
 它只提交唯一手动工作流并等待生产环境既有审核；不绕过审核，不在本机克隆或下载镜像。
-云端执行代码来自 main，应用仍固定为输入的获批 SHA，需其最新完整 main CI 成功。
+云端执行代码来自 main，应用仍固定为输入的获批 SHA，需其最新合格应用 main CI 成功。
 CI runner 复用完整镜像校验后，服务器直接流式下载、校验与导入，不保存镜像压缩包。
 运行镜像层与 Docker 导入临时空间仍存在，容量门禁及已有清理策略不变。
 
@@ -2205,7 +2207,7 @@ CI runner 复用完整镜像校验后，服务器直接流式下载、校验与�
 
 ## 发布效率分级与提前准备
 
-2026-10-14用户确认[效率优先规程](docs/workflows/publish-efficiency.md)。发布工具小修改走明确白名单专项CI；应用仍使用获批SHA的最新完整应用CI。工具合并不部署、不改获批应用目标。
+2026-10-14用户确认[效率优先规程](docs/workflows/publish-efficiency.md)。发布工具小修改走明确白名单专项CI；应用使用获批 SHA 的最新合格应用 CI。工具合并不部署、不改获批应用目标。
 固定入口增加 `--cloud --prepare` 提前只读预检、`--cloud --with-readback` 自动接续独立回读、
 `--cloud --resume <RunID>` 跟踪原任务、`--readback-only` 单独续跑回读，均携带相同环境与完整SHA。
 旧入口保留兼容；未知生产状态不重新派发，READBACK_OK之后再独立完成文档对账。

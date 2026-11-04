@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 // @ts-expect-error Operational Node script has no TS declarations.
-import { determineScope, parseChangedPaths, requireVerification } from '../scripts/ci-scope.mjs';
+import { determineScope, parseChangedPaths, requireVerification, verifiedBaseline } from '../scripts/ci-scope.mjs';
 
 const directories: string[] = [];
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
@@ -224,5 +224,56 @@ describe('CI verification summaries', () => {
   it('rejects missing or unknown scope and invalid summary formats', () => {
     for (const needs of [undefined, null, [], {}, results('unknown')]) expect(() => requireVerification(needs)).toThrow();
     expect(() => requireVerification(results(), 'unknown')).toThrow();
+  });
+});
+
+describe('risk-matched application CI', () => {
+  const record = 'docs/requirements/2026-11-04-fixture/README.md';
+  it('requires explicit matching scope on the complete PR, merge group and main range', () => {
+    const repo = repository();
+    repo.write('src/lib/emoji-catalog.ts', 'export const group = 1;');
+    repo.write('release.json', '{}');
+    repo.write(record, '回归专项：emoji');
+    const head = repo.commit();
+    const events = [
+      ['pull_request', { pull_request: { base: { sha: repo.before }, head: { sha: head } } }],
+      ['merge_group', { merge_group: { base_ref: 'refs/heads/main', base_sha: repo.before, head_sha: head } }],
+      ['push', { ref: 'refs/heads/main', before: repo.before, after: head }],
+    ];
+    for (const [eventName, event] of events) {
+      expect(determineScope({ eventName, event, runGit: repo.git, checkBaseline: () => 'full-run' })).toMatchObject({ mode: 'focused', profile: 'emoji' });
+    }
+    const [eventName, event] = events[2]!;
+    const evaluate = (after: string, checkBaseline = () => 'full-run') => determineScope({ eventName,
+      event: { ...Object(event), after }, runGit: repo.git, checkBaseline }).mode;
+    expect(evaluate(head, () => { throw new Error('missing baseline'); })).toBe('full');
+    repo.write(record, '回归专项：keyboard');
+    expect(evaluate(repo.commit())).toBe('full');
+    repo.write(record, '回归专项：emoji');
+    repo.write('server/auth.mjs', 'export {};');
+    expect(evaluate(repo.commit())).toBe('full');
+  });
+
+  it('crosses only plain operational documents to find the exact full baseline', () => {
+    const repo = repository();
+    repo.write('server/auth.mjs', 'export {};');
+    const app = repo.commit();
+    repo.write(record, 'Documentation only');
+    const docs = repo.commit();
+    const proof = (_run: unknown, sha: string, options: unknown) => {
+      expect(sha).toBe(app); expect(options).toEqual({ requireFull: true }); return 'full-run';
+    };
+    expect(verifiedBaseline(docs, repo.git, proof)).toBe('full-run');
+  });
+
+  it('requires build, packaged images, audit and affected browser journeys for a focused result', () => {
+    const needs = { ...results('focused'), scope: { result: 'success', outputs: { mode: 'focused', profile: 'keyboard' } },
+      build: { result: 'success' }, audit: { result: 'success' }, image: { result: 'success' }, focused: { result: 'success' } };
+    expect(requireVerification(needs, 'focused')).toBe('focused');
+    expect(() => requireVerification(needs, 'full')).toThrow();
+    for (const name of ['build', 'audit', 'image', 'focused', 'secret_scan']) {
+      expect(() => requireVerification({ ...needs, [name]: { result: 'skipped' } }, 'focused')).toThrow();
+    }
+    expect(() => requireVerification(results('docs'), 'focused')).toThrow();
   });
 });

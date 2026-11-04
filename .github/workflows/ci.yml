@@ -24,9 +24,13 @@ jobs:
     name: Determine verification scope
     runs-on: ubuntu-latest
     timeout-minutes: 3
+    permissions:
+      contents: read
+      actions: read
     outputs:
       mode: ${{ steps.scope.outputs.mode }}
       documents: ${{ steps.scope.outputs.documents }}
+      profile: ${{ steps.scope.outputs.profile }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -34,7 +38,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Compare all changed paths with the documentation allowlist
+      - name: Determine scope from the complete candidate diff
+        env:
+          GH_TOKEN: ${{ github.token }}
         id: scope
         run: node scripts/ci-scope.mjs
 
@@ -83,7 +89,7 @@ jobs:
   build:
     name: Build and unit/integration tests
     needs: scope
-    if: needs.scope.outputs.mode == 'full'
+    if: needs.scope.outputs.mode == 'full' || needs.scope.outputs.mode == 'focused'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -128,6 +134,42 @@ jobs:
       - run: npm run build
       - run: npm run test:browser -- --group ${{ matrix.group }} --shard ${{ matrix.shard }}
 
+  focused:
+    name: Affected browser journeys
+    needs: scope
+    if: needs.scope.outputs.mode == 'focused'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
+      options: --init --ipc=host
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit
+      - run: npm run build
+      - name: Verify the affected journeys and release notes
+        env:
+          PROFILE: ${{ needs.scope.outputs.profile }}
+        run: |
+          set -eu
+          case "$PROFILE" in
+            emoji)
+              node tests/meme-picker.e2e.mjs
+              MEME_WEBKIT=1 node tests/meme-picker.e2e.mjs
+              ;;
+            keyboard)
+              node tests/chat-list-viewport.e2e.mjs
+              node tests/chat-continuity.e2e.mjs
+              node tests/mobile-safari-feedback.e2e.mjs
+              ;;
+            *) exit 1 ;;
+          esac
+          node tests/release-update.e2e.mjs
+
   calls:
     name: Native call media and call views
     needs: scope
@@ -150,7 +192,7 @@ jobs:
   audit:
     name: Audit production dependencies
     needs: scope
-    if: needs.scope.outputs.mode == 'full'
+    if: needs.scope.outputs.mode == 'full' || needs.scope.outputs.mode == 'focused'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -165,7 +207,7 @@ jobs:
   image:
     name: Build deployable image (${{ matrix.arch }})
     needs: scope
-    if: needs.scope.outputs.mode == 'full'
+    if: needs.scope.outputs.mode == 'full' || needs.scope.outputs.mode == 'focused'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -229,7 +271,7 @@ jobs:
   image_retention:
     name: Retain recent CI image versions
     needs: [scope, verify]
-    if: github.ref == 'refs/heads/main' && needs.scope.outputs.mode == 'full' && needs.verify.result == 'success'
+    if: github.ref == 'refs/heads/main' && (needs.scope.outputs.mode == 'full' || needs.scope.outputs.mode == 'focused') && needs.verify.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -248,7 +290,7 @@ jobs:
     # Keep the existing branch-protection check name stable and make it the
     # single aggregate runner so account runner limits cannot block a green run.
     name: verify
-    needs: [scope, docs, secret_scan, delivery, build, browser, calls, audit, image]
+    needs: [scope, docs, secret_scan, delivery, focused, build, browser, calls, audit, image]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -266,3 +308,8 @@ jobs:
         env:
           CI_NEEDS: ${{ toJSON(needs) }}
         run: node scripts/ci-scope.mjs verify full
+      - name: Focused application verification
+        if: needs.scope.outputs.mode == 'focused'
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-scope.mjs verify focused

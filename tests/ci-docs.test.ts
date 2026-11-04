@@ -83,7 +83,7 @@ describe('CI helper command entry points', () => {
     const options = fixture('# Release\n');
     const sourceRoot = fileURLToPath(new URL('../', import.meta.url));
     mkdirSync(path.join(options.cwd, 'scripts'));
-    for (const script of ['ci-scope.mjs', 'check-docs.mjs']) {
+    for (const script of ['ci-scope.mjs', 'release-ci.mjs', 'check-docs.mjs']) {
       copyFileSync(path.join(sourceRoot, 'scripts', script), path.join(options.cwd, 'scripts', script));
     }
     const aliasDirectory = mkdtempSync(path.join(tmpdir(), 'quiet-room-ci-alias-'));
