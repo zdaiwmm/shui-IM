@@ -15117,7 +15117,9 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         delete button.dataset.loadStage;
         this.updateChatImageVisibility(button);
         if (video) void this.updateVideoCacheStatus(button, manifest);
-      } else queueMicrotask(() => { if (button.isConnected) void this.hydrateImagePreview(button, manifest); });
+      } else if (!video || manifest.originalSize <= MEDIA_CACHE_FILE_BYTES) {
+        queueMicrotask(() => { if (button.isConnected) void this.hydrateImagePreview(button, manifest); });
+      }
     }
     button.addEventListener('click', () => {
       if (Date.now() < this.suppressMediaClickUntil || !button.isConnected || !this.session || this.privacyCovered ||
@@ -15180,6 +15182,18 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
   }
 
+  private showVideoPlaceholder(button: HTMLButtonElement): void {
+    button.style.removeProperty('--chat-preview-source');
+    button.replaceChildren(this.videoPlayBadge());
+    button.dataset.imageState = 'loaded';
+    button.dataset.posterUnavailable = 'true';
+    button.setAttribute('aria-busy', 'false');
+    delete button.dataset.loadStage;
+    this.updateChatImageVisibility(button);
+    const list = this.chatLayoutElements?.list;
+    if (this.activeSurface === 'chat' && list?.contains(button)) this.finishChatAnchorRestore(list);
+  }
+
   private async renderImageIntoButton(button: HTMLButtonElement, manifest: ImageManifest, cached: CachedImage): Promise<void> {
     const ownerList = () => {
       const list = this.chatLayoutElements?.list;
@@ -15191,16 +15205,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       if (!button.isConnected || this.privacyCovered) return;
       void this.updateVideoCacheStatus(button, manifest);
       if (!cached.posterUrl) {
-        button.style.removeProperty('--chat-preview-source');
-        button.replaceChildren(this.videoPlayBadge());
-        button.dataset.imageState = 'loaded';
-        button.dataset.posterUnavailable = 'true';
-        button.setAttribute('aria-busy', 'false');
-        delete button.dataset.loadStage;
-        this.updateChatImageVisibility(button);
+        this.showVideoPlaceholder(button);
         this.imageLoadStatus.delete(manifest.blobId);
-        const list = ownerList();
-        if (list) this.finishChatAnchorRestore(list);
         return;
       }
     }
@@ -15298,7 +15304,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
 
   private async prepareVisibleChatMedia(button: HTMLButtonElement, manifest: ImageManifest): Promise<void> {
     const session = this.session;
-    if (!session || !isVideoFile(manifest) || manifest.originalSize <= MEDIA_CACHE_FILE_BYTES || this.imageCache.has(manifest.blobId)) {
+    if (!session) return;
+    if (!isVideoFile(manifest) || manifest.originalSize <= MEDIA_CACHE_FILE_BYTES || this.imageCache.get(manifest.blobId)?.posterUrl) {
       return this.hydrateImagePreview(button, manifest);
     }
     const epoch = this.runtimeEpoch;
@@ -15306,11 +15313,25 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (!button.isConnected || !this.isRuntimeActive(epoch, session) || button.dataset.imageState !== 'pending') return;
     if (preview) {
       this.cacheLocalImage(manifest, preview, true);
+      const cached = this.imageCache.get(manifest.blobId)!;
+      if (!cached.posterUrl) {
+        // Preserve an original already held in memory and attach just the verified poster.
+        cached.posterUrl = URL.createObjectURL(preview);
+        cached.bytes += preview.size;
+        this.imageCacheBytes += preview.size;
+      }
       return this.hydrateImagePreview(button, manifest);
     }
     const complete = await hasCompleteMediaChunks(session, manifest).catch(() => false);
     if (!button.isConnected || !this.isRuntimeActive(epoch, session) || button.dataset.imageState !== 'pending') return;
-    if (complete) return this.hydrateImagePreview(button, manifest);
+    if (complete || this.imageCache.has(manifest.blobId)) {
+      if (complete) {
+        button.dataset.localCache = uiLiteral('本机已缓存');
+        button.setAttribute('aria-description', button.dataset.localCache);
+      }
+      this.showVideoPlaceholder(button);
+      return;
+    }
     button.setAttribute('aria-busy', 'false');
     button.setAttribute('aria-label', uiLiteral('点按下载视频'));
     const label = button.querySelector('.media-load-status');
