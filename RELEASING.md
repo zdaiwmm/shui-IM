@@ -2,6 +2,18 @@
 
 发布准备先按[上线复用合并结果](docs/workflows/publish-efficiency.md#上线复用合并结果)核对生产到候选的累计差异、精确 main CI 与同轮镜像。记录全量或专项结论，匹配时直接复用；每个环境仍须预检及独立回读。
 
+## 链接视频 V2 与首屏性能修复已发布至两站（2026-11-04）
+<a id="release-link-video-v2-47cf"></a>
+
+用户确认应用提交 `47cfcea64ad0c269dc086db2d9a40edf4147c6c3`、版本 `2026.11.04.4` 发布到主站与东京。两站由 `306f0b22` / `2026.11.04.2` 升级，包含[聊天首屏按需读取大视频 #507](https://github.com/zdaiwmm/shui-IM/pull/507)和[链接视频 V2 #508](https://github.com/zdaiwmm/shui-IM/pull/508)。精确合并提交与本地候选文件树一致，1,303 项测试及 93 个浏览器场景通过。PR 首轮浏览器访问夹具中断，同一提交重跑失败组通过。[精确应用主线 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/41833609381) 首轮通过，amd64 产物为 13324572360。
+
+| 环境 | 发布批次（UTC） | 独立回读完成（北京时间） |
+| --- | --- | --- |
+| ai.shui.click | 20261104T131528Z | 21:19:55 |
+| mijiu.cloud | 20261104T132056Z | 21:29:17 |
+
+两个环境分别完成一次切换、冷备份校验、精确 DEPLOY_VERIFIED 和独立 READBACK_OK。服务、备份、维护门、公开资源与新建 WebSocket 均通过对应回读门禁。脱敏回执保存在公共 Git 目录 quiet-room-deliveries/evidence/link-video-v2-47cf。真实 X 链接识别与 589 MiB 合成视频的加密发送及逐字节比对为本地证据。未使用真实线上会话发送，未验收实体 iPhone。
+
 ## X 视频直下本机与加密发送已发布至两站（2026-11-04）
 <a id="release-x-video-dual-20261104"></a>
 
