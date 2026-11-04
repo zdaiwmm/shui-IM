@@ -940,6 +940,37 @@ try {
     await rememberPlayer(); await closePlayer(); await assertPlayerReleased(`${destination} cold playback close`);
     await page.evaluate(()=>window.videoFlow.app.lockNow());
   }
+  // Exercise scheduling independently of codec speed. Use tiny chunk records
+  // for the completeness index and spy at the boundary that opens the original.
+  const onEntry = await page.evaluate(async () => {
+    const {app, vault} = window.videoFlow;
+    const session = await vault.unlockVault('video-flow-passphrase');
+    app.session = session;
+    app.privacyCovered = false;
+    app.runtimeAbort = new AbortController();
+    const manifest = {...window.videoFlow.manifests.chatVideo, blobId: crypto.randomUUID(),
+      originalSize: 130 * 1024 ** 2, chunkCount: 65, chunkSize: 2 * 1024 ** 2};
+    for (let i = 0; i < manifest.chunkCount; i++) {
+      await vault.saveCachedMediaChunk(session, manifest.blobId, i, new ArrayBuffer(16), undefined, manifest.originalSize);
+    }
+    let reads = 0;
+    const load = app.loadImage;
+    app.loadImage = async () => { reads++; throw Error('Unexpected automatic original load'); };
+    const states = [];
+    try {
+      for (const warm of [false, true]) {
+        if (warm) app.cacheLocalImage(manifest, new Blob(['fixture'], {type:'video/webm'}));
+        const button = app.createImagePreview(manifest, [manifest], 0, 'large-video-fixture');
+        document.body.append(button);
+        await app.prepareVisibleChatMedia(button, manifest);
+        states.push([button.dataset.imageState, button.dataset.posterUnavailable, Boolean(button.dataset.localCache), reads]);
+        button.remove();
+      }
+    } finally { app.loadImage = load; app.lockNow(); }
+    return states;
+  });
+  assert.deepEqual(onEntry, Array(2).fill(['loaded', 'true', true, 0]),
+    'A cached large video without a poster opened its original before a play request');
   assert.deepEqual(errors, [], `Video regression raised browser errors: ${errors.join('; ')}`);
   console.log(JSON.stringify({ videoPreview: 'verified original with local poster and play button', viewer: { autoplay: true, maximized: true, mixedPagingInline: true, stablePagingHeader: true, longPressDoesNotPlay: true, closeReleasesMedia: true, incomingCallStopsPlayback: true }, safe: { label: '相册', photosAndVideos: true, firstClickReveals: true, secondClickPlays: true, genericFilesExcluded: true }, restore: 'album-only video stays outside chat history', ordinaryDownloads: 2, lifecycle: { lockRevokesOriginalAndPoster: true, lateLoadCannotRepopulateCache: true } }, null, 2));
 } finally {
