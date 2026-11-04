@@ -1,4 +1,4 @@
-import { isSelectedVideo } from './video-media';
+import { isSelectedVideo, isVideoFile } from './video-media';
 import { atFaultStage } from './fault-report';
 import { uiLiteral, uiTemplate } from './language';
 import { VoiceNetworkError } from './voice-network';
@@ -187,6 +187,10 @@ export function encryptFileAttachment(file: File, callbacks: UploadCallbacks, pl
   return encryptAttachmentFile(file, callbacks, plan, 'file');
 }
 
+export class VideoBufferUnavailable extends Error {
+  constructor() { super(uiLiteral('本机无法准备完整视频，请释放空间或使用普通浏览窗口后重试')); }
+}
+
 async function decryptAttachmentFile(
   manifest: ImageManifest,
   fetchChunk: (blobId: string, index: number) => Promise<ArrayBuffer>,
@@ -203,10 +207,8 @@ async function decryptAttachmentFile(
   if (ivPrefix.length !== 8) throw new Error(uiLiteral('图片加密参数不正确'));
   const hash = await createSHA256();
   hash.init();
-  const parts: BlobPart[] = [];
   let totalSize = 0;
-
-  for (let index = 0; index < manifest.chunkCount; index += 1) {
+  const readVerifiedChunk = async (index: number) => {
     signal?.throwIfAborted();
     const ciphertext = await fetchChunk(manifest.blobId, index);
     signal?.throwIfAborted();
@@ -225,14 +227,46 @@ async function decryptAttachmentFile(
     const bytes = new Uint8Array(plaintext);
     totalSize += bytes.length;
     hash.update(bytes);
-    parts.push(new Blob([bytes])); // Release each JS buffer after hashing; the browser manages Blob backing storage.
+    if (index + 1 === manifest.chunkCount && (totalSize !== manifest.originalSize || hash.digest('hex') !== manifest.sha256)) {
+      throw new Error(uiLiteral('附件完整性校验失败'));
+    }
     progress?.((index + 1) / manifest.chunkCount);
+    return bytes;
+  };
+
+  const type = manifest.mimeType || 'application/octet-stream';
+  if (manifest.originalSize <= 128 * 1024 ** 2 || kind !== 'file' || !isVideoFile(manifest)) {
+    const parts: BlobPart[] = [];
+    for (let index = 0; index < manifest.chunkCount; index++) parts.push(await readVerifiedChunk(index));
+    return new Blob(parts, { type });
   }
 
-  if (totalSize !== manifest.originalSize || hash.digest('hex') !== manifest.sha256) {
-    throw new Error(uiLiteral('附件完整性校验失败'));
+  // A single backpressured stream lets the browser spool a large Blob. A list
+  // of independent small Blobs can exhaust Chromium's backing store at 2 GiB.
+  let next = 0;
+  let sourceError: unknown;
+  const body = new ReadableStream<Uint8Array<ArrayBuffer>>({
+    async pull(controller) {
+      try {
+        controller.enqueue(await readVerifiedChunk(next++));
+        if (next === manifest.chunkCount) controller.close();
+      } catch (error) {
+        sourceError = error;
+        controller.error(error);
+      }
+    },
+  });
+  try {
+    const blob = await new Response(body).blob();
+    signal?.throwIfAborted();
+    // Some private browsers report the expected size even for an unreadable Blob.
+    if (blob.size !== manifest.originalSize || (await blob.slice(-1).arrayBuffer()).byteLength !== 1) throw new VideoBufferUnavailable();
+    return blob.slice(0, blob.size, type);
+  } catch {
+    signal?.throwIfAborted();
+    if (sourceError) throw sourceError;
+    throw new VideoBufferUnavailable();
   }
-  return new Blob(parts, { type: manifest.mimeType || 'application/octet-stream' });
 }
 
 export function decryptImageFile(manifest: ImageManifest, fetchChunk: FetchChunk, progress?: (ratio: number) => void, signal?: AbortSignal): Promise<Blob> {

@@ -157,7 +157,7 @@ import {
   verifyDeliveryReceipt,
   verifyJoinProof,
 } from './lib/crypto';
-import { decryptAudioFile, encryptAudioFile, decryptImageFile, encryptImageFile, encryptFileAttachment, decryptFileAttachment, MAX_IMAGE_BYTES } from './lib/file-crypto';
+import { VideoBufferUnavailable, decryptAudioFile, encryptAudioFile, decryptImageFile, encryptImageFile, encryptFileAttachment, decryptFileAttachment, MAX_IMAGE_BYTES } from './lib/file-crypto';
 import { VoiceRecorder } from './lib/voice-recorder';
 import { bindVoiceRecordGesture } from './lib/voice-gesture';
 import { bindImageViewerGestures } from './lib/image-viewer-gestures';
@@ -13041,6 +13041,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }, progress, signal);
     try { return await attempt(true); }
     catch (error) {
+      if (error instanceof VideoBufferUnavailable || signal?.aborted) throw error;
       await deleteCachedMediaBlob(session, manifest.blobId).catch(() => undefined);
       signal?.throwIfAborted(); if (!usedCache) throw error;
       try { return await attempt(false); }
@@ -15283,6 +15284,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       button.replaceChildren(capsule);
       button.setAttribute('aria-label', cause instanceof Error ? uiTemplate`${cause.message}，点按重试` : error.textContent);
       button.title = button.getAttribute('aria-label')!;
+      if (cause instanceof VideoBufferUnavailable) this.showNotice(cause.message, 'error');
       const list = this.root.querySelector<HTMLElement>('#message-list');
       if (list) this.finishChatAnchorRestore(list);
     }
@@ -15415,7 +15417,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       try {
         blob = await decryptWithCiphertextCache(true);
       } catch (cause) {
-        if (fetchFailed || signal?.aborted) throw cause;
+        if (fetchFailed || signal?.aborted || cause instanceof VideoBufferUnavailable) throw cause;
         await deleteCachedMediaBlob(session, manifest.blobId).catch(() => undefined);
         if (!usedPersistentCiphertext) throw cause;
         signal?.throwIfAborted();
@@ -15425,7 +15427,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         try {
           blob = await decryptWithCiphertextCache(false);
         } catch (retryCause) {
-          if (!fetchFailed && !signal?.aborted) await deleteCachedMediaBlob(session, manifest.blobId).catch(() => undefined);
+          if (!fetchFailed && !signal?.aborted && !(retryCause instanceof VideoBufferUnavailable)) await deleteCachedMediaBlob(session, manifest.blobId).catch(() => undefined);
           throw retryCause;
         }
       }
