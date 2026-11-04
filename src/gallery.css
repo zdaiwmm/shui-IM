@@ -485,14 +485,26 @@
 }
 .image-viewer[data-safe-viewer].video-viewer .viewer-header > :not([data-viewer-close]),
 .image-viewer[data-safe-viewer].video-viewer .viewer-nav { display: none; }
-.image-viewer[data-safe-viewer].video-viewer[data-video-controls="hidden"] .viewer-header,
-.image-viewer[data-safe-viewer].video-viewer[data-video-controls="hidden"] .viewer-video-controls {
+.image-preview.video-preview[data-revealed="true"][data-local-cache]::after {
+  content: attr(data-local-cache);
+  position: absolute;
+  left: 7px;
+  bottom: 7px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  color: #fff;
+  background: #242124cc;
+  font-size: .6875rem;
+  pointer-events: none;
+}
+.image-viewer.video-viewer[data-video-controls="hidden"] .viewer-header,
+.image-viewer.video-viewer[data-video-controls="hidden"] .viewer-video-controls {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
 }
-.image-viewer[data-safe-viewer].video-viewer[data-video-controls="hidden"]:has(:focus-visible) .viewer-header,
-.image-viewer[data-safe-viewer].video-viewer[data-video-controls="hidden"]:has(:focus-visible) .viewer-video-controls {
+.image-viewer.video-viewer[data-video-controls="hidden"]:has(:focus-visible) .viewer-header,
+.image-viewer.video-viewer[data-video-controls="hidden"]:has(:focus-visible) .viewer-video-controls {
   opacity: 1;
   visibility: visible;
   pointer-events: auto;

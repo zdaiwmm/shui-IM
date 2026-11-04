@@ -3140,5 +3140,12 @@
   "以下是新消息": "Novas mensagens abaixo",
   "有新消息": "Novas mensagens",
   "查看第一条未读消息": "Ir para a primeira mensagem não lida",
-  "条新消息，查看第一条未读消息": "novas mensagens, ir para a primeira não lida"
+  "条新消息，查看第一条未读消息": "novas mensagens, ir para a primeira não lida",
+  "单个视频不能超过 2 GiB": "Cada vídeo pode ter até 2 GiB",
+  "请先让所有已授权设备打开一次最新版，再发送大视频": "Abra a versão mais recente em todos os dispositivos autorizados antes de enviar um vídeo grande",
+  "本机未能保留完整视频，下次播放可能需要下载": "Este dispositivo não conseguiu guardar o vídeo completo. A próxima reprodução poderá exigir outro download.",
+  "点按下载视频": "Toque para baixar o vídeo",
+  "附件超过单文件限制": "O anexo excede o limite de tamanho por arquivo",
+  "本机已缓存": "Em cache neste dispositivo",
+  "本机无法准备完整视频，请释放空间或使用普通浏览窗口后重试": "Não foi possível preparar o vídeo completo. Libere espaço ou tente em uma janela de navegação normal."
 }

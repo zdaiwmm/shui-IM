@@ -34,7 +34,7 @@ const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_DIR = path.resolve(MODULE_DIR, '..');
 const MAX_JSON_BYTES = 640 * 1024;
 const MAX_CHUNK_BYTES = 2 * 1024 * 1024 + 16;
-const MAX_IMAGE_BYTES = 256 * 1024 * 1024 + 2048;
+const MAX_BLOB_BYTES = 2 * 1024 ** 3 + 16 * 1024;
 const ID_PATTERN = '[0-9a-fA-F-]{36}';
 
 const MIME_TYPES = new Map([
@@ -122,7 +122,7 @@ function normalizeError(error) {
     ['BLOB_CONFLICT', [409, '图片续传参数与原上传不一致']],
     ['BLOB_INCOMPLETE', [409, '图片分块尚未完整上传']],
     ['BLOB_SIZE_MISMATCH', [409, '图片分块总大小不正确']],
-    ['BLOB_QUOTA', [413, '图片超过 256 MB 限制']],
+    ['BLOB_QUOTA', [413, '附件超过单文件限制']],
     ['STORAGE_QUOTA', [507, '会话存储配额已用尽']],
     ['TOO_MANY_UPLOADS', [429, '未完成的图片上传过多，请先续传或等待清理']],
     ['INVALID_RECEIPT', [400, '送达回执与消息不匹配']],
@@ -241,8 +241,8 @@ export async function startServer(options = {}) {
   const numericOption = (value, fallback) => Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : fallback;
   const store = await createStore({
     dataDir,
-    maxBlobBytes: numericOption(options.maxBlobBytes ?? process.env.MAX_BLOB_BYTES, MAX_IMAGE_BYTES),
-    maxRoomStorageBytes: numericOption(options.maxRoomStorageBytes ?? process.env.MAX_ROOM_STORAGE_BYTES, 1024 * 1024 * 1024),
+    maxBlobBytes: numericOption(options.maxBlobBytes ?? process.env.MAX_BLOB_BYTES, MAX_BLOB_BYTES),
+    maxRoomStorageBytes: numericOption(options.maxRoomStorageBytes ?? process.env.MAX_ROOM_STORAGE_BYTES, 3 * 1024 ** 3),
     maxTotalStorageBytes: numericOption(options.maxTotalStorageBytes ?? process.env.MAX_TOTAL_STORAGE_BYTES, 10 * 1024 * 1024 * 1024),
     maxIncompleteBlobsPerRoom: numericOption(options.maxIncompleteBlobsPerRoom ?? process.env.MAX_INCOMPLETE_BLOBS, 4),
     maxMessagesPerRoom: numericOption(options.maxMessagesPerRoom ?? process.env.MAX_MESSAGES_PER_ROOM, 100_000),
@@ -1476,10 +1476,10 @@ export async function startServer(options = {}) {
           !isUuid(body.blobId) ||
           !Number.isInteger(body.chunkCount) ||
           body.chunkCount < 1 ||
-          body.chunkCount > 128 ||
+          body.chunkCount > 1024 ||
           !Number.isSafeInteger(body.encryptedSize) ||
           body.encryptedSize < 17 ||
-          body.encryptedSize > MAX_IMAGE_BYTES
+          body.encryptedSize > MAX_BLOB_BYTES
         ) {
           json(request, response, 400, { error: 'INVALID_BLOB_REQUEST' });
           return;

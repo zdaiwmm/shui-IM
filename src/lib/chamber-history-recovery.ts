@@ -170,7 +170,7 @@ export async function completeChamberHistoryRecovery(session:VaultSession,reques
           const raw=fromBase64Url(part.bytes);
           if(pass===0) { await verifier.chunk(index,raw.buffer); if(index===manifest.chunkCount-1) verifier.finish(); }
           else {
-            await saveChamberRecoveredMediaChunk(destination,manifest.blobId,index,raw.buffer,signal);
+            await saveChamberRecoveredMediaChunk(destination,manifest.blobId,index,raw.buffer,signal,manifest);
             const readback=await loadCachedMediaChunk(destination,manifest.blobId,index,raw.length);
             if(!readback||new Uint8Array(readback).some((byte,i)=>byte!==raw[i]))throw new Error(uiLiteral('本机容量不足，原文件未能完整回读。已保留经过验证的旧记录，请腾出密室后继续恢复'));
           }

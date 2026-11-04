@@ -15,8 +15,8 @@ import { MAX_PACK_BYTES, MAX_PACK_ITEMS, MAX_PACK_LIBRARY_BYTES, MAX_STICKER_PAC
 import { downloadBlob } from './download';
 import { encryptMessage, generateIdentity } from './crypto';
 import { createRecoveryRequest } from './mls';
-import { isMessagePayload, MAX_IMAGE_BYTES } from './message-payload';
-import { isGalleryMediaPayload } from './video-media';
+import { isMessagePayload, MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from './message-payload';
+import { isGalleryMediaPayload, isVideoFile } from './video-media';
 import { galleryCurationKey, normalizeGalleryCurationRecords, type GalleryCurationRecord } from './gallery-curation';
 import { normalizeAttachmentFavorites, type AttachmentFavorite } from './attachment-favorites';
 import type { CloudRecoveryBundle } from './backup-types';
@@ -555,12 +555,20 @@ export async function loadCachedMediaChunk(
   return record.bytes.slice(0);
 }
 
+export async function hasCompleteMediaChunks(session: VaultSession, manifest: import('./types').ImageManifest): Promise<boolean> {
+  const prefix = mediaBlobKey(localDataScope(session.vault), manifest.blobId) + '\u0000';
+  // Numeric chunk keys start with a digit; local derivatives use negative indexes.
+  const range = IDBKeyRange.bound(prefix + '0', prefix + ':', false, true);
+  return await transaction<number>('mediaChunks', 'readonly', store => store.count(range), () => session.stored) === manifest.chunkCount;
+}
+
 export async function saveCachedMediaChunk(
   session: VaultSession,
   blobId: string,
   index: number,
   bytes: ArrayBuffer,
   signal?: AbortSignal,
+  videoBytes?: number,
 ): Promise<void> {
   const roomId = localDataScope(session.vault);
   const record: StoredMediaChunk = {
@@ -572,14 +580,14 @@ export async function saveCachedMediaChunk(
     bytes: bytes.slice(0),
     cachedAt: Date.now(),
   };
-  await writeMediaCacheRecord(session, record, signal);
+  await writeMediaCacheRecord(session, record, signal, videoBytes === undefined ? undefined : VIDEO_CACHE_ENTRY_LIMIT, false, videoBytes);
 }
 
 /** Explicit verified history restoration supports the existing 256 MiB
  * attachment limit. The shared total/reserve/quota budget remains unchanged. */
-export async function saveChamberRecoveredMediaChunk(session:VaultSession,blobId:string,index:number,bytes:ArrayBuffer,signal:AbortSignal):Promise<void> {
+export async function saveChamberRecoveredMediaChunk(session:VaultSession,blobId:string,index:number,bytes:ArrayBuffer,signal:AbortSignal,manifest?:import('./types').ImageManifest):Promise<void> {
   const roomId=localDataScope(session.vault);
-  await writeMediaCacheRecord(session,{id:mediaChunkId(roomId,blobId,index),roomId,blobKey:mediaBlobKey(roomId,blobId),blobId,index,bytes:bytes.slice(0),cachedAt:Date.now()},signal,MAX_IMAGE_BYTES+1024**2);
+  await writeMediaCacheRecord(session,{id:mediaChunkId(roomId,blobId,index),roomId,blobKey:mediaBlobKey(roomId,blobId),blobId,index,bytes:bytes.slice(0),cachedAt:Date.now()}, signal, manifest && isVideoFile(manifest) ? VIDEO_CACHE_ENTRY_LIMIT : MAX_IMAGE_BYTES + 1024**2);
 }
 
 async function touchMediaCache(session: VaultSession, id: string): Promise<void> {
@@ -614,7 +622,10 @@ async function releaseMediaCachePressure(session: VaultSession): Promise<void> {
   });
 }
 
-async function writeMediaCacheRecord(session: VaultSession, record: StoredMediaChunk, signal?: AbortSignal,maxBlobBytes=MEDIA_CACHE_FILE_BYTES+1024**2): Promise<void> {
+// Original ciphertext, tags and the bounded encrypted poster/concealment derivatives.
+const VIDEO_CACHE_ENTRY_LIMIT = MAX_VIDEO_BYTES + 33 * 1024 ** 2;
+
+async function writeMediaCacheRecord(session: VaultSession, record: StoredMediaChunk, signal?: AbortSignal, maxBlobBytes = MEDIA_CACHE_FILE_BYTES + 1024 ** 2, replaceOriginal = false, requiredBytes = 0): Promise<void> {
   signal?.throwIfAborted();
   if (mediaCacheQuotaBlocked.has(session)) return;
   const estimate = await navigator.storage?.estimate?.().catch(() => undefined);
@@ -629,7 +640,7 @@ async function writeMediaCacheRecord(session: VaultSession, record: StoredMediaC
       old.onsuccess = () => {
         const rows = all.result as MediaCacheEntry[];
         const previous = rows.find(item => item.id === record.blobKey);
-        const delta = record.bytes.byteLength - (record.index === -1 ? previous?.bytes ?? 0 : old.result?.bytes.byteLength ?? 0);
+        const delta = record.bytes.byteLength - (replaceOriginal ? previous?.bytes ?? 0 : old.result?.bytes.byteLength ?? 0);
         const next = { id: record.blobKey, roomId: record.roomId, bytes: (previous?.bytes ?? 0) + delta, usedAt: Date.now() };
         const total = rows.reduce((sum, item) => sum + item.bytes, 0);
         const budget = mediaCacheBudget(estimate, total);
@@ -638,11 +649,12 @@ async function writeMediaCacheRecord(session: VaultSession, record: StoredMediaC
           const request = chunks.index('blobKey').openKeyCursor(IDBKeyRange.only(id));
           request.onsuccess = () => { const cursor = request.result; if (cursor) { chunks.delete(cursor.primaryKey); cursor.continue(); } };
         };
+        if (requiredBytes > budget) return;
         if (next.bytes > maxBlobBytes || next.bytes > budget) { remove(next.id); return; }
         for (const id of mediaCacheEvictions(rows, { ...next, bytes: delta }, budget)) remove(id);
-        if (record.index === -1) {
+        if (replaceOriginal) {
           const request = chunks.index('blobKey').openCursor(IDBKeyRange.only(record.blobKey));
-          request.onsuccess = () => { const cursor = request.result; if (cursor) { if (cursor.value.index >= 0) cursor.delete(); cursor.continue(); } };
+          request.onsuccess = () => { const cursor = request.result; if (cursor) { if (cursor.value.index !== record.index) cursor.delete(); cursor.continue(); } };
         }
         chunks.put(record); entries.put(next);
       };
@@ -676,8 +688,9 @@ export async function saveMediaPreview(session: VaultSession, manifest: import('
   const additionalData = encoder.encode(canonicalStringify({ purpose: `quiet-room-media-${variant}-v1`, roomId: localDataScope(session.vault), manifest, mimeType: blob.type }));
   const bytes = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData }, await mediaPreviewKey(session), await blob.arrayBuffer());
   signal?.throwIfAborted();
+  const video = isVideoFile(manifest);
   const index = variant === 'preview' ? -1 : -3;
-  await writeMediaCacheRecord(session, { id: mediaChunkId(localDataScope(session.vault), manifest.blobId, index), roomId: localDataScope(session.vault), blobKey: mediaBlobKey(localDataScope(session.vault), manifest.blobId), blobId: manifest.blobId, index, bytes, iv, mimeType: blob.type, cachedAt: Date.now() }, signal);
+  await writeMediaCacheRecord(session, { id: mediaChunkId(localDataScope(session.vault), manifest.blobId, index), roomId: localDataScope(session.vault), blobKey: mediaBlobKey(localDataScope(session.vault), manifest.blobId), blobId: manifest.blobId, index, bytes, iv, mimeType: blob.type, cachedAt: Date.now() }, signal, video ? VIDEO_CACHE_ENTRY_LIMIT : undefined, !video && index === -1);
 }
 
 export async function loadMediaPreview(session: VaultSession, manifest: import('./types').ImageManifest, signal?: AbortSignal, variant: 'preview' | 'concealed' = 'preview'): Promise<Blob | null> {
@@ -691,7 +704,8 @@ export async function loadMediaPreview(session: VaultSession, manifest: import('
     return new Blob([bytes], { type: record.mimeType });
   } catch (error) {
     signal?.throwIfAborted();
-    await deleteCachedMediaBlob(session, manifest.blobId).catch(() => undefined);
+    // A corrupt video poster must not purge the healthy original.
+    if (!isVideoFile(manifest)) await deleteCachedMediaBlob(session, manifest.blobId).catch(() => undefined);
     return null;
   }
 }
@@ -719,7 +733,7 @@ export async function loadMediaPlayback(session: VaultSession, manifest: import(
     return new Blob([bytes], { type: record.mimeType });
   } catch (error) {
     signal?.throwIfAborted();
-    await deleteCachedMediaBlob(session, manifest.blobId).catch(() => undefined);
+    // Treat a bad derivative as a miss. Other verified chunks of this original may still be usable.
     return null;
   }
 }

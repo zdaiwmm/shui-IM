@@ -43,6 +43,14 @@ describe('generic file payload validation', () => {
     expect(isFileManifest({ ...fileManifest(), originalSize: MAX_IMAGE_BYTES, chunkCount: 128 })).toBe(true);
   });
 
+  it('admits an exact 2 GiB video only through a video file manifest', () => {
+    const large = { ...fileManifest(), originalSize: 2 * 1024 ** 3, chunkCount: 1024, originalName: 'sample.mp4', mimeType: '' };
+    expect(isFileManifest(large)).toBe(true);
+    expect(isFileManifest({ ...large, mimeType: 'application/pdf' })).toBe(false);
+    expect(isImageManifest({ ...large, mimeType: 'image/png' })).toBe(false);
+    expect(isFileManifest({ ...large, originalSize: large.originalSize + 1, chunkCount: 1025 })).toBe(false);
+  });
+
   it('rejects unsafe metadata and malformed encryption or chunk parameters', () => {
     const invalid = [
       { mimeType: 'application/pdf\r\nx-custom: injected' }, { mimeType: '\u0000' }, { mimeType: '\u007f' },

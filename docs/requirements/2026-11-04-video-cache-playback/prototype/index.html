@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>视频缓存与重播 · Quiet Room</title>
+<link rel="stylesheet" href="style.css">
+<header><b>Quiet Room</b><small>交互审阅　/　V1</small></header>
+<main><section class="intro"><span class="eyebrow">媒体与存储</span><h1>重新打开视频</h1><p>选一个场景，打开视频，再点「重新进入聊天」。观察同一段视频需要下载几次。</p>
+<label for="scenario">模拟场景</label><select id="scenario">
+<option value="receive">收到视频 · 首次下载</option><option value="send">自己发送 · 上传完成</option><option value="low">空间不足 · 无法保留</option><option value="partial">下载中断 · 已取得一半</option><option value="bad">网络中断 · 点按重试</option><option value="room">发送受限 · 密室剩余空间不足</option><option value="legacy">发送受限 · 对方设备需升级</option></select>
+<div class="stats"><div><small>本次进入后的视频下载</small><b id="traffic">0 MiB</b></div><div><small>本机可复用内容</small><b id="storage">无原件</b></div></div>
+<button id="again">重新进入聊天</button> <a href="flow.html">查看业务流程 →</a>
+<p class="note">重播场景模拟 80 MiB 视频；发送受限场景模拟 2 GiB 视频。本机媒体缓存最高 10 GiB，由同站点的密室共用。浏览器空间紧张时自动缩小。</p></section>
+<section class="phone" aria-label="聊天与播放器预览"><div class="chat"><div class="bar">‹　密室聊天</div><div class="date">今天</div><article><small id="sender"></small><button id="tile"><span class="scene thumb"></span><span id="tileText"></span></button><p id="status" role="status"></p></article></div>
+<div class="viewer" hidden role="dialog" aria-modal="true" aria-label="最大化视频"><button class="surface" aria-label="切换播放控件"></button><div class="scene frame"></div>
+<button id="close" class="chrome top" aria-label="关闭播放器">×</button><div class="chrome center"><button id="back" aria-label="后退十秒">−10</button><button id="play" aria-label="播放视频">▶</button><button id="forward" aria-label="前进十秒">+10</button></div>
+<div class="chrome bottom"><div class="actions"><button id="mute" aria-label="静音">声音</button><button id="speed" aria-label="播放速度">1×</button></div><div class="timeline"><output id="time">0:00</output><input id="seek" aria-label="视频进度" type="range" min="0" max="90" value="0"><span>1:30</span></div></div></div></section></main>
+<script src="review.js"></script></html>
