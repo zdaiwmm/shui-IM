@@ -3178,5 +3178,6 @@
   "请输入有效的 X 帖子链接": "Insira um link válido de publicação do X",
   "超过 256 MiB，已保留在本机": "Acima de 256 MiB. Mantido no dispositivo.",
   "超过本机下载大小限制": "Excede o limite de download local",
-  "长按视频封面可发送至聊天": "Mantenha a capa pressionada para enviar ao chat"
+  "长按视频封面可发送至聊天": "Mantenha a capa pressionada para enviar ao chat",
+  "浏览器无法处理此视频。请在普通窗口重试，并检查设备可用空间。": "Tente em uma janela normal e confira o espaço livre."
 }

@@ -17,18 +17,20 @@ server.middlewares.use('/__link_video', (_req, res) => {
 let browser;
 try {
   await server.listen();
-  browser =
-    process.env.QUIET_ROOM_TEST_BROWSER === 'webkit'
-      ? await webkit.launch()
-      : await chromium.launch(
-          process.env.CHROME_PATH
-            ? { executablePath: process.env.CHROME_PATH }
-            : process.env.CI
-              ? {}
-              : { channel: 'chrome' },
-        );
-  const roomId = crypto.randomUUID();
   const large = process.env.CHAMBER_TEST_LARGE_LINK_VIDEO === '1';
+  const launch = process.env.CHROME_PATH
+    ? { executablePath: process.env.CHROME_PATH }
+    : process.env.CI
+      ? {}
+      : { channel: 'chrome' };
+  // Large-file evidence requires a regular, isolated profile with disk-backed Blobs.
+  // An empty profile path asks Playwright to own and clean its temporary directory.
+  browser = large
+    ? await chromium.launchPersistentContext('', launch)
+    : process.env.QUIET_ROOM_TEST_BROWSER === 'webkit'
+      ? await webkit.launch()
+      : await chromium.launch(launch);
+  const roomId = crypto.randomUUID();
   for (const role of large ? ['joiner'] : ['creator', 'joiner']) {
     const page = await browser.newPage({
       locale: 'zh-CN',

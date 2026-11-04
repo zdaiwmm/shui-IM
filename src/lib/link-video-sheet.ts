@@ -171,8 +171,15 @@ export function openLinkVideoSheet(opts: Options) {
     try {
       await fn();
     } catch (err) {
-      if (active() && scope <= screen)
-        status.textContent = err instanceof Error ? err.message : uiLiteral('操作失败，请重试');
+      if (active() && scope <= screen) {
+        const storageError =
+          err instanceof DOMException && ['NotReadableError', 'QuotaExceededError'].includes(err.name);
+        status.textContent = storageError
+          ? uiLiteral('浏览器无法处理此视频。请在普通窗口重试，并检查设备可用空间。')
+          : err instanceof Error
+            ? err.message
+            : uiLiteral('操作失败，请重试');
+      }
     } finally {
       busy = false;
       body.inert = head.inert = actions.inert = false;

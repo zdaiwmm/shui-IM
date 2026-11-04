@@ -3178,5 +3178,6 @@
   "请输入有效的 X 帖子链接": "Saisissez un lien valide de publication X",
   "超过 256 MiB，已保留在本机": "Plus de 256 MiB. Conservé sur cet appareil.",
   "超过本机下载大小限制": "Limite de téléchargement local dépassée",
-  "长按视频封面可发送至聊天": "Maintenez la vignette pour accéder à l’envoi au chat"
+  "长按视频封面可发送至聊天": "Maintenez la vignette pour accéder à l’envoi au chat",
+  "浏览器无法处理此视频。请在普通窗口重试，并检查设备可用空间。": "Réessayez dans une fenêtre normale et vérifiez l’espace disponible."
 }

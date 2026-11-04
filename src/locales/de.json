@@ -3178,5 +3178,6 @@
   "请输入有效的 X 帖子链接": "Gültigen X-Beitragslink eingeben",
   "超过 256 MiB，已保留在本机": "Über 256 MiB. Bleibt auf diesem Gerät.",
   "超过本机下载大小限制": "Lokales Downloadlimit überschritten",
-  "长按视频封面可发送至聊天": "Vorschaubild gedrückt halten, um im Chat zu teilen"
+  "长按视频封面可发送至聊天": "Vorschaubild gedrückt halten, um im Chat zu teilen",
+  "浏览器无法处理此视频。请在普通窗口重试，并检查设备可用空间。": "In einem normalen Fenster erneut versuchen und den freien Speicher prüfen."
 }
