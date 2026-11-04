@@ -352,7 +352,7 @@ export async function importLocalHistory(session: VaultSession, file: Blob, sign
             } else await verify.chunk(index, bytes.buffer);
             if (pass === 2) {
               signal.throwIfAborted();
-              await saveCachedMediaChunk(session, manifest.blobId, index, bytes.buffer);
+              await saveCachedMediaChunk(session, manifest.blobId, index, bytes.buffer, signal, isVideoFile(manifest) ? manifest.originalSize : undefined);
             }
           }
           verify.finish(); summary.attachments++;

@@ -1,3 +1,4 @@
+import { isVideoFile } from './video-media';
 import { fromBase64Url } from './base64';
 import { isReactionEmoji } from './reactions';
 import type { MessagePayload } from './types';
@@ -7,6 +8,8 @@ export const MAX_MESSAGE_TEXT_LENGTH = 4000;
 export const MAX_REPLY_PREVIEW_LENGTH = 160;
 export const MAX_IMAGE_NAME_LENGTH = 1024;
 export const MAX_IMAGE_MIME_LENGTH = 255;
+export const MAX_VIDEO_BYTES = 2 * 1024 ** 3;
+export const LARGE_VIDEO_CAPABILITY = 'large-video-v1';
 export const MAX_IMAGE_BYTES = 256 * 1024 * 1024;
 export const IMAGE_CHUNK_SIZE = 2 * 1024 * 1024;
 export const MIN_IMAGE_ALBUM_ITEMS = 2;
@@ -45,6 +48,8 @@ function isAttachmentManifest(value: unknown, kind: 'image' | 'audio' | 'file'):
   const chunkCount = image.chunkCount;
   const originalSize = image.originalSize;
   const lastModified = image.lastModified;
+  const video = kind === 'file' && typeof image.mimeType === 'string' && typeof image.originalName === 'string' &&
+    isVideoFile({ mimeType: image.mimeType, originalName: image.originalName });
   return Boolean(
     hasOnlyKeys(image, ['v', 'width', 'height', 'blobId', 'key', 'ivPrefix', 'chunkSize', 'chunkCount', 'originalSize', 'originalName', 'mimeType', 'lastModified', 'sha256']) &&
     ((image.width === undefined && image.height === undefined) ||
@@ -56,8 +61,8 @@ function isAttachmentManifest(value: unknown, kind: 'image' | 'audio' | 'file'):
     boundedBase64(image.key, 32) &&
     boundedBase64(image.ivPrefix, 8) &&
     image.chunkSize === IMAGE_CHUNK_SIZE &&
-    typeof chunkCount === 'number' && Number.isSafeInteger(chunkCount) && chunkCount >= 1 && chunkCount <= 128 &&
-    typeof originalSize === 'number' && Number.isSafeInteger(originalSize) && originalSize >= 1 && originalSize <= MAX_IMAGE_BYTES &&
+    typeof chunkCount === 'number' && Number.isSafeInteger(chunkCount) && chunkCount >= 1 &&
+    typeof originalSize === 'number' && Number.isSafeInteger(originalSize) && originalSize >= 1 && originalSize <= (video ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES) &&
     chunkCount === Math.ceil(originalSize / IMAGE_CHUNK_SIZE) &&
     typeof image.originalName === 'string' && image.originalName.length <= MAX_IMAGE_NAME_LENGTH &&
     !/[\u0000-\u001f\u007f]/.test(image.originalName) &&

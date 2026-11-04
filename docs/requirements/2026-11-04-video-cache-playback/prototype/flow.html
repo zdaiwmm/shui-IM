@@ -1,0 +1,4 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>视频收发流程 · Quiet Room</title><link rel="stylesheet" href="style.css"><header><b>Quiet Room</b><small>业务流程　/　V1</small></header><main class="flow"><a href="index.html">← 返回交互原型</a><h1>从发送到再次播放</h1><div class="lanes">
+<section><small>01　发送端</small><h2>选择视频 → 上传</h2><ol><li>检查视频 ≤ 2 GiB、密室附件 ≤ 3 GiB、站点附件 ≤ 10 GiB，以及接收设备兼容性。</li><li>服务端预留成功后，分块加密上传。发送端按可用空间保留加密原件。</li><li>超限或设备过旧时提示原因。备份完成状态单独记录。</li></ol></section>
+<section><small>02　接收端</small><h2>打开视频 → 检查本机</h2><ol><li>完整缓存命中，直接在本机校验。缺块时按需下载；中断可继续。</li><li>完整验证大小、摘要与分块后才播放；损坏时清理后最多回源重建一次。</li><li>双方共用同样的本机规则：站点缓存最高 10 GiB，优先清理久未使用的媒体。空间不足时如实提示。</li></ol></section>
+<section><small>03　播放器</small><h2>播放 → 隐藏控件</h2><ol><li>实际开播后收起控件。轻点唤回，不打断播放；再点空白收起。</li><li>操作控件、拖进度或键盘交互时显示。暂停、播完或错误时恢复操作。</li><li>关闭、翻页、锁定停止播放。再进聊天，有完整缓存可零下载重播。</li></ol></section></div></main></html>

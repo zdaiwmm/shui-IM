@@ -36,8 +36,8 @@ function hasColumn(db, tableName, columnName) {
 
 export async function createStore({
   dataDir,
-  maxBlobBytes = 256 * 1024 * 1024 + 2048,
-  maxRoomStorageBytes = 1024 * 1024 * 1024,
+  maxBlobBytes = 2 * 1024 ** 3 + 16 * 1024,
+  maxRoomStorageBytes = 3 * 1024 ** 3,
   maxTotalStorageBytes = 10 * 1024 * 1024 * 1024,
   maxIncompleteBlobsPerRoom = 4,
   maxMessagesPerRoom = 100_000,
@@ -359,7 +359,7 @@ export async function createStore({
   const personalDevices = createPersonalDevices(db, { getMember, roomState, chamberInvitations, personalDirectory });
   if(!db.prepare('PRAGMA table_info(rooms)').all().some(column=>column.name==='new_invite_expiry'))db.exec('ALTER TABLE rooms ADD COLUMN new_invite_expiry INTEGER');
   const shortInvites = createShortInvites(db);
-  const roomArchives = createRoomArchives(db, { maxArchiveBytes: maxRoomStorageBytes, maxTotalBytes: maxTotalStorageBytes,
+  const roomArchives = createRoomArchives(db, { maxTotalBytes: maxTotalStorageBytes,
     assertWriterActive(roomId, deviceId, role) {
       assertDeviceActive(roomId, deviceId);
       if (getMember(roomId, deviceId)?.role !== role) throw new Error('UNAUTHORIZED');

@@ -193,6 +193,25 @@ describe('server ciphertext storage', () => {
     store.close();
   });
 
+  it('reserves ciphertext including tags against the 3 GiB room and the 10 GiB site', async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-video-budget-'));
+    directories.push(dataDir);
+    const store = await createStore({ dataDir });
+    try {
+      const bytes = 2 * 1024 ** 3 + 1024 * 16;
+      for (let i = 0; i < 5; i++) {
+        const sender = crypto.randomUUID();
+        const { roomId } = store.createRoom(bundle(sender), Buffer.from(crypto.randomUUID()).toString('base64url'));
+        const reserve = () => store.createBlob(roomId, crypto.randomUUID(), 1024, bytes, sender);
+        if (i === 4) expect(reserve).toThrow('STORAGE_QUOTA');
+        else {
+          reserve();
+          expect(reserve).toThrow('STORAGE_QUOTA');
+        }
+      }
+    } finally { store.close(); }
+  });
+
   it('enforces reservations and garbage-collects abandoned encrypted uploads', async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-quota-'));
     directories.push(dataDir);

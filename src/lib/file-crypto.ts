@@ -1,10 +1,11 @@
+import { isSelectedVideo, isVideoFile } from './video-media';
 import { atFaultStage } from './fault-report';
 import { uiLiteral, uiTemplate } from './language';
 import { VoiceNetworkError } from './voice-network';
 import { createSHA256 } from 'hash-wasm';
 import { canonicalStringify } from './canonical';
 import { fromBase64Url, toBase64Url } from './base64';
-import { IMAGE_CHUNK_SIZE, isImageManifest, MAX_IMAGE_BYTES, isAudioManifest, isAudioMimeType, MAX_AUDIO_BYTES, isFileManifest, MAX_IMAGE_NAME_LENGTH, MAX_IMAGE_MIME_LENGTH } from './message-payload';
+import { IMAGE_CHUNK_SIZE, isImageManifest, MAX_VIDEO_BYTES, MAX_IMAGE_BYTES, isAudioManifest, isAudioMimeType, MAX_AUDIO_BYTES, isFileManifest, MAX_IMAGE_NAME_LENGTH, MAX_IMAGE_MIME_LENGTH } from './message-payload';
 import type { FileManifest, ImageManifest, ImageUploadPlan, ImageUploadPlanV2 } from './types';
 import { readMediaDimensions } from './media-dimensions';
 
@@ -46,6 +47,7 @@ async function encryptAttachmentFile(
     reserve: (blobId: string, chunkCount: number, encryptedSize: number) => Promise<void>;
     status: (blobId: string) => Promise<{ uploadedIndexes: number[]; completed: boolean }>;
     upload: (blobId: string, index: number, bytes: ArrayBuffer) => Promise<void>;
+    cacheCiphertext?: (blobId: string, index: number, bytes: ArrayBuffer) => Promise<void>;
     complete: (blobId: string) => Promise<void>;
     savePlan: (plan: ImageUploadPlan) => Promise<void>;
     started?: () => void;
@@ -63,7 +65,9 @@ async function encryptAttachmentFile(
   } else if (kind === 'image' && !file.type.startsWith('image/')) throw new Error(uiLiteral('请选择图片文件'));
   const fileLabel = kind === 'file' ? uiLiteral('文件') : uiLiteral('图片');
   if (file.size === 0) throw new Error(kind === 'file' ? uiLiteral('文件为空') : uiLiteral('图片文件为空'));
-  if (file.size > MAX_IMAGE_BYTES) throw new Error(uiTemplate`${fileLabel}不能超过 256 MB`);
+  if (kind === 'file' && isSelectedVideo(file)) {
+    if (file.size > MAX_VIDEO_BYTES) throw new Error(uiLiteral('单个视频不能超过 2 GiB'));
+  } else if (file.size > MAX_IMAGE_BYTES) throw new Error(uiTemplate`${fileLabel}不能超过 256 MB`);
   if (kind === 'file' && (
     file.name.length > MAX_IMAGE_NAME_LENGTH || /[\u0000-\u001f\u007f]/.test(file.name) ||
     file.type.length > MAX_IMAGE_MIME_LENGTH || /[\u0000-\u001f\u007f]/.test(file.type)
@@ -129,7 +133,7 @@ async function encryptAttachmentFile(
     const start = index * IMAGE_CHUNK_SIZE;
     const end = Math.min(start + IMAGE_CHUNK_SIZE, file.size);
     const plaintext = new Uint8Array(await atFaultStage('upload.read',file.slice(start, end).arrayBuffer()));
-    if (!uploaded.has(index)) {
+    if (!uploaded.has(index) || callbacks.cacheCiphertext) {
       const ciphertext = await atFaultStage('upload.encrypt',crypto.subtle.encrypt(
         {
           name: 'AES-GCM',
@@ -140,7 +144,9 @@ async function encryptAttachmentFile(
         key,
         plaintext,
       ));
-      await atFaultStage('upload.chunk',callbacks.upload(plan.blobId, index, ciphertext));
+      if (!uploaded.has(index)) await atFaultStage('upload.chunk',callbacks.upload(plan.blobId, index, ciphertext));
+      callbacks.signal?.throwIfAborted();
+      await callbacks.cacheCiphertext?.(plan.blobId, index, ciphertext);
       callbacks.signal?.throwIfAborted();
     }
     callbacks.progress?.((index + 1) / chunkCount);
@@ -181,6 +187,10 @@ export function encryptFileAttachment(file: File, callbacks: UploadCallbacks, pl
   return encryptAttachmentFile(file, callbacks, plan, 'file');
 }
 
+export class VideoBufferUnavailable extends Error {
+  constructor() { super(uiLiteral('本机无法准备完整视频，请释放空间或使用普通浏览窗口后重试')); }
+}
+
 async function decryptAttachmentFile(
   manifest: ImageManifest,
   fetchChunk: (blobId: string, index: number) => Promise<ArrayBuffer>,
@@ -197,10 +207,8 @@ async function decryptAttachmentFile(
   if (ivPrefix.length !== 8) throw new Error(uiLiteral('图片加密参数不正确'));
   const hash = await createSHA256();
   hash.init();
-  const parts: BlobPart[] = [];
   let totalSize = 0;
-
-  for (let index = 0; index < manifest.chunkCount; index += 1) {
+  const readVerifiedChunk = async (index: number) => {
     signal?.throwIfAborted();
     const ciphertext = await fetchChunk(manifest.blobId, index);
     signal?.throwIfAborted();
@@ -219,14 +227,46 @@ async function decryptAttachmentFile(
     const bytes = new Uint8Array(plaintext);
     totalSize += bytes.length;
     hash.update(bytes);
-    parts.push(bytes);
+    if (index + 1 === manifest.chunkCount && (totalSize !== manifest.originalSize || hash.digest('hex') !== manifest.sha256)) {
+      throw new Error(uiLiteral('附件完整性校验失败'));
+    }
     progress?.((index + 1) / manifest.chunkCount);
+    return bytes;
+  };
+
+  const type = manifest.mimeType || 'application/octet-stream';
+  if (manifest.originalSize <= 128 * 1024 ** 2 || kind !== 'file' || !isVideoFile(manifest)) {
+    const parts: BlobPart[] = [];
+    for (let index = 0; index < manifest.chunkCount; index++) parts.push(await readVerifiedChunk(index));
+    return new Blob(parts, { type });
   }
 
-  if (totalSize !== manifest.originalSize || hash.digest('hex') !== manifest.sha256) {
-    throw new Error(uiLiteral('附件完整性校验失败'));
+  // A single backpressured stream lets the browser spool a large Blob. A list
+  // of independent small Blobs can exhaust Chromium's backing store at 2 GiB.
+  let next = 0;
+  let sourceError: unknown;
+  const body = new ReadableStream<Uint8Array<ArrayBuffer>>({
+    async pull(controller) {
+      try {
+        controller.enqueue(await readVerifiedChunk(next++));
+        if (next === manifest.chunkCount) controller.close();
+      } catch (error) {
+        sourceError = error;
+        controller.error(error);
+      }
+    },
+  });
+  try {
+    const blob = await new Response(body).blob();
+    signal?.throwIfAborted();
+    // Some private browsers report the expected size even for an unreadable Blob.
+    if (blob.size !== manifest.originalSize || (await blob.slice(-1).arrayBuffer()).byteLength !== 1) throw new VideoBufferUnavailable();
+    return blob.slice(0, blob.size, type);
+  } catch {
+    signal?.throwIfAborted();
+    if (sourceError) throw sourceError;
+    throw new VideoBufferUnavailable();
   }
-  return new Blob(parts, { type: manifest.mimeType || 'application/octet-stream' });
 }
 
 export function decryptImageFile(manifest: ImageManifest, fetchChunk: FetchChunk, progress?: (ratio: number) => void, signal?: AbortSignal): Promise<Blob> {

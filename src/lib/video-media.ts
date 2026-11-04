@@ -29,6 +29,10 @@ export function isVideoFile(manifest: FileMediaMetadata): boolean {
   return videoMimeType(manifest) !== null;
 }
 
+export function isSelectedVideo(file: { type: string; name?: string }): boolean {
+  return isVideoFile({ mimeType: file.type, originalName: file.name ?? '' });
+}
+
 /** Expressions stay in chat; ordinary attachments also project into Safe. */
 export function isGalleryMediaPayload(payload: MessagePayload): boolean {
   if (isExpressionPayload(payload)) return false;
