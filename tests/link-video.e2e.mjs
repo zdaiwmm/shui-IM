@@ -108,6 +108,10 @@ try {
           const url = new URL(typeof input === 'string' ? input : input.url, location.href);
           if (url.hostname === 'api.fxtwitter.com') {
             requests.push(url.hostname);
+            if (url.pathname.endsWith('/999')) {
+              await new Promise(resolve => { window.f.releaseOldLookup = resolve; });
+              throw Error('stale lookup fixture');
+            }
             return Response.json({
               code: 200,
               tweet: {
@@ -118,6 +122,17 @@ try {
           }
           if (url.hostname === 'video.twimg.com') {
             requests.push(url.hostname);
+            if (init.method !== 'HEAD' && window.f?.failDownload) {
+              window.f.failDownload = false;
+              return new Response('', {status:503});
+            }
+            if (init.method !== 'HEAD' && window.f?.gateDownload) {
+              await new Promise((resolve, reject) => {
+                window.f.resumeDownload = resolve;
+                init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+              });
+              init.signal.throwIfAborted();
+            }
             return new Response(init.method === 'HEAD' ? null : source, {
               headers: { 'content-type': 'video/mp4', 'content-length': String(source.size) },
             });
@@ -151,11 +166,45 @@ try {
     await click('我的下载');
     await sheet.getByText('暂无本机视频').waitFor();
     await click('链接视频');
+    if (role === 'creator') {
+      await sheet.getByRole('textbox').fill('https://x.com/demo/status/999');
+      await page.waitForFunction(() => Boolean(window.f.releaseOldLookup));
+    }
     await sheet.getByRole('textbox').fill('https://x.com/demo/status/123?s=46');
-    await click('识别');
+    if (role === 'creator') {
+      await sheet.locator('.link-video-choice').waitFor();
+      await page.evaluate(() => { window.f.releaseOldLookup(); window.f.gateDownload = true; window.f.failDownload = true; });
+      await click('仅下载');
+      await click('重试');
+      // Explicit cancellation must stop the stream, including after minimizing and reopening.
+      await page.waitForFunction(() => Boolean(window.f.resumeDownload));
+      await click('收起');
+      await sheet.waitFor({ state: 'detached' });
+      await page.locator('.link-video-resume').click();
+      await click('取消');
+      await sheet.waitFor({ state: 'detached' });
+      assert.equal(await page.locator('.link-video-resume').count(), 0);
+      assert.equal(await page.evaluate(async () => (await window.f.vault.listLinkVideos(window.f.session, window.f.signal)).length), 0);
+      await page.evaluate(() => { delete window.f.resumeDownload; });
+      await page.locator('#open-chat-tools').click();
+      await page.locator('#open-link-video').click();
+      await sheet.getByRole('textbox').fill('https://x.com/demo/status/123');
+    }
     await click(role === 'creator' ? '仅下载' : '下载并发送');
     if (role === 'creator') {
-      await sheet.getByText('已保存到我的下载').waitFor();
+      await page.waitForFunction(() => Boolean(window.f.resumeDownload));
+      await click('收起');
+      await sheet.waitFor({ state: 'detached' });
+      await page.locator('#message-input').fill('draft');
+      await page.evaluate(() => { window.f.gateDownload = false; window.f.resumeDownload(); });
+      await page.locator('.link-video-resume').filter({ hasText: '已保存到我的下载' }).click();
+      await sheet.getByText('已保存到我的下载', { exact:true }).waitFor();
+      assert.equal(await sheet.getByRole('button', { name:'发送至聊天', exact:true }).count(), 0);
+      await click('查看视频');
+      await sheet.locator('video[controls]').waitFor();
+      await click('返回');
+      await sheet.locator('.link-video-tile').waitFor();
+      assert.equal(await page.locator('#message-input').inputValue(), 'draft');
       const privateState = await page.evaluate(async () => {
         const { app, vault, session, requests, signal, source } = window.f;
         const [row] = await vault.listLinkVideos(session, signal),
@@ -185,7 +234,6 @@ try {
         };
       });
       assert.deepEqual(privateState, { chat: 0, outbox: 0, upload: false, equal: true, encrypted: true });
-      await click('我的下载');
       const tile = sheet.locator('.link-video-tile');
       await tile.locator('.local-video-lock').waitFor();
       await tile.dispatchEvent('pointerdown', { isPrimary: true, button: 0, pointerType: 'touch' });
@@ -237,6 +285,35 @@ try {
       privateUntilAck: true,
       encrypted: true,
     });
+    if (role === 'creator') {
+      // Closing the real privacy curtain must also revoke a minimized transfer.
+      await click('返回聊天');
+      await page.evaluate(() => { window.f.gateDownload = true; delete window.f.resumeDownload; });
+      await page.locator('#open-chat-tools').click();
+      await page.locator('#open-link-video').click();
+      await sheet.getByRole('textbox').fill('https://x.com/demo/status/123');
+      await sheet.locator('.link-video-choice').waitFor();
+      // The first asset is already saved. Test a distinct CDN pathname.
+      await page.evaluate(() => {
+        const fetch = window.fetch;
+        window.fetch = async (input, init) => {
+          const r = await fetch(input, init);
+          if (!String(input).includes('api.fxtwitter.com')) return r;
+          const json = await r.json();
+          json.tweet.media.videos[0].url = 'https://video.twimg.com/test/another.mp4';
+          return Response.json(json);
+        };
+      });
+      await sheet.getByRole('textbox').fill('https://x.com/demo/status/123?s=46');
+      await click('仅下载');
+      await page.waitForFunction(() => Boolean(window.f.resumeDownload));
+      await click('收起');
+      await sheet.waitFor({ state:'detached' });
+      await page.evaluate(() => window.f.app.showPrivacyCurtain());
+      assert.equal(await page.locator('.link-video-banner').count(), 0);
+      assert.equal(await page.evaluate(() => Boolean(window.f.app.videoDownloads)), false);
+      assert.equal(await page.evaluate(async () => (await window.f.vault.listLinkVideos(window.f.session, window.f.signal)).length), 1);
+    }
     await page.evaluate(() => window.f.app.runtimeAbort.abort());
     await sheet.waitFor({ state: 'detached' });
     assert.deepEqual(errors, []);
