@@ -7,7 +7,7 @@ export interface LinkClip {
   cover?: string;
   duration: number;
 }
-export const LOCAL_VIDEO_LIMIT = 1024 ** 3;
+export { MAX_VIDEO_BYTES as LOCAL_VIDEO_LIMIT } from './message-payload';
 
 export function postId(input: string): string | undefined {
   try {

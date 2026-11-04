@@ -4,7 +4,7 @@ import { bindHalfSheetHandle } from './half-sheet';
 import { createVideoPoster } from './video-poster';
 import { toBase64Url } from './base64';
 import { uiLiteral } from './language';
-import { MAX_IMAGE_BYTES } from './message-payload';
+import { MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from './message-payload';
 import {
   compactMp4,
   verifyMp4,
@@ -28,6 +28,7 @@ type Options = {
   signal: AbortSignal;
   active: () => boolean;
   send: (file: File, id: string, signal: AbortSignal) => Promise<boolean>;
+  largeVideoReady: () => boolean;
   start?: SavedLinkVideo;
 };
 const el = <K extends keyof HTMLElementTagNameMap>(name: K, text?: string) => {
@@ -191,8 +192,12 @@ export function openLinkVideoSheet(opts: Options) {
     const file = await readLinkVideo(session, item.id, signal);
     const packed = await compactMp4(file, signal);
     signal.throwIfAborted();
-    if (packed.size > MAX_IMAGE_BYTES) {
-      status.textContent = uiLiteral('超过 256 MiB，已保留在本机');
+    if (packed.size > MAX_VIDEO_BYTES) {
+      status.textContent = uiLiteral('单个视频不能超过 2 GiB');
+      return;
+    }
+    if (packed.size > MAX_IMAGE_BYTES && !opts.largeVideoReady()) {
+      status.textContent = uiLiteral('请先让所有已授权设备打开一次最新版，再发送大视频');
       return;
     }
     status.textContent = uiLiteral('正在加密发送');

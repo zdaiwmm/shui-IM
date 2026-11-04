@@ -12,8 +12,8 @@ flowchart TD
   direct -->|"下载完成"| local["写入当前房间的本机加密相册"]
   local -->|"仅下载"| privateAlbum["锁图标，仅自己在本设备可见"]
   local -->|"下载并发送"| pack["本机无损整理，未缩小则用原件"]
-  pack -->|"超过 256 MiB"| privateAlbum
-  pack -->|"未超限"| send["端侧加密，上传密文并发送"]
+  pack -->|"设备不支持大视频"| privateAlbum
+  pack -->|"≤2 GiB 且设备支持"| send["端侧加密，上传密文并发送"]
   send -->|"失败"| retrySend["保留私有本地条目，重试发送"]
   retrySend --> send
   send -->|"成功"| shared["双方聊天出现一条视频，移除该条目的私有锁"]

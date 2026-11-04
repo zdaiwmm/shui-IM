@@ -3498,41 +3498,75 @@ export async function listLinkVideos(session: VaultSession, signal: AbortSignal)
 export async function storeLinkVideo(session: VaultSession, meta: SavedLinkVideo, file: Blob, signal: AbortSignal): Promise<SavedLinkVideo> {
   const scope = localDataScope(session.vault);
   const record = await encryptLocalRecord(session, 'linkVideos', meta.id, meta);
-  const parts: LinkVideoPart[] = [];
-  for (let offset = 0; offset < file.size; offset += linkChunk) {
-    signal.throwIfAborted();
-    const index = offset / linkChunk;
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const bytes = await file.slice(offset, offset + linkChunk).arrayBuffer();
-    const ciphertext = await crypto.subtle.encrypt({name:'AES-GCM', iv, additionalData:linkAAD(record.id, index)}, session.key, bytes);
-    parts.push({id:record.id + ':' + index, roomId:scope, iv, ciphertext});
+  if (!file.size || file.size !== meta.size || file.size > MAX_VIDEO_BYTES) throw new Error(uiLiteral('本机视频校验失败'));
+  const pendingPrefix = scope + ':pending:';
+  const pendingKey = pendingPrefix + meta.id;
+  const partsFor = (id: string) => IDBKeyRange.bound(id + ':', id + ':\uffff');
+  async function discard(id: string, marker: string) {
+    await transaction('linkVideoParts','readwrite',store => {
+      store.delete(partsFor(id));
+      return store.delete(marker);
+    });
   }
-  return withVaultMutation(session, async () => {
+  async function save() {
+    // A vanished owner releases this cross-tab lock. Only its invisible, incomplete
+    // imports carry a marker; publication removes it in the metadata transaction.
+    if (navigator.locks) {
+      const markers = await transaction<IDBValidKey[]>('linkVideoParts','readonly',store =>
+        store.getAllKeys(IDBKeyRange.bound(pendingPrefix, pendingPrefix + '\uffff')));
+      for (const marker of markers) {
+        signal.throwIfAborted();
+        const id = String(marker).slice(pendingPrefix.length);
+        if (/^[a-f0-9-]{36}$/i.test(id)) await discard(scope + ':' + id, String(marker));
+      }
+    }
     const previous = (await listLinkVideos(session, signal)).find(item => item.key === meta.key);
     if (previous) return previous;
-    // Store ArrayBuffers instead of Blobs so private Safari sessions can commit them.
-    // Metadata, authenticated parts and the vault guard share one atomic transaction.
-    const database = await openDatabase();
+    await transaction('linkVideoParts','readwrite',store => store.add({id:pendingKey,roomId:scope}),()=>session.stored);
     try {
-      signal.throwIfAborted();
-      await new Promise<void>((resolve, reject) => {
-        const tx = database.transaction(['vault','linkVideos','linkVideoParts'], 'readwrite');
-        const cancel = () => tx.abort();
-        signal.addEventListener('abort', cancel, {once:true});
-        const guard = tx.objectStore('vault').get(vaultSpaceId(session.stored));
-        guard.onsuccess = () => {
-          if (!sameStoredVault(guard.result, session.stored)) { tx.abort(); return; }
-          tx.objectStore('linkVideos').add(record);
-          const store = tx.objectStore('linkVideoParts');
-          for (const part of parts) store.add(part);
-          parts.length = 0;
-        };
-        tx.oncomplete = () => { signal.removeEventListener('abort', cancel); resolve(); };
-        tx.onabort = () => { signal.removeEventListener('abort', cancel); reject(signal.reason ?? tx.error ?? staleVaultError()); };
+      // At most four MiB of ciphertext await a write. These bytes are invisible
+      // to the album and the send path until the complete manifest is published.
+      for (let pos=0; pos<file.size;) {
+        const batch: LinkVideoPart[] = [];
+        for (; pos<file.size && batch.length<4; pos+=linkChunk) {
+          signal.throwIfAborted();
+          const index = pos / linkChunk;
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+          const bytes = await file.slice(pos,pos+linkChunk).arrayBuffer();
+          const ciphertext = await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:linkAAD(record.id,index)},session.key,bytes);
+          batch.push({id:record.id+':'+index,roomId:scope,iv,ciphertext});
+        }
+        signal.throwIfAborted();
+        await transaction('linkVideoParts','readwrite',store => {
+          for (const part of batch.slice(1)) store.add(part);
+          return store.add(batch[0]!);
+        },()=>session.stored);
+      }
+      return await withVaultMutation(session, async () => {
+        const existing = (await listLinkVideos(session, signal)).find(item => item.key === meta.key);
+        if (existing) { await discard(record.id,pendingKey); return existing; }
+        const db = await openDatabase();
+        try {
+          signal.throwIfAborted();
+          await new Promise<void>((resolve,reject) => {
+            const tx = db.transaction(['vault','linkVideos','linkVideoParts'],'readwrite');
+            const abort = () => tx.abort();
+            signal.addEventListener('abort',abort,{once:true});
+            const guard=tx.objectStore('vault').get(vaultSpaceId(session.stored));
+            guard.onsuccess=()=>{
+              if (!sameStoredVault(guard.result,session.stored)) { tx.abort(); return; }
+              tx.objectStore('linkVideos').add(record);
+              tx.objectStore('linkVideoParts').delete(pendingKey);
+            };
+            tx.oncomplete=()=>{signal.removeEventListener('abort',abort);resolve()};
+            tx.onabort=()=>{signal.removeEventListener('abort',abort);reject(signal.reason??tx.error??staleVaultError())};
+          });
+        } finally { db.close(); }
+        return meta;
       });
-    } finally { database.close(); }
-    return meta;
-  });
+    } catch (cause) { await discard(record.id,pendingKey); throw cause; }
+  }
+  return navigator.locks ? navigator.locks.request('chamber-link-import:'+scope,{signal},save) : save();
 }
 export async function readLinkVideo(session: VaultSession, id: string, signal: AbortSignal): Promise<File> {
   const recordId = localDataScope(session.vault) + ':' + id;

@@ -482,4 +482,4 @@ The feedback endpoint requires a matching Origin host, a JSON content type, boun
 Video originals are admitted by upgraded clients up to 2 GiB (1024 authenticated 2 MiB chunks). Online attachment reservations count ciphertext against 3 GiB per room and 10 GiB per site. Private archive budgets remain independent. The server sees opaque ciphertext and cannot enforce a media type.
 
 ### 主动导入 X 视频
-解锁用户主动识别链接后，设备仅将帖子编号交给 api.fxtwitter.com；封面和视频只从 pbs.twimg.com、video.twimg.com 直连读取，禁用凭据、跳转及 Referer。第三方可见请求 IP。Chamber 服务端不代理下载。本机条目的描述、封面及视频内容使用当前保险库密钥加密，正文按块使用独立 IV，附加认证数据绑定本机范围、条目及块序。该存储排除于历史、设备同步及备份，随房间数据清除。主动发送时只去除不影响样本偏移的 MP4 末尾填充，再使用常规加密聊天附件通道。
+解锁用户主动识别链接后，设备仅将帖子编号交给 api.fxtwitter.com；封面和视频只从 pbs.twimg.com、video.twimg.com 直连读取，禁用凭据、跳转及 Referer。第三方可见请求 IP。Chamber 服务端不代理下载。本机条目的描述、封面及视频内容使用当前保险库密钥加密，正文按块使用独立 IV，附加认证数据绑定本机范围、条目及块序。分批写入的密文在完整提交目录项前不可见，中断时清理，进程意外退出的导入在下次写入时回收。该存储排除于历史、设备同步及备份，随房间数据清除。主动发送时只去除不影响样本偏移的 MP4 末尾填充，再使用常规加密聊天附件通道。

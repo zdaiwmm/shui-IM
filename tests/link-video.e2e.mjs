@@ -28,7 +28,8 @@ try {
               : { channel: 'chrome' },
         );
   const roomId = crypto.randomUUID();
-  for (const role of ['creator', 'joiner']) {
+  const large = process.env.CHAMBER_TEST_LARGE_LINK_VIDEO === '1';
+  for (const role of large ? ['joiner'] : ['creator', 'joiner']) {
     const page = await browser.newPage({
       locale: 'zh-CN',
       hasTouch: true,
@@ -39,7 +40,7 @@ try {
     page.on('pageerror', (error) => errors.push(error.message));
     await page.goto('http://localhost:' + server.httpServer.address().port + '/__link_video');
     await page.evaluate(
-      async ({ role, roomId }) => {
+      async ({ role, roomId, large }) => {
         const vault = await import('/src/lib/vault.ts');
         const { QuietRoomApp } = await import('/src/app.ts');
         await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
@@ -86,10 +87,16 @@ try {
           b.set(data, 8);
           return b;
         };
+        const payload = new Uint8Array(large ? 2 ** 20 : 1024).fill(123);
+        const block = new Blob([payload]);
+        const count = large ? 589 : 1;
+        const dataHeader = atom('mdat', []);
+        new DataView(dataHeader.buffer).setUint32(0, block.size * count + 8);
         const essence = new Blob([
           atom('ftyp', new TextEncoder().encode('isom0000')),
           atom('moov', [0]),
-          atom('mdat', new Uint8Array(1024).fill(123)),
+          dataHeader,
+          ...Array(count).fill(block),
         ]);
         const source = new Blob([essence, atom('free', new Uint8Array(80))], { type: 'video/mp4' });
         const requests = [],
@@ -115,7 +122,7 @@ try {
           }
           if (url.pathname.includes('/blobs')) {
             requests.push('chamber-upload');
-            if (init.method === 'PUT') uploads.push(await new Response(init.body).arrayBuffer());
+            if (init.method === 'PUT') uploads[Number(url.pathname.split('/').pop())] = new Blob([init.body]);
             return Response.json({ ok: true, uploadedIndexes: [], completed: false });
           }
           return realFetch(input, init);
@@ -129,10 +136,11 @@ try {
           uploads,
           source,
           essence,
+          large,
           signal: app.runtimeAbort.signal,
         };
       },
-      { role, roomId },
+      { role, roomId, large },
     );
     const sheet = page.locator('.link-video-sheet');
     const click = (text) => sheet.getByRole('button', { name: text, exact: true }).click();
@@ -185,25 +193,38 @@ try {
       await sheet.getByRole('button', { name: '更多操作' }).click();
       await click('发送至聊天');
     }
-    await sheet.getByText('已交给聊天发送').waitFor({ timeout: 18000 });
+    if (large) {
+      await sheet.getByText('请先让所有已授权设备打开一次最新版，再发送大视频').waitFor({ timeout: 240000 });
+      assert.equal(await page.evaluate(() => window.f.uploads.length), 0);
+      await page.evaluate(() => {
+        for (const member of window.f.session.vault.members) member.capabilities.push('large-video-v1');
+      });
+      await click('发送至聊天');
+    }
+    await sheet.getByText('已交给聊天发送').waitFor({ timeout: large ? 300000 : 18000 });
     const sent = await page.evaluate(async () => {
       const { app, vault, session, signal, uploads, essence } = window.f;
       const [row] = await vault.listLinkVideos(session, signal),
         outbox = await vault.loadOutbox(session);
       const { decryptFileAttachment } = await import('/src/lib/file-crypto.ts');
-      const restored = await decryptFileAttachment(
-        outbox[0].payload.file,
-        async (_id, index) => uploads[index],
+      const restored = await decryptFileAttachment(outbox[0].payload.file, async (_id, index) =>
+        uploads[index].arrayBuffer(),
       );
-      if ((await restored.text()) !== (await essence.text()))
-        throw Error('Decoded attachment lost media bytes');
+      if (restored.size !== essence.size) throw Error('Decoded attachment changed size');
+      // Compare the entire restored file in bounded portions, including large fixtures.
+      for (let offset = 0; offset < essence.size; offset += 2 ** 20) {
+        const actual = new Uint8Array(await restored.slice(offset, offset + 2 ** 20).arrayBuffer());
+        const original = new Uint8Array(await essence.slice(offset, offset + 2 ** 20).arrayBuffer());
+        if (!actual.every((byte, index) => byte === original[index]))
+          throw Error('Decoded attachment lost media bytes');
+      }
       return {
         count: outbox.length,
         sameId: outbox[0]?.clientMsgId === row.id,
         kind: outbox[0]?.payload.kind,
         losslessSize: outbox[0]?.payload.file.originalSize === essence.size,
         privateUntilAck: !row.shared,
-        encrypted: uploads.length > 0 && !new TextDecoder().decode(uploads[0]).includes('ftyp'),
+        encrypted: uploads.length > 0 && !(await uploads[0].slice(0, 64).text()).includes('ftyp'),
       };
     });
     assert.deepEqual(sent, {

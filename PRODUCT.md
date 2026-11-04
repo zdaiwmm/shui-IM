@@ -581,4 +581,4 @@ On touch phones, editable form text, search, password, numeric and multiline dat
 Video originals are admitted by upgraded clients up to 2 GiB (1024 authenticated 2 MiB chunks). Online attachment reservations count ciphertext against 3 GiB per room and 10 GiB per site. Private archive budgets remain independent. The server sees opaque ciphertext and cannot enforce a media type.
 
 ### 链接视频与我的下载
-双方可从聊天工具栏打开「链接视频」，输入公开 X 帖子链接并选择视频。「仅下载」存入当前设备、当前密室的「我的下载」，封面带锁；创建者的保险箱相册也显示这些私有条目。「下载并发送」及长按本机封面选择「发送至聊天」均在设备端无损整理 MP4，然后按已有的 256 MiB 文件上限加密发送。无法缩小时沿用原件。仅在本人发送的消息写入已确认历史后移除私有锁。
+双方可从聊天工具栏打开「链接视频」，输入公开 X 帖子链接并选择视频。「仅下载」存入当前设备、当前密室的「我的下载」，封面带锁；创建者的保险箱相册也显示这些私有条目。「下载并发送」及长按本机封面选择「发送至聊天」均在设备端无损整理 MP4，然后按视频的 2 GiB 上限加密发送。超过 256 MiB 须所有活跃设备支持大视频。无法缩小时沿用原件。仅在本人发送的消息写入已确认历史后移除私有锁。

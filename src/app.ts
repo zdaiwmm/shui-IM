@@ -16351,7 +16351,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       };
       return navigator.locks ? navigator.locks.request('chamber-link-send:' + id, { signal: op }, submit) : submit();
     };
-    openLinkVideoSheet({ root: this.root, session, signal, active, start, send });
+    openLinkVideoSheet({ root: this.root, session, signal, active, start, send, largeVideoReady: () => this.activeDevicesSupport(LARGE_VIDEO_CAPABILITY) });
   }
 
   private renderGallery(tab: GalleryTab = 'images'): void {
