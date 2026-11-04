@@ -579,3 +579,6 @@ On touch phones, editable form text, search, password, numeric and multiline dat
 设置的聊天体验分组新增语言，关于分组新增用户反馈。反馈邮箱和正文必填，正文最多5,000个Unicode码点。邮箱格式及空正文校验原位提示，提交期间禁用重复操作，失败保留当前页面输入并复用请求编号重试，成功后显示结果。离开清空草稿；锁定清空并禁止迟到结果回写。反馈仅包含用户主动填写的邮箱与正文，不附带聊天、房间或设备身份。管理员可按未读/已读分页查看和手动标记已读，无站内回复。范围、授权与证据由[本次记录](docs/requirements/2026-10-28-language-feedback/README.md)拥有。
 
 Video originals are admitted by upgraded clients up to 2 GiB (1024 authenticated 2 MiB chunks). Online attachment reservations count ciphertext against 3 GiB per room and 10 GiB per site. Private archive budgets remain independent. The server sees opaque ciphertext and cannot enforce a media type.
+
+### 链接视频与我的下载
+双方可从聊天工具栏打开「链接视频」，输入公开 X 帖子链接并选择视频。「仅下载」存入当前设备、当前密室的「我的下载」，封面带锁；创建者的保险箱相册也显示这些私有条目。「下载并发送」及长按本机封面选择「发送至聊天」均在设备端无损整理 MP4，然后按视频的 2 GiB 上限加密发送。超过 256 MiB 须所有活跃设备支持大视频。无法缩小时沿用原件。仅在本人发送的消息写入已确认历史后移除私有锁。

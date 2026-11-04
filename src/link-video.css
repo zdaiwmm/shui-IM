@@ -1,0 +1,162 @@
+.link-video-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  display: grid;
+  align-items: end;
+  justify-items: center;
+  background: rgb(12 18 16 / 40%);
+}
+.link-video-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 540px);
+  height: min(54dvh, 540px);
+  min-height: min(340px, 92dvh);
+  max-height: calc(100dvh - 16px);
+  padding: 0 20px max(16px, env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  border-radius: 18px 18px 0 0;
+  background: var(--surface-raised);
+  color: var(--ink);
+  text-align: start;
+}
+.link-video-panel header,
+.link-video-panel footer,
+.link-video-field,
+.link-video-choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.link-video-panel header {
+  justify-content: space-between;
+}
+.link-video-panel h2 {
+  font-size: 20px;
+  margin: 0;
+}
+.link-video-body {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+.link-video-body video {
+  max-width: 100%;
+  max-height: 32dvh;
+}
+.link-video-panel footer > button {
+  flex: 1;
+  min-height: 44px;
+}
+.link-video-text {
+  background: none;
+  border: 0;
+  color: var(--accent);
+  min-height: 44px;
+}
+.link-video-panel .field-hint {
+  margin: 8px 0;
+}
+.link-video-field input {
+  min-width: 0;
+  flex: 1;
+  height: 44px;
+}
+.link-video-choice {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  margin-top: 6px;
+  padding: 6px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: start;
+  min-height: 48px;
+}
+.link-video-choice img {
+  width: 54px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+.link-video-choice span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.link-video-choice svg:last-child {
+  visibility: hidden;
+}
+.link-video-choice[aria-pressed='true'] {
+  border-color: var(--accent);
+}
+.link-video-choice[aria-pressed='true'] svg:last-child {
+  visibility: visible;
+}
+.link-working :is(header, footer, .link-video-body) {
+  pointer-events: none;
+}
+.link-video-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.link-video-grid > div {
+  position: relative;
+}
+.link-video-tile {
+  width: 100%;
+  aspect-ratio: 1.5;
+  position: relative;
+  overflow: hidden;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.link-video-tile > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.link-video-tile.concealed > img {
+  filter: blur(48px);
+  transform: scale(1.15);
+}
+.local-video-lock,
+.link-video-more {
+  position: absolute;
+  color: white;
+  background: #18231cdd;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+}
+.local-video-lock {
+  inset: 6px 6px auto auto;
+  padding: 4px;
+}
+.local-video-lock svg {
+  width: 16px;
+  height: 16px;
+}
+.link-video-more {
+  inset: auto 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border: 0;
+}
+
+.link-video-menu {
+  position: absolute;
+  z-index: 1;
+  inset: auto 4px 4px;
+  display: grid;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 4px 16px #0003;
+}
+.link-video-menu button {
+  min-height: 44px;
+}

@@ -46,7 +46,7 @@ import type {
 } from './types';
 
 const DB_NAME = 'quiet-room';
-const DB_VERSION = 16;
+const DB_VERSION = 17;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const PLATFORM_PAYLOAD_AAD = encoder.encode('quiet-room-vault-payload-v2');
@@ -215,7 +215,7 @@ type StoredMediaChunk = {
   mimeType?: string;
 };
 
-type LocalStore = 'privateCatalog' | 'privateArchiveStaging' | 'privateMedia' | 'privateArchive' | 'outbox' | 'receiptOutbox' | 'uploads' | 'preferences' | 'memeFavorites';
+type LocalStore = 'linkVideos' | 'linkVideoParts' | 'privateCatalog' | 'privateArchiveStaging' | 'privateMedia' | 'privateArchive' | 'outbox' | 'receiptOutbox' | 'uploads' | 'preferences' | 'memeFavorites';
 
 export type ChatScrollAnchor = {
   clientMsgId: string;
@@ -311,7 +311,7 @@ function openDatabaseOnce(): Promise<IDBDatabase> {
           grouped.set(entry.id, entry); cursor.continue();
         };
       }
-      for (const storeName of ['outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging', 'privateCatalog'] as const) {
+      for (const storeName of ['outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging', 'privateCatalog', 'linkVideos', 'linkVideoParts'] as const) {
         if (!database.objectStoreNames.contains(storeName)) {
           const store = database.createObjectStore(storeName, { keyPath: 'id' });
           store.createIndex('roomId', 'roomId', { unique: false });
@@ -1055,7 +1055,7 @@ export async function clearLocalBrowserData(session: VaultSession): Promise<void
   await withVaultLifecycle(async () => {
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
-      const stores = ['history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging'];
+      const stores = ['history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging', 'linkVideos', 'linkVideoParts'];
       const tx = database.transaction(['vault', ...stores], 'readwrite');
       const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
       current.onsuccess = () => {
@@ -1339,7 +1339,7 @@ export async function finishJointRecovery(session: VaultSession, nextVault: Vaul
     signal.throwIfAborted();
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
-      const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging'];
+      const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging', 'linkVideos', 'linkVideoParts'];
       const tx = database.transaction(stores, 'readwrite');
       putCurrentVault(tx, nextStored, session.stored);
       for (const name of stores.slice(1)) {
@@ -3037,7 +3037,7 @@ export async function finishVaultRecovery(session: VaultSession, nextVault: Vaul
   const nextStored: StoredPlatformVault | StoredPasswordVault = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging'];
+    const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites', 'privateArchive', 'privateMedia', 'privateArchiveStaging', 'linkVideos', 'linkVideoParts'];
     const tx = database.transaction(stores, 'readwrite');
     putCurrentVault(tx, nextStored, session.stored);
     for (const name of stores.slice(1)) {
@@ -3451,7 +3451,7 @@ export async function deleteNewRoomLocal(session:VaultSession, directory?: {owne
     if(directory&&!ownsVaultMutation(directory.owner,directory.mutation))throw staleVaultError();
     const database=await openDatabase(),scope=localDataScope(session.vault);
     await new Promise<void>((resolve,reject)=>{
-      const names=['history','galleryHistory','restoredGallery','mediaCacheEntries','mediaChunks','outbox','receiptOutbox','uploads','preferences','memeFavorites','privateArchive','privateMedia','privateArchiveStaging','privateCatalog'];
+      const names=['history','galleryHistory','restoredGallery','mediaCacheEntries','mediaChunks','outbox','receiptOutbox','uploads','preferences','memeFavorites','privateArchive','privateMedia','privateArchiveStaging','privateCatalog','linkVideos', 'linkVideoParts'];
       const tx=database.transaction(['vault','spaces',...names],'readwrite');
       if(directory){const owner=tx.objectStore('vault').get(vaultSpaceId(directory.owner.stored));owner.onsuccess=()=>{if(!sameStoredVault(owner.result,directory.owner.stored))tx.abort();else tx.objectStore('spaces').put(directory.value,directory.id);};}
       const request=tx.objectStore('vault').get(vaultSpaceId(session.stored));
@@ -3483,4 +3483,115 @@ export async function loadPrivateMediaChunk(session:VaultSession,blobId:string,i
   const record=await transaction<StoredLocalRecord|undefined>('privateMedia','readonly',store=>store.get(`${localDataScope(session.vault)}:${blobId}:${index}`));
   if(!record)return null;const encoded=await decryptLocalRecord<string>(session,'privateMedia',record),raw=fromBase64Url(encoded);
   if(raw.length!==size)throw new Error(uiLiteral('历史原文件分块不完整'));return raw.buffer;
+}
+
+// This room/device-scoped store is deliberately outside history, galleries exchanged with peers, and recovery exports.
+export interface SavedLinkVideo {id:string; key:string; name:string; size:number; created:number; duration:number; poster?:string; shared?:boolean}
+const linkChunk = 2 ** 20;
+const linkAAD = (id: string, index: number) => encoder.encode(`chamber-link-video-body-v1:${id}:${index}`);
+type LinkVideoPart = { id: string; roomId: string; iv: Uint8Array<ArrayBuffer>; ciphertext: ArrayBuffer };
+
+export async function listLinkVideos(session: VaultSession, signal: AbortSignal): Promise<SavedLinkVideo[]> {
+  return (await loadLocalRecords<SavedLinkVideo>(session, 'linkVideos', signal)).sort((a,b) => b.created-a.created);
+}
+
+export async function storeLinkVideo(session: VaultSession, meta: SavedLinkVideo, file: Blob, signal: AbortSignal): Promise<SavedLinkVideo> {
+  const scope = localDataScope(session.vault);
+  const record = await encryptLocalRecord(session, 'linkVideos', meta.id, meta);
+  if (!file.size || file.size !== meta.size || file.size > MAX_VIDEO_BYTES) throw new Error(uiLiteral('本机视频校验失败'));
+  const pendingPrefix = scope + ':pending:';
+  const pendingKey = pendingPrefix + meta.id;
+  const partsFor = (id: string) => IDBKeyRange.bound(id + ':', id + ':\uffff');
+  async function discard(id: string, marker: string) {
+    await transaction('linkVideoParts','readwrite',store => {
+      store.delete(partsFor(id));
+      return store.delete(marker);
+    });
+  }
+  async function save() {
+    // A vanished owner releases this cross-tab lock. Only its invisible, incomplete
+    // imports carry a marker; publication removes it in the metadata transaction.
+    if (navigator.locks) {
+      const markers = await transaction<IDBValidKey[]>('linkVideoParts','readonly',store =>
+        store.getAllKeys(IDBKeyRange.bound(pendingPrefix, pendingPrefix + '\uffff')));
+      for (const marker of markers) {
+        signal.throwIfAborted();
+        const id = String(marker).slice(pendingPrefix.length);
+        if (/^[a-f0-9-]{36}$/i.test(id)) await discard(scope + ':' + id, String(marker));
+      }
+    }
+    const previous = (await listLinkVideos(session, signal)).find(item => item.key === meta.key);
+    if (previous) return previous;
+    await transaction('linkVideoParts','readwrite',store => store.add({id:pendingKey,roomId:scope}),()=>session.stored);
+    try {
+      // At most four MiB of ciphertext await a write. These bytes are invisible
+      // to the album and the send path until the complete manifest is published.
+      for (let pos=0; pos<file.size;) {
+        const batch: LinkVideoPart[] = [];
+        for (; pos<file.size && batch.length<4; pos+=linkChunk) {
+          signal.throwIfAborted();
+          const index = pos / linkChunk;
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+          const bytes = await file.slice(pos,pos+linkChunk).arrayBuffer();
+          const ciphertext = await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:linkAAD(record.id,index)},session.key,bytes);
+          batch.push({id:record.id+':'+index,roomId:scope,iv,ciphertext});
+        }
+        signal.throwIfAborted();
+        await transaction('linkVideoParts','readwrite',store => {
+          for (const part of batch.slice(1)) store.add(part);
+          return store.add(batch[0]!);
+        },()=>session.stored);
+      }
+      return await withVaultMutation(session, async () => {
+        const existing = (await listLinkVideos(session, signal)).find(item => item.key === meta.key);
+        if (existing) { await discard(record.id,pendingKey); return existing; }
+        const db = await openDatabase();
+        try {
+          signal.throwIfAborted();
+          await new Promise<void>((resolve,reject) => {
+            const tx = db.transaction(['vault','linkVideos','linkVideoParts'],'readwrite');
+            const abort = () => tx.abort();
+            signal.addEventListener('abort',abort,{once:true});
+            const guard=tx.objectStore('vault').get(vaultSpaceId(session.stored));
+            guard.onsuccess=()=>{
+              if (!sameStoredVault(guard.result,session.stored)) { tx.abort(); return; }
+              tx.objectStore('linkVideos').add(record);
+              tx.objectStore('linkVideoParts').delete(pendingKey);
+            };
+            tx.oncomplete=()=>{signal.removeEventListener('abort',abort);resolve()};
+            tx.onabort=()=>{signal.removeEventListener('abort',abort);reject(signal.reason??tx.error??staleVaultError())};
+          });
+        } finally { db.close(); }
+        return meta;
+      });
+    } catch (cause) { await discard(record.id,pendingKey); throw cause; }
+  }
+  return navigator.locks ? navigator.locks.request('chamber-link-import:'+scope,{signal},save) : save();
+}
+export async function readLinkVideo(session: VaultSession, id: string, signal: AbortSignal): Promise<File> {
+  const recordId = localDataScope(session.vault) + ':' + id;
+  const row = await transaction<StoredLocalRecord|undefined>('linkVideos','readonly',store=>store.get(recordId));
+  if (!row) throw new Error(uiLiteral('找不到本机视频'));
+  const meta = await decryptLocalRecord<SavedLinkVideo>(session,'linkVideos',row);
+  if (meta.id !== id) throw new Error(uiLiteral('本机视频校验失败'));
+  const parts: Blob[] = [];
+  for (let offset = 0; offset < meta.size; offset += linkChunk) {
+    signal.throwIfAborted();
+    const index = offset / linkChunk;
+    const block = await transaction<LinkVideoPart|undefined>('linkVideoParts','readonly',store=>store.get(recordId+':'+index));
+    if (!block || block.ciphertext.byteLength !== 16 + Math.min(linkChunk,meta.size-offset)) throw new Error(uiLiteral('本机视频校验失败'));
+    const clear = await crypto.subtle.decrypt({name:'AES-GCM',iv:block.iv,additionalData:linkAAD(recordId,index)},session.key,block.ciphertext);
+    parts.push(new Blob([clear]));
+  }
+  signal.throwIfAborted();
+  return new File(parts,meta.name,{type:'video/mp4',lastModified:meta.created});
+}
+/** Called under the existing vault mutation after verified own-device history is durable. */
+export async function confirmLinkVideoShared(session: VaultSession, id: string): Promise<void> {
+  const row = await transaction<StoredLocalRecord|undefined>('linkVideos','readonly',store=>store.get(localDataScope(session.vault)+':'+id));
+  if (!row) return;
+  const meta = await decryptLocalRecord<SavedLinkVideo>(session,'linkVideos',row);
+  if (meta.shared) return;
+  const record = await encryptLocalRecord(session,'linkVideos',id,{...meta,shared:true});
+  await transaction('linkVideos','readwrite',store=>store.put(record),()=>session.stored);
 }

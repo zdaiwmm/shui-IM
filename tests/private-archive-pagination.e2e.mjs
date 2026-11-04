@@ -4,7 +4,7 @@ import path from 'node:path';
 import {chromium,webkit} from 'playwright';
 import {createServer} from 'vite';
 const perf=process.env.QUIET_ROOM_PRIVATE_PERF==='1';
-const baseline=perf?execFileSync('git',['show','14848e71cf0c28753045f7f77200853427797642:src/lib/vault.ts'],{encoding:'utf8'}).replace('const DB_VERSION = 15;','const DB_VERSION = 16;'):'';
+const baseline=perf?execFileSync('git',['show','14848e71cf0c28753045f7f77200853427797642:src/lib/vault.ts'],{encoding:'utf8'}).replace('const DB_VERSION = 15;','const DB_VERSION = 17;'):'';
 const virtual=path.resolve('src/lib/__private_baseline.ts');
 const vite=await createServer({root:process.cwd(),configFile:false,appType:'custom',logLevel:'error',server:{host:'127.0.0.1',port:0,hmr:false},plugins:[{name:'private-pagination',enforce:'pre',resolveId:id=>id.endsWith('/__private_baseline.ts')?virtual:null,load:id=>id===virtual?baseline:null,configureServer(s){s.middlewares.use('/__private',(_q,r)=>{r.setHeader('Content-Type','text/html');r.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="app"></div>');});}}]});
 let browser;

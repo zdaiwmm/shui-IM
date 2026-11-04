@@ -2,6 +2,7 @@ import { mountLanguage } from './lib/language';
 import './styles.css';
 import './chat-layout.css';
 import './gallery.css';
+import './link-video.css';
 import './auth-recovery.css';
 import './chat-interactions.css';
 import './cover.css';

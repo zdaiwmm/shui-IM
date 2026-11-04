@@ -116,10 +116,10 @@ try {
         const v = await import('/src/lib/vault.ts'); await v.readStoredVault();
         return new Promise((resolve, reject) => { const open = indexedDB.open('quiet-room'); open.onerror = () => reject(open.error);
           open.onsuccess = () => { const db = open.result; const get = db.transaction('mediaCacheEntries').objectStore('mediaCacheEntries').get(blobKey);
-            get.onsuccess = () => { resolve({ bytes: get.result.bytes, usedAt: get.result.usedAt, version: db.version }); db.close(); }; };
+            get.onsuccess = () => { resolve({ bytes: get.result.bytes, usedAt: get.result.usedAt, version: db.version, privateParts: db.objectStoreNames.contains('linkVideoParts') }); db.close(); }; };
         });
       });
-      assert.deepEqual(migration, { bytes: 128, usedAt: 2, version: 16 }); await migrationContext.close();
+      assert.deepEqual(migration, { bytes: 128, usedAt: 2, version: 17, privateParts: true }); await migrationContext.close();
       console.log(`PASS ${engine.name()}: encrypted preview survives reload, original export is exact, animation stays intact, AAD/abort/quota fail safely`);
     } finally { await browser.close(); }
   }

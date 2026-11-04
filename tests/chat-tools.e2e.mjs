@@ -57,7 +57,7 @@ try {
   assert.ok(continuousSurface.every(sample=>sample.surfaces.every(color=>color===sample.background)),
     `P1 composer surfaces must remain continuous during focus changes: ${JSON.stringify(continuousSurface)}`);
   await page.locator('#open-chat-tools').click();
-  assert.equal(await page.locator('#chat-tools > button').count(),6);
+  assert.equal(await page.locator('#chat-tools > button').count(),7);
   assert.equal(await page.locator('#call-availability-note').innerText(), '连接恢复后可发起通话');
   assert.equal(await page.locator('#start-video-call').getAttribute('aria-describedby'), 'call-availability-note');
   const composerSurface = await page.locator('.composer').evaluate(el => {
@@ -194,5 +194,5 @@ try {
     assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
     if(process.argv[2])await page.screenshot({path:path.join(process.argv[2],`tools-${width}.png`)});
   }
-  assert.deepEqual(errors,[]);console.log('Chat tools passed: six pickers/actions, four columns, preserved draft/memes, encrypted favorites, exact assets, no downloads, rollback and creator-only Safe.');
+  assert.deepEqual(errors,[]);console.log('Chat tools passed: seven pickers/actions, four columns, preserved draft/memes, encrypted favorites, exact assets, no downloads, rollback and creator-only Safe.');
 } finally {await browser?.close();await server.close();}
