@@ -1,3 +1,5 @@
+import { openLinkVideoSheet, localVideoTile } from './lib/link-video-sheet';
+import { listLinkVideos, confirmLinkVideoShared, type SavedLinkVideo } from './lib/vault';
 import { ComposerLinkPreview, renderPreviewCard, concealLinkPreviews, revealLinkPreviews } from './lib/link-preview-ui';
 import { LINK_PREVIEW_CAPABILITY } from './lib/link-preview-data';
 import { renderLinkedText } from './lib/web-links';
@@ -5938,6 +5940,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           canonicalStringify(stored.payload) !== canonicalStringify(queued.payload)) {
           throw new SecurityViolation(uiLiteral('服务器消息确认与本机已存加密历史不一致'));
         }
+        if(stored.payload.kind==='file')await confirmLinkVideoShared(session,clientMsgId);
         await deleteOutboxItem(session, clientMsgId, mutation);
         removed = true;
       });
@@ -6318,6 +6321,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
             this.clearRetry(message.clientMsgId);
             // Cancelled sends already left the outbox. Their history transaction
             // retired receive-only material; no later empty-queue write may undo progress.
+            if (message.payload.kind === 'file') await confirmLinkVideoShared(session,message.clientMsgId);
             if (this.outbox.has(message.clientMsgId)) await deleteOutboxItem(session, message.clientMsgId, mutation);
           }
           if (!this.isRuntimeActive(epoch, session)) return;
@@ -7589,6 +7593,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
             <button id="start-audio-call" type="button" disabled><span>${icons.phone}</span>实时语音</button>
             <button id="open-file-picker" type="button" ${cryptoReady ? '' : 'disabled'}><span>${icons.file}</span>文件</button>
             <button id="open-favorites" type="button"><span>${memeIcons.star}</span>收藏</button>
+            <button id="open-link-video" type="button"><span>${createElement(Link).outerHTML}</span>链接视频</button>
             <p class="call-availability-note" id="call-availability-note" role="status" hidden></p>
           </div>
           <div class="upload-progress" id="upload-progress" hidden><span></span><output></output></div>
@@ -8153,6 +8158,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     safeEntry?.addEventListener('keydown', event => {
       if (safeEntry?.id === 'open-gallery' && ['Enter', ' '].includes((event as KeyboardEvent).key)) { event.preventDefault(); openSafe(); }
     });
+    this.root.querySelector('#open-link-video')?.addEventListener('click', () => { this.closeChatTools(); this.openVideoDownloads(); });
     this.root.querySelector('#open-favorites')?.addEventListener('click', () => {
       this.closeChatTools(); this.galleryMode = 'favorites'; this.galleryKnownCounts = {}; this.galleryScrollTop = { images: 0, files: 0 };
       this.transitionPage('forward', () => this.renderGallery());
@@ -10990,7 +10996,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
   }
 
-  private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal, expression = false, mediaRetryId?: string, expressionAutoHide = false, expressionKind?: 'gifs' | 'stickers'): Promise<boolean> {
+  private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal, expression = false, mediaRetryId?: string, expressionAutoHide = false, expressionKind?: 'gifs' | 'stickers', linkVideoId?: string): Promise<boolean> {
     const session = this.session;
     if (!session || this.privacyCovered || files.length === 0) return false;
     if (expression && (destination !== 'chat' || files.length !== 1 || !files[0]!.type.startsWith('image/'))) return false;
@@ -11056,7 +11062,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const replyTarget = existingMedia ? existingMedia.reply : destination === 'chat' ? this.replyTarget : null;
     const requestedKind = existingMedia ? existingMedia.expressionKind : expressionKind;
     expressionKind = existingMedia ? existingMedia.expressionKind : this.activeDevicesSupport('expression-kind-v1') ? expressionKind : undefined;
-    const clientMsgId = mediaRetryId ?? crypto.randomUUID();
+    const clientMsgId = mediaRetryId ?? linkVideoId ?? crypto.randomUUID();
     if (requestedKind === 'gifs') this.rememberGifMessage(clientMsgId);
     let mediaUpload = existingMedia;
     if (inlineMedia) {
@@ -16254,6 +16260,28 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     });
   }
 
+  private openVideoDownloads(start?:SavedLinkVideo):void {
+    const session=this.session, epoch=this.runtimeEpoch, signal=this.runtimeAbort?.signal;
+    if(!session||!signal||this.privacyCovered)return;
+    const active=()=>this.isRuntimeActive(epoch,session)&&!this.privacyCovered;
+    const send = async (file: File, id: string, op: AbortSignal) => {
+      const submit = async () => {
+        op.throwIfAborted();
+        if (!active() || this.imageBatchUploading || this.mediaUploads.get(id)?.busy) return false;
+        this.imageBatchUploading = true;
+        try {
+          if (await hasOutboxItem(session, id) || (await listLinkVideos(session, op)).some(row => row.id === id && row.shared)) return true;
+          const retryId = this.mediaUploads.has(id) ? id : undefined;
+          return await this.processImageBatch([file], 'chat', op, false, retryId, false, undefined, id);
+        } finally {
+          if (this.isRuntimeActive(epoch, session)) this.imageBatchUploading = false;
+        }
+      };
+      return navigator.locks ? navigator.locks.request('chamber-link-send:' + id, { signal: op }, submit) : submit();
+    };
+    openLinkVideoSheet({ root: this.root, session, signal, active, start, send });
+  }
+
   private renderGallery(tab: GalleryTab = 'images'): void {
     const session = this.session;
     if (!session || this.privacyCovered) return;
@@ -16362,6 +16390,20 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (favorites && knownCount.complete && knownCount.keys.size === 0) {
       const empty = document.createElement('p'); empty.className = 'gallery-empty'; empty.textContent = uiLiteral('暂无收藏'); grid.append(empty);
     }
+    if(!favorites&&!filesTab&&signal)void listLinkVideos(session,signal).then(items=>{
+      if(!grid.isConnected||!this.isRuntimeActive(epoch,session)||this.privacyCovered)return;
+      for (const key of knownCount.keys) if (key.startsWith('link:')) knownCount.keys.delete(key);
+      const nodes = items.filter(item => !item.shared).map(item => {
+        knownCount.keys.add('link:' + item.id);
+        const tile = localVideoTile(item, () => this.openVideoDownloads(item));
+        tile.classList.toggle('concealed', !this.galleryRevealAll);
+        tile.addEventListener('click', updateVisibilityButton);
+        return tile;
+      });
+      grid.prepend(...nodes);
+      if(nodes.length)grid.querySelector('.gallery-empty')?.remove();
+      updateCounts(); updateVisibilityButton();
+    }).catch(()=>{if(grid.isConnected&&!signal.aborted)this.showNotice(uiLiteral('无法读取本机视频'),'error')});
     const updateCounts = () => {
       for (const kind of ['images', 'files'] as const) {
         const count = this.galleryKnownCounts[kind];
@@ -16382,11 +16424,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     };
     updateCounts();
     const visibilityButton = this.root.querySelector<HTMLButtonElement>('#gallery-toggle-visibility');
-    const allImagesRevealed = () => assets.length > 0 && (this.galleryRevealAll || assets.every(asset =>
+    const hasGalleryTiles = () => assets.length > 0 || !!grid.querySelector('.link-video-tile');
+    const allImagesRevealed = () => hasGalleryTiles() && !grid.querySelector('.link-video-tile.concealed') && (this.galleryRevealAll || assets.every(asset =>
       this.galleryRevealedAssets.has(`${asset.clientMsgId}:${asset.assetIndex}`)));
     const updateVisibilityButton = () => {
       if (!visibilityButton) return;
-      visibilityButton.disabled = assets.length === 0;
+      visibilityButton.disabled = !hasGalleryTiles();
       const revealed = allImagesRevealed();
       const label = revealed ? uiLiteral('隐藏全部') : uiLiteral('显示全部');
       visibilityButton.innerHTML = revealed ? icons.eyeOff : icons.eye;
@@ -16422,6 +16465,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       // Also forget revealed older pages that are not mounted after a tab switch.
       if (!reveal) this.galleryRevealedAssets.clear();
       for (const button of buttons) {
+        if (button.classList.contains('link-video-tile')) { button.classList.toggle('concealed', !reveal); continue; }
         const asset = assets[Number(button.dataset.galleryIndex)];
         if (!asset) continue;
         const key = `${asset.clientMsgId}:${asset.assetIndex}`;
@@ -16698,7 +16742,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         status.textContent = hasMore ? uiLiteral('上拉继续加载') : assets.length + fileCount ? uiTemplate`已加载本机保存的全部${category}`
           : '';
         if (assets.length || fileCount) grid.querySelector('.gallery-empty')?.remove();
-        if (!hasMore && !assets.length && !fileCount && !grid.querySelector('.gallery-empty')) {
+        if (!hasMore && !assets.length && !fileCount && !grid.querySelector('.gallery-empty,.link-video-tile')) {
           const empty = this.galleryEmptyState(favorites, category);
           grid.insertBefore(empty, footer);
         }

@@ -17,6 +17,8 @@ flowchart TD
   send -->|"失败"| retrySend["保留私有本地条目，重试发送"]
   retrySend --> send
   send -->|"成功"| shared["双方聊天出现一条视频，移除该条目的私有锁"]
+  privateAlbum --> hold["我的下载长按封面 → 操作菜单"]
+  hold -->|"发送至聊天"| pack
   privateAlbum --> view["双方可进我的下载；创建者亦可从保险箱相册查看"]
 ```
 

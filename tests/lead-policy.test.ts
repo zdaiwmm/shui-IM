@@ -33,11 +33,12 @@ it.each([false, true])('isolates the deployment pixel settings (configured=%s)',
     for (const host of ['mijiu.cloud', 'ai.shui.click', 'admin.mijiu.cloud']) {
       const shell = await request(host, '/');
       const runtime = await request(host, '/api/site-runtime.js');
+      expect(runtime.policy).not.toContain('video.twimg.com');
       if (configured && host === 'mijiu.cloud') {
         const collector = 'https://shui.click/collect/' + connection;
         const directives = shell.policy.split('; ');
         expect(directives).toContain("script-src 'self' 'wasm-unsafe-eval' https://shui.click/lead.js");
-        expect(directives).toContain(`connect-src 'self' ws://mijiu.cloud wss://mijiu.cloud ${collector} ${collector}/batch ${collector}/receipts`);
+        expect(directives).toContain(`connect-src 'self' ws://mijiu.cloud wss://mijiu.cloud ${collector} ${collector}/batch ${collector}/receipts https://api.fxtwitter.com https://video.twimg.com https://pbs.twimg.com`);
         expect(runtime.body).toContain(connection);
         expect(runtime.body).toContain(key);
       } else {
