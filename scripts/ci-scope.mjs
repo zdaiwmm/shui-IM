@@ -69,19 +69,75 @@ function git(args) {
   return result.stdout;
 }
 
-// Each reviewed profile has a corresponding browser job in ci.yml. Release
-// metadata can accompany a profile, but never qualifies an application alone.
+// Keep each opt-in path list next to the browser journeys that cover its consumers.
+const localeIds = ['ar', 'de', 'en', 'es', 'fr', 'hi', 'ja', 'pt', 'ru', 'zh-Hant'];
+const feedbackLabels = new Set([
+  '语言 / Language', '跟随系统', '用户反馈', '邮箱', '必填', '反馈内容', '提交反馈',
+  '正在提交…', '反馈已提交', '请输入有效的邮箱地址', '请输入邮箱地址',
+  '请填写 1 至 5,000 字的反馈内容', '请描述你遇到的问题或建议',
+]);
+const webkit = { QUIET_ROOM_TEST_BROWSER: 'webkit' };
 const profiles = {
-  emoji: ['src/lib/emoji-catalog.json', 'src/lib/emoji-catalog.ts', 'tests/emoji-catalog.test.ts'],
-  keyboard: ['src/lib/chat-keyboard-layout.ts', 'tests/chat-keyboard-layout.test.ts'],
+  emoji: {
+    paths: ['src/lib/emoji-catalog.json', 'src/lib/emoji-catalog.ts', 'tests/emoji-catalog.test.ts'],
+    journeys: [['meme-picker'], ['meme-picker', { MEME_WEBKIT: '1' }]],
+  },
+  keyboard: {
+    paths: ['src/lib/chat-keyboard-layout.ts', 'tests/chat-keyboard-layout.test.ts'],
+    journeys: [['chat-list-viewport'], ['chat-continuity'], ['mobile-safari-feedback']],
+  },
+  'feedback-copy': {
+    paths: [...localeIds, 'reviewed'].map(id => 'src/locales/' + id + '.json'),
+    journeys: [['language-feedback'], ['language-feedback', webkit]],
+  },
+  'media-status': {
+    paths: ['src/lib/media-capsule.ts', 'tests/media-upload.e2e.mjs'],
+    journeys: [['media-upload'], ['media-upload', webkit], ['video-upload'], ['file-flow'],
+      ['chat-image-privacy'], ['chat-image-privacy', webkit]],
+  },
+  'message-date': {
+    paths: ['src/lib/message-date.ts', 'tests/message-timeline.e2e.mjs'],
+    journeys: [['message-timeline'], ['message-timeline', webkit], ['language-feedback'], ['media-upload'], ['file-flow']],
+  },
 };
+
+export function runFocusedJourneys(profile, run = execFileSync) {
+  if (!Object.hasOwn(profiles, profile)) throw new Error('Unknown application profile.');
+  for (const [name, env] of [...profiles[profile].journeys, ['release-update']]) {
+    run(process.execPath, ['tests/' + name + '.e2e.mjs'], { cwd: root, env: { ...process.env, ...env }, stdio: 'inherit' });
+  }
+}
+
+// Translation files also contain authentication and recovery instructions. Only
+// value edits to existing feedback labels may reuse this profile's coverage.
+const isDictionary = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+function matchingKeys(before, after) {
+  return isDictionary(before) && isDictionary(after) && Object.keys(before).length === Object.keys(after).length
+    && Object.keys(before).every(key => Object.hasOwn(after, key));
+}
+
+function onlyFeedbackLabels(before, after) {
+  return matchingKeys(before, after) && Object.keys(before).every(key =>
+    typeof before[key] === 'string' && typeof after[key] === 'string' &&
+    (before[key] === after[key] || feedbackLabels.has(key)));
+}
+
+function isFeedbackCopy(file, base, head, runGit) {
+  const read = revision => JSON.parse(runGit(['show', revision + ':' + file]));
+  const before = read(base);
+  const after = read(head);
+  if (file !== 'src/locales/reviewed.json') return onlyFeedbackLabels(before, after);
+  return matchingKeys(before, after) && Object.keys(before).every(id =>
+    localeIds.includes(id) && onlyFeedbackLabels(before[id], after[id]));
+}
 const releaseNotes = new Set(['release.json', 'release-history.json']);
 
-function focusedProfile(changes, head, runGit) {
+function focusedProfile(changes, base, head, runGit) {
   const records = changes.filter(file => isOperationalDocument(file) && file.startsWith('docs/requirements/'));
   const app = changes.filter(file => !isOperationalDocument(file) && !releaseNotes.has(file));
-  const profile = Object.keys(profiles).find(key => app.length && app.every(file => profiles[key].includes(file)));
+  const profile = Object.keys(profiles).find(key => app.length && app.every(file => profiles[key].paths.includes(file)));
   if (!profile || !records.length) return;
+  if (profile === 'feedback-copy' && !app.every(file => isFeedbackCopy(file, base, head, runGit))) return;
   // Opt in on the frozen tree. A missing assessment, conflict or different
   // profile in any changed requirement keeps the full gate.
   if (records.every(file => {
@@ -122,43 +178,40 @@ export function determineScope({ eventName, event, runGit = git, checkBaseline =
   try {
     const head = runGit(['rev-parse', '--verify', 'HEAD']).trim();
     if (!validSha(head)) return complete('Checkout identity is unavailable.');
-    let range, pushBase;
+    let base;
     if (eventName === 'pull_request') {
-      const base = event?.pull_request?.base?.sha;
+      base = event?.pull_request?.base?.sha;
       const proposed = event?.pull_request?.head?.sha;
       if (!validSha(base) || !validSha(proposed)) return complete('Pull request comparison is unavailable.');
       // The normal PR checkout is GitHub's merge commit. Ensure it contains the
       // event's proposed head before comparing the complete PR against its base.
       runGit(['merge-base', '--is-ancestor', proposed, head]);
       runGit(['merge-base', '--is-ancestor', base, head]);
-      range = `${base}...${head}`;
     } else if (eventName === 'merge_group') {
       const group = event?.merge_group;
       if (group?.base_ref !== 'refs/heads/main' || !validSha(group.base_sha) || group.head_sha !== head) {
         return complete('Unverified merge group.');
       }
       runGit(['merge-base', '--is-ancestor', group.base_sha, head]);
-      range = group.base_sha + '..' + head;
+      base = group.base_sha;
     } else {
-      const base = event?.before;
-      pushBase = base;
+      base = event?.before;
       if (event?.ref !== 'refs/heads/main' || !validSha(base) || event?.after !== head || event?.forced || event?.deleted) {
         return complete('Push comparison is unavailable or history changed.');
       }
       runGit(['merge-base', '--is-ancestor', base, head]);
-      range = `${base}..${head}`;
     }
-    const changes = parseChangedPaths(runGit(['diff', '--no-ext-diff', '--name-status', '-z', '--find-renames', range, '--']));
+    const changes = parseChangedPaths(runGit(['diff', '--no-ext-diff', '--name-status', '-z', '--find-renames', `${base}..${head}`, '--']));
     documents = changes.filter(isOperationalDocument);
     // A renamed/deleted source is included above; only surviving regular files
     // may be read by the lightweight checker. Symlinks and type changes fail full.
     if (!regularPaths(runGit, head, changes)) {
       return { ...complete('Documentation contains a non-regular file.'), documents };
     }
-    const profile = focusedProfile(changes, head, runGit);
+    const profile = focusedProfile(changes, base, head, runGit);
     if (profile) {
-      const baseline = pushBase ? checkBaseline(pushBase, runGit) : undefined;
-      if (pushBase && !baseline) return { ...complete('Missing full application baseline.'), documents };
+      const baseline = eventName === 'push' ? checkBaseline(base, runGit) : undefined;
+      if (eventName === 'push' && !baseline) return { ...complete('Missing full application baseline.'), documents };
       return { mode: 'focused', profile, documents, reason: 'Reviewed ' + profile + ' profile.' + (baseline ? ' Full baseline: ' + baseline : '') };
     }
     if (!changes.every(changedPath => isOperationalDocument(changedPath) || deliveryPaths.has(changedPath))) {
@@ -212,6 +265,8 @@ if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToP
         if (scope.documents) appendFileSync(process.env.GITHUB_OUTPUT, `documents=${JSON.stringify(scope.documents)}\n`);
       }
       console.log(`CI scope: ${scope.mode}. ${scope.reason}`);
+    } else if (args.length === 2 && args[0] === 'journeys') {
+      runFocusedJourneys(args[1]);
     } else if (args.length === 2 && args[0] === 'verify' && ['verify', 'full', 'focused'].includes(args[1])) {
       const mode = requireVerification(JSON.parse(process.env.CI_NEEDS ?? ''), args[1]);
       console.log(`${args[1] === 'full' ? 'Full application verification (verify aggregate)' : 'CI verification'} passed (${mode}).`);

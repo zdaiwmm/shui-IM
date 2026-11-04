@@ -154,21 +154,7 @@ jobs:
       - name: Verify the affected journeys and release notes
         env:
           PROFILE: ${{ needs.scope.outputs.profile }}
-        run: |
-          set -eu
-          case "$PROFILE" in
-            emoji)
-              node tests/meme-picker.e2e.mjs
-              MEME_WEBKIT=1 node tests/meme-picker.e2e.mjs
-              ;;
-            keyboard)
-              node tests/chat-list-viewport.e2e.mjs
-              node tests/chat-continuity.e2e.mjs
-              node tests/mobile-safari-feedback.e2e.mjs
-              ;;
-            *) exit 1 ;;
-          esac
-          node tests/release-update.e2e.mjs
+        run: node scripts/ci-scope.mjs journeys "$PROFILE"
 
   calls:
     name: Native call media and call views
