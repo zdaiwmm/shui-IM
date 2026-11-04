@@ -86,6 +86,12 @@ const profiles = {
     paths: ['src/lib/chat-keyboard-layout.ts', 'tests/chat-keyboard-layout.test.ts'],
     journeys: [['chat-list-viewport'], ['chat-continuity'], ['mobile-safari-feedback']],
   },
+  'chat-render': {
+    paths: ['src/lib/chat-composer-render.ts', 'src/lib/chat-timeline-days.ts', 'src/lib/chat-bubble-gradient.ts',
+      'tests/chat-render.test.ts', 'tests/helpers/chat-render-gradient.mjs'],
+    journeys: [['mobile-settings-chat-fixes'], ['mobile-settings-chat-fixes', webkit], ['draft-refresh'],
+      ['chat-continuity'], ['message-timeline'], ['message-timeline', webkit], ['language-feedback']],
+  },
   'feedback-copy': {
     paths: [...localeIds, 'reviewed'].map(id => 'src/locales/' + id + '.json'),
     journeys: [['language-feedback'], ['language-feedback', webkit]],
@@ -96,7 +102,7 @@ const profiles = {
       ['chat-image-privacy'], ['chat-image-privacy', webkit]],
   },
   'message-date': {
-    paths: ['src/lib/message-date.ts', 'tests/message-timeline.e2e.mjs'],
+    paths: ['src/lib/message-date.ts', 'src/lib/chat-timeline-days.ts', 'tests/message-timeline.e2e.mjs'],
     journeys: [['message-timeline'], ['message-timeline', webkit], ['language-feedback'], ['media-upload'], ['file-flow']],
   },
 };
@@ -135,15 +141,17 @@ const releaseNotes = new Set(['release.json', 'release-history.json']);
 function focusedProfile(changes, base, head, runGit) {
   const records = changes.filter(file => isOperationalDocument(file) && file.startsWith('docs/requirements/'));
   const app = changes.filter(file => !isOperationalDocument(file) && !releaseNotes.has(file));
-  const profile = Object.keys(profiles).find(key => app.length && app.every(file => profiles[key].paths.includes(file)));
-  if (!profile || !records.length) return;
+  if (!app.length || !records.length) return;
+  const candidates = Object.keys(profiles).filter(key => app.every(file => profiles[key].paths.includes(file)));
+  if (!candidates.length) return;
+  // A shared presentation module may have two valid suites. Every changed
+  // record must still select exactly one common suite covering the whole diff.
+  const declarations = records.map(file =>
+    runGit(['show', head + ':' + file]).split('\n').filter(line => line.startsWith('回归专项：')));
+  const profile = candidates.find(key => declarations.every(lines =>
+    lines.length === 1 && lines[0] === '回归专项：' + key));
   if (profile === 'feedback-copy' && !app.every(file => isFeedbackCopy(file, base, head, runGit))) return;
-  // Opt in on the frozen tree. A missing assessment, conflict or different
-  // profile in any changed requirement keeps the full gate.
-  if (records.every(file => {
-    const lines = runGit(['show', head + ':' + file]).split('\n').filter(line => line.startsWith('回归专项：'));
-    return lines.length === 1 && lines[0] === '回归专项：' + profile;
-  })) return profile;
+  return profile;
 }
 
 export function verifiedBaseline(base, runGit, verify = verifySuccessfulCI) {
