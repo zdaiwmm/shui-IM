@@ -53,7 +53,7 @@ try {
     app.retryOperation = operation => operation(); // One failed request per explicit test retry.
     Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
     const chunks = new Map();
-    const gate = { release: null, requests: 0, fail: false, hold: true, completed: false, failDownload: false, holdDownload: false, downloadRelease: null };
+    const gate = { readIndexes: [], failIndex: null, release: null, requests: 0, fail: false, hold: true, completed: false, failDownload: false, holdDownload: false, downloadRelease: null };
     const realFetch = window.fetch.bind(window);
     window.fetch = async (input, init = {}) => {
       const url = new URL(typeof input === 'string' ? input : input.url, location.href);
@@ -68,7 +68,8 @@ try {
         return Response.json({ ok: true });
       }
       if (match) {
-        if (gate.failDownload) throw Error('Synthetic video download failure');
+        gate.readIndexes.push(Number(match[2]));
+        if (Number(match[2]) === gate.failIndex || gate.failDownload) throw Error('Synthetic video download failure');
         if (gate.holdDownload) await new Promise(resolve => { gate.downloadRelease = resolve; });
         return new Response(chunks.get(Number(match[2])));
       }
@@ -158,6 +159,12 @@ try {
     const f = window.uploadFixture, manifest = f.app.pending.get(id).payload.file;
     const cached = f.app.imageCache.get(manifest.blobId);
     for (const key of ['url','posterUrl','concealedUrl']) if (cached[key]) URL.revokeObjectURL(cached[key]);
+    const vault = await import('/src/lib/vault.ts');
+    if (!await vault.hasCompleteMediaChunks(f.session, manifest)) throw Error('Sender did not persist its upload');
+    f.app.imageCache.delete(manifest.blobId);
+    f.gate.failDownload = true;
+    const replay = await f.app.loadImage(manifest, false, true);
+    if (replay.blob.size !== manifest.originalSize) throw Error('Sender replay lost original bytes');
     // A cold receiver has neither the sender's URL nor its encrypted poster.
     await (await import('/src/lib/vault.ts')).deleteCachedMediaBlob(f.session, manifest.blobId);
     f.app.imageCache.delete(manifest.blobId); f.app.renderedMessages.delete(id);
@@ -179,6 +186,22 @@ try {
   assert.equal(await retryPreview.getAttribute('aria-busy'), 'false');
   assert.equal(await retryPreview.getAttribute('data-revealed'), 'false');
   assert.equal(await retryPreview.locator('.media-ready-hint').count(), 0);
+  // Interrupted original downloads keep completed ciphertext. Reopen requests only missing parts.
+  const resumeReads = await page.evaluate(async id => {
+    const f = window.uploadFixture, m = f.app.pending.get(id).payload.file;
+    const vault = await import('/src/lib/vault.ts');
+    await vault.deleteCachedMediaBlob(f.session, m.blobId);
+    f.app.imageCache.delete(m.blobId);
+    f.gate.failIndex = 1;
+    f.gate.readIndexes = [];
+    try { await f.app.loadImage(m, false, true); } catch { /* expected network interruption */ }
+    const before = f.gate.readIndexes.slice();
+    f.gate.failIndex = null;
+    f.gate.readIndexes = [];
+    await f.app.loadImage(m, false, true);
+    return { before, resumed: f.gate.readIndexes, complete: await vault.hasCompleteMediaChunks(f.session, m) };
+  }, id);
+  assert.deepEqual(resumeReads, { before: [0, 1], resumed: [1, 2], complete: true });
   // A second upload must disappear immediately on lock, with no late resurrection.
   await page.evaluate(() => { const f = window.uploadFixture; f.chunks.clear(); f.gate.completed = false; f.gate.hold = true; f.gate.release = null; f.start(); });
   await page.waitForFunction(() => window.uploadFixture.gate.release);

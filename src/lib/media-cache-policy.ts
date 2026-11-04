@@ -1,4 +1,4 @@
-export const MEDIA_CACHE_BYTES = 1024 ** 3;
+export const MEDIA_CACHE_BYTES = 10 * 1024 ** 3;
 export const MEDIA_CACHE_FILE_BYTES = 128 * 1024 ** 2;
 export const MEDIA_CACHE_RESERVE_BYTES = 64 * 1024 ** 2;
 export type MediaCacheEntry = { id: string; roomId: string; bytes: number; usedAt: number };

@@ -1,5 +1,6 @@
+import { isSelectedVideo } from './video-media';
 import { uiLiteral } from './language';
-import { MAX_IMAGE_ALBUM_BYTES, MAX_IMAGE_ALBUM_ITEMS } from './message-payload';
+import { MAX_IMAGE_ALBUM_BYTES, MAX_IMAGE_ALBUM_ITEMS, MAX_VIDEO_BYTES } from './message-payload';
 
 /** Preserve the selected order while keeping each message within its wire limits. */
 export function batchImageFiles<T extends { size: number }>(
@@ -14,6 +15,11 @@ export function batchAttachmentFiles<T extends { size: number; type: string }>(
   files: T[],
   destination: 'chat' | 'gallery',
 ): T[][] {
+  for (const file of files) {
+    if (isSelectedVideo(file)) {
+      if (file.size > MAX_VIDEO_BYTES) throw new Error(uiLiteral('单个视频不能超过 2 GiB'));
+    } else if (file.size > MAX_IMAGE_ALBUM_BYTES) throw new Error(uiLiteral('单个文件不能超过 256 MiB'));
+  }
   return batchFiles(files, destination, (file) => file.type.startsWith('image/'));
 }
 
@@ -22,7 +28,7 @@ function batchFiles<T extends { size: number }>(
   destination: 'chat' | 'gallery',
   isImage: (file: T) => boolean,
 ): T[][] {
-  if (files.some((file) => file.size > MAX_IMAGE_ALBUM_BYTES)) {
+  if (files.some((file) => isImage(file) && file.size > MAX_IMAGE_ALBUM_BYTES)) {
     throw new Error(uiLiteral('单个文件不能超过 256 MiB'));
   }
   if (destination === 'gallery') return files.map((file) => [file]);

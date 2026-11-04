@@ -3140,5 +3140,11 @@
   "以下是新消息": "Ab hier neue Nachrichten",
   "有新消息": "Neue Nachrichten",
   "查看第一条未读消息": "Zur ersten ungelesenen Nachricht",
-  "条新消息，查看第一条未读消息": "neue Nachrichten, zur ersten ungelesenen Nachricht"
+  "条新消息，查看第一条未读消息": "neue Nachrichten, zur ersten ungelesenen Nachricht",
+  "单个视频不能超过 2 GiB": "Videos dürfen höchstens 2 GiB groß sein",
+  "请先让所有已授权设备打开一次最新版，再发送大视频": "Öffne vor dem Senden großer Videos auf allen autorisierten Geräten einmal die aktuelle Version",
+  "本机未能保留完整视频，下次播放可能需要下载": "Dieses Gerät konnte das Video nicht vollständig speichern. Beim nächsten Abspielen ist eventuell ein Download nötig.",
+  "点按下载视频": "Zum Herunterladen des Videos tippen",
+  "附件超过单文件限制": "Der Anhang überschreitet die maximale Dateigröße",
+  "本机已缓存": "Auf diesem Gerät zwischengespeichert"
 }

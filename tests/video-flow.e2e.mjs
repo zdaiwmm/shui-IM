@@ -163,6 +163,11 @@ try {
     });
     return page.locator('.image-viewer .viewer-stage video');
   };
+  const revealPlaybackControls = async () => {
+    if (await page.locator('.image-viewer[data-video-controls="hidden"]').count()) {
+      await page.locator('.viewer-stage').click({ position: { x: 12, y: 120 } });
+    }
+  };
   const rememberPlayer = async () => page.evaluate(() => {
     window.videoFlow.previousPlayer = document.querySelector('.image-viewer .viewer-stage video');
     const video = window.videoFlow.previousPlayer;
@@ -270,6 +275,9 @@ try {
     'Re-entry passed the JPEG poster to the video decoder instead of the authenticated playback cache');
   await awaitPlayingVideo();
   assert.equal(await page.evaluate(()=>document.fullscreenElement),null,'Direct opens stay in the app viewer');
+  assert.equal(await page.locator('.image-viewer').getAttribute('data-video-controls'),'hidden');
+  await revealPlaybackControls();
+  assert.equal(await page.locator('.viewer-stage video').evaluate(video => video.paused),false);
   assert.equal(await page.locator('[data-viewer-close]').isVisible(),true);
   const player = await rememberPlayer();
   assert.deepEqual(player, { controls: false, autoplay: true, playsInline: true, width: 320, height: 180 }, 'Video did not open as an accessible, automatically playing viewer');
@@ -301,8 +309,10 @@ try {
   await chatPreview.click(); // Reveal again after the downward privacy gesture.
   await chatPreview.click();
   await awaitPlayingVideo();
+  await revealPlaybackControls();
   await page.locator('.image-viewer:not([data-native-video]) [data-viewer-close]').waitFor();
   assert.equal(await page.evaluate(() => window.videoFlow.nativeAttempts),0,'Direct open requested native full screen');
+  await revealPlaybackControls();
   await page.locator('[data-video-fullscreen]').click();
   assert.equal(await page.evaluate(() => window.videoFlow.nativeAttempts),1,'Explicit native entry must remain available');
   await rememberPlayer();
@@ -329,6 +339,7 @@ try {
   await awaitPlayingVideo();
   await rememberPlayer();
   assert.equal(await page.evaluate(()=>window.videoFlow.webkitAttempts),0,'Safari default open requested its system player');
+  await revealPlaybackControls();
   await page.locator('[data-video-fullscreen]').click();
   assert.equal(await page.evaluate(() => window.videoFlow.webkitAttempts),1,'Explicit system-player entry failed');
   assert.equal(await page.locator('.viewer-stage video').evaluate(video=>video.playsInline),true);
@@ -361,6 +372,7 @@ try {
   await chatPreview.click();
   await awaitPlayingVideo();
   await rememberPlayer();
+  await revealPlaybackControls();
   await page.locator('[data-video-fullscreen]').click();
   await page.keyboard.press('Escape');
   await page.evaluate(() => window.videoFlow.resolveLateNative());
@@ -412,10 +424,8 @@ try {
     assert.equal(await page.locator('[data-viewer-close]').isVisible(), true);
     await page.locator('[data-video-play]').click();
     await awaitPlayingVideo();
-    if (safe) {
-      assert.equal(await page.locator('.image-viewer').getAttribute('data-video-controls'), 'hidden');
-      await page.locator('.viewer-stage').click({ position: { x: 12, y: 120 } });
-    }
+    assert.equal(await page.locator('.image-viewer').getAttribute('data-video-controls'), 'hidden');
+    await revealPlaybackControls();
     await page.locator('[data-video-play]').click();
     assert.equal(await page.locator('.viewer-stage video').evaluate(video => video.paused), true);
     await page.locator('[data-video-mute]').click();
@@ -785,7 +795,14 @@ try {
   assert.deepEqual(lateState, { covered: true, cacheSize: 0, mediaNodes: 0, unreleasedUrls: 0 }, 'Late video decryption recreated visible content or retained an object URL after lock');
 
   // Safe also reaches the real promotion path after its runtime/URLs are gone.
-  await page.evaluate(async () => { const f = window.videoFlow; f.app.cleanupRuntime(false); await f.reopen('gallery'); f.app.uiPreferencesHydrated=true; });
+  await page.evaluate(async () => {
+    const f = window.videoFlow, m = f.manifests.chatVideo;
+    const poster = await f.vault.loadMediaPreview(f.session, m);
+    await f.vault.deleteCachedMediaBlob(f.session, m.blobId);
+    await f.vault.saveMediaPreview(f.session, m, poster);
+    await f.vault.saveMediaPlayback(f.session, m, f.originals.get(m.blobId));
+    f.app.cleanupRuntime(false); await f.reopen('gallery'); f.app.uiPreferencesHydrated=true;
+  });
   const cachedSafeVideo = page.locator(`.gallery-tile[data-blob-id="${ids.chatVideo}"]`);
   await cachedSafeVideo.locator('img').evaluate(image => image.decode());
   await page.evaluate(() => { const f=window.videoFlow; f.promotedEntry=f.app.imageCache.get(f.manifests.chatVideo.blobId); f.promotedPoster=f.promotedEntry.url; });
@@ -919,7 +936,7 @@ try {
     assert.deepEqual(await page.evaluate(()=>{
       const f=window.videoFlow, cached=f.app.imageCache.get(f.manifests.chatVideo.blobId), video=document.querySelector('.viewer-stage video');
       return {reads:f.requests.reads,videoSource:video.src!==video.poster,previewOnly:cached.previewOnly,displayCopy:cached.displayCopy};
-    }),{reads:0,videoSource:true,previewOnly:false,displayCopy:true},`${destination} cold playback did not promote its authenticated playback cache`);
+    }),{reads:0,videoSource:true,previewOnly:false,displayCopy:false},`${destination} cold playback did not reuse the original ciphertext`);
     await rememberPlayer(); await closePlayer(); await assertPlayerReleased(`${destination} cold playback close`);
     await page.evaluate(()=>window.videoFlow.app.lockNow());
   }

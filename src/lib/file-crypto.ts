@@ -1,10 +1,11 @@
+import { isSelectedVideo } from './video-media';
 import { atFaultStage } from './fault-report';
 import { uiLiteral, uiTemplate } from './language';
 import { VoiceNetworkError } from './voice-network';
 import { createSHA256 } from 'hash-wasm';
 import { canonicalStringify } from './canonical';
 import { fromBase64Url, toBase64Url } from './base64';
-import { IMAGE_CHUNK_SIZE, isImageManifest, MAX_IMAGE_BYTES, isAudioManifest, isAudioMimeType, MAX_AUDIO_BYTES, isFileManifest, MAX_IMAGE_NAME_LENGTH, MAX_IMAGE_MIME_LENGTH } from './message-payload';
+import { IMAGE_CHUNK_SIZE, isImageManifest, MAX_VIDEO_BYTES, MAX_IMAGE_BYTES, isAudioManifest, isAudioMimeType, MAX_AUDIO_BYTES, isFileManifest, MAX_IMAGE_NAME_LENGTH, MAX_IMAGE_MIME_LENGTH } from './message-payload';
 import type { FileManifest, ImageManifest, ImageUploadPlan, ImageUploadPlanV2 } from './types';
 import { readMediaDimensions } from './media-dimensions';
 
@@ -46,6 +47,7 @@ async function encryptAttachmentFile(
     reserve: (blobId: string, chunkCount: number, encryptedSize: number) => Promise<void>;
     status: (blobId: string) => Promise<{ uploadedIndexes: number[]; completed: boolean }>;
     upload: (blobId: string, index: number, bytes: ArrayBuffer) => Promise<void>;
+    cacheCiphertext?: (blobId: string, index: number, bytes: ArrayBuffer) => Promise<void>;
     complete: (blobId: string) => Promise<void>;
     savePlan: (plan: ImageUploadPlan) => Promise<void>;
     started?: () => void;
@@ -63,7 +65,9 @@ async function encryptAttachmentFile(
   } else if (kind === 'image' && !file.type.startsWith('image/')) throw new Error(uiLiteral('请选择图片文件'));
   const fileLabel = kind === 'file' ? uiLiteral('文件') : uiLiteral('图片');
   if (file.size === 0) throw new Error(kind === 'file' ? uiLiteral('文件为空') : uiLiteral('图片文件为空'));
-  if (file.size > MAX_IMAGE_BYTES) throw new Error(uiTemplate`${fileLabel}不能超过 256 MB`);
+  if (kind === 'file' && isSelectedVideo(file)) {
+    if (file.size > MAX_VIDEO_BYTES) throw new Error(uiLiteral('单个视频不能超过 2 GiB'));
+  } else if (file.size > MAX_IMAGE_BYTES) throw new Error(uiTemplate`${fileLabel}不能超过 256 MB`);
   if (kind === 'file' && (
     file.name.length > MAX_IMAGE_NAME_LENGTH || /[\u0000-\u001f\u007f]/.test(file.name) ||
     file.type.length > MAX_IMAGE_MIME_LENGTH || /[\u0000-\u001f\u007f]/.test(file.type)
@@ -129,7 +133,7 @@ async function encryptAttachmentFile(
     const start = index * IMAGE_CHUNK_SIZE;
     const end = Math.min(start + IMAGE_CHUNK_SIZE, file.size);
     const plaintext = new Uint8Array(await atFaultStage('upload.read',file.slice(start, end).arrayBuffer()));
-    if (!uploaded.has(index)) {
+    if (!uploaded.has(index) || callbacks.cacheCiphertext) {
       const ciphertext = await atFaultStage('upload.encrypt',crypto.subtle.encrypt(
         {
           name: 'AES-GCM',
@@ -140,7 +144,9 @@ async function encryptAttachmentFile(
         key,
         plaintext,
       ));
-      await atFaultStage('upload.chunk',callbacks.upload(plan.blobId, index, ciphertext));
+      if (!uploaded.has(index)) await atFaultStage('upload.chunk',callbacks.upload(plan.blobId, index, ciphertext));
+      callbacks.signal?.throwIfAborted();
+      await callbacks.cacheCiphertext?.(plan.blobId, index, ciphertext);
       callbacks.signal?.throwIfAborted();
     }
     callbacks.progress?.((index + 1) / chunkCount);
@@ -219,7 +225,7 @@ async function decryptAttachmentFile(
     const bytes = new Uint8Array(plaintext);
     totalSize += bytes.length;
     hash.update(bytes);
-    parts.push(bytes);
+    parts.push(new Blob([bytes])); // Release each JS buffer after hashing; the browser manages Blob backing storage.
     progress?.((index + 1) / manifest.chunkCount);
   }
 
