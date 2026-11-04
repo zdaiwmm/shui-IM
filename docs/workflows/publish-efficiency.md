@@ -23,11 +23,12 @@
 | --- | --- | --- |
 | `emoji` | 表情目录、搜索与目录单测 | Chromium 和 WebKit 表情选择器 |
 | `keyboard` | 聊天键盘布局模型及其单测 | 聊天视口、聊天连续性、移动 Safari 反馈 |
+| `chat-render` | 聊天输入框测量、发送后回复栏刷新判定、可见气泡渐变和本地日期分隔渲染 | 手机聊天滚动与渐变（Chromium／WebKit）、双引擎草稿与输入法、回复与滚动连续性、双引擎日期时间线、语言切换 |
 | `feedback-copy` | 十份译文目录及 reviewed 中已登记的反馈表单、语言标签。只允许改已有键的译文值 | 各语言完整性与文本安全单测，Chromium 和 WebKit 语言切换、表单校验与提交 |
 | `media-status` | `media-capsule.ts` 的状态胶囊呈现及 `media-upload.e2e.mjs` | 图片发送与接收（Chromium 和 WebKit）、视频上传、普通文件收发、隐藏与清理 |
 | `message-date` | `message-date.ts` 的本地日期、时间格式及 `message-timeline.e2e.mjs` | Chromium 和 WebKit 的日期分隔、跨日与滚动锚点，以及语言切换、媒体时间显示、文件链路 |
 
-例如修订反馈输入框译文可选 `feedback-copy`；同批若改恢复提示、增删键或修改 source 清单则全量。调整发送进度胶囊可选 `media-status`；同时改上传重试、对象 URL 生命周期或加密逻辑则全量。消息日期只覆盖呈现，消息排序、未读、历史持久化仍按完整应用验证。共享入口 `app.ts`、全局样式、产品／安全契约或其他未登记文件混入时均回退 full。
+例如修订反馈输入框译文可选 `feedback-copy`；同批若改恢复提示、增删键或修改 source 清单则全量。调整发送进度胶囊可选 `media-status`；同时改上传重试、对象 URL 生命周期或加密逻辑则全量。消息日期只覆盖呈现，消息排序、未读、历史持久化仍按完整应用验证。日期分隔模块可显式选择 `message-date` 或 `chat-render`，整批仍须落入同一专项。修改输入事件里的草稿检查点、发送队列、回复载荷或历史投影时回退全量。共享入口 `app.ts`、全局样式、产品／安全契约或其他未登记文件混入时均回退 full。
 
 精确路径、允许修改的词条与浏览器命令共同维护在 `scripts/ci-scope.mjs`。扩充时附正常命中与越界回退测试，按 CI 同一入口 `node scripts/ci-scope.mjs journeys <专项名>` 实跑各消费者用例。高风险和覆盖不明的改动不声明专项。
 
