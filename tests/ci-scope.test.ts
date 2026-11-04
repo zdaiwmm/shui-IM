@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 // @ts-expect-error Operational Node script has no TS declarations.
-import { determineScope, parseChangedPaths, requireVerification, verifiedBaseline } from '../scripts/ci-scope.mjs';
+import { determineScope, parseChangedPaths, requireVerification, runFocusedJourneys, verifiedBaseline } from '../scripts/ci-scope.mjs';
 
 const directories: string[] = [];
 afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
@@ -275,5 +275,72 @@ describe('risk-matched application CI', () => {
       expect(() => requireVerification({ ...needs, [name]: { result: 'skipped' } }, 'focused')).toThrow();
     }
     expect(() => requireVerification(results('docs'), 'focused')).toThrow();
+  });
+});
+
+describe('frequently changed presentation profiles', () => {
+  const record = 'docs/requirements/2026-11-04-fixture/README.md';
+  function candidate(repo: ReturnType<typeof repository>, base: string, head: string) {
+    const runGit = repo.git;
+    const events = [
+      { eventName: 'pull_request', event: { pull_request: { base: { sha: base }, head: { sha: head } } } },
+      { eventName: 'merge_group', event: { merge_group: { base_ref: 'refs/heads/main', base_sha: base, head_sha: head } } },
+      { eventName: 'push', event: { ref: 'refs/heads/main', before: base, after: head } },
+    ];
+    return events.map(event => determineScope({ ...event, runGit, checkBaseline: () => 'successful-full-run' }));
+  }
+
+  it.each([
+    ['media-status', 'src/lib/media-capsule.ts', 'tests/media-upload.e2e.mjs', 'src/lib/media-upload-view.ts'],
+    ['message-date', 'src/lib/message-date.ts', 'tests/message-timeline.e2e.mjs', 'src/lib/message-timeline.ts'],
+  ])('limits %s to its presentation module and owned browser test', (profile, module, test, excluded) => {
+    const repo = repository();
+    repo.write(record, '回归专项：' + profile);
+    repo.write(module, 'export {};');
+    repo.write(test, '// fixture');
+    expect(candidate(repo, repo.before, repo.commit()).every(result => result.mode === 'focused' && result.profile === profile)).toBe(true);
+    repo.write(excluded, 'export {};');
+    expect(candidate(repo, repo.before, repo.commit()).every(result => result.mode === 'full')).toBe(true);
+  });
+
+  it('checks changed translation values on both revisions, including nested reviewed catalogs', () => {
+    const repo = repository();
+    const catalog = { '用户反馈': 'Feedback', '恢复码': 'Recovery code' };
+    const translated = 'src/locales/en.json';
+    const reviewed = 'src/locales/reviewed.json';
+    const writeJSON = (file: string, data: unknown) => repo.write(file, JSON.stringify(data));
+    writeJSON(translated, catalog);
+    writeJSON(reviewed, { en: catalog });
+    const base = repo.commit();
+    repo.write(record, '回归专项：feedback-copy');
+    const edited = { ...catalog, '用户反馈': 'Send feedback' };
+    writeJSON(translated, edited);
+    writeJSON(reviewed, { en: edited });
+    expect(candidate(repo, base, repo.commit()).every(result => result.profile === 'feedback-copy')).toBe(true);
+    for (const invalid of [{ en: { ...edited, '恢复码': 'Changed' } }, { en: { '用户反馈': 'Only' } }, { en: { ...edited, extra: 'New' } }, { en: [] }, {}]) {
+      writeJSON(reviewed, invalid);
+      expect(candidate(repo, base, repo.commit()).every(result => result.mode === 'full')).toBe(true);
+    }
+    writeJSON(reviewed, { en: edited });
+    writeJSON(translated, { ...edited, '恢复码': 'Changed' });
+    expect(candidate(repo, base, repo.commit()).every(result => result.mode === 'full')).toBe(true);
+    writeJSON(translated, edited);
+    repo.write('src/locales/source.json', '[]');
+    expect(candidate(repo, base, repo.commit()).every(result => result.mode === 'full')).toBe(true);
+  });
+
+  it('runs registered journeys and release-update, and stops immediately on a failed journey', () => {
+    for (const profile of ['emoji', 'keyboard', 'feedback-copy', 'media-status', 'message-date']) {
+      const paths: string[] = [];
+      runFocusedJourneys(profile, (_node: string, [file]: string[]) => paths.push(file));
+      expect(paths.length).toBeGreaterThan(1);
+      expect(paths.at(-1)).toBe('tests/release-update.e2e.mjs');
+    }
+    const calls: string[] = [];
+    expect(() => runFocusedJourneys('media-status', (_node: string, [file]: string[]) => {
+      calls.push(file); throw new Error('fixture failed');
+    })).toThrow('fixture failed');
+    expect(calls).toEqual(['tests/media-upload.e2e.mjs']);
+    expect(() => runFocusedJourneys('constructor')).toThrow();
   });
 });
