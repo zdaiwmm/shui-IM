@@ -27,7 +27,11 @@ describe('release entry point', () => {
     const marker = { name: 'Full application verification', status: 'completed', conclusion: 'success' };
     const successful = { ...fullJob, steps: [marker] };
     expect(requireSuccessfulCI({ workflow_runs: [run] }, sha, { jobs: [delivery, successful] })).toBe(run.html_url);
-    for (const steps of [undefined, [], [{ ...marker, conclusion: 'skipped' }], [{ ...marker, conclusion: 'failure' }], [marker, marker]]) {
+    const focused = { ...marker, name: 'Focused application verification' };
+    const scoped = { jobs: [delivery, { ...fullJob, steps: [{ ...marker, conclusion: 'skipped' }, focused] }] };
+    expect(requireSuccessfulCI({ workflow_runs: [run] }, sha, scoped)).toBe(run.html_url);
+    expect(() => requireSuccessfulCI({ workflow_runs: [run] }, sha, scoped, { requireFull: true })).toThrow();
+    for (const steps of [undefined, [], [marker, focused], [{ ...focused, conclusion: 'failure' }], [{ ...marker, conclusion: 'skipped' }], [{ ...marker, conclusion: 'failure' }], [marker, marker]]) {
       expect(() => requireSuccessfulCI({ workflow_runs: [run] }, sha, { jobs: [delivery, { ...fullJob, steps }] })).toThrow('Scoped CI');
     }
   });
