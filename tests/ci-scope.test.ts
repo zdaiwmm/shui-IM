@@ -281,7 +281,14 @@ describe('risk-matched application CI', () => {
 describe('frequently changed presentation profiles', () => {
   const record = 'docs/requirements/2026-11-04-fixture/README.md';
   function candidate(repo: ReturnType<typeof repository>, base: string, head: string) {
-    const runGit = repo.git;
+    // All three event fixtures inspect one immutable checkout. Reuse identical
+    // Git reads within this comparison, and discard them before the next commit.
+    const reads = new Map<string, string>();
+    const runGit = (args: string[]) => {
+      const key = JSON.stringify(args);
+      if (!reads.has(key)) reads.set(key, repo.git(args));
+      return reads.get(key)!;
+    };
     const events = [
       { eventName: 'pull_request', event: { pull_request: { base: { sha: base }, head: { sha: head } } } },
       { eventName: 'merge_group', event: { merge_group: { base_ref: 'refs/heads/main', base_sha: base, head_sha: head } } },
@@ -291,6 +298,7 @@ describe('frequently changed presentation profiles', () => {
   }
 
   it.each([
+    ['chat-render', 'src/lib/chat-composer-render.ts', 'tests/chat-render.test.ts', 'src/app.ts'],
     ['media-status', 'src/lib/media-capsule.ts', 'tests/media-upload.e2e.mjs', 'src/lib/media-upload-view.ts'],
     ['message-date', 'src/lib/message-date.ts', 'tests/message-timeline.e2e.mjs', 'src/lib/message-timeline.ts'],
   ])('limits %s to its presentation module and owned browser test', (profile, module, test, excluded) => {
@@ -300,6 +308,17 @@ describe('frequently changed presentation profiles', () => {
     repo.write(test, '// fixture');
     expect(candidate(repo, repo.before, repo.commit()).every(result => result.mode === 'focused' && result.profile === profile)).toBe(true);
     repo.write(excluded, 'export {};');
+    expect(candidate(repo, repo.before, repo.commit()).every(result => result.mode === 'full')).toBe(true);
+  });
+
+  it('requires one explicitly selected suite for a shared day-rendering module', () => {
+    const repo = repository();
+    repo.write('src/lib/chat-timeline-days.ts', 'export {};');
+    for (const profile of ['message-date', 'chat-render']) {
+      repo.write(record, '回归专项：' + profile);
+      expect(candidate(repo, repo.before, repo.commit()).every(result => result.profile === profile)).toBe(true);
+    }
+    repo.write('docs/requirements/2026-11-04-other/README.md', '回归专项：message-date');
     expect(candidate(repo, repo.before, repo.commit()).every(result => result.mode === 'full')).toBe(true);
   });
 
@@ -330,7 +349,7 @@ describe('frequently changed presentation profiles', () => {
   });
 
   it('runs registered journeys and release-update, and stops immediately on a failed journey', () => {
-    for (const profile of ['emoji', 'keyboard', 'feedback-copy', 'media-status', 'message-date']) {
+    for (const profile of ['emoji', 'keyboard', 'feedback-copy', 'media-status', 'message-date', 'chat-render']) {
       const paths: string[] = [];
       runFocusedJourneys(profile, (_node: string, [file]: string[]) => paths.push(file));
       expect(paths.length).toBeGreaterThan(1);

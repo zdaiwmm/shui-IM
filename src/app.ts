@@ -58,7 +58,7 @@ import './desktop.css';
 import { bindControlFeedback } from './lib/control-feedback';
 import { bindTooltips } from './lib/tooltips';
 import { afterMotion, layoutMotionDuration, motion, retargetMotion, settleValue, travelMotion, travelVelocity } from './lib/motion';
-import { messageActionLayout, syncChatBubbleGradient, syncChatBubbleStyle } from './lib/chat-visuals';
+import { messageActionLayout, syncChatBubbleStyle } from './lib/chat-visuals';
 import { IdleLease, IDLE_DURATIONS, IDLE_PREFERENCE_KEY, readIdleSeconds, saveIdleSeconds, HIDDEN_LOCK_PREFERENCE_KEY, readHiddenLock, saveHiddenLock } from './lib/idle-lock';
 import { IdleLockPrompt } from './lib/idle-lock-prompt';
 import { DesktopAccess } from './lib/desktop-access';
@@ -182,7 +182,10 @@ import {
   type RepairInvite,
   type ParticipantInvite as Invite,
 } from './lib/invite-link';
-import { messageLocalDay, messageTimeLabel as timeLabel } from './lib/message-date';
+import { resizeComposerOnInput, shouldClearSentReply } from './lib/chat-composer-render';
+import { syncChatBubbleGradient } from './lib/chat-bubble-gradient';
+import { createTimelineDateAppender } from './lib/chat-timeline-days';
+import { messageTimeLabel as timeLabel } from './lib/message-date';
 import { VoicePlayback, VoicePlayer } from './lib/voice-player';
 import { CallController } from './lib/call-controller';
 import { CallView } from './lib/call-view';
@@ -8052,14 +8055,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     });
     textarea.addEventListener('input', event => {
       this.composerDraftVersion += 1;
-      // At the minimum height the live editor can detect wrapping itself.
-      // A taller editor still needs the mirror to detect intrinsic shrink.
-      const composing = event instanceof InputEvent && event.isComposing;
-      if (activeComposition || composing || this.composerHeightMotion
-        || textarea.offsetHeight !== parseFloat(getComputedStyle(textarea).minHeight)
-        || textarea.scrollHeight > textarea.clientHeight) {
-        resizeTextarea(true, true, composing);
-      }
+      resizeComposerOnInput(textarea, event, activeComposition, Boolean(this.composerHeightMotion), resizeTextarea);
       this.uiPreferences.composerDraft = textarea.value;
       if (this.composerCheckpoint && ownsActiveChat()) {
         try { this.composerCheckpoint.write(textarea.value); }
@@ -10280,7 +10276,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         this.flushUiPreferencesSave();
         if (retainKeyboard) this.restoreComposerFocus();
       }
-      if (replyTarget && this.replyTarget === replyTarget) {
+      if (shouldClearSentReply(replyTarget, this.replyTarget)) {
         this.replyTarget = null;
         this.renderReplyDraft();
       }
@@ -12478,29 +12474,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       const elements: HTMLElement[] = [];
       const timeline: HTMLElement[] = [...(guide ? [guide] : []),...privateRows];
       const dateKeys = new Set<string>();
-      const currentYear = new Date().getFullYear();
       const sequences = new Map<string, number>();
-      const appendDate = (sentAt: string) => {
-        const day = messageLocalDay(sentAt, currentYear, dateKeys);
-        if (day) {
-          dateKeys.add(day.key);
-          let separator = this.renderedMessageDates.get(day.key);
-          if (!separator) {
-            separator = document.createElement('div');
-            separator.className = 'message-date';
-            separator.dataset.dateKey = day.key;
-            separator.setAttribute('role', 'heading');
-            separator.setAttribute('aria-level', '3');
-            const time = document.createElement('time');
-            time.dateTime = day.key;
-            separator.append(time);
-            this.renderedMessageDates.set(day.key, separator);
-          }
-          separator.setAttribute('aria-label', day.description);
-          if (separator.firstChild!.textContent !== day.label) separator.firstChild!.textContent = day.label;
-          timeline.push(separator);
-        }
-      };
+      const appendDate = createTimelineDateAppender(timeline, dateKeys, this.renderedMessageDates);
       const uploadDrafts = [...this.mediaUploads.entries()].filter(([id, draft]) => draft.view.geometryReady && !visibleMessageIds.has(id))
         .sort(([, a], [, b]) => a.sentAt.localeCompare(b.sentAt));
       for (const message of messages) {
