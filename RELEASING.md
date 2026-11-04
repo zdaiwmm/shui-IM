@@ -2,6 +2,18 @@
 
 发布准备先按[上线复用合并结果](docs/workflows/publish-efficiency.md#上线复用合并结果)核对生产到候选的累计差异、精确 main CI 与同轮镜像。记录全量或专项结论，匹配时直接复用；每个环境仍须预检及独立回读。
 
+## X 视频直下本机与加密发送已发布至两站（2026-11-04）
+<a id="release-x-video-dual-20261104"></a>
+
+用户确认将应用提交 `306f0b22eaa7d5699fcb3bf3964c7b45a94147fb` 发布到主站与东京站。版本为 `2026.11.04.2`。[应用 PR #505](https://github.com/zdaiwmm/shui-IM/pull/505) 与合并提交文件树一致，候选通过 1,303 项单元及集成测试和 93 项本地浏览器回归。两站从 `2026.11.03.6` 升级，累计包含[视频缓存与大视频 #504](https://github.com/zdaiwmm/shui-IM/pull/504) 和链接视频。超过 256 MiB 的视频须设备具备大视频能力，发送上限 2 GiB。[精确主线 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/41818320681) 第一次运行完整通过，两站使用同轮 amd64 镜像产物 13316265965。
+
+| 环境 | 发布批次（UTC） | 独立回读完成（北京时间） |
+| --- | --- | --- |
+| production / ai.shui.click | 20261104T112900Z | 19:33:34 |
+| tokyo-public / mijiu.cloud | 20261104T113506Z | 19:43:36 |
+
+两站各执行一次生产切换，冷备份成功，取得精确 DEPLOY_VERIFIED 和独立 READBACK_OK。运行镜像、应用和备份健康、维护门解除、HTTPS、数据库、存储、公开资源及新建 WebSocket 均通过。两站首页返回 200，公开安全策略允许设备连接 X 视频与识别域名。589 MiB 文件加密发送及解密比对属于本地测试，未使用真实线上会话发送，未做 iPhone 真机验收。主站首次独立预检的 Git 读取超时，在正式入口使用已有的 HTTPS 凭据重新核验成功。脱敏回执位于公共 Git 目录 quiet-room-deliveries/evidence/x-video-local-album-20261104。
+
 ## 聊天首条未读、输入性能和东京访客统计（2026-11-03）
 <a id="release-chat-unread-dual-20261103"></a>
 
