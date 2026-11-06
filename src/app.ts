@@ -753,6 +753,7 @@ export class QuietRoomApp {
   private recoveryPollTimer: number | null = null;
   private backupTimer: number | null = null;
   private backupCatchupTarget = 0;
+  private backupCatchupPending = false;
   private backupRun: Promise<void> | null = null;
   private automaticBackupAbort: AbortController | null = null;
   private backupError = '';
@@ -5768,6 +5769,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
 
   private async connectSocket(): Promise<void> {
     this.backupCatchupTarget = Number.POSITIVE_INFINITY;
+    this.backupCatchupPending = true;
     const session = this.session;
     if (!session || this.privacyCovered) return;
     const epoch = this.runtimeEpoch;
@@ -5974,6 +5976,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (!session) return;
     const epoch = this.runtimeEpoch;
     this.backupCatchupTarget = Math.max(this.backupCatchupTarget,state.nextSeq);
+    this.backupCatchupPending = true;
     try {
       const before = new Set(session.vault.members.filter((member) => member.status !== 'pending' && member.status !== 'revoked').map((member) => member.role)).size;
       const ownId = session.vault.identity.publicBundle.deviceId;
@@ -6254,6 +6257,15 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       if (this.isRuntimeActive(epoch, session)) await this.drainServerQueueLocked(requestMore, mutation);
     });
     if (this.isRuntimeActive(epoch, session) && this.receiptQueue.size) await this.drainReceiptQueue();
+    if (session.vault.roomArchiveV2 && this.isRuntimeActive(epoch, session) && this.backupCatchupPending
+      && session.vault.lastSeq >= this.backupCatchupTarget && !this.serverQueue.size && !this.draining) {
+      this.backupCatchupPending = false;
+      // The vault lease is released. Resume yielded backup promptly instead of
+      // waiting for a timer that navigation/reopening may repeatedly restart.
+      window.setTimeout(() => {
+        if (this.isRuntimeActive(epoch, session)) void this.runAutomaticBackup();
+      }, 0);
+    }
   }
 
   private async drainServerQueueLocked(requestMore: boolean, mutation: VaultMutation, throughSeq = Number.MAX_SAFE_INTEGER): Promise<void> {
@@ -13266,7 +13278,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const owner=this.session,ownerSignal=this.runtimeAbort?.signal,ownerEpoch=this.runtimeEpoch;
     if(owner?.vault.roomArchiveV2&&ownerSignal&&!this.privacyCovered&&!document.hidden){
       if(!this.archiveBackup||this.archiveBackup.session!==owner||this.archiveBackup.signal!==ownerSignal){
-        this.archiveBackup=new ArchiveBackupController(owner,ownerSignal,()=>this.isRuntimeActive(ownerEpoch,owner)&&!ownerSignal.aborted&&!document.hidden&&(!this.roomRuntime||this.roomRuntime.signal!==ownerSignal||this.roomRuntime.isCurrent()),(signal,force)=>syncRoomArchive(owner,signal,()=>!force&&(this.draining||owner.vault.lastSeq<this.backupCatchupTarget||this.serverQueue.size>0)),()=>{
+        this.archiveBackup=new ArchiveBackupController(owner,ownerSignal,()=>this.isRuntimeActive(ownerEpoch,owner)&&!ownerSignal.aborted&&!document.hidden&&(!this.roomRuntime||this.roomRuntime.signal!==ownerSignal||this.roomRuntime.isCurrent()),(signal,force)=>syncRoomArchive(owner,signal,()=>{const busy=!force&&(this.draining||owner.vault.lastSeq<this.backupCatchupTarget||this.serverQueue.size>0);if(busy)this.backupCatchupPending=true;return busy;}),()=>{
           if(this.isRuntimeActive(ownerEpoch,owner)&&!ownerSignal.aborted){this.backupError=this.archiveBackup?.snapshot.error??'';this.updateBackupStatus();}
         });
       }
