@@ -10,7 +10,7 @@ export class ArchiveBackupController {
   private blocked=false;
   private facts:BackupRunFacts={running:false,error:''};
   constructor(readonly session:VaultSession,readonly signal:AbortSignal,private readonly active:()=>boolean,
-    private readonly operation:(signal:AbortSignal)=>Promise<BackupOutcome>,private readonly changed:()=>void){signal.addEventListener('abort',()=>this.automatic?.abort(),{once:true});}
+    private readonly operation:(signal:AbortSignal,force:boolean)=>Promise<BackupOutcome>,private readonly changed:()=>void){signal.addEventListener('abort',()=>this.automatic?.abort(),{once:true});}
   get snapshot():Readonly<BackupRunFacts>{return {...this.facts};}
   pauseAutomatic():void{if(this.automatic){this.automatic.abort();this.facts={running:false,error:'',outcome:{kind:'paused',reason:uiLiteral('自动备份已暂停')}};}this.changed();}
   run(force=false):Promise<BackupOutcome>{
@@ -22,7 +22,7 @@ export class ArchiveBackupController {
     const signal=this.automatic?AbortSignal.any([this.signal,this.automatic.signal]):this.signal;
     this.facts={running:true,error:''};
     this.blocked=false;
-    const run=Promise.resolve().then(()=>this.active()&&!signal.aborted?this.operation(signal):Promise.resolve({kind:'paused' as const,reason:uiLiteral('会话已锁定')})).then(outcome=>{if(this.active()&&!this.signal.aborted)this.facts={running:false,error:'',outcome};return outcome;}).catch((cause:unknown)=>{
+    const run=Promise.resolve().then(()=>this.active()&&!signal.aborted?this.operation(signal,force):Promise.resolve({kind:'paused' as const,reason:uiLiteral('会话已锁定')})).then(outcome=>{if(this.active()&&!this.signal.aborted)this.facts={running:false,error:'',outcome};return outcome;}).catch((cause:unknown)=>{
       if(cause instanceof ApiError&&[401,403,404,410,413,507].includes(cause.status))this.blocked=true;
       if(this.active()&&!this.signal.aborted)this.facts={running:false,error:signal.aborted?'':cause instanceof Error?cause.message:uiLiteral('自动备份暂未完成'),outcome:{kind:'paused',reason:signal.aborted?uiLiteral('自动备份已暂停'):uiLiteral('备份未完成')}};
       return {kind:'paused',reason:signal.aborted?uiLiteral('备份已暂停'):uiLiteral('备份未完成')} as BackupOutcome;

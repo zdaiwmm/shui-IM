@@ -1,3 +1,6 @@
+import { isArchiveCheckpointRef, type ArchiveCheckpoint } from './archive-checkpoint';
+import { archiveObjectHash, type ArchiveObject } from './room-archive-crypto';
+import type { RoomArchiveState } from './room-archive';
 import { uiLiteral, uiTemplate } from './language';
 import { recoverDatabaseRead } from './database-recovery';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -46,7 +49,7 @@ import type {
 } from './types';
 
 const DB_NAME = 'quiet-room';
-const DB_VERSION = 17;
+const DB_VERSION = 18;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const PLATFORM_PAYLOAD_AAD = encoder.encode('quiet-room-vault-payload-v2');
@@ -1290,7 +1293,7 @@ export async function createArchiveRepairVault(vault: Vault, owner: VaultSession
     await loadMessageEventHistory(owner, { mutation, signal });
     const next: Vault = { ...vault, localDataScope: localDataScope(owner.vault),
       localPreferenceDeviceId: owner.vault.localPreferenceDeviceId ?? owner.vault.identity.publicBundle.deviceId,
-      roomArchiveV2: structuredClone(owner.vault.roomArchiveV2), archiveState: structuredClone(owner.vault.archiveState) };
+      roomArchiveV2: structuredClone(owner.vault.roomArchiveV2), archiveState: await materializeRoomArchiveState(owner) };
     const id = crypto.randomUUID(), master = new Uint8Array(await crypto.subtle.exportKey('raw', owner.key));
     try {
       const stored: StoredPasswordVault = { v: 3, unlockMethod: 'password', browserRoomKey: true, spaceId: id,
@@ -1332,6 +1335,9 @@ export async function finishJointRecovery(session: VaultSession, nextVault: Vaul
   return withVaultMutation(session, async () => {
     const pending = session.vault.pendingJointRecovery;
     if (!pending || (session.stored.unlockMethod !== 'platform' && !(session.stored.v === 3 && session.stored.unlockMethod === 'password'))) throw new Error(uiLiteral('双人恢复状态不存在'));
+    // Recovery clears preferences. Preserve any checkpoint as its original
+    // inline ciphertext in the same transaction, then compact on next opening.
+    if (nextVault.archiveState) nextVault = { ...nextVault, archiveState: await materializeRoomArchiveState(session,nextVault.archiveState) };
     const preferences = pending.preserveHistory ? await loadUiPreferences(session) : {};
     const nextSession = { ...session, vault: nextVault };
     const preferenceRecord = await encryptLocalRecord(nextSession, 'preferences', uiPreferenceId(nextSession), preferences);
@@ -1686,6 +1692,88 @@ async function unlockVaultLocked(secret: string, preparedPlatformProof?: Uint8Ar
   }
 }
 
+function archiveCheckpointId(session: VaultSession, id: string): string {
+  return `archive-checkpoint:${vaultSpaceId(session.stored)}:${id}`;
+}
+
+function archiveCheckpoints(state?: RoomArchiveState): ArchiveCheckpoint[] {
+  return [state?.preparing?.next, state?.pending?.object].filter((value): value is ArchiveCheckpoint => !!value);
+}
+
+export async function loadArchiveCheckpoint(session: VaultSession, value: ArchiveCheckpoint): Promise<ArchiveObject> {
+  if (!isArchiveCheckpointRef(value)) return value;
+  if (!/^[0-9a-f-]{36}$/i.test(value.id) || !/^[A-Za-z0-9_-]{43}$/.test(value.hash)) {
+    throw new Error(uiLiteral('备份来源已改变，请保留本机数据'));
+  }
+  const id = `${localDataScope(session.vault)}:${archiveCheckpointId(session, value.id)}`;
+  const record = await transaction<StoredLocalRecord | undefined>('preferences', 'readonly', store => store.get(id));
+  if (!record || record.id !== id) throw new Error(uiLiteral('备份来源已改变，请保留本机数据'));
+  const object = await decryptLocalRecord<ArchiveObject>(session, 'preferences', record);
+  if (object.v !== 2 || object.id !== value.id || archiveObjectHash(object) !== value.hash) {
+    throw new Error(uiLiteral('备份来源已改变，请保留本机数据'));
+  }
+  return object;
+}
+
+/** Portable exports and repaired local slots must not inherit another slot's
+ * local-only references. They retain the same encrypted upload object/ID. */
+async function materializeRoomArchiveState(session: VaultSession, source = session.vault.archiveState): Promise<RoomArchiveState | undefined> {
+  const state = structuredClone(source);
+  if (state?.preparing?.next) state.preparing.next = await loadArchiveCheckpoint(session, state.preparing.next);
+  if (state?.pending) state.pending.object = await loadArchiveCheckpoint(session, state.pending.object);
+  return state;
+}
+
+/** Publish the compact vault and its encrypted checkpoint in one transaction.
+ * Crash/abort cannot leave a reference without its object, retire a live object,
+ * or advance the in-memory backup cursor. Existing inline objects are accepted. */
+export async function saveRoomArchiveState(session: VaultSession, state: RoomArchiveState, mutation?: VaultMutation): Promise<void> {
+  if (!ownsVaultMutation(session, mutation)) return withVaultMutation(session, lease => saveRoomArchiveState(session, state, lease));
+  if (session.stored.v === 1 || session.stored.unlockMethod === 'recovery') throw staleVaultError();
+  const next = structuredClone(state);
+  const records: StoredLocalRecord[] = [];
+  const compact = async (value: ArchiveCheckpoint): Promise<ArchiveCheckpoint> => {
+    if (isArchiveCheckpointRef(value)) return value;
+    const hash = archiveObjectHash(value);
+    const id = archiveCheckpointId(session, value.id);
+    const existing = await transaction<StoredLocalRecord | undefined>('preferences', 'readonly', store =>
+      store.get(`${localDataScope(session.vault)}:${id}`));
+    if (existing) {
+      const original = await decryptLocalRecord<ArchiveObject>(session, 'preferences', existing);
+      if (archiveObjectHash(original) !== hash) throw new Error(uiLiteral('备份来源已改变，请保留本机数据'));
+    } else records.push(await encryptLocalRecord(session, 'preferences', id, value));
+    return { v: 1, id: value.id, hash };
+  };
+  if (next.preparing?.next) next.preparing.next = await compact(next.preparing.next);
+  if (next.pending) next.pending.object = await compact(next.pending.object);
+  const retained = new Set(archiveCheckpoints(next).map(value => value.id));
+  const retired = archiveCheckpoints(session.vault.archiveState)
+    .filter(value => isArchiveCheckpointRef(value) && !retained.has(value.id));
+  const nextVault = { ...session.vault, archiveState: next };
+  const nextStored = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction(['vault', 'preferences'], 'readwrite');
+    putCurrentVault(tx, nextStored, session.stored);
+    for (const record of records) tx.objectStore('preferences').put(record);
+    for (const value of retired) tx.objectStore('preferences').delete(`${localDataScope(session.vault)}:${archiveCheckpointId(session, value.id)}`);
+    tx.oncomplete = () => { database.close(); session.vault = nextVault; session.stored = nextStored; resolve(); };
+    tx.onabort = () => { database.close(); reject(tx.error ?? staleVaultError()); };
+    tx.onerror = () => reject(tx.error ?? staleVaultError());
+  });
+}
+
+/** Compact once before opening the chat, including interrupted older uploads. */
+export async function compactRoomArchiveState(session: VaultSession, signal?: AbortSignal): Promise<void> {
+  if (!archiveCheckpoints(session.vault.archiveState).some(value => !isArchiveCheckpointRef(value))) return;
+  await withVaultMutation(session, async mutation => {
+    signal?.throwIfAborted();
+    if (session.vault.archiveState && archiveCheckpoints(session.vault.archiveState).some(value => !isArchiveCheckpointRef(value))) {
+      await saveRoomArchiveState(session, session.vault.archiveState, mutation);
+    }
+  });
+}
+
 export async function saveVault(session: VaultSession, mutation?: VaultMutation): Promise<void> {
   if (!ownsVaultMutation(session, mutation)) return withVaultMutation(session, (lease) => saveVault(session, lease));
   if (session.stored.unlockMethod === 'recovery') throw new Error(uiLiteral('恢复保险库尚未绑定到本设备'));
@@ -1837,6 +1925,7 @@ async function prepareRecoveryPackageLocked(session: VaultSession, mutation: Vau
   );
   masterBytes.fill(0);
   const exportVault = structuredClone(session.vault);
+  if(exportVault.archiveState)exportVault.archiveState=await materializeRoomArchiveState(session);
   delete exportVault.backup;
   delete exportVault.spaceRecoveryCode;
   delete exportVault.historyRestoreTask;
@@ -3034,6 +3123,7 @@ export async function finishVaultRecovery(session: VaultSession, nextVault: Vaul
   if (!ownsVaultMutation(session, mutation) || (session.stored.unlockMethod !== 'platform' && !(session.stored.v === 3 && session.stored.unlockMethod === 'password')) || !session.vault.pendingRecovery) {
     throw new Error(uiLiteral('恢复完成操作没有有效的保险库事务'));
   }
+  if (nextVault.archiveState) nextVault = { ...nextVault, archiveState: await materializeRoomArchiveState(session,nextVault.archiveState) };
   const nextStored: StoredPlatformVault | StoredPasswordVault = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {

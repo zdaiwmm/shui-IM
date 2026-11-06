@@ -8,6 +8,15 @@ import path from 'node:path';
 import {chromium} from 'playwright';
 import {createServer} from 'vite';
 import {startServer} from '../server/index.mjs';
+// Poll the resolved boolean. waitForFunction treats an async predicate's
+// Promise as truthy in the locked browser runtime and can return false once.
+async function waitForBackup(page,predicate,timeout) {
+ const deadline=Date.now()+timeout;
+ while(!await page.evaluate(predicate)) {
+  assert.ok(Date.now()<deadline,'Durable automatic backup did not complete');
+  await page.waitForTimeout(100);
+ }
+}
 const dataDir=await mkdtemp(path.join(tmpdir(),'quiet-new-room-ui-'));let service,vite,browser,debugPage;
 try{
  service=await startServer({port:0,host:'127.0.0.1',dataDir,quiet:true});
@@ -38,10 +47,10 @@ try{
  await capacityChooser.setFiles({name:'capacity-regression.bin',mimeType:'application/octet-stream',buffer:Buffer.alloc(2*1024*1024+125,90)});
  for(const page of [alice,bob]){
   await page.locator('.file-attachment').filter({hasText:'capacity-regression.bin'}).waitFor();
-  await page.waitForFunction(async()=>{
+  await waitForBackup(page,async()=>{
    const v=await import('/src/lib/vault.ts'),k=await import('/src/lib/browser-room-key.ts');
    try{const stored=await v.readStoredVault();if(!stored)return false;const s=await v.unlockVault(await k.browserRoomKey(),undefined,stored),file=(await v.loadHistory(s)).find(m=>m.payload.kind==='file'&&m.payload.file.originalName==='capacity-regression.bin');return file&&s.vault.archiveState?.cursor>=file.seq&&!!s.vault.archiveState?.completeAt;}catch{return false;}
-  },{},{timeout:40000});
+  },40000);
  }
  await bob.reload();await bob.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);await bob.locator('.file-attachment').filter({hasText:'capacity-regression.bin'}).waitFor();
  const stranger=await newPage();await stranger.goto(invite);await stranger.locator('#create-room').waitFor();await stranger.locator('.app-toast').filter({hasText:'失效'}).waitFor();assert.equal(await stranger.locator('#message-input').count(),0);
@@ -96,7 +105,7 @@ try{
  const phrase='a private recovery phrase';
  await fillFormInput(bob,bob.locator('[data-card-form] input[name=password]'),phrase);await fillFormInput(bob,bob.locator('[data-card-form] input[name=confirm]'),phrase);await bob.locator('[data-card-form] button[type=submit]').click();
  await bob.locator('[data-card-image][src]').waitFor();
- await bob.waitForFunction(async()=>{const v=await import('/src/lib/vault.ts'),k=await import('/src/lib/browser-room-key.ts');try{const s=await v.unlockVault(await k.browserRoomKey(),undefined,await v.readStoredVault());return !!s.vault.archiveState?.completeAt;}catch{return false;}},{},{timeout:30000});
+ await waitForBackup(bob,async()=>{const v=await import('/src/lib/vault.ts'),k=await import('/src/lib/browser-room-key.ts');try{const s=await v.unlockVault(await k.browserRoomKey(),undefined,await v.readStoredVault());return !!s.vault.archiveState?.completeAt;}catch{return false;}},30000);
 
  if(process.env.QR_VISUAL_DIR)await bob.screenshot({path:path.join(process.env.QR_VISUAL_DIR,'archive-card.png')});
  const cardPath=path.join(dataDir,'saved-card.png');

@@ -1,5 +1,11 @@
 # Security model
 
+## Local archive checkpoint isolation (2026-11-06)
+
+Pending archive ciphertext is stored as a separate AES-GCM local record under the existing vault master key and local-record AAD, with immutable vault-slot/data-scope identity. The encrypted vault holds only its object ID and hash. Publishing or retiring the checkpoint and vault state is one compare-and-swap IndexedDB transaction; failed writes do not advance memory or durable progress. Missing, substituted or corrupt objects fail closed, preserving the original upload identity. Database version 18 fences older clients; legacy inline checkpoints remain readable and compact once. Portable recovery and repaired slots materialize the same sealed object before crossing local reference lifetimes.
+
+Catch-up retains only the existing bounded ciphertext queue. Decryption remains ordered by authenticated epoch boundaries; MLS state, message history and receipts still commit atomically before progress or acknowledgement. Automatic backup yields between records during catch-up; manual backup and cryptographic/retention semantics are unchanged. See [V2 evidence](docs/requirements/2026-11-06-chat-sync-performance/README.md).
+
 ## Unlocked chat unread positions (2026-11-03)
 
 An active device credential can request up to 64 unread sequence numbers after a supplied sequence for its own device. The query applies the same join boundary, counted-message and same-role read intervals as the cover count. The locked count-only credential cannot request positions. The client checks decrypted rows against its local chat projection before navigating. Its offline visible cursor uses encrypted room preferences. Position lookup itself does not advance read state.
