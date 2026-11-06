@@ -1,0 +1,1889 @@
+{
+  "baseline": "2e37ddde838541cccc44fd4002a182a7ddc7edc5",
+  "generatedAt": "2026-11-06T14:16:04.003Z",
+  "baselineResults": {
+    "browser": "[browser] TOTAL 1936.48s; 93 passed, 0 failed, 0 not run.",
+    "unitFiles": "Test Files  163 passed (163)",
+    "unitTests": "Tests  1304 passed (1304)"
+  },
+  "history": [
+    {
+      "profile": "chromium/desktop/100",
+      "runs": 5,
+      "initialRenderMs": {
+        "n": 5,
+        "min": 15,
+        "median": 16,
+        "p95": 16.59999990463257,
+        "max": 16.59999990463257
+      },
+      "unchangedRenderMs": {
+        "n": 100,
+        "min": 0.5,
+        "median": 1.1999998092651367,
+        "p95": 2.4000000953674316,
+        "max": 2.5999999046325684
+      },
+      "syntheticInputToTwoRafMs": {
+        "n": 100,
+        "min": 21.59999990463257,
+        "median": 31.800000190734863,
+        "p95": 33.90000009536743,
+        "max": 34.59999990463257
+      },
+      "nodes": {
+        "n": 5,
+        "min": 1583,
+        "median": 1583,
+        "p95": 1583,
+        "max": 1583
+      },
+      "heap": {
+        "n": 5,
+        "min": 30420170,
+        "median": 30427658,
+        "p95": 30458386,
+        "max": 30458386
+      },
+      "allClearedOnLock": true,
+      "device": {
+        "width": 1280,
+        "height": 900,
+        "dpr": 1,
+        "touch": 0,
+        "coarse": false,
+        "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+      }
+    },
+    {
+      "profile": "chromium/desktop/1000",
+      "runs": 5,
+      "initialRenderMs": {
+        "n": 5,
+        "min": 103,
+        "median": 106.69999980926514,
+        "p95": 117.7999997138977,
+        "max": 117.7999997138977
+      },
+      "unchangedRenderMs": {
+        "n": 100,
+        "min": 1.9000000953674316,
+        "median": 4.199999809265137,
+        "p95": 6.900000095367432,
+        "max": 7.599999904632568
+      },
+      "syntheticInputToTwoRafMs": {
+        "n": 100,
+        "min": 20.600000381469727,
+        "median": 29.199999809265137,
+        "p95": 32.700000286102295,
+        "max": 38.19999980926514
+      },
+      "nodes": {
+        "n": 5,
+        "min": 14183,
+        "median": 14183,
+        "p95": 14183,
+        "max": 14183
+      },
+      "heap": {
+        "n": 5,
+        "min": 32000459,
+        "median": 32018907,
+        "p95": 32069695,
+        "max": 32069695
+      },
+      "allClearedOnLock": true,
+      "device": {
+        "width": 1280,
+        "height": 900,
+        "dpr": 1,
+        "touch": 0,
+        "coarse": false,
+        "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+      }
+    },
+    {
+      "profile": "chromium/desktop/10000",
+      "runs": 5,
+      "initialRenderMs": {
+        "n": 5,
+        "min": 1958.9000000953674,
+        "median": 1996.5999999046326,
+        "p95": 2034.5999999046326,
+        "max": 2034.5999999046326
+      },
+      "unchangedRenderMs": {
+        "n": 100,
+        "min": 19.5,
+        "median": 22.700000286102295,
+        "p95": 74.19999980926514,
+        "max": 85.19999980926514
+      },
+      "syntheticInputToTwoRafMs": {
+        "n": 100,
+        "min": 6.100000381469727,
+        "median": 11.300000190734863,
+        "p95": 21.800000190734863,
+        "max": 198.39999961853027
+      },
+      "nodes": {
+        "n": 5,
+        "min": 140183,
+        "median": 140183,
+        "p95": 140183,
+        "max": 140183
+      },
+      "heap": {
+        "n": 5,
+        "min": 58110994,
+        "median": 58383974,
+        "p95": 62051430,
+        "max": 62051430
+      },
+      "allClearedOnLock": true,
+      "device": {
+        "width": 1280,
+        "height": 900,
+        "dpr": 1,
+        "touch": 0,
+        "coarse": false,
+        "ua": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+      }
+    },
+    {
+      "profile": "chromium/mobile/100",
+      "runs": 5,
+      "initialRenderMs": {
+        "n": 5,
+        "min": 13.699999809265137,
+        "median": 14.5,
+        "p95": 15.599999904632568,
+        "max": 15.599999904632568
+      },
+      "unchangedRenderMs": {
+        "n": 100,
+        "min": 0.40000009536743164,
+        "median": 0.9000000953674316,
+        "p95": 2.1999998092651367,
+        "max": 2.4000000953674316
+      },
+      "syntheticInputToTwoRafMs": {
+        "n": 100,
+        "min": 20.699999809265137,
+        "median": 32.299999713897705,
+        "p95": 34.09999990463257,
+        "max": 34.5
+      },
+      "nodes": {
+        "n": 5,
+        "min": 1580,
+        "median": 1580,
+        "p95": 1580,
+        "max": 1580
+      },
+      "heap": {
+        "n": 5,
+        "min": 30232669,
+        "median": 30236281,
+        "p95": 30239413,
+        "max": 30239413
+      },
+      "allClearedOnLock": true,
+      "device": {
+        "width": 390,
+        "height": 664,
+        "dpr": 3,
+        "touch": 1,
+        "coarse": true,
+        "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1"
+      }
+    },
+    {
+      "profile": "chromium/mobile/1000",
+      "runs": 5,
+      "initialRenderMs": {
+        "n": 5,
+        "min": 94.2999997138977,
+        "median": 102.19999980926514,
+        "p95": 104.2999997138977,
+        "max": 104.2999997138977
+      },
+      "unchangedRenderMs": {
+        "n": 100,
+        "min": 1.799999713897705,
+        "median": 3.3000001907348633,
+        "p95": 5.699999809265137,
+        "max": 6.200000286102295
+      },
+      "syntheticInputToTwoRafMs": {
+        "n": 100,
+        "min": 19.199999809265137,
+        "median": 29.899999618530273,
+        "p95": 32.19999980926514,
+        "max": 32.799999713897705
+      },
+      "nodes": {
+        "n": 5,
+        "min": 14180,
+        "median": 14180,
+        "p95": 14180,
+        "max": 14180
+      },
+      "heap": {
+        "n": 5,
+        "min": 31368703,
+        "median": 31433383,
+        "p95": 32221387,
+        "max": 32221387
+      },
+      "allClearedOnLock": true,
+      "device": {
+        "width": 390,
+        "height": 664,
+        "dpr": 3,
+        "touch": 1,
+        "coarse": true,
+        "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1"
+      }
+    },
+    {
+      "profile": "chromium/mobile/10000",
+      "runs": 5,
+      "initialRenderMs": {
+        "n": 5,
+        "min": 1839.0999999046326,
+        "median": 2123.699999809265,
+        "p95": 2263,
+        "max": 2263
+      },
+      "unchangedRenderMs": {
+        "n": 100,
+        "min": 16.09999990463257,
+        "median": 23,
+        "p95": 28.300000190734863,
+        "max": 37.39999961853027
+      },
+      "syntheticInputToTwoRafMs": {
+        "n": 100,
+        "min": 5.699999809265137,
+        "median": 12.099999904632568,
+        "p95": 26.59999990463257,
+        "max": 132.30000019073486
+      },
+      "nodes": {
+        "n": 5,
+        "min": 140180,
+        "median": 140180,
+        "p95": 140180,
+        "max": 140180
+      },
+      "heap": {
+        "n": 5,
+        "min": 53874916,
+        "median": 63940109,
+        "p95": 69627567,
+        "max": 69627567
+      },
+      "allClearedOnLock": true,
+      "device": {
+        "width": 390,
+        "height": 664,
+        "dpr": 3,
+        "touch": 1,
+        "coarse": true,
+        "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1"
+      }
+    },
+    {
+      "profile": "webkit/mobile/100",
+      "runs": 5,
+      "initialRenderMs": {
+        "n": 5,
+        "min": 16,
+        "median": 16,
+        "p95": 19,
+        "max": 19
+      },
+      "unchangedRenderMs": {
+        "n": 100,
+        "min": 0,
+        "median": 2,
+        "p95": 3,
+        "max": 4
+      },
+      "syntheticInputToTwoRafMs": {
+        "n": 100,
+        "min": 25,
+        "median": 32,
+        "p95": 34,
+        "max": 41
+      },
+      "nodes": {
+        "n": 5,
+        "min": 1580,
+        "median": 1580,
+        "p95": 1580,
+        "max": 1580
+      },
+      "heap": {
+        "n": 0,
+        "min": null,
+        "median": null,
+        "p95": null,
+        "max": null
+      },
+      "allClearedOnLock": true,
+      "device": {
+        "width": 390,
+        "height": 664,
+        "dpr": 3,
+        "touch": 0,
+        "dispatchedTouchEvents": 1,
+        "coarse": true,
+        "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1"
+      }
+    },
+    {
+      "profile": "webkit/mobile/1000",
+      "runs": 5,
+      "initialRenderMs": {
+        "n": 5,
+        "min": 112,
+        "median": 117,
+        "p95": 119,
+        "max": 119
+      },
+      "unchangedRenderMs": {
+        "n": 100,
+        "min": 3,
+        "median": 4,
+        "p95": 7,
+        "max": 8
+      },
+      "syntheticInputToTwoRafMs": {
+        "n": 100,
+        "min": 15,
+        "median": 29,
+        "p95": 32,
+        "max": 58
+      },
+      "nodes": {
+        "n": 5,
+        "min": 14180,
+        "median": 14180,
+        "p95": 14180,
+        "max": 14180
+      },
+      "heap": {
+        "n": 0,
+        "min": null,
+        "median": null,
+        "p95": null,
+        "max": null
+      },
+      "allClearedOnLock": true,
+      "device": {
+        "width": 390,
+        "height": 664,
+        "dpr": 3,
+        "touch": 0,
+        "dispatchedTouchEvents": 1,
+        "coarse": true,
+        "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1"
+      }
+    },
+    {
+      "profile": "webkit/mobile/10000",
+      "runs": 5,
+      "initialRenderMs": {
+        "n": 5,
+        "min": 1501,
+        "median": 1885,
+        "p95": 2155,
+        "max": 2155
+      },
+      "unchangedRenderMs": {
+        "n": 100,
+        "min": 38,
+        "median": 42,
+        "p95": 60,
+        "max": 75
+      },
+      "syntheticInputToTwoRafMs": {
+        "n": 100,
+        "min": 15,
+        "median": 25,
+        "p95": 42,
+        "max": 69
+      },
+      "nodes": {
+        "n": 5,
+        "min": 140180,
+        "median": 140180,
+        "p95": 140180,
+        "max": 140180
+      },
+      "heap": {
+        "n": 0,
+        "min": null,
+        "median": null,
+        "p95": null,
+        "max": null
+      },
+      "allClearedOnLock": true,
+      "device": {
+        "width": 390,
+        "height": 664,
+        "dpr": 3,
+        "touch": 0,
+        "dispatchedTouchEvents": 1,
+        "coarse": true,
+        "ua": "Mozilla/5.0 (iPhone; CPU iPhone OS 15_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Mobile/15E148 Safari/604.1"
+      }
+    }
+  ],
+  "sync": [
+    {
+      "profile": "chromium/desktop/270/light",
+      "runs": 5,
+      "elapsedMs": {
+        "n": 5,
+        "min": 497.09999990463257,
+        "median": 520.5999999046326,
+        "p95": 570.0999999046326,
+        "max": 570.0999999046326
+      },
+      "firstRowMs": {
+        "n": 5,
+        "min": 28,
+        "median": 29.59999990463257,
+        "p95": 31.90000009536743,
+        "max": 31.90000009536743
+      },
+      "encryptBytes": {
+        "n": 5,
+        "min": 5040878,
+        "median": 5180860,
+        "p95": 5286531,
+        "max": 5286531
+      },
+      "renderMs": {
+        "n": 5,
+        "min": 57.19999980926514,
+        "median": 65.19999980926514,
+        "p95": 72.49999904632568,
+        "max": 72.49999904632568
+      },
+      "frameP95": {
+        "n": 5,
+        "min": 28.199999809265137,
+        "median": 35.09999990463257,
+        "p95": 36,
+        "max": 36
+      },
+      "frameMax": {
+        "n": 5,
+        "min": 29.40000009536743,
+        "median": 39.299999713897705,
+        "p95": 44,
+        "max": 44
+      },
+      "httpRecords": {
+        "n": 5,
+        "min": 270,
+        "median": 270,
+        "p95": 270,
+        "max": 270
+      },
+      "httpPages": {
+        "n": 5,
+        "min": 1,
+        "median": 1,
+        "p95": 1,
+        "max": 1
+      },
+      "idbPuts": {
+        "n": 5,
+        "min": 553,
+        "median": 554,
+        "p95": 564,
+        "max": 564
+      },
+      "vaultBytes": {
+        "n": 5,
+        "min": 27996,
+        "median": 28120,
+        "p95": 42147,
+        "max": 42147
+      }
+    },
+    {
+      "profile": "chromium/desktop/270/heavy",
+      "runs": 5,
+      "elapsedMs": {
+        "n": 5,
+        "min": 656.5999999046326,
+        "median": 820,
+        "p95": 862.7999997138977,
+        "max": 862.7999997138977
+      },
+      "firstRowMs": {
+        "n": 5,
+        "min": 165.2999997138977,
+        "median": 170.10000038146973,
+        "p95": 184.2000002861023,
+        "max": 184.2000002861023
+      },
+      "encryptBytes": {
+        "n": 5,
+        "min": 8856994,
+        "median": 8998943,
+        "p95": 11628361,
+        "max": 11628361
+      },
+      "renderMs": {
+        "n": 5,
+        "min": 62.299999713897705,
+        "median": 73.40000057220459,
+        "p95": 76.40000009536743,
+        "max": 76.40000009536743
+      },
+      "frameP95": {
+        "n": 5,
+        "min": 40,
+        "median": 43.60000038146973,
+        "p95": 64.19999980926514,
+        "max": 64.19999980926514
+      },
+      "frameMax": {
+        "n": 5,
+        "min": 65,
+        "median": 68.5,
+        "p95": 73.09999990463257,
+        "max": 73.09999990463257
+      },
+      "httpRecords": {
+        "n": 5,
+        "min": 270,
+        "median": 270,
+        "p95": 270,
+        "max": 270
+      },
+      "httpPages": {
+        "n": 5,
+        "min": 1,
+        "median": 1,
+        "p95": 1,
+        "max": 1
+      },
+      "idbPuts": {
+        "n": 5,
+        "min": 555,
+        "median": 557,
+        "p95": 558,
+        "max": 558
+      },
+      "vaultBytes": {
+        "n": 5,
+        "min": 28202,
+        "median": 28314,
+        "p95": 42884,
+        "max": 42884
+      }
+    },
+    {
+      "profile": "chromium/desktop/1000/heavy",
+      "runs": 5,
+      "elapsedMs": {
+        "n": 5,
+        "min": 2218.800000190735,
+        "median": 2388.1000003814697,
+        "p95": 3735.5,
+        "max": 3735.5
+      },
+      "firstRowMs": {
+        "n": 5,
+        "min": 138.10000038146973,
+        "median": 159.7000002861023,
+        "p95": 224.5,
+        "max": 224.5
+      },
+      "encryptBytes": {
+        "n": 5,
+        "min": 35519693,
+        "median": 35687927,
+        "p95": 35811751,
+        "max": 35811751
+      },
+      "renderMs": {
+        "n": 5,
+        "min": 250.09999990463257,
+        "median": 253.09999990463257,
+        "p95": 346.2999997138977,
+        "max": 346.2999997138977
+      },
+      "frameP95": {
+        "n": 5,
+        "min": 36,
+        "median": 36.69999980926514,
+        "p95": 42.299999713897705,
+        "max": 42.299999713897705
+      },
+      "frameMax": {
+        "n": 5,
+        "min": 55.200000286102295,
+        "median": 64.60000038146973,
+        "p95": 91.2999997138977,
+        "max": 91.2999997138977
+      },
+      "httpRecords": {
+        "n": 5,
+        "min": 1000,
+        "median": 1000,
+        "p95": 1000,
+        "max": 1000
+      },
+      "httpPages": {
+        "n": 5,
+        "min": 2,
+        "median": 2,
+        "p95": 2,
+        "max": 2
+      },
+      "idbPuts": {
+        "n": 5,
+        "min": 2022,
+        "median": 2022,
+        "p95": 2025,
+        "max": 2025
+      },
+      "vaultBytes": {
+        "n": 5,
+        "min": 31187,
+        "median": 31428,
+        "p95": 31524,
+        "max": 31524
+      }
+    },
+    {
+      "profile": "chromium/mobile/270/light",
+      "runs": 5,
+      "elapsedMs": {
+        "n": 5,
+        "min": 842.6999998092651,
+        "median": 923.4000000953674,
+        "p95": 1100.5999999046326,
+        "max": 1100.5999999046326
+      },
+      "firstRowMs": {
+        "n": 5,
+        "min": 36.80000019073486,
+        "median": 40.5,
+        "p95": 48.200000286102295,
+        "max": 48.200000286102295
+      },
+      "encryptBytes": {
+        "n": 5,
+        "min": 7717596,
+        "median": 7758161,
+        "p95": 7779737,
+        "max": 7779737
+      },
+      "renderMs": {
+        "n": 5,
+        "min": 76.19999980926514,
+        "median": 78.20000076293945,
+        "p95": 94.00000047683716,
+        "max": 94.00000047683716
+      },
+      "frameP95": {
+        "n": 5,
+        "min": 21.699999809265137,
+        "median": 36.59999990463257,
+        "p95": 43,
+        "max": 43
+      },
+      "frameMax": {
+        "n": 5,
+        "min": 44.90000009536743,
+        "median": 50.700000286102295,
+        "p95": 56.59999990463257,
+        "max": 56.59999990463257
+      },
+      "httpRecords": {
+        "n": 5,
+        "min": 270,
+        "median": 270,
+        "p95": 270,
+        "max": 270
+      },
+      "httpPages": {
+        "n": 5,
+        "min": 1,
+        "median": 1,
+        "p95": 1,
+        "max": 1
+      },
+      "idbPuts": {
+        "n": 5,
+        "min": 554,
+        "median": 557,
+        "p95": 559,
+        "max": 559
+      },
+      "vaultBytes": {
+        "n": 5,
+        "min": 27908,
+        "median": 28090,
+        "p95": 28128,
+        "max": 28128
+      }
+    },
+    {
+      "profile": "chromium/mobile/270/heavy",
+      "runs": 5,
+      "elapsedMs": {
+        "n": 5,
+        "min": 958.8000001907349,
+        "median": 977.6999998092651,
+        "p95": 1276.0999999046326,
+        "max": 1276.0999999046326
+      },
+      "firstRowMs": {
+        "n": 5,
+        "min": 194.7000002861023,
+        "median": 223.2999997138977,
+        "p95": 250.19999980926514,
+        "max": 250.19999980926514
+      },
+      "encryptBytes": {
+        "n": 5,
+        "min": 11611144,
+        "median": 11650227,
+        "p95": 11657476,
+        "max": 11657476
+      },
+      "renderMs": {
+        "n": 5,
+        "min": 70.09999990463257,
+        "median": 72.50000047683716,
+        "p95": 90.89999914169312,
+        "max": 90.89999914169312
+      },
+      "frameP95": {
+        "n": 5,
+        "min": 39,
+        "median": 45.90000009536743,
+        "p95": 49.30000019073486,
+        "max": 49.30000019073486
+      },
+      "frameMax": {
+        "n": 5,
+        "min": 78.30000019073486,
+        "median": 87.39999961853027,
+        "p95": 103.7999997138977,
+        "max": 103.7999997138977
+      },
+      "httpRecords": {
+        "n": 5,
+        "min": 270,
+        "median": 270,
+        "p95": 270,
+        "max": 270
+      },
+      "httpPages": {
+        "n": 5,
+        "min": 1,
+        "median": 1,
+        "p95": 1,
+        "max": 1
+      },
+      "idbPuts": {
+        "n": 5,
+        "min": 556,
+        "median": 557,
+        "p95": 560,
+        "max": 560
+      },
+      "vaultBytes": {
+        "n": 5,
+        "min": 28254,
+        "median": 28332,
+        "p95": 28440,
+        "max": 28440
+      }
+    },
+    {
+      "profile": "chromium/mobile/1000/heavy",
+      "runs": 5,
+      "elapsedMs": {
+        "n": 5,
+        "min": 2095.300000190735,
+        "median": 2159.699999809265,
+        "p95": 3302,
+        "max": 3302
+      },
+      "firstRowMs": {
+        "n": 5,
+        "min": 146.5,
+        "median": 155.80000019073486,
+        "p95": 171,
+        "max": 171
+      },
+      "encryptBytes": {
+        "n": 5,
+        "min": 35528853,
+        "median": 35661576,
+        "p95": 35797536,
+        "max": 35797536
+      },
+      "renderMs": {
+        "n": 5,
+        "min": 180.49999809265137,
+        "median": 183.59999895095825,
+        "p95": 259.3999996185303,
+        "max": 259.3999996185303
+      },
+      "frameP95": {
+        "n": 5,
+        "min": 28.600000381469727,
+        "median": 32.5,
+        "p95": 34.59999990463257,
+        "max": 34.59999990463257
+      },
+      "frameMax": {
+        "n": 5,
+        "min": 59,
+        "median": 62.799999713897705,
+        "p95": 69.2999997138977,
+        "max": 69.2999997138977
+      },
+      "httpRecords": {
+        "n": 5,
+        "min": 1000,
+        "median": 1000,
+        "p95": 1000,
+        "max": 1000
+      },
+      "httpPages": {
+        "n": 5,
+        "min": 2,
+        "median": 2,
+        "p95": 2,
+        "max": 2
+      },
+      "idbPuts": {
+        "n": 5,
+        "min": 2021,
+        "median": 2021,
+        "p95": 2023,
+        "max": 2023
+      },
+      "vaultBytes": {
+        "n": 5,
+        "min": 31246,
+        "median": 31384,
+        "p95": 31503,
+        "max": 31503
+      }
+    },
+    {
+      "profile": "webkit/mobile/270/light",
+      "runs": 5,
+      "elapsedMs": {
+        "n": 5,
+        "min": 1189,
+        "median": 1519,
+        "p95": 1610,
+        "max": 1610
+      },
+      "firstRowMs": {
+        "n": 5,
+        "min": 43,
+        "median": 45,
+        "p95": 56,
+        "max": 56
+      },
+      "encryptBytes": {
+        "n": 5,
+        "min": 5028663,
+        "median": 7730680,
+        "p95": 7767164,
+        "max": 7767164
+      },
+      "renderMs": {
+        "n": 5,
+        "min": 83,
+        "median": 106,
+        "p95": 118,
+        "max": 118
+      },
+      "frameP95": {
+        "n": 5,
+        "min": 21,
+        "median": 25,
+        "p95": 44,
+        "max": 44
+      },
+      "frameMax": {
+        "n": 5,
+        "min": 49,
+        "median": 60,
+        "p95": 67,
+        "max": 67
+      },
+      "httpRecords": {
+        "n": 5,
+        "min": 270,
+        "median": 270,
+        "p95": 270,
+        "max": 270
+      },
+      "httpPages": {
+        "n": 5,
+        "min": 1,
+        "median": 1,
+        "p95": 1,
+        "max": 1
+      },
+      "idbPuts": {
+        "n": 5,
+        "min": 555,
+        "median": 556,
+        "p95": 557,
+        "max": 557
+      },
+      "vaultBytes": {
+        "n": 5,
+        "min": 27951,
+        "median": 27995,
+        "p95": 28118,
+        "max": 28118
+      }
+    },
+    {
+      "profile": "webkit/mobile/270/heavy",
+      "runs": 5,
+      "elapsedMs": {
+        "n": 5,
+        "min": 1011,
+        "median": 1445,
+        "p95": 1751,
+        "max": 1751
+      },
+      "firstRowMs": {
+        "n": 5,
+        "min": 109,
+        "median": 125,
+        "p95": 163,
+        "max": 163
+      },
+      "encryptBytes": {
+        "n": 5,
+        "min": 8857982,
+        "median": 11609887,
+        "p95": 11633073,
+        "max": 11633073
+      },
+      "renderMs": {
+        "n": 5,
+        "min": 78,
+        "median": 101,
+        "p95": 107,
+        "max": 107
+      },
+      "frameP95": {
+        "n": 5,
+        "min": 37,
+        "median": 40,
+        "p95": 48,
+        "max": 48
+      },
+      "frameMax": {
+        "n": 5,
+        "min": 46,
+        "median": 52,
+        "p95": 66,
+        "max": 66
+      },
+      "httpRecords": {
+        "n": 5,
+        "min": 270,
+        "median": 270,
+        "p95": 270,
+        "max": 270
+      },
+      "httpPages": {
+        "n": 5,
+        "min": 1,
+        "median": 1,
+        "p95": 1,
+        "max": 1
+      },
+      "idbPuts": {
+        "n": 5,
+        "min": 557,
+        "median": 558,
+        "p95": 558,
+        "max": 558
+      },
+      "vaultBytes": {
+        "n": 5,
+        "min": 28266,
+        "median": 28330,
+        "p95": 28462,
+        "max": 28462
+      }
+    },
+    {
+      "profile": "webkit/mobile/1000/heavy",
+      "runs": 5,
+      "elapsedMs": {
+        "n": 5,
+        "min": 4556,
+        "median": 5394,
+        "p95": 5673,
+        "max": 5673
+      },
+      "firstRowMs": {
+        "n": 5,
+        "min": 116,
+        "median": 138,
+        "p95": 168,
+        "max": 168
+      },
+      "encryptBytes": {
+        "n": 5,
+        "min": 35578377,
+        "median": 35624282,
+        "p95": 35746422,
+        "max": 35746422
+      },
+      "renderMs": {
+        "n": 5,
+        "min": 316,
+        "median": 362,
+        "p95": 382,
+        "max": 382
+      },
+      "frameP95": {
+        "n": 5,
+        "min": 21,
+        "median": 22,
+        "p95": 27,
+        "max": 27
+      },
+      "frameMax": {
+        "n": 5,
+        "min": 58,
+        "median": 63,
+        "p95": 72,
+        "max": 72
+      },
+      "httpRecords": {
+        "n": 5,
+        "min": 1000,
+        "median": 1000,
+        "p95": 1000,
+        "max": 1000
+      },
+      "httpPages": {
+        "n": 5,
+        "min": 2,
+        "median": 2,
+        "p95": 2,
+        "max": 2
+      },
+      "idbPuts": {
+        "n": 5,
+        "min": 2023,
+        "median": 2023,
+        "p95": 2023,
+        "max": 2023
+      },
+      "vaultBytes": {
+        "n": 5,
+        "min": 31266,
+        "median": 31315,
+        "p95": 31468,
+        "max": 31468
+      }
+    }
+  ],
+  "storage": [
+    {
+      "count": 100,
+      "rowsAt128KiB": 100,
+      "queryPlan": [
+        "SEARCH messages USING INDEX sqlite_autoindex_messages_1 (room_id=? AND server_seq>?)"
+      ],
+      "firstPageMs": {
+        "n": 50,
+        "min": 0.17429099999998243,
+        "median": 0.18329199999999446,
+        "p95": 0.19950000000000045,
+        "max": 0.19974999999999454
+      },
+      "tailPageMs": {
+        "n": 50,
+        "min": 0.17475000000001728,
+        "median": 0.19579099999998562,
+        "p95": 0.22858300000001464,
+        "max": 0.6829170000000317
+      },
+      "unreadCountMs": {
+        "n": 50,
+        "min": 0.04604100000000244,
+        "median": 0.047458000000005995,
+        "p95": 0.05758400000001984,
+        "max": 0.063083000000006
+      },
+      "sixSequentialPagesMs": {
+        "n": 50,
+        "min": 1.0294589999999744,
+        "median": 1.0772499999999923,
+        "p95": 1.2253749999999854,
+        "max": 1.6281250000000114
+      }
+    },
+    {
+      "count": 1000,
+      "rowsAt128KiB": 101,
+      "queryPlan": [
+        "SEARCH messages USING INDEX sqlite_autoindex_messages_1 (room_id=? AND server_seq>?)"
+      ],
+      "firstPageMs": {
+        "n": 50,
+        "min": 0.8171250000000327,
+        "median": 0.8347079999999778,
+        "p95": 0.9527080000000296,
+        "max": 1.0805409999999824
+      },
+      "tailPageMs": {
+        "n": 50,
+        "min": 0.17233299999998053,
+        "median": 0.17516599999999016,
+        "p95": 0.19570900000002212,
+        "max": 0.20366699999999582
+      },
+      "unreadCountMs": {
+        "n": 50,
+        "min": 0.2787500000000023,
+        "median": 0.28537500000004457,
+        "p95": 0.30387499999994816,
+        "max": 0.3305830000000469
+      },
+      "sixSequentialPagesMs": {
+        "n": 50,
+        "min": 5.1746669999999995,
+        "median": 5.633375000000001,
+        "p95": 5.865957999999978,
+        "max": 6.021665999999982
+      }
+    },
+    {
+      "count": 10000,
+      "rowsAt128KiB": 101,
+      "queryPlan": [
+        "SEARCH messages USING INDEX sqlite_autoindex_messages_1 (room_id=? AND server_seq>?)"
+      ],
+      "firstPageMs": {
+        "n": 50,
+        "min": 1.0162499999999,
+        "median": 1.0416249999999536,
+        "p95": 1.3152499999999918,
+        "max": 1.4825839999999744
+      },
+      "tailPageMs": {
+        "n": 50,
+        "min": 0.2129579999999578,
+        "median": 0.2168330000000651,
+        "p95": 0.22820799999999508,
+        "max": 0.2309579999999869
+      },
+      "unreadCountMs": {
+        "n": 50,
+        "min": 5.461207999999942,
+        "median": 5.644249999999943,
+        "p95": 6.106667000000016,
+        "max": 6.224124999999958
+      },
+      "sixSequentialPagesMs": {
+        "n": 50,
+        "min": 5.667292000000089,
+        "median": 6.220083000000159,
+        "p95": 6.496583999999984,
+        "max": 6.623666999999841
+      }
+    },
+    {
+      "count": 100000,
+      "rowsAt128KiB": 101,
+      "queryPlan": [
+        "SEARCH messages USING INDEX sqlite_autoindex_messages_1 (room_id=? AND server_seq>?)"
+      ],
+      "firstPageMs": {
+        "n": 50,
+        "min": 0.8759580000000824,
+        "median": 0.8911250000001019,
+        "p95": 0.9552090000001954,
+        "max": 1.4243329999999332
+      },
+      "tailPageMs": {
+        "n": 50,
+        "min": 0.1816249999997126,
+        "median": 0.18595800000002782,
+        "p95": 0.20145800000000236,
+        "max": 0.24749999999994543
+      },
+      "unreadCountMs": {
+        "n": 50,
+        "min": 41.81758300000001,
+        "median": 46.96629199999961,
+        "p95": 58.510166999999456,
+        "max": 58.81237500000043
+      },
+      "sixSequentialPagesMs": {
+        "n": 50,
+        "min": 4.615832999999839,
+        "median": 5.0471669999997175,
+        "p95": 5.541833000000224,
+        "max": 6.435958000000028
+      }
+    }
+  ],
+  "soak": {
+    "duration": 1800000,
+    "actualDurationMs": 1800012,
+    "cycles": 360,
+    "attachmentBytes": 2097277,
+    "sampleCount": 31,
+    "arrivalMs": {
+      "n": 360,
+      "min": 34,
+      "median": 115,
+      "p95": 203,
+      "max": 1375
+    },
+    "inputAutomationMs": {
+      "n": 360,
+      "min": 52,
+      "median": 58,
+      "p95": 70,
+      "max": 90
+    },
+    "reconnects": 19,
+    "uploads": 10,
+    "backup": {
+      "cursor": 1293,
+      "revision": 1293,
+      "error": "",
+      "archiveWrites": 1452
+    },
+    "first": {
+      "elapsedMs": 538,
+      "cycles": 1,
+      "arrivalMs": 99,
+      "inputAutomationMs": 61,
+      "archiveWrites": 4,
+      "jsHeapUsed": 19710232,
+      "nodes": 829,
+      "listeners": 353,
+      "localServerAndHarness": {
+        "memory": {
+          "rss": 350109696,
+          "heapTotal": 246759424,
+          "heapUsed": 128794360,
+          "external": 75351955,
+          "arrayBuffers": 47013461
+        },
+        "eventLoopP99Ms": 25.968639,
+        "eventLoopMaxMs": 25.968639
+      },
+      "seq": 4,
+      "rows": 2,
+      "messages": 4,
+      "queued": 0,
+      "backupCursor": 2,
+      "backupRevision": 2,
+      "activeImages": 0,
+      "imageWaiters": 0,
+      "cachedImages": 0,
+      "urls": 0,
+      "renderCalls": 11,
+      "renderMs": 14,
+      "encryptBytes": 236572,
+      "idbPuts": 36,
+      "longTasks": {
+        "supported": true,
+        "count": 0,
+        "totalMs": 0,
+        "maxMs": 0,
+        "over200": 0
+      },
+      "profile": {
+        "width": 390,
+        "height": 664,
+        "dpr": 3,
+        "touch": 1,
+        "coarse": true
+      }
+    },
+    "last": {
+      "elapsedMs": 1799801,
+      "cycles": 360,
+      "arrivalMs": 1375,
+      "inputAutomationMs": 58,
+      "archiveWrites": 1444,
+      "jsHeapUsed": 25733572,
+      "nodes": 14482,
+      "listeners": 10181,
+      "localServerAndHarness": {
+        "memory": {
+          "rss": 260620288,
+          "heapTotal": 193921024,
+          "heapUsed": 181060224,
+          "external": 106886922,
+          "arrayBuffers": 82588114
+        },
+        "eventLoopP99Ms": 25.755647,
+        "eventLoopMaxMs": 88.211455
+      },
+      "seq": 1408,
+      "rows": 750,
+      "messages": 1408,
+      "queued": 0,
+      "backupCursor": 1285,
+      "backupRevision": 1285,
+      "activeImages": 0,
+      "imageWaiters": 0,
+      "cachedImages": 0,
+      "urls": 0,
+      "renderCalls": 3109,
+      "renderMs": 7984.0000014305115,
+      "encryptBytes": 190245339,
+      "idbPuts": 15682,
+      "longTasks": {
+        "supported": true,
+        "count": 37,
+        "totalMs": 3334,
+        "maxMs": 168,
+        "over200": 0
+      },
+      "profile": {
+        "width": 390,
+        "height": 664,
+        "dpr": 3,
+        "touch": 1,
+        "coarse": true
+      }
+    },
+    "finalDurable": {
+      "senderSeq": 1408,
+      "readerSeq": 1408,
+      "senderRows": 1408,
+      "readerRows": 1408
+    },
+    "resourceSamples": {
+      "gcHeapBytes": {
+        "n": 31,
+        "min": 19710232,
+        "median": 22807248,
+        "p95": 23920224,
+        "max": 25733572
+      },
+      "domNodes": {
+        "n": 31,
+        "min": 829,
+        "median": 7800,
+        "p95": 13873,
+        "max": 14482
+      },
+      "listeners": {
+        "n": 31,
+        "min": 353,
+        "median": 5388,
+        "p95": 9696,
+        "max": 10181
+      },
+      "receiveQueue": {
+        "n": 31,
+        "min": 0,
+        "median": 0,
+        "p95": 0,
+        "max": 1
+      },
+      "backupCursorLag": {
+        "n": 31,
+        "min": 2,
+        "median": 60,
+        "p95": 106,
+        "max": 123
+      },
+      "localServerAndHarnessHeapBytes": {
+        "n": 31,
+        "min": 94425568,
+        "median": 136962304,
+        "p95": 177517784,
+        "max": 181060224
+      },
+      "localServerAndHarnessLoopP99Ms": {
+        "n": 31,
+        "min": 22.364159,
+        "median": 22.888447,
+        "p95": 25.968639,
+        "max": 26.198015
+      }
+    },
+    "afterLock": {
+      "jsHeapUsed": 22256464,
+      "nodes": 280,
+      "listeners": 161,
+      "messages": 0,
+      "images": 0,
+      "urls": 0,
+      "session": false,
+      "input": false
+    },
+    "pageErrors": [],
+    "failure": null
+  },
+  "postcommit": [
+    {
+      "engine": "chromium",
+      "duplicateControls": true,
+      "boundaryCheck": {
+        "valid": false,
+        "rotation": "rejected",
+        "error": "Error: 消息窗口边界无效"
+      },
+      "failure": null
+    },
+    {
+      "engine": "webkit",
+      "duplicateControls": true,
+      "boundaryCheck": {
+        "valid": false,
+        "rotation": "rejected",
+        "error": "Error: 消息窗口边界无效"
+      },
+      "failure": null
+    }
+  ],
+  "dependencies": {
+    "production": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "all": {
+      "info": 0,
+      "low": 0,
+      "moderate": 1,
+      "high": 2,
+      "critical": 2,
+      "total": 5
+    }
+  },
+  "supplementalResults": {
+    "privatePagination": [
+      {
+        "size": 1000,
+        "buildMs": 86.30000019073486,
+        "modes": [
+          {
+            "mode": "before",
+            "durationMs": {
+              "n": 20,
+              "min": 18.799999713897705,
+              "median": 20,
+              "p95": 22.899999618530273,
+              "max": 23.899999618530273
+            },
+            "returnedRows": {
+              "n": 20,
+              "min": 100,
+              "median": 100,
+              "p95": 100,
+              "max": 100
+            },
+            "retainedBodies": {
+              "n": 20,
+              "min": 1000,
+              "median": 1000,
+              "p95": 1000,
+              "max": 1000
+            }
+          },
+          {
+            "mode": "after",
+            "durationMs": {
+              "n": 20,
+              "min": 17.299999713897705,
+              "median": 20.59999990463257,
+              "p95": 32.5,
+              "max": 87.7999997138977
+            },
+            "returnedRows": {
+              "n": 20,
+              "min": 100,
+              "median": 100,
+              "p95": 100,
+              "max": 100
+            },
+            "retainedBodies": {
+              "n": 20,
+              "min": 100,
+              "median": 100,
+              "p95": 100,
+              "max": 100
+            }
+          }
+        ]
+      },
+      {
+        "size": 10000,
+        "buildMs": 1026,
+        "modes": [
+          {
+            "mode": "before",
+            "durationMs": {
+              "n": 20,
+              "min": 177.7999997138977,
+              "median": 198.5,
+              "p95": 207.90000009536743,
+              "max": 214.69999980926514
+            },
+            "returnedRows": {
+              "n": 20,
+              "min": 100,
+              "median": 100,
+              "p95": 100,
+              "max": 100
+            },
+            "retainedBodies": {
+              "n": 20,
+              "min": 10000,
+              "median": 10000,
+              "p95": 10000,
+              "max": 10000
+            }
+          },
+          {
+            "mode": "after",
+            "durationMs": {
+              "n": 20,
+              "min": 14,
+              "median": 18.90000009536743,
+              "p95": 36.30000019073486,
+              "max": 37.09999990463257
+            },
+            "returnedRows": {
+              "n": 20,
+              "min": 100,
+              "median": 100,
+              "p95": 100,
+              "max": 100
+            },
+            "retainedBodies": {
+              "n": 20,
+              "min": 100,
+              "median": 100,
+              "p95": 100,
+              "max": 100
+            }
+          }
+        ]
+      }
+    ],
+    "timelineModel": {
+      "kind": "synthetic-timeline-projection",
+      "node": "v24.14.1",
+      "gcAvailable": true,
+      "cases": [
+        {
+          "size": 1000,
+          "visible": 900,
+          "privateRows": 667,
+          "beforeMedianMs": 3.973,
+          "afterMedianMs": 0.076,
+          "speedup": 52.08
+        },
+        {
+          "size": 10000,
+          "visible": 9000,
+          "privateRows": 6667,
+          "beforeMedianMs": 195.27,
+          "afterMedianMs": 0.729,
+          "speedup": 267.97
+        }
+      ]
+    },
+    "calls": {
+      "nativePassed": true,
+      "authenticatedRelayMedia": false,
+      "viewPassed": true,
+      "weakNetwork": "WEAK_NETWORK_BROWSER_PASS scenarios=20; synthetic signaling/statistics and CDP WebRTC shaping, native Chrome media; not physical iPhone or real TURN impairment"
+    },
+    "restoreDrill": {
+      "files": "Test Files  4 passed (4)",
+      "tests": "Tests  31 passed (31)"
+    }
+  },
+  "supplementalSteps": [
+    {
+      "name": "history-render",
+      "startedAt": "2026-11-06T13:29:11.761Z",
+      "status": "failed",
+      "code": 1,
+      "endedAt": "2026-11-06T13:30:24.656Z"
+    },
+    {
+      "name": "sync-matrix",
+      "startedAt": "2026-11-06T13:30:24.657Z",
+      "status": "passed",
+      "code": 0,
+      "endedAt": "2026-11-06T13:42:50.572Z"
+    },
+    {
+      "name": "storage-profile",
+      "startedAt": "2026-11-06T13:42:50.573Z",
+      "status": "passed",
+      "code": 0,
+      "endedAt": "2026-11-06T13:42:55.887Z"
+    },
+    {
+      "name": "mixed-soak",
+      "startedAt": "2026-11-06T13:42:55.888Z",
+      "status": "passed",
+      "code": 0,
+      "endedAt": "2026-11-06T14:13:06.527Z"
+    },
+    {
+      "name": "calls",
+      "startedAt": "2026-11-06T14:13:06.528Z",
+      "status": "passed",
+      "code": 0,
+      "endedAt": "2026-11-06T14:14:43.980Z"
+    },
+    {
+      "name": "private-archive-perf",
+      "startedAt": "2026-11-06T14:14:43.981Z",
+      "status": "passed",
+      "code": 0,
+      "endedAt": "2026-11-06T14:14:54.305Z"
+    },
+    {
+      "name": "timeline-model",
+      "startedAt": "2026-11-06T14:14:54.305Z",
+      "status": "passed",
+      "code": 0,
+      "endedAt": "2026-11-06T14:14:56.238Z"
+    },
+    {
+      "name": "restore-drill",
+      "startedAt": "2026-11-06T14:14:56.238Z",
+      "status": "passed",
+      "code": 0,
+      "endedAt": "2026-11-06T14:15:04.044Z"
+    }
+  ],
+  "historyRetry": {
+    "engine": "webkit",
+    "startedAt": "2026-11-06T14:15:07.386Z",
+    "status": "passed",
+    "reason": "Require actual touch dispatch; desktop-hosted WebKit reports maxTouchPoints=0. Preserve Chromium samples.",
+    "code": 0,
+    "endedAt": "2026-11-06T14:15:50.560Z"
+  },
+  "evidenceHashes": {
+    "calls.log": {
+      "bytes": 6278,
+      "sha256": "bc019c3817a7f2356b0df0f431df384a3a4ba57e431236e379715425215f13e0"
+    },
+    "check-full.log": {
+      "bytes": 207015,
+      "sha256": "9c0a386918c1e5fe8cc90f6c9f277e3875869b443d7c310f0c3fe6ed5f92c4e9"
+    },
+    "dependency-audit-all.json": {
+      "bytes": 7910,
+      "sha256": "e530f91d52c48ee9688913231c46dbc8e3d4812d2d86ad3530831da567d8f399"
+    },
+    "dependency-audit.json": {
+      "bytes": 364,
+      "sha256": "f4bfd0492955b2802abb96987ba6fa664d881e5abb0168c4def419dbeb965708"
+    },
+    "history-chromium-false-100.png": {
+      "bytes": 572670,
+      "sha256": "3ee89138dec3aaf5130009e88a29d4ba4bbe3451c3b4e13bb0613d50896a9163"
+    },
+    "history-chromium-false-1000.png": {
+      "bytes": 573669,
+      "sha256": "181b1358b9f3bf89e37dbf8dd60e164a9832fa5d3e1e8eab6c6c654e1e0db730"
+    },
+    "history-chromium-false-10000.png": {
+      "bytes": 572406,
+      "sha256": "3d76afced03bdb5fd9eefb64a6f615a48251a3b0046540efcfca9ab0b9444c93"
+    },
+    "history-chromium-true-100.png": {
+      "bytes": 519545,
+      "sha256": "b247957d78e28700d98f6ef72ffc9440ea5ce540524538c2ced12b098ab13bbf"
+    },
+    "history-chromium-true-1000.png": {
+      "bytes": 520767,
+      "sha256": "ec3ccb3f8222c020940f3be835b1315c2b4fdab10fd89ebbeb01516019b9f813"
+    },
+    "history-chromium-true-10000.png": {
+      "bytes": 528340,
+      "sha256": "5241127f25b8b23f44c64ba44b1332a22d62d3bc9001adbb4159876f05189968"
+    },
+    "history-render-retry-status.json": {
+      "bytes": 264,
+      "sha256": "b49b6c23d58fbc822536f76d76ac441665ba5284af4d7bd2ff843a9985e98dc1"
+    },
+    "history-render.first.log": {
+      "bytes": 5281,
+      "sha256": "25029774604837caa0cd495cbd96bc3fcf6a66fedf795f76e57ddedf7ca4569b"
+    },
+    "history-render.json": {
+      "bytes": 65976,
+      "sha256": "23daf376449d44324373eca15a0736b52012dd6b2ec397930e684a2e373c2cfc"
+    },
+    "history-render.log": {
+      "bytes": 5281,
+      "sha256": "25029774604837caa0cd495cbd96bc3fcf6a66fedf795f76e57ddedf7ca4569b"
+    },
+    "history-render.webkit-retry.log": {
+      "bytes": 2109,
+      "sha256": "319924912f1f6ec36f396b913485b7d773b4242499584fdfe28a7d030e732953"
+    },
+    "history-webkit-true-100.png": {
+      "bytes": 1072731,
+      "sha256": "d30289e29d774bb5994c06da5dc2abc4552e48ba41436fa70877b43bb44f5e21"
+    },
+    "history-webkit-true-1000.png": {
+      "bytes": 786545,
+      "sha256": "7ca01428e102a77f3a9b89919703b06df995093e0093f1657272859034b82ff9"
+    },
+    "history-webkit-true-10000.png": {
+      "bytes": 716040,
+      "sha256": "46c44d7f66f0f58262c7c85ac6ae4b447d5db813f343e37708b3dc3d0db46bde"
+    },
+    "mixed-end.png": {
+      "bytes": 809972,
+      "sha256": "214672a14d47164f5a248528ed34b0e5a2a25b4ff9627eab71766a85ad00ea5b"
+    },
+    "mixed-soak-calibration-protected.log": {
+      "bytes": 585,
+      "sha256": "3366052ac7908b8f4ddfded10666ad0275a62ff636985dcced15d7dee77a309d"
+    },
+    "mixed-soak-calibration-retry.log": {
+      "bytes": 1008,
+      "sha256": "90d184fa5253535b9d5ed7d7acfede066c855d7c44a53549a0972d21b966ac12"
+    },
+    "mixed-soak-calibration.log": {
+      "bytes": 691,
+      "sha256": "62e165d004a58580ff287bc707887c464a797c6070b0f3f93de7e0551257e656"
+    },
+    "mixed-soak.calibration-first.json": {
+      "bytes": 435,
+      "sha256": "9f7a6ebb79f085185636ae7a0453a9bec49c9be2964969c9e2478dc7aa80f27b"
+    },
+    "mixed-soak.calibration-passed.json": {
+      "bytes": 1815,
+      "sha256": "1e28b2129ef02cd0e07b11f1970ec9fd59b7a1624cfb1c57dab51857c6ff19e1"
+    },
+    "mixed-soak.calibration-unprotected.json": {
+      "bytes": 1914,
+      "sha256": "6e047ed34aaa82e2bfeca1f2017318e25eea10b315d94358b0adddb52455be9f"
+    },
+    "mixed-soak.json": {
+      "bytes": 96882,
+      "sha256": "baa884418d84cf7873c3c82783a073d1f7dd179888afe38cc25f95c7c5b2eca4"
+    },
+    "mixed-soak.log": {
+      "bytes": 22923,
+      "sha256": "66c88fdb214d49e73bc72435c3e6e8644819851ed64e2a73a9e7052e70eac453"
+    },
+    "mixed-start.png": {
+      "bytes": 927432,
+      "sha256": "5185aa22f9231180d986781617d4999d6f4b3e363cce155fc524ce30fbcc9a09"
+    },
+    "postcommit-probe-impact-retry.log": {
+      "bytes": 2063,
+      "sha256": "e772ed0bf29a97730b7ccfd50663a47615da3558843ec4fb22fd3174f4d3145f"
+    },
+    "postcommit-probe-impact.log": {
+      "bytes": 1526,
+      "sha256": "e2bb74f520e6ece4803faa1639ae8e122a4bea50be271a46ac53a4fc1d96b99a"
+    },
+    "postcommit-probe.first.log": {
+      "bytes": 795,
+      "sha256": "39a6435aacecb75fcaf6b35fe69146414f5f4829b6e9785fdaef8e2054e8d3a3"
+    },
+    "postcommit-probe.impact-first.json": {
+      "bytes": 2088,
+      "sha256": "5763bdb0edbddb99f61e0b7fb6401d19587e7209601d3d2764a4cf077296e275"
+    },
+    "postcommit-probe.initial-reproduction.json": {
+      "bytes": 3438,
+      "sha256": "300552d1b5f27e44d9925f9fc3c52403fdfbe53b2c86e92b7d5917ef78606ee4"
+    },
+    "postcommit-probe.json": {
+      "bytes": 3852,
+      "sha256": "98c0550381cab265bccd245faae3851c08a5b68b9e34e69033beafef8a60c37d"
+    },
+    "postcommit-probe.log": {
+      "bytes": 1779,
+      "sha256": "35a9b20ae3ded99d19cbaadcd56a3a626b619548e7d14f552c01db8d7d773828"
+    },
+    "private-archive-perf.log": {
+      "bytes": 9923,
+      "sha256": "5fa66b7c305d6cdcb937f89d35fdb68d97613db51e7b9e0c2711d3ad2f8b360e"
+    },
+    "remaining-status.json": {
+      "bytes": 1312,
+      "sha256": "8d350ba2f76678338330fc1fbec14e6ea457c82879d2968e9a3f65645eba08ea"
+    },
+    "restore-drill.log": {
+      "bytes": 1861,
+      "sha256": "78907f4a15379d5cf72c98f044e5c4bd927e60021f91b65f7ad06cd55ca6b767"
+    },
+    "six-devices.first.log": {
+      "bytes": 1883,
+      "sha256": "e6ac10635f5ebe888d68f6daf919493cdf0bbc739ce25143e20a3ae6427cd996"
+    },
+    "six-devices.json": {
+      "bytes": 265,
+      "sha256": "a844838e0dd8d5a86965052de1b5f468287c9fe2fc41b3d47cf2faac36780b81"
+    },
+    "six-devices.log": {
+      "bytes": 592,
+      "sha256": "12d38467f5d4ef91c80d4043af90cc69fd24e854179b3516dce9e3001b76dace"
+    },
+    "storage-profile.json": {
+      "bytes": 23866,
+      "sha256": "b1f4bc99a7b9571be91030c2bf14a6e205e4d997b4830624ab70d254c4108928"
+    },
+    "storage-profile.log": {
+      "bytes": 775,
+      "sha256": "6015f6e0648daf97e6a05426991b00b3774037ada372f7e4bcc1428a980df383"
+    },
+    "sync-matrix.json": {
+      "bytes": 43059,
+      "sha256": "bfb025fbdaee59dac5a4c0cb68242f694303f606ce32e2d25cdafd44dff135e0"
+    },
+    "sync-matrix.log": {
+      "bytes": 31023,
+      "sha256": "5e6ebd17aee3c280883cd6631c9080542bb7a0a307aeff1e1aa8a3b073c1c497"
+    },
+    "timeline-model.log": {
+      "bytes": 392,
+      "sha256": "b01cd4e190c27779327f8d298975931cec5bcaeb98f241f71cd62154f781778e"
+    }
+  }
+}
