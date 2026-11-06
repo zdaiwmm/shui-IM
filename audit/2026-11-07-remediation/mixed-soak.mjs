@@ -123,6 +123,8 @@ try {
         localServerAndHarness: { memory: process.memoryUsage(), eventLoopP99Ms: nodeLoop.percentile(99) / 1e6, eventLoopMaxMs: nodeLoop.max / 1e6 }, ...state };
       nodeLoop.reset();
       results.samples.push(sample); console.log('MIXED_SOAK', JSON.stringify(sample)); await save();
+      assert.ok(sample.rows <= 200, 'Mixed soak mounted too many rows');
+      assert.ok(sample.nodes <= 5000, `Detached DOM growth during mixed soak: ${sample.nodes} total nodes after GC`);
     }
     const wait = Math.min(5000 - (Date.now() - cycleStart), duration - (Date.now() - started));
     if (wait > 0) await reader.waitForTimeout(wait);
@@ -153,6 +155,7 @@ try {
   assert.equal(coverage.coverage, 'complete');
   results.backup.coverage = coverage.coverage; results.backup.counts = coverage.counts;
   console.log('BACKUP_CONVERGED', JSON.stringify(results.backup));
+  await save();
   const finalSender = await durable(sender), finalReader = await durable(reader);
   assert.deepEqual(finalReader.rows, finalSender.rows, 'Quiescent backup must retain identical durable events');
   results.finalDurable = { senderSeq: finalSender.seq, readerSeq: finalReader.seq, senderRows: finalSender.rows.length, readerRows: finalReader.rows.length };
@@ -168,6 +171,7 @@ try {
   // An unpaired invitation page owns no active chat runtime. Finish the normal
   // new-room pairing flow before exercising restoration into a fresh runtime.
   const [recovered, recoveryPeer] = await h.pair();
+  console.log('ARCHIVE_RESTORE_STARTED');
   results.restore = await recovered.evaluate(async ({ key, ids, attachmentBytes }) => {
     const vault = await import('/src/lib/vault.ts'), archive = await import('/src/lib/room-archive.ts'), fileCrypto = await import('/src/lib/file-crypto.ts');
     const app = auditApp, signal = app.runtimeAbort.signal;
@@ -191,6 +195,7 @@ try {
   }, { ...source, attachmentBytes });
   assert.equal(results.restore.files, results.events.filter(event => event.uploadMs !== null).length);
   console.log('ARCHIVE_RESTORED', JSON.stringify(results.restore));
+  await save();
   await recovered.context().close(); await recoveryPeer.context().close(); await reader.bringToFront();
   await reader.screenshot({ path: path.join(outputDirectory, 'mixed-end.png') });
   results.beforeLock = results.samples.at(-1);

@@ -61,6 +61,29 @@ try {
         const beforeLock = { rows: list.querySelectorAll(':scope > .message').length, nodes: document.querySelectorAll('*').length, scrollOwner: app.usesListScrolling ? 'list' : 'document' };
         return beforeLock;
       });
+      if (engine === chromium) {
+        // Connected DOM counts miss detached rows retained by listener
+        // closures. Change windows repeatedly, then ask the real browser GC
+        // whether the original rows can be collected while still unlocked.
+        const cdp = await context.newCDPSession(page);
+        await cdp.send('Performance.enable');
+        await page.evaluate(() => {
+          window.windowRetiredRows = [...document.querySelectorAll('#message-list > .message')].map(row => new WeakRef(row));
+        });
+        for (let n = 0; n < 20; n++) await page.evaluate(async index => {
+          chatTest.chatWindowTarget = `window-${300 + index * 211}`;
+          chatTest.renderMessages();
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        }, n);
+        await page.waitForTimeout(500);
+        await cdp.send('HeapProfiler.collectGarbage');
+        const retired = await page.evaluate(() => windowRetiredRows.filter(row => row.deref()).length);
+        const metrics = Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map(item => [item.name, item.value]));
+        assert.equal(retired, 0, 'Detached rows must be collected before locking');
+        assert.ok(metrics.Nodes <= 5000, `Repeated windows retained ${metrics.Nodes} total DOM nodes`);
+        await page.evaluate(() => { delete window.windowRetiredRows; });
+        await cdp.detach();
+      }
       // A real, muted native audio player with a synthetic WAV exercises the
       // media pin independently of encrypted attachment transport fixtures.
       await page.evaluate(async () => {

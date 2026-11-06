@@ -12499,6 +12499,22 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
   }
 
+  private createChatWindowStep(clientMsgId: string, seq: number): HTMLButtonElement {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'text-button chat-window-step';
+    // Keep the listener outside renderMessages' lexical scope. A callback
+    // created there can retain oldSteps and the complete previous timeline,
+    // chaining every recycled window even after its rows leave the DOM.
+    button.addEventListener('click', () => {
+      void this.jumpToReplyTarget(clientMsgId, seq).then(() => {
+        if (this.privacyCovered || this.activeSurface !== 'chat') return;
+        this.renderedMessages.get(clientMsgId)?.element.focus({ preventScroll: true });
+      });
+    });
+    return button;
+  }
+
   private renderMessages({ scroll = 'preserve' }: { scroll?: 'preserve' | 'position' | 'bottom' | 'send' | 'restore' } = {}): void {
     const list = this.root.querySelector<HTMLElement>('#message-list');
     // Navigation retains an inert chat for its exit animation. Late socket
@@ -12722,14 +12738,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       const windowStep = (index: number, label: string) => {
         const message = messages[index]; if (!message) return;
         const key = message.clientMsgId;
-        const button = oldSteps.get(key) ?? document.createElement('button'); button.type = 'button';
-        button.className = 'text-button chat-window-step'; button.textContent = label;
-        if (!oldSteps.has(key)) button.addEventListener('click', () => {
-          void this.jumpToReplyTarget(message.clientMsgId, message.seq).then(() => {
-            if (this.privacyCovered || this.activeSurface !== 'chat') return;
-            this.renderedMessages.get(message.clientMsgId)?.element.focus({ preventScroll: true });
-          });
-        });
+        const button = oldSteps.get(key) ?? this.createChatWindowStep(key, message.seq);
+        button.textContent = label;
         this.chatWindowSteps.set(key, button);
         timeline.push(button);
       };
