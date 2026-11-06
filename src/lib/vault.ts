@@ -5,7 +5,7 @@ import { uiLiteral, uiTemplate } from './language';
 import { recoverDatabaseRead } from './database-recovery';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { compareOutboxItems } from './outbox-order';
-import { isWindowMessage, expiredMessage } from './message-window';
+import { isWindowMessage, expiredMessage, retentionBoundary, validRetentionBoundary, MLS_WINDOW_MESSAGES } from './message-window';
 import { mergeHistoryProjection } from './history-projection';
 import { mediaCacheBudget, mediaCacheEvictions, MEDIA_CACHE_FILE_BYTES, type MediaCacheEntry } from './media-cache-policy';
 import { argon2id } from 'hash-wasm';
@@ -2314,6 +2314,39 @@ export async function loadHistoryPageAfter(
   return decryptHistoryRecords(session, await loadHistoryRecordsAfter(session, { limit, afterSeq, signal }), signal, { strict });
 }
 
+/** Repair only duplicate controls proven by this identity's complete authenticated
+ * current window. Missing/foreign/contradictory history must remain fail-closed. */
+export async function repairDuplicateWindowControls(session: VaultSession, signal?: AbortSignal, mutation?: VaultMutation): Promise<boolean> {
+  if (!session.vault.mls?.window || validRetentionBoundary(retentionBoundary(session.vault))) return false;
+  if (!ownsVaultMutation(session, mutation)) return withVaultMutation(session, lease => repairDuplicateWindowControls(session, signal, lease));
+  signal?.throwIfAborted();
+  const boundary = retentionBoundary(session.vault);
+  const controls = [...new Set(boundary.controls)];
+  const repaired = { ...boundary, controls };
+  const invalid = () => new Error(uiLiteral('消息窗口边界无效'));
+  if (session.vault.protocol !== 'mls-rfc9420' || session.stored.v === 1 || session.stored.unlockMethod === 'recovery'
+    || controls.length === boundary.controls.length || !validRetentionBoundary(repaired)
+    || boundary.controls.some((seq, index) => index > 0 && seq < boundary.controls[index - 1]!)) throw invalid();
+  const scope = localDataScope(session.vault);
+  const records = (await loadHistoryRecordsAfter(session, { afterSeq: boundary.fromSeq - 1, limit: MLS_WINDOW_MESSAGES, signal }))
+    .filter(record => record.seq <= boundary.afterSeq);
+  if (records.length !== boundary.afterSeq - boundary.fromSeq + 1
+    || records.some((record, index) => record.seq !== boundary.fromSeq + index || record.roomId !== scope || record.id !== `${scope}:${record.seq}`)) throw invalid();
+  const history = await decryptHistoryRecords(session, records, signal, { strict: true });
+  if (history.some((message, index) => message.seq !== records[index]!.seq || !isMessagePayload(message.payload)
+    || typeof message.clientMsgId !== 'string' || !session.vault.members.some(member => member.deviceId === message.senderId))) throw invalid();
+  const verified = history.filter(message => !isWindowMessage(message.payload)).map(message => message.seq);
+  if (canonicalStringify(verified) !== canonicalStringify(controls)) throw invalid();
+  const nextVault = structuredClone(session.vault);
+  nextVault.mls!.window!.controls = controls;
+  const nextStored = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
+  signal?.throwIfAborted();
+  await installStoredVault(nextStored, session.stored, undefined, [], () => !signal?.aborted, signal);
+  session.vault = nextVault;
+  session.stored = nextStored;
+  return true;
+}
+
 /** New backups include retained Safe rows and deletion projections, even when
  * the ordinary chat cache has already discarded the corresponding row. */
 export async function loadChamberHistoryPageAfter(session:VaultSession,afterSeq:number,signal:AbortSignal):Promise<DecryptedMessage[]> {
@@ -3036,23 +3069,26 @@ async function commitMlsVaultAndRecords(
   if ((session.stored.v !== 2 && session.stored.v !== 3) || (session.stored.unlockMethod !== 'platform' && session.stored.unlockMethod !== 'password') || !session.vault.mls) {
     throw new Error(uiLiteral('MLS 状态只能写入通行密钥保险库'));
   }
+  const existingHistory = records.history ? await assertCompatibleHistoryRecord(session, records.history, 'history') : undefined;
   const nextVault = structuredClone(session.vault);
   if (!nextVault.mls) throw new Error(uiLiteral('MLS 本机状态不存在'));
-  nextVault.mls.groupState = nextGroupState;
+  // An exact replay must not rewind the durable ratchet or accepted cursor.
+  if (!existingHistory || !records.history || records.history.seq > session.vault.lastSeq) nextVault.mls.groupState = nextGroupState;
+  if (records.history) nextVault.lastSeq = Math.max(nextVault.lastSeq, records.history.seq);
   if (records.outbox?.intent) nextVault.outboxSequence = Math.max(nextVault.outboxSequence ?? 0, records.outbox.intent.sequence);
   if (records.outbox?.envelope?.v === 2 && records.outbox.envelope.retention) {
     nextVault.mls.sendSequence = Math.max(nextVault.mls.sendSequence ?? 0, records.outbox.envelope.retention.sendSequence);
     if (nextVault.mls.window) nextVault.mls.window.generated += 1;
   }
-  if (records.history && nextVault.mls.window && !isWindowMessage(records.history.payload)) {
-    nextVault.mls.window.controls.push(records.history.seq);
+  if (records.history && nextVault.mls.window && records.history.seq >= nextVault.mls.window.fromSeq && !isWindowMessage(records.history.payload)) {
+    if (!nextVault.mls.window.controls.includes(records.history.seq)) nextVault.mls.window.controls.push(records.history.seq);
+    else if (!existingHistory) throw new Error(uiLiteral('历史记录与本机数据冲突'));
   }
   const nextStored: StoredPlatformVault | StoredPasswordVault = {
     ...session.stored,
     payload: await encryptPayload(nextVault, session.key),
   };
   if (records.history) {
-    await assertCompatibleHistoryRecord(session, records.history, 'history');
     if (isGalleryMediaPayload(records.history.payload)) await assertCompatibleHistoryRecord(session, records.history, 'galleryHistory');
   }
   const outboxRecord = records.outbox
@@ -3065,19 +3101,25 @@ async function commitMlsVaultAndRecords(
   const draftRecord = records.draft ? await encryptLocalRecord(session, 'preferences', draftCommitId(session), records.draft) : null;
   const cancelledId = records.history?.senderId === session.vault.identity.publicBundle.deviceId
     ? cancelledSendId(session, records.history.clientMsgId) : null;
+  const retiredOutboxId = cancelledId && records.history ? `${localDataScope(session.vault)}:${records.history.clientMsgId}` : null;
+  const sharedVideo = retiredOutboxId && records.history?.payload.kind === 'file'
+    ? await prepareLinkVideoShared(session, records.history.clientMsgId) : undefined;
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const stores = [
       'vault',
-      ...(outboxRecord ? ['outbox'] : []),
+      ...(outboxRecord || retiredOutboxId ? ['outbox'] : []),
       ...(historyRecord ? ['history'] : []),
       ...(historyRecord && records.history && isGalleryMediaPayload(records.history.payload) ? ['galleryHistory'] : []),
       ...(receiptRecord ? ['receiptOutbox'] : []),
       ...(draftRecord || cancelledId ? ['preferences'] : []),
+      ...(sharedVideo ? ['linkVideos'] : []),
     ];
     const tx = database.transaction(stores, 'readwrite');
     putCurrentVault(tx, nextStored, session.stored);
     if (outboxRecord) tx.objectStore('outbox').put(outboxRecord);
+    if (retiredOutboxId) tx.objectStore('outbox').delete(retiredOutboxId);
+    if (sharedVideo) tx.objectStore('linkVideos').put(sharedVideo);
     if (historyRecord) tx.objectStore('history').put(historyRecord);
     if (historyRecord && records.history && isGalleryMediaPayload(records.history.payload)) tx.objectStore('galleryHistory').put(historyRecord);
     if (receiptRecord) tx.objectStore('receiptOutbox').put(receiptRecord);
@@ -3676,12 +3718,16 @@ export async function readLinkVideo(session: VaultSession, id: string, signal: A
   signal.throwIfAborted();
   return new File(parts,meta.name,{type:'video/mp4',lastModified:meta.created});
 }
-/** Called under the existing vault mutation after verified own-device history is durable. */
-export async function confirmLinkVideoShared(session: VaultSession, id: string): Promise<void> {
+/** Prepare under the vault lease; publish with the authenticated own-device history. */
+async function prepareLinkVideoShared(session: VaultSession, id: string): Promise<StoredLocalRecord | undefined> {
   const row = await transaction<StoredLocalRecord|undefined>('linkVideos','readonly',store=>store.get(localDataScope(session.vault)+':'+id));
   if (!row) return;
   const meta = await decryptLocalRecord<SavedLinkVideo>(session,'linkVideos',row);
   if (meta.shared) return;
-  const record = await encryptLocalRecord(session,'linkVideos',id,{...meta,shared:true});
-  await transaction('linkVideos','readwrite',store=>store.put(record),()=>session.stored);
+  return encryptLocalRecord(session,'linkVideos',id,{...meta,shared:true});
+}
+
+export async function confirmLinkVideoShared(session: VaultSession, id: string): Promise<void> {
+  const record = await prepareLinkVideoShared(session, id);
+  if (record) await transaction('linkVideos','readwrite',store=>store.put(record),()=>session.stored);
 }
