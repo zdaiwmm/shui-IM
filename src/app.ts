@@ -93,6 +93,8 @@ import { spaceAvatarMarkup, bindSpaceAvatarPlayback, defaultSpaceAvatar, type Sp
 import './space-profile.css';
 import { removeNewRoomFromDirectory, forgetLocalSpace, localSpaces, rememberLocalSpace, syncSpaceDirectory, recoverableSpaces, spaceCodeId, refreshSpaceUnread, spaceMessagePreview, pendingSpaceExpiry, formatPendingCountdown, type PrivateSpace } from './lib/spaces';
 import { orderedChatMessages, privateTimelineItems } from './lib/message-timeline';
+import { ChatProjections } from './lib/chat-projections';
+import { ChatRenderWindow } from './lib/chat-render-window';
 import { parseCloudRecoveryCode } from './lib/backup-crypto';
 import { capabilityGateMembers } from './lib/member-capabilities';
 import { currentSpaceId, selectLocalSpace, vaultSpaceId, unlockOwnedPendingSpace, unlockSpaceForRemoval, unlockLocalSpaceForManagement } from './lib/vault';
@@ -168,7 +170,7 @@ import { prepareImageMotion, type ImageMotion } from './lib/image-animation';
 import { createConcealedImage } from './lib/concealed-image';
 import { mountPhotoDetails } from './lib/photo-details';
 import { createElement, Check, Info, Pause, Play, Plus, Camera, Maximize, Volume2, VolumeX, Trash2, RotateCcw, RotateCw, Link, Star, KeyRound, LockKeyhole, FileText, Settings, TriangleAlert, Smartphone, Laptop, CircleAlert } from 'lucide';
-import { isReadableChatMessage, readMessageIds } from './lib/message-read';
+import { isReadableChatMessage } from './lib/message-read';
 import { isChatMedia } from './lib/media-read';
 import { bindChatImageConcealGesture } from './lib/chat-image-conceal-gesture';
 import { CHAT_LATEST_GAP, mountChatBottomControl } from './lib/chat-bottom-control';
@@ -206,7 +208,7 @@ import {
   pendingReleaseUpdate,
   subscribeReleaseUpdate,
 } from './lib/release-update';
-import { REACTION_EMOJIS, reduceMessageReactions } from './lib/reactions';
+import { REACTION_EMOJIS } from './lib/reactions';
 import { reduceMessageDeletions } from './lib/message-deletions';
 import {
   curateGalleryAssets,
@@ -540,6 +542,16 @@ export class QuietRoomApp {
   private recoveryAuthorizationDialog: { requestId: string; close: () => void } | null = null;
   private messages = new Map<number, DecryptedMessage>();
   private messageEventHistory = new Map<number, DecryptedMessage>();
+  private chatProjections = new ChatProjections();
+  private chatRenderWindow = new ChatRenderWindow();
+  private chatWindowSpacers = new Map<string, { element: HTMLElement; from: number; to: number }>();
+  private chatWindowSteps = new Map<string, HTMLButtonElement>();
+  private chatWindowTarget: string | null = null;
+  private chatWindowScrollIndex: number | null = null;
+  private chatWindowObserver: ResizeObserver | null = null;
+  private chatWindowObserved = new Set<HTMLElement>();
+  private chatWindowFrame: number | null = null;
+  private chatWindowLastScroll = 0;
   private readCompatibility = '';
   private mediaUploads = new Map<string, { view: MediaUploadView; files: File[]; expression: boolean; autoHide: boolean; expressionKind?: 'gifs' | 'stickers'; reply: DecryptedMessage | null; sentAt: string; busy: boolean; prepared?: { payload: MessagePayload; manifests: ImageManifest[] } }>();
   private selectedMessageId: string | null = null;
@@ -807,6 +819,8 @@ export class QuietRoomApp {
     mountPageBacks(root);
     root.addEventListener('pointerdown', () => { root.dataset.inputModality = 'pointer'; }, { capture: true });
     root.addEventListener('keydown', event => { if (event.key === 'Tab') root.dataset.inputModality = 'keyboard'; }, { capture: true });
+    document.addEventListener('selectionchange', () => this.scheduleChatWindowRefresh());
+    root.addEventListener('focusout', () => this.scheduleChatWindowRefresh());
     this.appAccess = new AppAccess();
     this.resetBlankLockGesture = bindBlankDoubleLock(root, {
       active: () => !this.privacyCovered && !document.hidden && Boolean(this.idleDeadline) && readBlankDoubleLock() && !this.expireIdleSession(),
@@ -7566,6 +7580,11 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     this.renderedMessageOrder = [];
     this.renderedMessageDates.clear();
     this.renderedMessageSeq.clear();
+    this.chatWindowObserver?.disconnect();
+    this.chatWindowObserver = null;
+    this.chatWindowObserved.clear();
+    this.chatWindowSpacers.clear();
+    this.chatWindowSteps.clear();
     document.body.className = 'app-mode';
     const chatMarkup = uiTemplate`
       <section class="chat-shell ${(isChamberVault(this.session.vault) || Boolean(this.session.vault.roomArchiveV2)) && !cryptoReady ? 'chamber-waiting' : ''}">
@@ -8574,9 +8593,16 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         this.chatResumeBottomOnFocus = false;
       },
       openUnread: () => {
-        const first = this.renderedMessageOrder.find(row => this.chatNewMessageIds.has(row.dataset.clientMsgId!));
-        if (!first) return false;
-        this.chatUnreadJumpId = first.dataset.clientMsgId!;
+        const first = this.orderedMessages().find(message => this.chatNewMessageIds.has(message.clientMsgId));
+        if (!first) {
+          if (!this.chatRenderWindow.active || this.historyHasNewer) return false;
+          this.clearMessageTextSelection(); window.getSelection()?.removeAllRanges();
+          this.renderMessages({ scroll: 'bottom' });
+          if (this.bottomControlRetainsKeyboard) { this.bottomControlRetainsKeyboard = false; this.restoreComposerFocus(); }
+          return true;
+        }
+        this.clearMessageTextSelection(); window.getSelection()?.removeAllRanges();
+        this.chatUnreadJumpId = first.clientMsgId;
         this.renderMessages();
         if (this.bottomControlRetainsKeyboard) { this.bottomControlRetainsKeyboard = false; this.restoreComposerFocus(); }
         return true;
@@ -9480,6 +9506,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       this.chatScrollFrame = null;
       const list = this.chatLayoutElements?.list;
       if (!list?.isConnected || this.privacyCovered || this.activeSurface !== 'chat') return;
+      this.refreshChatWindow();
       syncChatBubbleGradient(list);
       const documentMoved = Math.abs(this.chatScrollTop - this.chatLastScrollY) > 1;
       this.chatLastScrollY = this.chatScrollTop;
@@ -9574,6 +9601,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       pinnedToBottom,
     };
     this.uiPreferences.chatAnchor = anchor;
+    this.chatWindowLastScroll = this.chatScrollTop;
     if (persist) this.scheduleUiPreferencesSave();
     return anchor;
   }
@@ -9784,6 +9812,11 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   private scrollChatToBottom(): void {
     this.chatBottomControl?.cancel();
     this.chatScrollIntent = null;
+    if (this.chatRenderWindow.active && this.chatRenderWindow.end < this.chatRenderWindow.length
+      && !this.chatWindowSelectionActive(this.chatLayoutElements?.list)) {
+      this.renderMessages({ scroll: 'bottom' });
+      return;
+    }
     const invitation = Boolean(isChamberVault(this.session?.vault) && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero'));
     if (this.shortChatTimeline() || invitation) {
       this.chatPinnedToBottom = !invitation; this.chatBottomFollowPending = false;
@@ -12073,12 +12106,18 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
   }
 
+  private messageProjection() {
+    const confirmed = [...this.messageEventHistory.values(), ...this.messages.values()];
+    return this.chatProjections.update([...confirmed, ...this.pending.values()],
+      new Map(this.session?.vault.members.map(member => [member.deviceId, member.role]) ?? []), confirmed.length);
+  }
+
   private messageReactions() {
-    const members = new Map(this.session?.vault.members.map(member => [member.deviceId, member.role]) ?? []);
-    return reduceMessageReactions([...this.messageEventHistory.values(), ...this.messages.values(), ...this.pending.values()], members);
+    return this.messageProjection().reactions;
   }
 
   private messageDeletions(additionalMessages: readonly DecryptedMessage[] = []) {
+    if (!additionalMessages.length) return this.messageProjection().deleted;
     const members = new Map(this.session?.vault.members.map(member => [member.deviceId, member.role]) ?? []);
     return reduceMessageDeletions([
       ...this.messageEventHistory.values(),
@@ -12110,8 +12149,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
   }
 
-  private renderMessageReactions(): boolean {
-    const reactions = this.messageReactions();
+  private renderMessageReactions(reactions = this.messageReactions()): boolean {
     let layoutChanged = false;
     for (const article of this.renderedMessageOrder) {
       const badges = reactions.get(article.dataset.clientMsgId ?? '');
@@ -12266,6 +12304,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       && this.chatLayoutElements?.list === list && list.isConnected && this.replyJumpVersion === jumpVersion;
     if (this.messageIsUnavailable(clientMsgId)) { this.showNotice(uiLiteral('原消息已删除')); return; }
     let target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(clientMsgId)}"]`);
+    if (!target && this.chatRenderWindow.index(clientMsgId) !== undefined) {
+      this.clearMessageTextSelection(); window.getSelection()?.removeAllRanges();
+      this.chatWindowTarget = clientMsgId;
+      this.renderMessages({ scroll: 'position' });
+      target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(clientMsgId)}"]`);
+    }
     if (!target && seq !== undefined) {
       try {
         const signal = this.runtimeAbort?.signal;
@@ -12278,6 +12322,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           for (const message of nearby) this.messages.set(message.seq, message);
           if (readable) this.messages.set(saved!.seq, saved!);
           if (nearby.some(message => message.seq > 1)) this.historyHasMore = true;
+          this.chatWindowTarget = clientMsgId;
           this.renderMessages({ scroll: 'position' });
           target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(clientMsgId)}"]`);
         }
@@ -12357,6 +12402,11 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   }
 
   private reconcileChatRows(list: HTMLElement, rows: HTMLElement[]): void {
+    const focused = list.contains(document.activeElement) ? document.activeElement as HTMLElement : null;
+    const retained = new Set(rows);
+    // Remove stale separators first. Otherwise every retained row following
+    // one stale child would be moved in front of it unnecessarily.
+    for (const child of [...list.children]) if (!retained.has(child as HTMLElement)) child.remove();
     let next = list.firstElementChild;
     for (const row of rows) {
       if (row === next) next = next.nextElementSibling;
@@ -12366,6 +12416,86 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       const stale = next;
       next = next.nextElementSibling;
       stale.remove();
+    }
+    // insertBefore keeps node identity but can blur a moved descendant in
+    // WebKit. A bounded off-window focus pin still owns that exact control.
+    if (focused?.isConnected && list.contains(focused) && document.activeElement !== focused) focused.focus({ preventScroll: true });
+  }
+
+  private chatWindowSelectionActive(list?: HTMLElement): boolean {
+    if (!list) return false;
+    const selection = window.getSelection();
+    return Boolean(this.selectedMessageId || selection && !selection.isCollapsed
+      && (list.contains(selection.anchorNode) || list.contains(selection.focusNode)));
+  }
+
+  private scheduleChatWindowRefresh(): void {
+    if (this.chatWindowFrame !== null || !this.chatRenderWindow.active || this.privacyCovered) return;
+    this.chatWindowFrame = requestAnimationFrame(() => {
+      this.chatWindowFrame = null;
+      this.refreshChatWindow();
+    });
+  }
+
+  private refreshChatWindow(): void {
+    const list = this.chatLayoutElements?.list, window = this.chatRenderWindow;
+    if (!window.active || !list?.isConnected || this.activeSurface !== 'chat' || this.privacyCovered
+      || this.chatWindowSelectionActive(list)) return;
+    if (this.chatUnreadJumpId) { this.renderMessages(); return; }
+    const first = this.renderedMessageOrder.find(row => {
+      const index = window.index(row.dataset.clientMsgId!);
+      return index !== undefined && index >= window.start && index < window.end;
+    });
+    if (!first) return;
+    const index = window.index(first.dataset.clientMsgId!)!;
+    const center = window.at(this.chatViewportTop - first.getBoundingClientRect().top + window.offset(index));
+    if ((window.start === 0 || center >= window.start + 16)
+      && (window.end === window.length || center < window.end - 24)) return;
+    this.chatWindowScrollIndex = center;
+    try { this.renderMessages({ scroll: 'position' }); }
+    finally { this.chatWindowScrollIndex = null; }
+  }
+
+  private measureChatWindow(list: HTMLElement, rows = this.renderedMessageOrder): boolean {
+    const window = this.chatRenderWindow;
+    if (!window.active) return false;
+    const gap = parseFloat(getComputedStyle(list).rowGap) || 0;
+    // Batch all reads before spacer writes. Native media decode can change an
+    // earlier row while the user is reading further down in the same window.
+    const measurements = rows.map(row => {
+      const style = getComputedStyle(row);
+      return { id: row.dataset.clientMsgId!, height: row.getBoundingClientRect().height
+        + (parseFloat(style.marginTop) || 0) + (parseFloat(style.marginBottom) || 0) + gap };
+    });
+    let changed = false;
+    for (const row of measurements) changed = window.measure(row.id, row.height) || changed;
+    for (const spacer of this.chatWindowSpacers.values()) {
+      const height = `${Math.max(0, window.offset(spacer.to) - window.offset(spacer.from) - gap)}px`;
+      if (spacer.element.style.height !== height) spacer.element.style.height = height;
+    }
+    return changed;
+  }
+
+  private observeChatWindow(list: HTMLElement): void {
+    if (!this.chatRenderWindow.active) {
+      this.chatWindowObserver?.disconnect(); this.chatWindowObserved.clear(); return;
+    }
+    this.chatWindowObserver ??= new ResizeObserver(entries => {
+      if (!list.isConnected || this.chatLayoutElements?.list !== list || this.privacyCovered || this.activeSurface !== 'chat') return;
+      const anchor = Math.abs(this.chatWindowLastScroll - this.chatScrollTop) < 1
+        ? this.uiPreferences.chatAnchor : this.captureChatAnchor();
+      if (this.measureChatWindow(list, entries.map(entry => entry.target as HTMLElement))) {
+        this.restoreChatAnchor(list, anchor);
+        this.captureChatAnchor(true);
+        this.chatWindowLastScroll = this.chatScrollTop;
+      }
+    });
+    const mounted = new Set(this.renderedMessageOrder);
+    for (const row of this.chatWindowObserved) if (!mounted.has(row)) {
+      this.chatWindowObserver.unobserve(row); this.chatWindowObserved.delete(row);
+    }
+    for (const row of mounted) if (!this.chatWindowObserved.has(row)) {
+      this.chatWindowObserved.add(row); this.chatWindowObserver.observe(row);
     }
   }
 
@@ -12444,8 +12574,9 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const compatibility = `${this.activeDevicesSupport('message-read-v1')}:${this.activeDevicesSupport('media-read-v1')}`;
     const sameReadCompatibility = this.readCompatibility === compatibility;
     this.readCompatibility = compatibility;
-    this.readMessageIds = readMessageIds([...this.messageEventHistory.values(), ...this.messages.values()], new Map(this.session.vault.members.map(member => [member.deviceId, member.role])));
-    const deletedForEveryone = this.messageDeletions();
+    const projection = this.messageProjection();
+    this.readMessageIds = projection.read;
+    const deletedForEveryone = projection.deleted;
     const messages = this.orderedMessages(deletedForEveryone);
     const privateItems = privateTimelineItems(this.privateArchiveItems, messages, this.session.vault.roomId);
     const privateRows:HTMLElement[]=[];
@@ -12468,8 +12599,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (!this.chatEntryLookup && !this.chatWaitingForSeq && firstNew && this.chatEntryRevision === this.chatScrollRevision) {
       this.chatUnreadJumpId = firstNew.clientMsgId;
     }
-    const jumpId = this.chatUnreadJumpId;
-    this.chatUnreadJumpId = null;
+    const jumpId = this.chatWindowSelectionActive(list) ? null : this.chatUnreadJumpId;
+    if (jumpId) this.chatUnreadJumpId = null;
     if (jumpId) {
       this.chatEntryRevision = -1;
       this.chatUnreadDividerId = jumpId;
@@ -12491,6 +12622,10 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       this.renderReplyDraft();
     }
     if (messages.length === 0 && this.mediaUploads.size === 0) {
+      this.chatRenderWindow.sync([], list.clientWidth);
+      this.chatRenderWindow.choose(0);
+      this.chatWindowSpacers.clear();
+      this.chatWindowSteps.clear();
       const empty = document.createElement('div');
       empty.className = 'empty-conversation';
       const title = document.createElement('p');
@@ -12554,9 +12689,54 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       const dateKeys = new Set<string>();
       const sequences = new Map<string, number>();
       const appendDate = createTimelineDateAppender(timeline, dateKeys, this.renderedMessageDates);
+      const renderWindow = this.chatRenderWindow;
+      renderWindow.sync(messages.map(message => message.clientMsgId), list.clientWidth);
+      const target = jumpId ?? this.chatWindowTarget;
+      const center = this.chatWindowScrollIndex ?? (target ? renderWindow.index(target) : undefined)
+        ?? (scroll === 'bottom' || followSend || anchor?.pinnedToBottom ? messages.length - 1
+          : anchor ? renderWindow.index(anchor.clientMsgId) : undefined) ?? messages.length - 1;
+      const preserveRange = this.chatWindowScrollIndex === null && !target && !followSend && scroll !== 'bottom'
+        && !anchor?.pinnedToBottom && this.renderedMessageOrder.length > 0 && center >= renderWindow.start && center < renderWindow.end;
+      renderWindow.choose(center, preserveRange || !target && !followSend && scroll !== 'bottom' && this.chatWindowSelectionActive(list));
+      this.chatWindowTarget = null;
+      const pins = [...list.querySelectorAll<HTMLElement>('.message:focus-within, .message.is-action-source, .message:has(.voice-player[data-playback-state="playing"]), .message:has(.voice-player[data-playback-state="loading"])')]
+        .map(row => row.dataset.clientMsgId!);
+      const mounted = renderWindow.mounted(pins);
+      if (renderWindow.active) list.setAttribute('role', 'feed');
+      else list.removeAttribute('role');
+      const oldSpacers = this.chatWindowSpacers;
+      this.chatWindowSpacers = new Map();
+      const appendSpacer = (from: number, to: number) => {
+        if (to <= from) return;
+        const key = JSON.stringify([messages[from - 1]?.clientMsgId ?? null, messages[to]?.clientMsgId ?? null]);
+        const element = oldSpacers.get(key)?.element ?? document.createElement('div');
+        element.className = 'chat-window-spacer'; element.setAttribute('aria-hidden', 'true');
+        element.style.height = `${Math.max(0, renderWindow.offset(to) - renderWindow.offset(from) - 4)}px`;
+        this.chatWindowSpacers.set(key, { element, from, to }); timeline.push(element);
+      };
       const uploadDrafts = [...this.mediaUploads.entries()].filter(([id, draft]) => draft.view.geometryReady && !visibleMessageIds.has(id))
         .sort(([, a], [, b]) => a.sentAt.localeCompare(b.sentAt));
-      for (const message of messages) {
+      let previousIndex = -1;
+      const oldSteps = this.chatWindowSteps;
+      this.chatWindowSteps = new Map();
+      const windowStep = (index: number, label: string) => {
+        const message = messages[index]; if (!message) return;
+        const key = message.clientMsgId;
+        const button = oldSteps.get(key) ?? document.createElement('button'); button.type = 'button';
+        button.className = 'text-button chat-window-step'; button.textContent = label;
+        if (!oldSteps.has(key)) button.addEventListener('click', () => {
+          void this.jumpToReplyTarget(message.clientMsgId, message.seq).then(() => {
+            if (this.privacyCovered || this.activeSurface !== 'chat') return;
+            this.renderedMessages.get(message.clientMsgId)?.element.focus({ preventScroll: true });
+          });
+        });
+        this.chatWindowSteps.set(key, button);
+        timeline.push(button);
+      };
+      for (const index of mounted) {
+        appendSpacer(previousIndex + 1, index); previousIndex = index;
+        if (index === renderWindow.start && index > 0) windowStep(index - 1, uiLiteral('查看更早的消息'));
+        const message = messages[index]!;
         while (message.seq === Number.MAX_SAFE_INTEGER && uploadDrafts[0] && uploadDrafts[0][1].sentAt <= message.acceptedAt) {
           const draft = uploadDrafts.shift()![1];
           appendDate(draft.sentAt); timeline.push(draft.view.element);
@@ -12627,6 +12807,10 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           if (hadFocus) element.focus({ preventScroll: true });
         }
         this.renderedMessages.set(key, { payload: message.payload, status: message.status, acceptedAt: message.acceptedAt, element });
+        if (renderWindow.active) {
+          element.setAttribute('aria-posinset', String(index + 1));
+          element.setAttribute('aria-setsize', String(messages.length));
+        } else { element.removeAttribute('aria-posinset'); element.removeAttribute('aria-setsize'); }
         sequences.set(key, message.seq);
         elements.push(element);
         appendDate(message.payload.sentAt);
@@ -12637,7 +12821,9 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           timeline.push(divider);
         }
         timeline.push(element);
+        if (index === renderWindow.end - 1 && renderWindow.end < messages.length) windowStep(index + 1, uiLiteral('查看后面的消息'));
       }
+      appendSpacer(previousIndex + 1, messages.length);
       for (const [, draft] of uploadDrafts) { appendDate(draft.sentAt); timeline.push(draft.view.element); }
       for (const key of this.renderedMessages.keys()) {
         if (!currentKeys.has(key)) this.renderedMessages.delete(key);
@@ -12654,7 +12840,10 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       this.renderedMessageSeq = sequences;
     }
     syncChatBubbleStyle(list);
-    const reactionLayoutChanged = this.renderMessageReactions();
+    const reactionLayoutChanged = this.renderMessageReactions(projection.reactions);
+    this.measureChatWindow(list, reactionLayoutChanged ? this.renderedMessageOrder
+      : this.renderedMessageOrder.filter(row => !this.chatWindowObserved.has(row)));
+    this.observeChatWindow(list);
     syncChatBubbleGradient(list);
     this.mountChatImageObserver(list);
     this.voicePlayback.prune();
@@ -12674,6 +12863,10 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       this.chatPinnedToBottom = true;
       this.scrollChatToBottom();
       this.captureChatAnchor(true);
+    } else if (this.chatRenderWindow.active && anchor && !this.renderedMessages.has(anchor.clientMsgId) && !anchor.pinnedToBottom) {
+      // A scrollbar fling can cross a spacer without any old visible row.
+      // Preserve its document position; never substitute an unrelated anchor.
+      this.setChatScrollTop(priorScrollTop);
     } else {
       this.restoreChatAnchor(list, anchor);
     }
@@ -12707,6 +12900,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
     this.updateChatBottomControl();
     if(privateReadingAnchor){this.uiPreferences.privateArchiveAnchor=privateReadingAnchor;this.restoreChatAnchor(list,anchor);}
+    this.chatWindowLastScroll = this.chatScrollTop;
   }
 
   private cancelChatMessageMotion(): void {
@@ -17600,6 +17794,14 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     this.session = null;
     this.messages.clear();
     this.messageEventHistory.clear();
+    this.chatProjections = new ChatProjections();
+    this.chatRenderWindow = new ChatRenderWindow();
+    this.chatWindowObserver?.disconnect(); this.chatWindowObserver = null;
+    this.chatWindowObserved.clear();
+    if (this.chatWindowFrame !== null) cancelAnimationFrame(this.chatWindowFrame);
+    this.chatWindowFrame = null; this.chatWindowTarget = null; this.chatWindowScrollIndex = null;
+    this.chatWindowSpacers.clear();
+    this.chatWindowSteps.clear();
     this.mediaReadQueued.clear();
     this.messageReadQueued.clear();
     this.readMessageIds.clear();
