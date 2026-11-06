@@ -2,11 +2,28 @@
 
 发布准备先按[上线复用合并结果](docs/workflows/publish-efficiency.md#上线复用合并结果)核对生产到候选的累计差异、精确 main CI 与同轮镜像。记录全量或专项结论，匹配时直接复用；每个环境仍须预检及独立回读。
 
-## 多设备消息同步性能 V2：已合并，待发布确认（2026-11-06）
+## 多设备消息同步性能 V2：两个环境已发布并独立回读（2026-11-06）
+<a id="release-chat-sync-v2-20261106"></a>
 
-候选应用`d45348902cc140739f79caea39485ed9fb8eb281`／2026.11.06.1来自[PR #510](https://github.com/zdaiwmm/shui-IM/pull/510)，与最终本地冻结源fd2bd3d5文件树一致。大备份检查点独立加密并原子保存，补收复用有界密文、备份复用历史页且补收结束主动恢复。当前生产47cfcea6至本候选的其他差异仅为既有发布记录；风险full。
+用户在本聊天明确确认将 `d45348902cc140739f79caea39485ed9fb8eb281`／`2026.11.06.1` 发布到 production（ai.shui.click）与 tokyo-public（mijiu.cloud）。两个环境现均运行该应用，固定入口分别取得精确 `DEPLOY_VERIFIED`，随后各自取得独立 `READBACK_OK`。应用来自 [PR #510](https://github.com/zdaiwmm/shui-IM/pull/510)，与最终冻结源 `fd2bd3d518df60bd6321afcc6b66117ce358aeac` 文件树一致；后续验证与发布记录不改变线上应用 SHA。
 
-本地1304项及93／93浏览器入口通过，[PR完整CI42187019965](https://github.com/zdaiwmm/shui-IM/actions/runs/42187019965) attempt2成功；[精确应用 main CI 42193042270](https://github.com/zdaiwmm/shui-IM/actions/runs/42193042270) attempt 1 完整成功，包含全量浏览器、通话、安全检查、双架构镜像及最终汇总。完整失败历史、环境和实测见[需求V2](docs/requirements/2026-11-06-chat-sync-performance/README.md)。主站只读预检一次 GitHub 读取超时、同入口一次复查成功；2026-11-06T09:20Z 最终预检再次通过，生产仍为 `47cfcea64ad0c269dc086db2d9a40edf4147c6c3`。同轮 main attempt 1 的双架构镜像已生成并与候选绑定；尚未取得本次精确SHA生产确认，未切换、无本批DEPLOY_VERIFIED／READBACK_OK。东京不自动纳入，实体iPhone按用户指示稍后。
+本地 1304 项及 93／93 浏览器入口通过，[PR 完整 CI 42187019965](https://github.com/zdaiwmm/shui-IM/actions/runs/42187019965) attempt 2 成功；[精确应用 main CI 42193042270](https://github.com/zdaiwmm/shui-IM/actions/runs/42193042270) attempt 1 完整成功，同轮双架构镜像已生成。影响加密存储、备份与补收，风险 full。两环境从 `47cfcea64ad0c269dc086db2d9a40edf4147c6c3` 升级，其至候选的其他累计差异仅为既有发布记录。
+
+| 环境 | 成功发布批次（UTC） | 独立回读完成（北京时间） | 成功入口／独立回读耗时 |
+| --- | --- | --- | --- |
+| ai.shui.click | 20261106T105457Z | 19:00:28 | 407698ms／3560ms |
+| mijiu.cloud | 20261106T110210Z | 19:10:51 | 565779ms／22276ms |
+
+两环境各自的成功切换前冷备份校验通过，维护门已移除，应用与备份容器均 running／healthy；TURN running、探针 none，不将其写成 healthy。实际镜像均为 `sha256:1f7aa0433f1ad71f6d5ba166a54e3091489530b803bc7797a04c1fc7625db153`，与同轮 amd64 CI 产物一致。HTTPS `ok/database/storage=true`，公开与容器资源摘要一致，新建 WebSocket 通过。主站后台开、东京后台关，两环境通话开，未修改这些配置。
+
+本次失败与恢复历史保留如下，不以最终成功覆盖：
+
+- 主站首次固定入口下载／校验镜像 820600ms，进入批次 `20261106T095551Z-d45348902cc1`。切换前冷备份校验成功（154000ms），新容器启动后，在维护门仍关闭的 `validate-gated-service` 阶段出现 `curl: Could not resolve host: ai.shui.click`。原 helper 保存并校验失败切换归档、恢复切换前备份并重新开放旧版，返回 `ROLLBACK_OK`（280000ms）。该次入口失败，总计 1519304ms；北京时间 **18:06:12** 对旧版独立 `READBACK_OK`（11203ms），随后服务器 DNS／HTTPS 检查通过。
+- 同一应用的一次准备重试止于镜像下载超时（907501ms），未进入服务器阶段。随后复用首次已验证的完整镜像文件及 GitHub 连接工具取得的 ZIP 头尾，恢复原始 ZIP：大小 `212624677` 字节、SHA-256 `f520111a764972f6e0e0e7465282c8f155034555a08a61fd410393ad8c0a28e4` 与认证的 GitHub 产物元数据完全一致后，才存入既有私有缓存。连接工具全量下载、续传超时及临时链接过期也保留；没有用未完成文件发布。
+- 使用已校验缓存继续固定入口时，主站 SSH 被关闭，止于只读预检（18919ms）；主站与东京复查均被关闭，当时东京公开 HTTPS/TLS 检查也从本机失败。用户随后明确表示刚切换过网络／VPN并已切回。两环境重新预检成功后接续同一获批 SHA，不将此前本机连接失败判定为服务器故障，也不据此修改服务器访问规则。
+- 网络恢复后的两次固定入口均命中同一缓存产物 `13491530336`，重新完成 CI、原始 ZIP、镜像与环境校验；主站／东京镜像验证为 10050／7494ms，服务器阶段为 315000／489000ms，成功切换前冷备份为 150000／1000ms。主站本批共一次失败并回滚、一次成功实际切换；东京一次成功实际切换。其余准备失败没有切换。未修改发布代码、helper、门禁或生产配置。
+
+脱敏证据保存在公共 Git 目录 `quiet-room-deliveries/evidence/chat-sync-performance-v2-20261106`，包括完整 CI、镜像来源、各次阶段摘要、旧版回滚回读及两环境最终独立回读。切换前与失败切换的服务器归档均保留。性能对照、完整测试失败历史及恢复覆盖见[需求 V2](docs/requirements/2026-11-06-chat-sync-performance/README.md)。实体 iPhone 按用户指示稍后，PC／手机模拟和生产回读不代表真机验收。文档在第二个不含部署配置的工作树对账，文档 main 不再次部署。
 
 ## 链接视频 V2 与首屏性能修复已发布至两站（2026-11-04）
 <a id="release-link-video-v2-47cf"></a>

@@ -1,12 +1,14 @@
 # Quiet Room 当前状态
 
-## 多设备同步性能 V2：已合并，待发布（2026-11-06）
+## 当前生产：多设备同步性能 V2 已发布到两个环境（2026-11-06）
 
-[PR #510](https://github.com/zdaiwmm/shui-IM/pull/510)已合并为`d45348902cc140739f79caea39485ed9fb8eb281`／2026.11.06.1，文件树与冻结候选fd2bd3d5一致。本地1304项及93／93浏览器入口完整通过，PR完整CI42187019965 attempt2成功；首轮备份调度修复、工具超时及WebKit诊断失败历史保留在[需求V2](../requirements/2026-11-06-chat-sync-performance/README.md)。[精确应用 main CI 42193042270](https://github.com/zdaiwmm/shui-IM/actions/runs/42193042270) attempt 1 完整成功，双架构镜像已生成；主站只读预检再次通过，尚未发布；目标主站，真实iPhone按用户指示稍后。当前生产仍为下方47cfcea6。
+主站 ai.shui.click 与东京 mijiu.cloud 均已运行 `d45348902cc140739f79caea39485ed9fb8eb281`／`2026.11.06.1`。用户精确确认双环境发布后，两环境分别取得 DEPLOY_VERIFIED，并于北京时间 **19:00:28／19:10:51** 完成独立 READBACK_OK。应用与备份 running／healthy，维护门移除，镜像、HTTPS、公开资源与新 WebSocket 均通过；TURN 运行中但无健康探针。发布批次、主站首次 DNS 失败回滚、下载超时及用户切回网络后成功接续的完整记录见[本次发布记录](../../RELEASING.md#release-chat-sync-v2-20261106)。
 
-## 当前生产：主站与东京均为 2026.11.04.4（2026-11-04）
+应用 [PR #510](https://github.com/zdaiwmm/shui-IM/pull/510) 的本地 1304 项、93／93 浏览器入口与精确应用 main CI 42193042270 均通过。大备份对象独立加密保存、补收复用有界密文，备份减少重复读页并在补收完成后恢复调度；性能、消息完整性及恢复覆盖见[需求 V2](../requirements/2026-11-06-chat-sync-performance/README.md)。实体 iPhone 按用户安排稍后，未把模拟验证写成真机通过。后续文档 main 不改变本次线上应用版本。
 
-两站实际应用提交均为 `47cfcea64ad0c269dc086db2d9a40edf4147c6c3`，分别独立回读通过。链接视频支持粘贴识别、在已解锁聊天中收起继续下载、查看进度和直接播放私有下载。聊天首屏优先显示已有大视频封面或占位。发布批次及验证范围见[双环境记录](../../RELEASING.md#release-link-video-v2-47cf)，上一版本见[链接视频首次发布](../../RELEASING.md#release-x-video-dual-20261104)。
+## 此前完整回读版本：两环境 2026.11.04.4（2026-11-04）
+
+该批两站实际应用提交均为 `47cfcea64ad0c269dc086db2d9a40edf4147c6c3`，当时分别独立回读通过；11 月 6 日发布尝试与当前证据级别以上方节点为准。链接视频支持粘贴识别、在已解锁聊天中收起继续下载、查看进度和直接播放私有下载。聊天首屏优先显示已有大视频封面或占位。发布批次及验证范围见[双环境记录](../../RELEASING.md#release-link-video-v2-47cf)，上一版本见[链接视频首次发布](../../RELEASING.md#release-x-video-dual-20261104)。
 
 上一批上线的东京访客统计与后台域名待办见[11 月 3 日发布记录](../../RELEASING.md#release-chat-unread-dual-20261103)。
 
