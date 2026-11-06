@@ -14,6 +14,8 @@ Catch-up retains only the existing bounded ciphertext queue. Decryption remains 
 
 ## Unlocked chat unread positions (2026-11-03)
 
+Unread count optimization (2026-11-07) computes the union of same-role `(join_seq, read_seq]` intervals and counts the remaining gaps using a partial sender/sequence index. It does not replace those intervals with a global maximum: a later-joined device cannot mark its unseen earlier gap read. Historical read intervals from a revoked device remain valid; the querying device must still pass the existing active-device/count-token checks. Interval construction and message counting share one SQLite statement snapshot. No count cache, extra credential, plaintext or additional server-visible field is introduced. The position endpoint retains its existing authorization and 64-sequence limit.
+
 An active device credential can request up to 64 unread sequence numbers after a supplied sequence for its own device. The query applies the same join boundary, counted-message and same-role read intervals as the cover count. The locked count-only credential cannot request positions. The client checks decrypted rows against its local chat projection before navigating. Its offline visible cursor uses encrypted room preferences. Position lookup itself does not advance read state.
 
 ## Bounded local database connection recovery (2026-11-02)

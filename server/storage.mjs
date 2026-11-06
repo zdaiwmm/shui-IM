@@ -260,6 +260,9 @@ export async function createStore({
   if (!hasColumn(db, 'messages', 'count_unread')) {
     db.exec('ALTER TABLE messages ADD COLUMN count_unread INTEGER NOT NULL DEFAULT 1');
   }
+  // Count ranges without opening ciphertext rows or probing readers per message.
+  db.exec(`CREATE INDEX IF NOT EXISTS messages_unread_sender_seq
+    ON messages(room_id, sender_device_id, server_seq) WHERE count_unread = 1`);
   if (!hasColumn(db, 'rooms', 'mls_welcome')) {
     db.exec('ALTER TABLE rooms ADD COLUMN mls_welcome TEXT');
   }
@@ -482,7 +485,28 @@ export async function createStore({
     upsertUnreadObserver: db.prepare(`INSERT INTO unread_observers(room_id, device_id, token_hash, read_seq)
       VALUES (?, ?, ?, ?) ON CONFLICT(room_id, device_id) DO UPDATE SET
       token_hash = excluded.token_hash, read_seq = MAX(unread_observers.read_seq, excluded.read_seq)`),
-    unreadCount: db.prepare(`SELECT COUNT(*) AS count ${unreadRows}`),
+    // One SQLite snapshot: merge (join_seq, read_seq] first, then count only
+    // uncovered ranges through the partial covering index. Revoked readers'
+    // past reads still count; a late join never covers an earlier hole.
+    unreadCount: db.prepare(`WITH read_ranges AS MATERIALIZED (
+      SELECT reader.join_seq AS lower_seq, observer.read_seq AS upper_seq
+      FROM unread_observers AS observer
+      JOIN members AS reader ON reader.room_id = observer.room_id AND reader.device_id = observer.device_id
+      WHERE observer.room_id = ?1 AND reader.role = ?3 AND observer.read_seq > reader.join_seq
+    ), frontiers AS (
+      SELECT lower_seq, COALESCE(MAX(upper_seq) OVER (
+        ORDER BY lower_seq, upper_seq ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+      ), ?2) AS previous_upper FROM read_ranges
+    ), gaps AS (
+      SELECT MAX(?2, previous_upper) AS lower_seq, lower_seq AS upper_seq FROM frontiers
+      WHERE lower_seq > MAX(?2, previous_upper)
+      UNION ALL
+      SELECT MAX(?2, COALESCE(MAX(upper_seq), ?2)), 9007199254740991 FROM read_ranges
+    ) SELECT COALESCE(SUM((SELECT COUNT(*) FROM messages
+      WHERE messages.room_id = ?1 AND messages.sender_device_id = sender.device_id
+        AND messages.server_seq > gaps.lower_seq AND messages.server_seq <= gaps.upper_seq
+        AND messages.count_unread = 1)), 0) AS count
+      FROM members AS sender CROSS JOIN gaps WHERE sender.room_id = ?1 AND sender.role <> ?3`),
     unreadPositions: db.prepare(`SELECT messages.server_seq AS seq ${unreadRows} ORDER BY messages.server_seq LIMIT 64`),
     saveMlsWelcome: db.prepare('UPDATE rooms SET mls_welcome = ? WHERE room_id = ? AND mls_welcome IS NULL'),
     insertDeviceLink: db.prepare(`INSERT INTO device_links(

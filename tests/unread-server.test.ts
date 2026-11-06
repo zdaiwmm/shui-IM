@@ -72,6 +72,55 @@ function nextFrame(socket: WebSocket, type: string): Promise<any> {
 }
 
 describe('restricted unread observer', () => {
+  it('matches the original correlated query across disjoint, overlapping and revoked read ranges without a stale cache', async () => {
+    const { db, server, vault, peer, observerToken } = await setup();
+    const roomId = vault.roomId, owner = vault.identity.publicBundle.deviceId;
+    server.store.saveUnreadObserver(roomId, owner, { token: observerToken });
+    const ids = [owner, peer.identity.publicBundle.deviceId];
+    const add = db.prepare(`INSERT INTO members(room_id, device_id, role, encryption_jwk, signing_jwk, access_hash,
+      status, join_seq, created_at) SELECT room_id, ?, ?, encryption_jwk, signing_jwk, access_hash,
+      'active', 0, created_at FROM members WHERE room_id = ? AND device_id = ?`);
+    for (let i = 0; i < 4; i++) {
+      const id = crypto.randomUUID(); ids.push(id); add.run(id, i % 2 ? 'joiner' : 'creator', roomId, owner);
+      db.prepare('INSERT INTO unread_observers(room_id,device_id,token_hash,read_seq) VALUES(?,?,?,0)').run(roomId, id, Buffer.alloc(32));
+    }
+    const insert = db.prepare('INSERT INTO messages(room_id,server_seq,client_msg_id,sender_device_id,envelope,accepted_at,count_unread) VALUES(?,?,?,?,?,?,?)');
+    db.exec('BEGIN');
+    for (let seq = 1; seq <= 600; seq++) insert.run(roomId, seq, `synthetic-${seq}`, ids[seq % ids.length], '{}', '2026-11-07T00:00:00Z', seq % 5 ? 1 : 0);
+    db.prepare('UPDATE rooms SET next_seq=600 WHERE room_id=?').run(roomId); db.exec('COMMIT');
+    // Frozen pre-optimization SQL is the independent semantic oracle.
+    const rows = `FROM messages
+      JOIN members AS sender ON sender.room_id = messages.room_id AND sender.device_id = messages.sender_device_id
+      WHERE messages.room_id = ?1 AND messages.server_seq > ?2 AND messages.count_unread = 1 AND sender.role <> ?3
+      AND NOT EXISTS (
+        SELECT 1 FROM unread_observers AS observer
+        JOIN members AS reader ON reader.room_id = observer.room_id AND reader.device_id = observer.device_id
+        WHERE observer.room_id = messages.room_id AND reader.role = ?3
+          AND messages.server_seq > reader.join_seq AND messages.server_seq <= observer.read_seq
+      )`;
+    const count = db.prepare(`SELECT COUNT(*) AS count ${rows}`), positions = db.prepare(`SELECT messages.server_seq AS seq ${rows} ORDER BY messages.server_seq LIMIT 64`);
+    let seed = 0x1a7d53;
+    const random = (max: number) => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed % max; };
+    for (let sample = 0; sample < 250; sample++) {
+      for (let i = 0; i < ids.length; i++) {
+        const joined = random(550), read = random(601);
+        db.prepare('UPDATE members SET join_seq=?,status=? WHERE room_id=? AND device_id=?').run(joined, i === 0 || random(2) ? 'active' : 'revoked', roomId, ids[i]);
+        db.prepare('UPDATE unread_observers SET read_seq=? WHERE room_id=? AND device_id=?').run(read, roomId, ids[i]);
+      }
+      const member = db.prepare('SELECT join_seq FROM members WHERE room_id=? AND device_id=?').get(roomId, owner)!;
+      const observer = db.prepare('SELECT read_seq FROM unread_observers WHERE room_id=? AND device_id=?').get(roomId, owner)!;
+      const after = Math.max(Number(member.join_seq), Number(observer.read_seq));
+      expect(server.store.unreadCount(roomId, owner, observerToken), `sample ${sample}`).toEqual({ count: count.get(roomId, after, 'creator')!.count });
+      expect(server.store.unreadPositions(roomId, owner, 0)).toEqual(positions.all(roomId, after, 'creator').map(row => row.seq));
+    }
+    // Rollback, countability changes and deletion are visible immediately; no TTL or invalidation list.
+    const before = server.store.unreadCount(roomId, owner, observerToken);
+    db.exec('BEGIN'); db.prepare('UPDATE messages SET count_unread=0 WHERE room_id=?').run(roomId); db.exec('ROLLBACK');
+    expect(server.store.unreadCount(roomId, owner, observerToken)).toEqual(before);
+    db.prepare('DELETE FROM messages WHERE room_id=?').run(roomId);
+    expect(server.store.unreadCount(roomId, owner, observerToken)).toEqual({ count: 0 });
+  });
+
   it('shares reads across a participant devices without clearing unread history before a companion joined', async () => {
     const { db, server, vault, observerToken, post, get, envelope, route } = await setup();
     await post({ token: observerToken });
@@ -252,6 +301,7 @@ describe('restricted unread observer', () => {
     store.insertMessage(room.roomId, opaqueEnvelope);
     store.close();
     const db = new DatabaseSync(path.join(dataDir, 'quiet-room.sqlite'));
+    db.exec('DROP INDEX messages_unread_sender_seq');
     db.exec('ALTER TABLE messages DROP COLUMN count_unread');
     db.close();
     store = await createStore({ dataDir });
@@ -259,6 +309,7 @@ describe('restricted unread observer', () => {
     store.close();
     const migrated = new DatabaseSync(path.join(dataDir, 'quiet-room.sqlite'));
     expect(migrated.prepare('SELECT count_unread FROM messages').get()).toMatchObject({ count_unread: 1 });
+    expect(migrated.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name='messages_unread_sender_seq'").get()).toBeTruthy();
     migrated.close();
   });
 });

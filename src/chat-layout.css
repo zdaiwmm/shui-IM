@@ -504,3 +504,9 @@ html[data-keyboard-open='true'] .composer {
     border-color: ButtonText; background: Canvas; color: ButtonText; box-shadow: none;
   }
 }
+
+/* Adjacent-window controls stay available to keyboard and assistive readers.
+   Touch scrolling continues to use the existing timeline with no extra chrome. */
+.chat-window-spacer { pointer-events: none; flex-shrink: 0; }
+.chat-window-step { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); }
+.chat-window-step:focus-visible { position: relative; width: auto; height: auto; padding: 8px; clip-path: none; align-self: center; }

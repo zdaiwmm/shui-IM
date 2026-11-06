@@ -62,7 +62,10 @@ describe('chat rendering on input and send', () => {
 
   it('skips internationalized formatting for an already rendered day', () => {
     const first = messageLocalDay('2026-11-04T00:01:00', 2026)!;
-    const format = vi.spyOn(Intl, 'DateTimeFormat');
+    const DateTimeFormat = Intl.DateTimeFormat;
+    const format = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (locales, options) {
+      return new DateTimeFormat(locales, options);
+    });
     expect(messageLocalDay('2026-11-04T23:59:00', 2026, new Set([first.key]))).toBeNull();
     expect(messageLocalDay('invalid', 2026)).toBeNull();
     expect(format).not.toHaveBeenCalled();
