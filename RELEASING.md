@@ -2,6 +2,12 @@
 
 发布准备先按[上线复用合并结果](docs/workflows/publish-efficiency.md#上线复用合并结果)核对生产到候选的累计差异、精确 main CI 与同轮镜像。记录全量或专项结论，匹配时直接复用；每个环境仍须预检及独立回读。
 
+## 多设备消息同步性能 V2：已合并，待发布确认（2026-11-06）
+
+候选应用`d45348902cc140739f79caea39485ed9fb8eb281`／2026.11.06.1来自[PR #510](https://github.com/zdaiwmm/shui-IM/pull/510)，与最终本地冻结源fd2bd3d5文件树一致。大备份检查点独立加密并原子保存，补收复用有界密文、备份复用历史页且补收结束主动恢复。当前生产47cfcea6至本候选的其他差异仅为既有发布记录；风险full。
+
+本地1304项及93／93浏览器入口通过，[PR完整CI42187019965](https://github.com/zdaiwmm/shui-IM/actions/runs/42187019965) attempt2成功；[精确应用 main CI 42193042270](https://github.com/zdaiwmm/shui-IM/actions/runs/42193042270) attempt 1 完整成功，包含全量浏览器、通话、安全检查、双架构镜像及最终汇总。完整失败历史、环境和实测见[需求V2](docs/requirements/2026-11-06-chat-sync-performance/README.md)。主站只读预检一次 GitHub 读取超时、同入口一次复查成功；2026-11-06T09:20Z 最终预检再次通过，生产仍为 `47cfcea64ad0c269dc086db2d9a40edf4147c6c3`。同轮 main attempt 1 的双架构镜像已生成并与候选绑定；尚未取得本次精确SHA生产确认，未切换、无本批DEPLOY_VERIFIED／READBACK_OK。东京不自动纳入，实体iPhone按用户指示稍后。
+
 ## 链接视频 V2 与首屏性能修复已发布至两站（2026-11-04）
 <a id="release-link-video-v2-47cf"></a>
 
