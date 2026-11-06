@@ -2,6 +2,26 @@
 
 发布准备先按[上线复用合并结果](docs/workflows/publish-efficiency.md#上线复用合并结果)核对生产到候选的累计差异、精确 main CI 与同轮镜像。记录全量或专项结论，匹配时直接复用；每个环境仍须预检及独立回读。
 
+## 四项审计整改：两个环境已发布并独立回读（2026-11-07）
+<a id="release-audit-remediation-20261107"></a>
+
+用户看到精确提交、版本、目标、完整CI与预检后回复「确认，发布两个环境」。production（ai.shui.click）与tokyo-public（mijiu.cloud）均由 `d45348902cc140739f79caea39485ed9fb8eb281` 升级为 `2d90066527fc8967237901d9988206a7dd80fa15`／`2026.11.06.4`，各一次成功切换、无失败重发，固定入口各取得精确 `DEPLOY_VERIFIED`，随后各自独立 `READBACK_OK`。
+
+应用由 [PR517](https://github.com/zdaiwmm/shui-IM/pull/517) 合并，包含A接收事务/有界存量修复、B依赖更新、C增量投影/长列表窗口与节点释放、D未读SQL/索引；其余累计变化为审计探针和运维记录。风险full。最终源 `ff94cd89054fbc74b5177c8228fb8cc3ae1e8d5e` 与应用main文件树相同（`d2d4fd4b37c8d78928b900e3a9041c480fa9c834`），本地1310项和95/95浏览器入口通过，耗时1967.408秒。[精确PR CI42292118116](https://github.com/zdaiwmm/shui-IM/actions/runs/42292118116) 与 [精确应用main CI42304406923](https://github.com/zdaiwmm/shui-IM/actions/runs/42304406923) 均attempt1完整成功，包含原生通话及双架构镜像。
+
+| 环境 | 发布批次（UTC） | 独立回读完成（北京时间，11月7日） | 固定入口／独立回读耗时 |
+| --- | --- | --- | --- |
+| ai.shui.click | 20261106T224736Z | 06:52:39 | 524419ms／3452ms |
+| mijiu.cloud | 20261106T225352Z | 07:03:31 | 616193ms／9925ms |
+
+两站切换前冷备份校验均通过，主站154000ms、东京10000ms；服务器发布阶段分别282000ms／555000ms。两站使用同轮amd64产物13545781965，原始ZIP SHA-256为 `0bfc41eaac87f05cffa559c096798bc3b99d9edac88395ada315c0cf99cafd93`。主站首次下载并校验187352ms，东京命中缓存并重新校验7137ms；东京服务器镜像导入等待包含在发布计时中，没有重复触发切换。两站运行镜像均为 `sha256:8c49214313a66e52f830336a2fbf2be58626a835b06f10ca0832a3bed6b2d882`。
+
+独立回读确认应用和备份均running／healthy、维护门absent、HTTPS的ok/database/storage均true、公开与容器资源摘要一致、新WebSocket成功；TURN running、探针none。主站后台开、东京后台关，两环境通话开。本次未修改服务器helper或生产配置。
+
+最终45组渲染、45组补收、六个独立浏览器设备以及30分钟混合/备份收敛/异室恢复全部通过；万条首窗中位数25–27ms、10万条冷未读查询P95约3.35ms。长测两端1428事件一致，自动完整备份追平1428，异室恢复750条可见消息及10个原件逐字节一致。口径、节点滞留的发现与修复、历次失败和最终源复验由[整改需求](docs/requirements/2026-11-07-audit-remediation/README.md#最终冻结验证与双环境交付2026-11-07)持有。物理iPhone按用户安排延期，模拟验证与生产回读不代表真机或独立安全审计通过。
+
+双环境脱敏回执、计时和精确CI证据保存在公共Git目录 `quiet-room-deliveries/evidence/audit-remediation-20261107`。对账仅在第二个不含部署配置的工作树修改既有允许文档，文档main不再次部署。本批A/B/C/D/组合树均含忽略的诊断证据和依赖，原样保留；原型服务已停止，当前对账树保留为本会话现场，其他任务及服务器备份不纳入清理。
+
 ## 多设备消息同步性能 V2：两个环境已发布并独立回读（2026-11-06）
 <a id="release-chat-sync-v2-20261106"></a>
 
