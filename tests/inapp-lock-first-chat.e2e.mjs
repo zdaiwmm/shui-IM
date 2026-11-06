@@ -22,7 +22,19 @@ try {
   for (const engine of [chromium, webkit]) {
     browser = await engine.launch(engine === chromium && !process.env.CI
       ? process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' } : {});
-    const pages = [], errors = [];
+    const pages = [], errors = [], unreadRequests = new Map();
+    const reload = async page => {
+      // A lock immediately refreshes the count-only observer. This ceremony
+      // test must finish that read before deliberately destroying the page:
+      // Linux WebKit can report its navigation cancellation as a page error.
+      // Keep every pageerror assertion; do not filter network/JS failures.
+      const deadline = Date.now() + 20_000;
+      while (unreadRequests.get(page).size) {
+        assert.ok(Date.now() < deadline, 'Unread observation must settle before the explicit reload');
+        await page.waitForTimeout(25);
+      }
+      await page.reload();
+    };
     for (let side = 0; side < 2; side++) {
       const context = await browser.newContext({ locale: 'zh-CN', viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true,
         deviceScaleFactor: 3, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Version/27.0 Mobile/15E148 Safari/604.1' });
@@ -34,6 +46,10 @@ try {
         observer.observe(document, { childList: true, subtree: true });
       });
       const page = await context.newPage(); page.setDefaultTimeout(20_000);
+      const requests = new Set(); unreadRequests.set(page, requests);
+      page.on('request', request => { if (new URL(request.url()).pathname.includes('/unread/')) requests.add(request); });
+      page.on('requestfinished', request => requests.delete(request));
+      page.on('requestfailed', request => requests.delete(request));
       page.on('pageerror', error => errors.push(error.message)); pages.push(page);
     }
     const [a, b] = pages;
@@ -124,7 +140,7 @@ try {
     await b.locator('.new-protection-choice').waitFor({ state: 'detached' });
     assert.equal(await b.locator('.numeric-password-page').count(), 0, 'Freeze cannot install a new wrapper or reopen its password form');
     assert.equal(await b.evaluate(async () => (await (await import('/src/lib/vault.ts')).readRoomProtection()).method), 'automatic');
-    await b.reload(); await b.waitForFunction(() => document.querySelector('#message-input')?.disabled === false);
+    await reload(b); await b.waitForFunction(() => document.querySelector('#message-input')?.disabled === false);
     await installOutcomes();
     await b.evaluate(async () => { window.newProtectionMode = 'unknown'; await (await import('/src/lib/platform-vault.ts')).probePlatformVaultCapabilities(); });
     await b.locator('[data-remove-room-lock]').click(); await b.locator('.new-protection-choice').waitFor();
@@ -132,7 +148,7 @@ try {
     await submitPassword(b, '012345'); await b.waitForFunction(() => app.roomLockEnabled && app.roomLockSetupEpoch === null);
     const protection = await b.evaluate(async () => (await (await import('/src/lib/vault.ts')).readRoomProtection()));
     assert.equal(protection.method, 'password'); assert.equal(protection.wrapper.passwordFormat, 'numeric-6');
-    await b.evaluate(() => app.manualLock()); await b.reload(); await submitPassword(b, '012345');
+    await b.evaluate(() => app.manualLock()); await reload(b); await submitPassword(b, '012345');
     await b.waitForFunction(() => document.querySelector('#message-input')?.disabled === false);
     assert.deepEqual(errors, []);
     console.log(`PASS ${engine.name()}: initial two-party focus/send, unsupported/unknown lock setup, retry/cancel/navigation, numeric reopen`);

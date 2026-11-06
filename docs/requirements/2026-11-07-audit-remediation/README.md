@@ -57,3 +57,9 @@ A批新增注册回归`tests/receive-commit.e2e.mjs`。原实现保留失败：o
 开发六端首次导航阻塞经状态取证定位：已连接、MLS active，实际仍在桌面设置页；依次返回设备管理、设置和聊天后通过六端16条/相同seq/零outbox。新增身份/序号逐项相等断言留待冻结验收。短时混合夹具已证明完整备份点到达最新16；首次恢复目标尚未配对、无runtime signal，修正后原件检查误用图片解密入口拒绝普通文件，按实际文件类型改用decryptFileAttachment。两次失败分别保留，正式长运行尚未开始。
 
 修正后的30秒夹具冒烟通过：两端持久16个事件一致，自动备份cursor与完整sharedThrough均16，coverage=complete；异室恢复全部8条可见消息身份及1个65536字节原件逐字节一致，未进入目标共享历史/outbox/回执。锁定后会话、消息、图片和对象URL均清空。此结果验证夹具及短链路，不替代正式30分钟验收。
+
+首个组合冻结源`83551a563d720ea95f3d267e995ab1436cd5d07e`、树`735f4ecde433b099f3ab7dd8a501cb101db4afc5`已推送PR517。六端正式身份/序号逐项比较通过：各16条、seq54、6活跃成员和零待发；退出时Vite代理连接重置为关闭浏览器后的日志，脚本退出0。两环境只读doctor通过，仍运行`d45348902cc140739f79caea39485ed9fb8eb281`，均amd64；未切换生产。
+
+首轮组合CI42279540097通话与构建/单元通过，但inapp-lock-first-chat的WebKit末尾pageerror断言再次记录未读GET的access-control文本，与A此前云端现象相同。停止盲重试，追加只读请求/导航/未处理拒绝观测：本机WebKit在强制reload阶段取消未读GET（requestfailed=cancelled），没有unhandledrejection，后继请求200。Playwright本地实现会将WebKit标为javascript的控制台错误映射到pageerror，故该云端文本不能单独证明应用未捕获拒绝。测试现等待未读请求settle后再执行显式reload，保持全部pageerror及保护/发送/恢复断言，不过滤错误、不改产品。修正定向与新冻结组合的CI仍须通过。
+
+B源本地完整1960.7秒通过1304项/93脚本；结果仅属于其精确源，不代替组合验证。
