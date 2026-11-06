@@ -119,7 +119,7 @@ try {
             get.onsuccess = () => { resolve({ bytes: get.result.bytes, usedAt: get.result.usedAt, version: db.version, privateParts: db.objectStoreNames.contains('linkVideoParts') }); db.close(); }; };
         });
       });
-      assert.deepEqual(migration, { bytes: 128, usedAt: 2, version: 17, privateParts: true }); await migrationContext.close();
+      assert.deepEqual(migration, { bytes: 128, usedAt: 2, version: 18, privateParts: true }); await migrationContext.close();
       console.log(`PASS ${engine.name()}: encrypted preview survives reload, original export is exact, animation stays intact, AAD/abort/quota fail safely`);
     } finally { await browser.close(); }
   }

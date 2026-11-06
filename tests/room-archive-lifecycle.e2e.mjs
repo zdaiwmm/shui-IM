@@ -1,3 +1,4 @@
+import { verifyArchiveCheckpoints } from './helpers/archive-checkpoint.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -52,7 +53,9 @@ try{
   try{await a.syncRoomArchive(first,interruptedUpload.signal);}catch(cause){if(!interruptedUpload.signal.aborted)throw cause;}finally{window.fetch=fetch;}
   if(!uploadAccepted||!first.vault.archiveState?.preparing?.next)throw new Error('Upload interruption did not retain the pending object');
   const pendingId=first.vault.archiveState.preparing.next.id,stored=await v.readStoredVault();
-  if(!stored||stored.payload.ciphertext.length<=2*1024*1024)throw new Error('Full-sized backup checkpoint must remain readable above the old limit');
+  if(!stored||stored.payload.ciphertext.length>200_000)throw new Error('Full-sized backup checkpoint leaked into the chat vault');
+  const checkpoint=await v.loadArchiveCheckpoint(first,first.vault.archiveState.preparing.next);
+  if(checkpoint.ciphertext.length<=3_000_000)throw new Error('Full-sized pending ciphertext was not retained');
   const reopened=await v.unlockVault(await k.browserRoomKey(),undefined,stored);
   if(reopened.vault.archiveState.preparing.next.id!==pendingId)throw new Error('Reopening changed the pending upload identity');
   let reused=false;
@@ -106,9 +109,16 @@ try{
   await a.syncRoomArchive(resumeOwner,signal);
   if((resumeOwner.vault.archiveState.privateDone?.length??0)!==2||resumeOwner.vault.archiveState.cursor!==1||!resumeOwner.vault.archiveState.lastComplete)throw new Error('BAK-14 resumed preparation skipped an earlier import or a new shared record');
   const business=await create();
+  const beforeYield=JSON.stringify(business.stored);
+  const yielded=await a.syncRoomArchive(business,signal,()=>true);
+  if(yielded.kind!=='partial'||JSON.stringify(business.stored)!==beforeYield)throw Error('Yielding backup changed durable progress');
   for(let seq=1;seq<=12;seq++)await v.saveHistoryMessage(business,{...text,seq,clientMsgId:crypto.randomUUID(),senderId:business.vault.identity.publicBundle.deviceId});
   business.vault.lastSeq=12;await v.saveVault(business);
-  const partial=await a.syncRoomArchive(business,signal);
+  const getAll=IDBIndex.prototype.getAll;let historyReads=0;
+  IDBIndex.prototype.getAll=function(...args){if(this.name==='roomSeq'&&['history','galleryHistory','restoredGallery'].includes(this.objectStore.name))historyReads++;return getAll.apply(this,args);};
+  let partial;
+  try{partial=await a.syncRoomArchive(business,signal);}finally{IDBIndex.prototype.getAll=getAll;}
+  if(historyReads>3)throw new Error('One backup page was repeatedly read for each item');
   if(partial.kind!=='partial'||business.vault.archiveState.cursor!==10||business.vault.archiveState.lastComplete)throw new Error('BAK-04 ten-row pass falsely completed latest range');
   const {readArchiveBackupSnapshot}=await import('/src/lib/archive-backup-state.ts');
   let snapshot=await readArchiveBackupSnapshot(business,signal,{running:false,error:''});if(snapshot.coverage!=='partial'||snapshot.counts.messages!==10)throw new Error('Partial checkpoint lost committed counts');
@@ -131,6 +141,7 @@ try{
   return {sourceBackup,privateCount:privateItems.length,sharedCount:shared.length,outboxCount:outbox.length,receiptCount:receipts.length,finalCount:finalItems.length,originalsEqual,deleted,deletedItems:afterDeleteItems.length,deletedMedia:afterDeleteMedia===null,cloudSurvivesDelete,cardIsPng:png.type==='image/png'};
  });
  assert.deepEqual(result,{sourceBackup:2,privateCount:2,sharedCount:0,outboxCount:0,receiptCount:0,finalCount:2,originalsEqual:true,deleted:true,deletedItems:0,deletedMedia:true,cloudSurvivesDelete:2,cardIsPng:true});
+ await verifyArchiveCheckpoints(page);
  console.log(`Private archive lifecycle passed (${engine.name()}): full-sized chunks, interrupted upload/reopen/idempotent resume, default backup, PNG card, private restore/rebackup, original bytes and local deletion.`);
 }finally{await browser?.close();await vite?.close();await service?.close();await rm(dataDir,{recursive:true,force:true});}
 }

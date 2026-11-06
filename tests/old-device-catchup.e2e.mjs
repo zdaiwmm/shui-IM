@@ -229,3 +229,6 @@ for (const engine of [chromium, webkit]) {
     await browser?.close(); await vite?.close(); await backend?.close(); await rm(dataDir, { recursive: true, force: true });
   }
 }
+
+// Performance work bounds and PC/mobile presentation share this catch-up gate.
+await import('./helpers/sync-performance.mjs');

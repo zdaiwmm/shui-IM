@@ -310,6 +310,7 @@ import {
   saveCachedMediaChunk,
   savePendingReceipt,
   saveHistoryMessage,
+  compactRoomArchiveState,
   saveUploadPlan,
   saveUiPreferences,
   saveVault,
@@ -751,6 +752,7 @@ export class QuietRoomApp {
   private presenceCircuit: PresenceCircuit | null = null;
   private recoveryPollTimer: number | null = null;
   private backupTimer: number | null = null;
+  private backupCatchupTarget = 0;
   private backupRun: Promise<void> | null = null;
   private automaticBackupAbort: AbortController | null = null;
   private backupError = '';
@@ -4861,6 +4863,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     this.roomRuntime = runtime;
     this.runtimeAbort = runtime.controller;
     try {
+    await compactRoomArchiveState(session,runtime.signal);
+    if(!runtime.isCurrent())return;
     if (!this.idleDeadline) this.resetIdleLock();
     let invitation = classifyInviteHash(location.hash);
     let jointEntry = parseJointRecoveryLink(location.href);
@@ -5763,6 +5767,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   }
 
   private async connectSocket(): Promise<void> {
+    this.backupCatchupTarget = Number.POSITIVE_INFINITY;
     const session = this.session;
     if (!session || this.privacyCovered) return;
     const epoch = this.runtimeEpoch;
@@ -5818,6 +5823,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         },
         ready: (state) => {
           if (this.isRuntimeActive(epoch, session) && this.socket === roomSocket) {
+            this.backupCatchupTarget = state.nextSeq;
             this.legacyRetrySyncTarget = state.nextSeq;
             return this.handleMembership(state);
           }
@@ -5967,6 +5973,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const session = this.session;
     if (!session) return;
     const epoch = this.runtimeEpoch;
+    this.backupCatchupTarget = Math.max(this.backupCatchupTarget,state.nextSeq);
     try {
       const before = new Set(session.vault.members.filter((member) => member.status !== 'pending' && member.status !== 'revoked').map((member) => member.role)).size;
       const ownId = session.vault.identity.publicBundle.deviceId;
@@ -6110,9 +6117,18 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const epoch = this.runtimeEpoch;
     let skipped = false;
     while (session.vault.lastSeq < boundary.afterSeq) {
+      // Reuse bounded ciphertext from the prior page, but decrypt only through
+      // the authenticated boundary. A failed durable write is never a gap.
+      if (this.serverQueue.has(session.vault.lastSeq + 1)) {
+        const before = session.vault.lastSeq;
+        await this.drainServerQueueLocked(false, mutation, boundary.afterSeq);
+        if (!this.isRuntimeActive(epoch, session)) return;
+        if (session.vault.lastSeq <= before) throw new Error(uiLiteral('当前消息尚未同步完成，暂不能更新密钥'));
+        continue;
+      }
       const page = await getWindowMessagePage(session.vault.roomId, session.vault.accessToken, session.vault.lastSeq, this.runtimeAbort?.signal);
       if (!this.isRuntimeActive(epoch, session)) return;
-      for (const message of page.messages) if (message.seq <= boundary.afterSeq) this.serverQueue.set(message.seq, message);
+      if (!this.enqueueSocketFrames(page.messages)) throw new Error(uiLiteral('当前消息尚未同步完成，暂不能更新密钥'));
       const before = session.vault.lastSeq;
       await this.drainServerQueueLocked(false, mutation, boundary.afterSeq);
       if (!this.isRuntimeActive(epoch, session)) return;
@@ -6248,6 +6264,9 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (session.vault.protocol === 'mls-rfc9420'
       && ['awaiting-peer','awaiting-welcome'].includes(session.vault.mls?.phase ?? '')) return;
     const epoch = this.runtimeEpoch;
+    // Under the vault lease lastSeq is durable; transport callbacks may see a
+    // temporarily staged cursor, so duplicate filtering belongs here instead.
+    for (const seq of this.serverQueue.keys()) if (seq <= session.vault.lastSeq) this.serverQueue.delete(seq);
     let projectionChanged = false;
     this.draining = true;
     try {
@@ -13247,7 +13266,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const owner=this.session,ownerSignal=this.runtimeAbort?.signal,ownerEpoch=this.runtimeEpoch;
     if(owner?.vault.roomArchiveV2&&ownerSignal&&!this.privacyCovered&&!document.hidden){
       if(!this.archiveBackup||this.archiveBackup.session!==owner||this.archiveBackup.signal!==ownerSignal){
-        this.archiveBackup=new ArchiveBackupController(owner,ownerSignal,()=>this.isRuntimeActive(ownerEpoch,owner)&&!ownerSignal.aborted&&!document.hidden&&(!this.roomRuntime||this.roomRuntime.signal!==ownerSignal||this.roomRuntime.isCurrent()),signal=>syncRoomArchive(owner,signal),()=>{
+        this.archiveBackup=new ArchiveBackupController(owner,ownerSignal,()=>this.isRuntimeActive(ownerEpoch,owner)&&!ownerSignal.aborted&&!document.hidden&&(!this.roomRuntime||this.roomRuntime.signal!==ownerSignal||this.roomRuntime.isCurrent()),(signal,force)=>syncRoomArchive(owner,signal,()=>!force&&(this.draining||owner.vault.lastSeq<this.backupCatchupTarget||this.serverQueue.size>0)),()=>{
           if(this.isRuntimeActive(ownerEpoch,owner)&&!ownerSignal.aborted){this.backupError=this.archiveBackup?.snapshot.error??'';this.updateBackupStatus();}
         });
       }
