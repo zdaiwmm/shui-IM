@@ -1097,11 +1097,12 @@ try {
   });
 
   // Measure structural work rather than relying on machine-specific timing.
-  results.longHistory = await page.evaluate(() => {
+  results.longHistory = await page.evaluate(async () => {
     const { app, fresh, message } = window.regression;
     fresh(); app.messages = new Map(Array.from({ length: 5000 }, (_, index) => [index + 1, message(index + 1)]));
     const initialStart = performance.now(); app.renderMessages(); const initialMs = performance.now() - initialStart;
     const list = document.querySelector('#message-list');
+    await app.jumpToReplyTarget('message-3000', 3000);
     const focused = list.querySelector('[data-client-msg-id="message-3000"]'); focused.focus({ preventScroll: true });
     const observer = new MutationObserver(() => {}); observer.observe(list, { childList: true });
     app.messages.set(5001, message(5001));
@@ -1109,7 +1110,8 @@ try {
     const mutations = observer.takeRecords(); observer.disconnect();
     const added = mutations.reduce((total, record) => total + record.addedNodes.length, 0);
     const removed = mutations.reduce((total, record) => total + record.removedNodes.length, 0);
-    if (added !== 1 || removed !== 0 || document.activeElement !== focused) throw Error(`Full history was remounted: added=${added} removed=${removed}`);
+    if (added !== 0 || removed !== 0 || document.activeElement !== focused || app.messages.size !== 5001
+      || list.querySelectorAll(':scope > .message').length > 200) throw Error(`Reading window changed on offscreen arrival: added=${added} removed=${removed}`);
     window.scrollTo(0, document.documentElement.scrollHeight / 2);
     let boundsReads = 0;
     const getRect = HTMLElement.prototype.getBoundingClientRect;

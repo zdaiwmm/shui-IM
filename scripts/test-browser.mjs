@@ -15,6 +15,7 @@ export const browserGroups = Object.freeze({
     'tests/mobile-safari-feedback.e2e.mjs',
     'tests/mobile-space-voice.e2e.mjs',
     'tests/frontend-lifecycle.e2e.mjs',
+    'tests/chat-window.e2e.mjs',
     'tests/draft-refresh.e2e.mjs',
     'tests/motion-system.e2e.mjs',
     'tests/motion-completion.e2e.mjs',
