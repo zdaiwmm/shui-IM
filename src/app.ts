@@ -293,6 +293,7 @@ import {
   bindRecoveredVaultToPlatform,
   loadHistoryPage,
   loadHistoryPageAfter,
+  repairDuplicateWindowControls,
   loadHistoryMessage,
   loadMessageEventHistory,
   loadMediaHistoryPage,
@@ -4864,6 +4865,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     this.roomRuntime = runtime;
     this.runtimeAbort = runtime.controller;
     try {
+    await repairDuplicateWindowControls(session, runtime.signal);
+    if(!runtime.isCurrent())return;
     await compactRoomArchiveState(session,runtime.signal);
     if(!runtime.isCurrent())return;
     if (!this.idleDeadline) this.resetIdleLock();
@@ -6157,10 +6160,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
 
   private async ensureMessageWindow(force = false, conflicts = 0): Promise<void> {
     const session = this.session;
+    const epoch = this.runtimeEpoch;
     if (!session || session.vault.protocol !== 'mls-rfc9420' || session.vault.mls?.phase !== 'active') return;
+    await repairDuplicateWindowControls(session, this.runtimeAbort?.signal);
+    if (!this.isRuntimeActive(epoch, session)) return;
     // Until the authenticated roster supports the protocol, preserve legacy sending.
     if (!session.vault.mls.window && !session.vault.mls.pendingMembership && session.vault.members.some(m => m.status !== 'revoked' && !m.capabilities?.includes(MESSAGE_WINDOW_CAPABILITY))) return;
-    const epoch = this.runtimeEpoch;
     if (!force && session.vault.mls.window && !session.vault.mls.pendingMembership && session.vault.mls.window.generated < MLS_WINDOW_MESSAGES && session.vault.lastSeq - session.vault.mls.window.fromSeq + 1 < MLS_WINDOW_MESSAGES) return;
     // Network waits must not hold the vault lease: local intents and drafts can
     // still commit. Lock/identity changes cancel the bounded transport wait.
@@ -6326,6 +6331,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           acceptedAt: serverMessage.acceptedAt,
           status: ownRole ? 'stored' : 'delivered',
         };
+        let committed = false;
         try {
           let receipt: DeliveryReceipt | null = null;
           if (!ownRole) {
@@ -6334,8 +6340,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
             if (!nextMlsGroupState) await savePendingReceipt(session, receipt, mutation);
           }
           const previousSeq = session.vault.lastSeq;
-          session.vault.lastSeq = message.seq;
-          if (nextMlsGroupState || (serverMessage.envelope.v === 2 && session.vault.mls?.groupState)) {
+          const atomicMls = nextMlsGroupState || (serverMessage.envelope.v === 2 && session.vault.mls?.groupState);
+          if (atomicMls) {
             try {
               await commitMlsReceive(session, message, nextMlsGroupState ?? session.vault.mls!.groupState!, receipt ?? undefined, mutation);
             } catch (cause) {
@@ -6343,6 +6349,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
               throw cause;
             }
           } else {
+            session.vault.lastSeq = message.seq;
             await saveHistoryMessage(session, message, mutation);
             try {
               await saveVault(session, mutation);
@@ -6351,12 +6358,16 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
               throw cause;
             }
           }
+          committed = true;
+          this.serverQueue.delete(expected);
+          this.pending.delete(message.clientMsgId);
+          if (ownDevice && atomicMls) this.outbox.delete(message.clientMsgId);
           if (ownDevice) {
             this.clearRetry(message.clientMsgId);
             // Cancelled sends already left the outbox. Their history transaction
             // retired receive-only material; no later empty-queue write may undo progress.
-            if (message.payload.kind === 'file') await confirmLinkVideoShared(session,message.clientMsgId);
-            if (this.outbox.has(message.clientMsgId)) await deleteOutboxItem(session, message.clientMsgId, mutation);
+            if (!atomicMls && message.payload.kind === 'file') await confirmLinkVideoShared(session,message.clientMsgId);
+            if (!atomicMls && this.outbox.has(message.clientMsgId)) await deleteOutboxItem(session, message.clientMsgId, mutation);
           }
           if (!this.isRuntimeActive(epoch, session)) return;
           this.messages.set(message.seq, message);
@@ -6386,7 +6397,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           }
           expected += 1;
         } catch (cause) {
-          session.vault.lastSeq = durableBeforeMessage;
+          if (!committed) session.vault.lastSeq = durableBeforeMessage;
           if (!this.isRuntimeActive(epoch, session)) return;
           this.operationalError(cause);
           break;

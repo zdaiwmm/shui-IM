@@ -1,5 +1,11 @@
 # Security model
 
+## Receive commit and duplicate-control repair (2026-11-07)
+
+An MLS receive commits its vault/ratchet, accepted cursor, authenticated history, receipt, own-device outbox retirement and local link-video shared flag in one IndexedDB transaction. Memory installs only on transaction completion; presentation failures cannot rewind durable receive progress. Exact authenticated local replays do not append duplicate controls or rewind the ratchet; conflicting history is rejected.
+
+After local unlock and before window rotation, duplicate control sequences may be removed only when this identity's complete, contiguous, authenticated current-window history proves the exact resulting control set. Missing, corrupted, foreign, contradictory, unordered or out-of-window records remain fail-closed. The repair uses the existing vault lease, CAS and runtime cancellation, without changing identity, protocol, keys, history or database version. See [remediation A](docs/requirements/2026-11-07-audit-remediation/README.md).
+
 ## Local archive checkpoint isolation (2026-11-06)
 
 Pending archive ciphertext is stored as a separate AES-GCM local record under the existing vault master key and local-record AAD, with immutable vault-slot/data-scope identity. The encrypted vault holds only its object ID and hash. Publishing or retiring the checkpoint and vault state is one compare-and-swap IndexedDB transaction; failed writes do not advance memory or durable progress. Missing, substituted or corrupt objects fail closed, preserving the original upload identity. Database version 18 fences older clients; legacy inline checkpoints remain readable and compact once. Portable recovery and repaired slots materialize the same sealed object before crossing local reference lifetimes.
