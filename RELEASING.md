@@ -4,6 +4,15 @@
 
 跨设备操作见[GitHub 双站发布与独立回读](docs/requirements/2026-11-09-cross-device-release/README.md)。
 
+## mijiu.cloud 已切换到家庭服务器（2026-11-09）
+<a id="release-home-frp-20261109"></a>
+
+北京时间 20:55:58，东京 Nginx 将 mijiu.cloud 转到专用 FRP 后的家庭 Ubuntu。家庭端以独立 Compose 项目和空库启用应用及备份。应用沿用东京已上线的 `2d90066527fc8967237901d9988206a7dd80fa15`（2026.11.06.4），运行镜像的配置摘要与原 [CI](https://github.com/zdaiwmm/shui-IM/actions/runs/42304406923) 一致。迁移工具来自 [PR #520](https://github.com/zdaiwmm/shui-IM/pull/520)，合并提交为 `81d21ee4e5d89e01f968bd4d39098c79370aed07`。
+
+固定发布入口对 `home-frp` 返回 DEPLOY_VERIFIED。20:56:24 独立回读取得 READBACK_OK，核对了应用版本、容器健康、HTTPS、数据库与存储、公开前端资源摘要和新建 WebSocket。两个网络上的测试端经东京 TURN 双向收发通过。实体手机摄像头和麦克风通话、24 小时连续运行均未验收。
+
+东京保留域名入口、证书续期、TURN、Xray 和 FRP。旧应用与备份进程已停止，旧数据保留在东京。该站后续发布目标为 `home-frp`。家庭端首份备份已完成异机校验。切换后 Lead 六个相关服务的进程及重启计数与切换前一致，公网入口正常。家庭宿主重启后需从保管恢复密钥的 Mac 解锁专用加密卷；家庭公网出口地址变更时需更新东京入口的来源白名单。
+
 ## 四项审计整改：两个环境已发布并独立回读（2026-11-07）
 <a id="release-audit-remediation-20261107"></a>
 

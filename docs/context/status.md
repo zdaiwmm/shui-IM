@@ -1,6 +1,10 @@
 # Quiet Room 当前状态
 
-## 当前生产：四项审计整改已发布至两个环境（2026-11-07）
+## 当前生产：mijiu.cloud 已迁至家庭服务器（2026-11-09）
+
+mijiu.cloud 从东京经独立 FRP 接入家庭服务器，家庭端从空库开始运行应用和备份。固定发布与独立公网回读均通过，当前应用为 `2d90066527fc8967237901d9988206a7dd80fa15`（2026.11.06.4）。东京继续承接 HTTPS 和 TURN，旧应用已停。此次迁移范围仅含 mijiu.cloud。主站 ai.shui.click 最近一次发布见 11 月 7 日记录。[迁移结果及恢复条件](../../RELEASING.md#release-home-frp-20261109)
+
+## 历史生产：四项审计整改已发布至两个环境（2026-11-07）
 
 主站ai.shui.click和东京mijiu.cloud均运行 `2d90066527fc8967237901d9988206a7dd80fa15`／`2026.11.06.4`。用户精确确认后，各一次成功切换、取得DEPLOY_VERIFIED，并于北京时间06:52:39／07:03:31独立READBACK_OK。两站应用与备份running／healthy、维护门移除，SHA／镜像、HTTPS／数据库／存储、公开资源及新WebSocket全部通过；TURN运行但无健康探针。详见[双环境发布记录](../../RELEASING.md#release-audit-remediation-20261107)。文档main后续前进不改变线上应用SHA。
 
