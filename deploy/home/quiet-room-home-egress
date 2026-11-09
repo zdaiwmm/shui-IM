@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Dedicated interface only. Replies from the application to its reverse proxy
+# remain valid; new connections to the host and internal networks are blocked.
+bridge=br-qr-home
+ensure() {
+  local chain=$1; shift
+  if ! iptables -w 5 -C "$chain" "$@" 2>/dev/null; then
+    iptables -w 5 -I "$chain" 1 "$@"
+  fi
+}
+iptables -w 5 -S DOCKER-USER >/dev/null
+ensure INPUT -i "$bridge" -m conntrack --ctstate NEW -j REJECT
+for net in 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16; do
+  ensure DOCKER-USER -i "$bridge" -d "$net" -m conntrack --ctstate NEW -j REJECT
+done

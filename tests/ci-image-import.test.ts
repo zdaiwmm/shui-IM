@@ -6,11 +6,16 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('server CI image import before cutover', () => {
-  it.each(['valid', 'bad-checksum', 'wrong-revision', 'wrong-platform', 'wrong-image'])('verifies the streamed image without constructing it (%s)', mode => {
+  it.each(['valid', 'bad-checksum', 'wrong-revision', 'wrong-platform', 'wrong-image', 'home-manifest', 'home-wrong-config', 'home-forged-manifest'])('verifies the streamed image without constructing it (%s)', mode => {
     const directory = mkdtempSync(path.join(tmpdir(), 'quiet-image-import-'));
     const sha = 'a'.repeat(40); const imageId = `sha256:${'b'.repeat(64)}`;
     const payload = Buffer.from('synthetic image transfer');
+    const manifest = JSON.stringify({ schemaVersion: 2, layers: [], config: {
+      digest: mode === 'home-wrong-config' ? `sha256:${'d'.repeat(64)}` : imageId,
+    } });
+    const descriptor = `sha256:${createHash('sha256').update(manifest).digest('hex')}`;
     try {
+      writeFileSync(path.join(directory, 'ctr'), '#!/bin/sh\nprintf %s "$FIX_MANIFEST"\n', { mode: 0o755 });
       writeFileSync(path.join(directory, 'docker'), `#!/usr/bin/env python3
 import os,sys
 a=sys.argv[1:]
@@ -31,12 +36,14 @@ else: sys.exit(3)
         input: payload, encoding: 'utf8', env: { ...process.env, PATH: `${directory}:${process.env.PATH}`,
           REQUESTED_SHA: sha, REQUESTED_IMAGE_ID: imageId,
           REQUESTED_ARCHIVE_SHA: mode === 'bad-checksum' ? '0'.repeat(64) : createHash('sha256').update(payload).digest('hex'),
-          FIX_IMAGE: mode === 'wrong-image' ? `sha256:${'c'.repeat(64)}` : imageId,
+          home_shared: mode.startsWith('home-') ? '1' : '0',
+          FIX_MANIFEST: mode === 'home-forged-manifest' ? manifest + ' ' : manifest,
+          FIX_IMAGE: mode.startsWith('home-') ? descriptor : mode === 'wrong-image' ? `sha256:${'c'.repeat(64)}` : imageId,
           FIX_REVISION: mode === 'wrong-revision' ? 'c'.repeat(40) : sha,
           FIX_PLATFORM: mode === 'wrong-platform' ? 'linux/arm64' : 'linux/amd64',
         },
       });
-      if (mode === 'valid') expect(result.status, result.stderr).toBe(0);
+      if (mode === 'valid' || mode === 'home-manifest') expect(result.status, result.stderr).toBe(0);
       else expect(result.status).not.toBe(0);
     } finally { rmSync(directory, { recursive: true, force: true }); }
   });

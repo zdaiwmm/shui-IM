@@ -1,0 +1,15 @@
+[Unit]
+Description=Quiet Room private maintenance and application gateway
+After=network.target
+[Service]
+DynamicUser=yes
+RuntimeDirectory=quiet-room-home-gateway
+ExecStart=/usr/local/lib/quiet-room-gateway/nginx -p /run/quiet-room-home-gateway/ -c /etc/quiet-room/gateway.conf
+Restart=on-failure
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=yes
+MemoryMax=128M
+[Install]
+WantedBy=multi-user.target

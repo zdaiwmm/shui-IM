@@ -1,0 +1,35 @@
+# Install root-owned on the shared home host. It is used for both cutover and rollback.
+services:
+  quiet-room:
+    cpus: 1.5
+    environment:
+      TRUSTED_PROXY_ADDRESSES: 127.0.0.1,::1,172.29.81.1
+      CALL_STUN_URLS: ${CALL_STUN_URLS:?Tokyo STUN URLs required}
+      TURN_URLS: ${TURN_URLS:?Tokyo TURN URLs required}
+      TURN_SECRET: ${TURN_SECRET:?Tokyo TURN credential required}
+      CALL_RELAY_ONLY: ${CALL_RELAY_ONLY:-false}
+  quiet-room-backup:
+    cpus: 0.5
+volumes:
+  quiet-room-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/quiet-room/persistent/data
+  quiet-room-admin-status:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /opt/quiet-room/persistent/admin-status
+
+networks:
+  default:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br-qr-home
+    ipam:
+      config:
+        - subnet: 172.29.81.0/28
+          gateway: 172.29.81.1

@@ -169,6 +169,23 @@ for required in docker git runuser curl tar flock stat python3; do
   }
 done
 
+home_overlay=/etc/quiet-room/compose.home.yaml
+home_shared=0
+if [[ -f /etc/quiet-room/deployment.json ]] && python3 -c 'import json; raise SystemExit(0 if json.load(open("/etc/quiet-room/deployment.json")).get("sharedHome") is True else 1)'; then
+  home_shared=1
+  if [[ "$PUBLIC_HOST" != mijiu.cloud || -L "$home_overlay" || ! -f "$home_overlay" ||
+        "$(stat -c '%u:%a' /etc/quiet-room)" != '0:755' ||
+        "$(stat -c '%u:%a' "$home_overlay")" != '0:644' ||
+        "$(findmnt --mountpoint "$APP_ROOT" -n -o SOURCE)" != /dev/mapper/quiet_room_home ||
+        -e "$CALLS_ENV" || -e /usr/local/sbin/quiet-room-storage-maintenance ]]; then
+    printf 'Shared home deployment requires the isolated mount, reviewed overlay and external TURN.\n' >&2
+    exit 66
+  fi
+elif [[ -e "$home_overlay" || -L "$home_overlay" ]]; then
+  printf 'Shared home overlay found without explicit sharedHome identity.\n' >&2
+  exit 66
+fi
+
 if (( INITIALIZE )); then check_initialization; fi
 
 [[ -d "$REPOSITORY" ]] || {
@@ -273,6 +290,20 @@ case "$(uname -m)" in
   aarch64|arm64) expected_platform=linux/arm64;;
   *) printf 'Unsupported host architecture.\n' >&2; exit 64;;
 esac
+# Docker's containerd store identifies an imported single-platform manifest
+# by its manifest digest. Bind that exact content to its CI configuration.
+if (( home_shared )) && [[ "$actual_image_id" != "$REQUESTED_IMAGE_ID" ]]; then
+  actual_image_id="$(ctr --namespace moby content get "$actual_image_id" | python3 -c '
+import hashlib, json, sys
+raw = sys.stdin.buffer.read(1024 * 1024 + 1)
+if len(raw) > 1024 * 1024 or "sha256:" + hashlib.sha256(raw).hexdigest() != sys.argv[1]:
+    raise ValueError("Invalid immutable image manifest")
+manifest = json.loads(raw)
+if manifest.get("schemaVersion") != 2 or not isinstance(manifest.get("layers"), list):
+    raise ValueError("Expected a single image manifest")
+print(manifest["config"]["digest"])
+' "$actual_image_id")"
+fi
 if [[ "$actual_image_id" != "$REQUESTED_IMAGE_ID" || "$actual_revision" != "$REQUESTED_SHA" || "$actual_platform" != "$expected_platform" ]]; then
   printf 'Imported CI image does not match the approved commit, image ID or host architecture.\n' >&2
   exit 65
@@ -291,6 +322,10 @@ fi
 # transient local --profile flag. Never source a credentials file as shell code.
 new_compose_args=(--project-name "$PROJECT" --env-file "$SHARED_ENV" --file "$release_dir/compose.yaml")
 previous_compose_args=(--project-name "$PROJECT" --env-file "$SHARED_ENV" --file "$previous_compose")
+if (( ${home_shared:-0} )); then
+  new_compose_args+=(--file "$home_overlay")
+  previous_compose_args+=(--file "$home_overlay")
+fi
 calls_enabled=0
 previous_calls_enabled=0
 existing_turn="$(docker ps --all --quiet --filter "label=com.docker.compose.project=$PROJECT" --filter 'label=com.docker.compose.service=quiet-room-turn')"
