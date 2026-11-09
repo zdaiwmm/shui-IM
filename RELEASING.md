@@ -2,6 +2,8 @@
 
 发布准备先按[上线复用合并结果](docs/workflows/publish-efficiency.md#上线复用合并结果)核对生产到候选的累计差异、精确 main CI 与同轮镜像。记录全量或专项结论，匹配时直接复用；每个环境仍须预检及独立回读。
 
+跨设备操作见[GitHub 双站发布与独立回读](docs/requirements/2026-11-09-cross-device-release/README.md)。
+
 ## 四项审计整改：两个环境已发布并独立回读（2026-11-07）
 <a id="release-audit-remediation-20261107"></a>
 

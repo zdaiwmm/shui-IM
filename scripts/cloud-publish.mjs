@@ -49,19 +49,19 @@ export function cloudAPI(action, parameters, run = command) {
   // Pass the CLI region explicitly: RegionId alone does not initialize credentials.
   return JSON.parse(run('aliyun', ['swas-open', action, '--region', production.region, '--endpoint', `swas.${production.region}.aliyuncs.com`, '--method', 'POST', '--secure', '--retry-count', '0', '--connect-timeout', '10', '--read-timeout', '30', '--force', ...args]));
 }
-async function invoke(script, label, receipt, run = command) {
+export async function invoke(script, label, receipt, run = command, persist = saveReceipt) {
   receipt.status = `submitting-${label}`;
-  saveReceipt(receipt);
+  persist(receipt);
   const result = cloudAPI('RunCommand', { InstanceId: production.instance, Name: `quiet-room-${label}`, Type: 'RunShellScript', WorkingUser: 'admin', WorkingDir: '/tmp', Timeout: 3600, EnableParameter: false, CommandContent: script }, run);
   if (!/^t-[a-zA-Z0-9-]+$/.test(result.InvokeId ?? '')) throw new Error('PRODUCTION_STATE_UNRESOLVED missing invocation ID');
   receipt.invocations.push({ label, id: result.InvokeId, status: 'submitted' });
-  saveReceipt(receipt);
+  persist(receipt);
   for (let count = 0; count < 240; count++) {
     await new Promise(resolve => setTimeout(resolve, 5000));
     const output = invocationResult(cloudAPI('DescribeInvocationResult', { InstanceId: production.instance, InvokeId: result.InvokeId }, run), result.InvokeId);
     if (output !== null) {
       receipt.invocations.at(-1).status = 'success';
-      saveReceipt(receipt);
+      persist(receipt);
       return output;
     }
   }
