@@ -1,0 +1,10 @@
+[Unit]
+Description=Restrict new connections from Quiet Room to shared-host networks
+After=docker.service
+PartOf=docker.service
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/quiet-room-home-egress
+[Install]
+WantedBy=docker.service
