@@ -34,7 +34,9 @@ jobs:
       matrix:
         site: ${{ fromJSON(inputs.target == 'both' && '["production","tokyo-public"]' || format('["{0}"]', inputs.target)) }}
     environment: production
-    runs-on: ubuntu-latest
+    # Tokyo's firewall admits a fixed maintenance source. Configure an ephemeral
+    # GitHub runner with approved egress before selecting Tokyo.
+    runs-on: ${{ matrix.site == 'tokyo-public' && vars.TOKYO_RELEASE_RUNNER || 'ubuntu-latest' }}
     timeout-minutes: 65
     env:
       APPROVED_SHA: ${{ inputs.sha }}
@@ -46,10 +48,17 @@ jobs:
       - name: Validate request
         env:
           TARGET: ${{ matrix.site }}
+          TOKYO_RUNNER: ${{ vars.TOKYO_RELEASE_RUNNER }}
+          TARGET_SELECTION: ${{ inputs.target }}
+          TOKYO_ROLE: ${{ vars.TOKYO_LIGHTSAIL_ROLE_ARN }}
         run: |
           [[ "$APPROVED_SHA" =~ ^[a-f0-9]{40}$ ]]
           [[ "$TARGET" == production || "$TARGET" == tokyo-public ]]
           [[ "$PUBLISH_MODE" =~ ^(doctor|readback|deploy)$ ]]
+          if [[ "$TARGET_SELECTION" != production && ( -z "$TOKYO_RUNNER" || -z "$TOKYO_ROLE" ) ]]; then
+            echo "Tokyo requires an approved fixed-egress runner and Lightsail role." >&2
+            exit 1
+          fi
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
