@@ -31,6 +31,7 @@ describe('frozen cloud candidates', () => {
     const runs = [1, 2, 3, 4, 5].map(id => ({ ...base, id, display_title: `Publish ${String(id).repeat(40)} (request-${id})`, status: id === 1 ? 'queued' : 'completed', conclusion: 'success' }));
     expect(protectedPublishShas(runs)).toEqual(['1'.repeat(40), '5'.repeat(40), '4'.repeat(40), '3'.repeat(40)]);
     expect(() => protectedPublishShas([{ ...base, display_title: 'unknown' }])).toThrow();
+    expect(protectedPublishShas([{ ...base, path: '.github/workflows/release-sites.yml', display_title: `deploy ${'a'.repeat(40)} on both`, status: 'queued' }])).toEqual(['a'.repeat(40)]);
     const sha = '1'.repeat(40);
     const artifact = { id: 1, name: `quiet-room-image-${sha}-1-amd64`, expired: false, workflow_run: { id: 1, head_sha: sha } };
     const run = { id: 1, path: '.github/workflows/ci.yml', event: 'push', head_branch: 'main', head_sha: sha, status: 'completed', conclusion: 'success' };

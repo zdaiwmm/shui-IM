@@ -31,8 +31,9 @@ export function protectedPublishShas(runs) {
   if (!Array.isArray(runs)) throw new Error('Publish candidate listing unavailable; no artifacts deleted');
   const active = new Set(), recent = new Set();
   for (const run of [...runs].sort((a, b) => b.id - a.id)) {
-    if (run.path !== '.github/workflows/publish.yml' || run.event !== 'workflow_dispatch' || run.head_branch !== 'main') continue;
-    const sha = /^Publish ([a-f0-9]{40}) \(/.exec(run.display_title ?? '')?.[1];
+    if (!['.github/workflows/publish.yml', '.github/workflows/release-sites.yml'].includes(run.path) || run.event !== 'workflow_dispatch' || run.head_branch !== 'main') continue;
+    const pattern = run.path.endsWith('/release-sites.yml') ? /^(?:deploy|doctor|readback) ([a-f0-9]{40}) on (?:production|tokyo-public|both)$/ : /^Publish ([a-f0-9]{40}) \(/;
+    const sha = pattern.exec(run.display_title ?? '')?.[1];
     if (!sha) throw new Error('Unknown publish candidate identity; no artifacts deleted');
     if (run.status !== 'completed') active.add(sha);
     else if (run.conclusion === 'success' && recent.size < 3) recent.add(sha);
@@ -66,12 +67,14 @@ if (isMainModule(import.meta.url)) {
   // Protect queued/active batches and recent successful doctor/deploy candidates
   // even while unrelated main builds advance. GitHub's seven-day expiry remains.
   const publishRuns = [];
-  for (let page = 1; ; page++) {
-    if (page > 100) throw new Error('Publish listing exceeded bound; no artifacts deleted');
-    const batch = await api(`actions/workflows/publish.yml/runs?event=workflow_dispatch&per_page=100&page=${page}`);
-    if (!Array.isArray(batch.workflow_runs)) throw new Error('Publish listing unavailable; no artifacts deleted');
-    publishRuns.push(...batch.workflow_runs);
-    if (batch.workflow_runs.length < 100) break;
+  for (const workflow of ['publish.yml', 'release-sites.yml']) {
+    for (let page = 1; ; page++) {
+      if (page > 100) throw new Error('Publish listing exceeded bound; no artifacts deleted');
+      const batch = await api(`actions/workflows/${workflow}/runs?event=workflow_dispatch&per_page=100&page=${page}`);
+      if (!Array.isArray(batch.workflow_runs)) throw new Error('Publish listing unavailable; no artifacts deleted');
+      publishRuns.push(...batch.workflow_runs);
+      if (batch.workflow_runs.length < 100) break;
+    }
   }
   const ids = imageRetentionPlan(artifacts, runs, Number(process.env.GITHUB_RUN_ID), process.env.GITHUB_SHA,
     Date.now(), protectedPublishShas(publishRuns));

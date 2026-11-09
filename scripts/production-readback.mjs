@@ -187,13 +187,19 @@ async function probeWebSocket(origin = 'https://ai.shui.click') {
 }
 
 function defaultOperations(config) {
-  const origin = publicOrigin(config);
   const common = sshArgs(config, ['sudo', '-n', '/bin/sh', '-s', '--']);
+  return readbackOperations(publicOrigin(config), (probe, args, phase) => {
+    const result = spawn('ssh', [...common, ...args], { input: probe, timeout: 30000 });
+    return checked(result, 'server-inspection', phase, 'Could not inspect production');
+  });
+}
+
+export function readbackOperations(origin, inspect) {
   return {
-    inspectState(expectedSha) {
-      const result = spawn('ssh', [...common, expectedSha], { input: stateProbe, timeout: 30000 });
+    async inspectState(expectedSha) {
+      const output = await inspect(stateProbe, [expectedSha], 'server-state');
       const keys = ['currentSha', 'publicOrigin', 'deployedAt', 'release', 'maintenance', 'adminEnabled', 'callsEnabled', 'targetImageId', 'appRunning', 'appHealth', 'appImageId', 'appImageRef', 'backupRunning', 'backupHealth', 'backupImageId', 'backupImageRef', 'turnRunning', 'turnHealth'];
-      return parsePairs(checked(result, 'server-inspection', 'server-state', 'Could not inspect production state'), keys, 'server-state', 'server-inspection');
+      return parsePairs(output, keys, 'server-state', 'server-inspection');
     },
     async inspectHealth() {
       const health = JSON.parse(new TextDecoder().decode(await fetchBytes('/api/health', origin)));
@@ -207,10 +213,9 @@ function defaultOperations(config) {
       for (const publicPath of paths) hashes[publicPath] = digest(await fetchBytes(publicPath, origin));
       return hashes;
     },
-    inspectContainerArtifacts(publicHashes) {
+    async inspectContainerArtifacts(publicHashes) {
       const paths = Object.keys(publicHashes);
-      const result = spawn('ssh', [...common, ...paths], { input: artifactProbe, timeout: 30000 });
-      const output = checked(result, 'server-inspection', 'container-artifacts', 'Could not hash running container artifacts');
+      const output = await inspect(artifactProbe, paths, 'container-artifacts');
       const containerHashes = parsePairs(output, paths, 'container-artifacts', 'public-artifact');
       for (const publicPath of paths) {
         if (!/^[0-9a-f]{64}$/.test(containerHashes[publicPath]) || containerHashes[publicPath] !== publicHashes[publicPath]) {

@@ -18,7 +18,7 @@ export const lightweightDocs = Object.freeze([
 ]);
 export const deliveryScripts = Object.freeze([
   'scripts/publish.mjs', 'scripts/cloud-dispatch.mjs', 'scripts/cloud-publish.mjs',
-  'scripts/server-image-stream.py', 'scripts/release.mjs', 'scripts/release-ci.mjs',
+  'scripts/cloud-readback.mjs', 'scripts/lightsail-session.py', 'scripts/server-image-stream.py', 'scripts/release.mjs', 'scripts/release-ci.mjs',
   'scripts/release-runtime.mjs', 'scripts/ci-image.mjs', 'scripts/ci-image-retention.mjs',
   'scripts/ci-image-cache.mjs', 'scripts/delivery-evidence.mjs',
   'scripts/deploy-config.mjs', 'scripts/deploy-setup.mjs', 'scripts/deploy-production.sh',
@@ -39,7 +39,7 @@ export function isOperationalDocument(file) {
   return docPaths.has(file) || /^docs\/requirements\/\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\/README\.md$/.test(file);
 }
 const deliveryPaths = new Set([...deliveryScripts, ...deliveryTests,
-  'tests/server-image-stream.test.py', '.github/workflows/ci.yml', '.github/workflows/publish.yml']);
+  'tests/server-image-stream.test.py', '.github/workflows/ci.yml', '.github/workflows/publish.yml', '.github/workflows/release-sites.yml']);
 const root = fileURLToPath(new URL('../', import.meta.url));
 const validSha = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value) && !/^0+$/.test(value);
 const complete = reason => ({ mode: 'full', reason });
