@@ -128,7 +128,9 @@ export function currentNoticeRail(root: HTMLElement): HTMLElement {
   const surface = page ?? root;
   const chat = surface.matches('.chat-shell') ? surface.querySelector<HTMLElement>('.system-notices') : null;
   if (chat) return mountNoticeRail(root,chat);
-  const header = [...surface.querySelectorAll<HTMLElement>('header, .recovery-flow-nav')].find(node =>
+  // Form prompts and sheet section headings are content, even when marked up as headers.
+  const navigation = '.subpage-header,.chat-header,.space-drawer-header,.space-profile-header,.reader-header,.viewer-header,.recovery-flow-nav';
+  const header = [...surface.querySelectorAll<HTMLElement>(navigation)].find(node =>
     !node.closest('[inert],.is-closing,.local-page-outgoing') && node.getClientRects().length > 0);
   const parent = header ?? surface;
   let rail = parent.querySelector<HTMLElement>(':scope > .page-notice-rail');
