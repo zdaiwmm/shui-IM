@@ -118,8 +118,9 @@ try {
     text: element.textContent.replace(/\s+/g, ' ').trim(),
     buttonHeight: element.querySelector('button').getBoundingClientRect().height,
     buttonWidth: element.querySelector('button').getBoundingClientRect().width,
+    slotWidth: element.closest('.notice-rail').getBoundingClientRect().width,
   }));
-  if (layout.text !== '有新版本 更新' || Math.abs(layout.buttonHeight - 44) > .01 || layout.buttonWidth < 44 || layout.buttonWidth > 64) throw new Error(`Update banner is incomplete: ${JSON.stringify(layout)}`);
+  if (layout.text !== '有新版本 更新' || Math.abs(layout.buttonHeight - 44) > .01 || layout.buttonWidth < 44 || Math.abs(layout.buttonWidth - layout.slotWidth) > 1) throw new Error(`Update banner is incomplete: ${JSON.stringify(layout)}`);
   if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`);
   await page.evaluate(async () => {
     const { mountPortraitOrientation } = await import('/src/lib/portrait-orientation.ts');

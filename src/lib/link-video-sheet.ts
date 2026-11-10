@@ -135,6 +135,7 @@ export function openLinkVideoSheet(opts: Options) {
   const badge = button('', show, 'link-video-resume');
   const banner = el('aside');
   banner.className = 'link-video-banner';
+  banner.dataset.noticePriority = '55';
   banner.append(badge);
   let resumable = false;
   let mounted = false;

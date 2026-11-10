@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { verifyChamberNoticeRail, verifyGradientEndpoints } from './helpers/chat-notice-rail.mjs';
 import {fillFormInput} from './helpers/form-input.mjs';
 import {mkdtemp,rm,mkdir,writeFile} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -22,6 +23,8 @@ try {
  const original=await page.evaluate(()=>({token:app.session.vault.inviteToken,createdAt:app.session.vault.createdAt}));
  await page.locator('#copy-invite').click();await page.locator('.app-toast').waitFor();const first=await page.evaluate(()=>navigator.clipboard.readText());
  await page.locator('.app-toast').waitFor({state:'hidden',timeout:2300});await page.locator('#copy-invite').click();await page.locator('.app-toast').waitFor();assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),first);
+ await verifyChamberNoticeRail(page);
+ await verifyGradientEndpoints(page);
  assert.deepEqual(await page.evaluate(()=>({token:app.session.vault.inviteToken,createdAt:app.session.vault.createdAt})),original);
  await page.reload();await page.locator('#copy-invite').click();await page.locator('.app-toast').waitFor();assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),first,'Repeated copy and reload keep the same link');
  const rails=await page.evaluate(()=>{const b=document.querySelector('#chat-settings').getBoundingClientRect(),card=document.querySelector('.chamber-invite-hero').getBoundingClientRect();return {above:b.top,below:card.top-b.bottom};});assert.ok(Math.abs(rails.above-rails.below)<=2,JSON.stringify(rails));

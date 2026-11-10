@@ -1,3 +1,5 @@
+聊天顶部短反馈与可操作提醒由 src/lib/notice-rail.ts 和 src/notice-rail.css 统一呈现，暗色消息渐变沿视口向两端延伸。[确认与流程](../requirements/2026-11-10-chat-notice-rail/README.md)
+
 聊天首条未读使用已解锁设备的未读位置查询及本机可读投影。未读边界、分页及交互样例见[需求记录](../requirements/2026-11-03-chat-entry-first-unread/README.md)。
 
 多设备同步性能V2：`app.ts`按认证边界复用有界密文、补收期间让自动备份等待；`vault.ts`/`archive-checkpoint.ts`以原子事务将大待传对象独立加密，DB18及可移植恢复兼容；`room-archive.ts`复用单轮历史页。`tests/helpers/sync-performance.mjs`由old-device-catchup入口覆盖三设备负载，archive-checkpoint helper由room-archive-lifecycle覆盖中止／篡改／恢复／清理。[确认和分层证据](../requirements/2026-11-06-chat-sync-performance/README.md)。

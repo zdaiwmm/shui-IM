@@ -1,3 +1,5 @@
+import { currentNoticeRail } from './notice-rail';
+import { mountDialog } from './dialog';
 import stages from './fault-stages.json';
 import { currentRelease } from './release-update';
 import { t } from './language';
@@ -38,8 +40,21 @@ export async function reportFault(fault: FaultReport, signal: AbortSignal) {
   } catch { /* The user can copy local diagnostics or retry this same event. */ }
 }
 
-export function showFaultPanel(fault: FaultReport, signal: AbortSignal, feedback: (()=>void) | undefined) {
-  const panel = document.createElement('aside'); panel.className='fault-notice'; panel.dataset.faultId=fault.id;
+export function showFaultPanel(root: HTMLElement, fault: FaultReport, signal: AbortSignal, feedback: (()=>void) | undefined) {
+  const entry = document.createElement('aside');
+  entry.dataset.noticePriority = '85';
+  const open = document.createElement('button'); open.type = 'button'; open.textContent = t('故障详情');
+  entry.append(open); currentNoticeRail(root).append(entry);
+  const sheet = document.createElement('section'); sheet.className = 'confirm-overlay fault-detail-sheet';
+  sheet.setAttribute('role','dialog'); sheet.setAttribute('aria-modal','true'); sheet.setAttribute('aria-label',open.textContent);
+  const panel = document.createElement('div'); panel.className = 'confirm-dialog fault-notice'; panel.dataset.faultId=fault.id;
+  sheet.append(panel);
+  let dialog: ReturnType<typeof mountDialog> | undefined;
+  open.addEventListener('click', () => {
+    if (sheet.isConnected || !entry.isConnected) return;
+    root.append(sheet);
+    dialog = mountDialog(sheet,{signal,isActive:() => entry.isConnected, returnFocus:open, presentation:'sheet'});
+  });
   const status=document.createElement('div');status.setAttribute('role','status');
   const code=document.createElement('code');code.textContent=fault.id;
   const controls=document.createElement('div');
@@ -51,12 +66,12 @@ export function showFaultPanel(fault: FaultReport, signal: AbortSignal, feedback
     try{await navigator.clipboard.writeText(value);if(!signal.aborted)copy.textContent=t('已复制');}
     catch{if(!signal.aborted)code.textContent=value;}
   });
-  if(feedback)button('用户反馈',feedback);
+  if(feedback)button('用户反馈',()=>{dialog?.close({animate:false});feedback();});
   const retry=button('重试上报',()=>void submit());
-  button('关闭',()=>panel.remove());
+  button('关闭',()=>{dialog?.close({animate:false});entry.remove();});
   const paint=()=>{status.textContent=t(fault.recorded?'服务器已记录':'尚未上报');copy.textContent=t(fault.recorded?'复制故障编号':'复制本地诊断');retry.hidden=fault.recorded;};
   const submit=async()=>{retry.disabled=true;await reportFault(fault,signal);if(!signal.aborted){paint();retry.disabled=false;}};
-  panel.append(status,code,controls);document.body.append(panel);paint();
+  panel.append(status,code,controls);paint();
   if(!fault.recorded)void submit();
-  return panel;
+  return entry;
 }
