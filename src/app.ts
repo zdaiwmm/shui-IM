@@ -8328,7 +8328,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   private releaseUpdateBannerMarkup(): string {
     return this.availableReleaseId ? uiTemplate`
       <aside class="release-update-reminder" data-notice-priority="50" role="status">
-        <button type="button" data-release-update><strong>有新版本</strong> <span>更新</span>${createElement(ArrowUpFromLine).outerHTML}</button>
+        <button type="button" data-release-update aria-label="更新"><strong>有新版本</strong> <span>更新</span>${createElement(ArrowUpFromLine).outerHTML}</button>
       </aside>
     ` : '';
   }

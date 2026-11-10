@@ -5,7 +5,15 @@
 #app .chat-header:has(.notice-rail) > .spaces-entry { order:-1; flex:none; }
 #app .chat-header:has(.notice-rail) > .chat-settings-entry { flex:0 0 44px; }
 #app .chat-header:not(.chamber-chat-header):has(.notice-rail) > .peer-summary {
-  flex-shrink:0; max-width:min(35vw,188px);
+  flex-shrink:0; max-width:min(188px,calc(100% - 168px));
+}
+@media (max-width:360px) {
+  /* Legacy rooms also have a 44px room switcher on the leading edge. */
+  #app .chat-shell > .chat-header:not(.chamber-chat-header):has(> .notice-rail) { gap:2px; }
+  #app .chat-header:not(.chamber-chat-header) > .system-notices.notice-rail { margin-inline:0; }
+  #app .chat-header:not(.chamber-chat-header):has(.notice-rail) > .peer-summary {
+    max-width:min(188px,calc(100% - 138px)); padding-inline:4px;
+  }
 }
 #app .chat-header > .system-notices.notice-rail, #app .page-notice-rail {
   display:block; position:relative; inset:auto; min-width:0; height:44px; min-height:44px;

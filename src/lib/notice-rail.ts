@@ -141,7 +141,11 @@ export function currentNoticeRail(root: HTMLElement): HTMLElement {
     parent.append(rail);
     if (header) {
       const slot = rail;
-      new ResizeObserver(() => alignPageRail(header,slot)).observe(header);
+      const observer = new ResizeObserver(() => {
+        if (!slot.isConnected) { observer.disconnect(); return; }
+        alignPageRail(header,slot);
+      });
+      observer.observe(header);
     }
   }
   if (header) {
