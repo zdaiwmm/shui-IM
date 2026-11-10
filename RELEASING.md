@@ -4,6 +4,15 @@
 
 跨设备操作见[GitHub 双站发布与独立回读](docs/requirements/2026-11-09-cross-device-release/README.md)。
 
+## 聊天顶栏 A 方案发布（2026-11-10）
+<a id="release-chat-notice-rail-20261110"></a>
+
+本次双站批准提交为 `39a01b2f7d901960828c9e5db11fd975cc1f2779`，应用版本 `2026.11.10.1`。聊天顶栏提示和深色气泡渐变来自 [PR #522](https://github.com/zdaiwmm/shui-IM/pull/522)。[精确主线 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/42756348651) 第一次运行通过完整应用验证，两站选用同轮 linux/amd64 镜像。版本包含家庭 Compose 和跨设备发布工具合并后的主线历史。
+
+主站 `production`（ai.shui.click）从 `2d90066527fc8967237901d9988206a7dd80fa15` 更新到获批提交。固定入口取得 DEPLOY_VERIFIED，批次 20261110T045620Z。北京时间 13:01:36 独立 READBACK_OK，核对应用及备份容器 healthy、维护门已解除、HTTPS 健康、前端资源和新建 WebSocket。发布耗时 534050ms，独立回读 14137ms，应用镜像 ID 为 `sha256:efd12ca27fc2cced9407cea23da50f94b7325b311fec13d2d8b56ffe8aa2afc2`。
+
+家庭环境 `home-frp`（mijiu.cloud）通过独立 SSH 发布身份完成本批预检，并复用主站已校验的 amd64 镜像。固定入口执行远端更新命令时 SSH 返回 64，未取得 DEPLOY_VERIFIED。随后独立读取到应用仍为 `2d90066527fc8967237901d9988206a7dd80fa15`／`2026.11.06.4`，应用和备份 healthy，维护门未开启。发布前及失败后的公网健康检查均为 HTTP 502，未取得 READBACK_OK；东京公网入口的家庭上游没有监听。该站仍待修复更新命令和验证公网链路后接续，具体拒绝原因尚未核实。物理手机体验未验收。
+
 ## mijiu.cloud 已切换到家庭服务器（2026-11-09）
 <a id="release-home-frp-20261109"></a>
 
