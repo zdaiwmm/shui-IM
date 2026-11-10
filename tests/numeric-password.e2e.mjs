@@ -67,6 +67,7 @@ try {
   assert.equal(await page.evaluate(() => numericCalls), 0);
   await digit('5'); assert.equal(await page.locator('h2').last().textContent(), '确认应用锁');
   await digit('012346'); assert.match(await page.locator('.app-toast[data-tone=error]').textContent(), /不一致/);await page.clock.runFor(400);
+  assert.equal(await page.locator('.numeric-password-prompt .notice-rail').count(),0,'A password prompt must remain visible while feedback uses the page top');
   assert.equal(await page.locator('.numeric-password-dots .filled').count(), 0);
   assert.equal(await page.evaluate(() => numericCalls), 0);
   await submitPassword(page, '012345'); await page.waitForFunction(() => numericProof === 'verified');

@@ -73,6 +73,7 @@ try {
     await page.route('**/api/faults',route=>offline?route.abort('internetdisconnected'):route.continue());
     for(const stage of ['chat.preferences','send.outbox','upload.read','upload.write']){
       await page.evaluate(step=>window.failStep(step),stage);
+      await page.getByRole('button',{name:'故障详情',exact:true}).click();
       const panel=page.locator('.fault-notice');
       if(offline){
         await panel.getByText('尚未上报',{exact:true}).waitFor();

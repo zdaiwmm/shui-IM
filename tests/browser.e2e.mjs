@@ -389,6 +389,7 @@ try {
   ]);
   const presenceLayout = await creator.evaluate(() => {
     const header = document.querySelector('.chat-header').getBoundingClientRect();
+    const rail = document.querySelector('.chat-header > .notice-rail').getBoundingClientRect();
     const self = document.querySelector('#self-presence').getBoundingClientRect();
     const peer = document.querySelector('#peer-presence').getBoundingClientRect();
     const summary = document.querySelector('.peer-summary').getBoundingClientRect();
@@ -400,7 +401,7 @@ try {
     const leftColCenter = (heading.left + circuit.left) / 2;
     const rightColCenter = (circuit.right + heading.right) / 2;
     return { selfLeft: self.left, selfRight: self.right, peerLeft: peer.left, peerRight: peer.right, summaryLeft: summary.left, summaryRight: summary.right,
-      peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2,
+      peerCenter: (summary.left + summary.right) / 2, railLeft:rail.left, railRight:rail.right, railWidth:rail.width,
       heartCenter: (heart.left + heart.right) / 2,
       summaryHeight: summary.height, actionHeight: more.height, shieldGap: summary.left - shield.right, moreGap: more.left - summary.right,
       shieldLeft: shield.left, shieldRight: shield.right, moreLeft: more.left, headerLeft: header.left,
@@ -412,7 +413,9 @@ try {
   invariant(presenceLayout.peerRight <= presenceLayout.selfLeft + 1, `Peer presence is not on the left: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.peerLabel === 'TA' && presenceLayout.selfLabel === '我', `Presence labels are not TA/我: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.peerLeft >= presenceLayout.summaryLeft - 1 && presenceLayout.selfRight <= presenceLayout.summaryRight + 1, `Presence labels overflow the capsule: ${JSON.stringify(presenceLayout)}`);
-  invariant(Math.abs(presenceLayout.peerCenter - presenceLayout.headerCenter) <= 3, `Combined presence is not centered: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.railWidth >= 44 && Math.abs(presenceLayout.railLeft - presenceLayout.shieldRight - 13) <= 1
+    && Math.abs(presenceLayout.summaryLeft - presenceLayout.railRight - 13) <= 1 && Math.abs(presenceLayout.moreGap - 8) <= 1,
+    `Notice rail must fill the space between the switcher and right-aligned presence: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.heartCenter - presenceLayout.peerCenter) <= 2, `Presence heart is not centered in the capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.summaryHeight >= 43 && presenceLayout.summaryHeight <= 45 && presenceLayout.shieldGap >= 8 && presenceLayout.moreGap >= 8,
     `Header status crowds the actions or is not 44px tall: ${JSON.stringify(presenceLayout)}`);

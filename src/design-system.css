@@ -125,9 +125,14 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .message-bubble.expression-bubble { background: transparent; border: 0; box-shadow: none; }
 #app .message-date { border: 0; border-radius: 12px; padding: 4px 10px; background: var(--paper-pure); color: var(--ink-muted); box-shadow: none; font-size: .6875rem; }
 :root[data-color-scheme="dark"] #app .outgoing .message-bubble:not(:is(.image-bubble, .video-bubble, .media-upload-tile, .expression-bubble)) {
-    background-image: linear-gradient(var(--outgoing-start), var(--outgoing-middle) 45%, var(--outgoing-end));
-    background-size: 100% var(--bubble-gradient-span, 100%);
-    background-position: 0 var(--bubble-gradient-offset, 0px);
+    /* The shared field stays identical for text, files and voice. Extend its
+       first color above the field and paint its final color underneath. */
+    background-color: var(--outgoing-end);
+    background-image: linear-gradient(var(--outgoing-start), var(--outgoing-middle) 45%, var(--outgoing-end)),
+      linear-gradient(var(--outgoing-start), var(--outgoing-start));
+    background-size: 100% var(--bubble-gradient-span, 100%),
+      100% max(0px, calc(var(--bubble-gradient-offset, 0px) + 1px));
+    background-position: 0 var(--bubble-gradient-offset, 0px), top left;
     background-repeat: no-repeat;
   }
 #app :is(.primary-button, .send-button, .space-selected-check, .space-unread),

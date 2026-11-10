@@ -10,10 +10,12 @@ import { roomBusinessState } from './lib/room-business-state';
 import { PrivateHistoryController } from './lib/private-history-controller';
 import { ArchiveBackupController, readArchiveBackupSnapshot } from './lib/archive-backup-state';
 import { RoomRuntime } from './lib/room-runtime';
+import { currentNoticeRail, mountNoticeRail, noticeExitMs } from './lib/notice-rail';
+import './notice-rail.css';
 import { mountSubmissionFeedback } from './lib/ui-notice';
 import { updateTabUnread } from './lib/tab-unread';
 import { cancelOutboxItem, hasOutboxItem, loadCancelledSend } from './lib/vault';
-import { RefreshCw } from 'lucide';
+import { ArrowUpFromLine, RefreshCw } from 'lucide';
 import { compareOutboxItems } from './lib/outbox-order';
 import { mountRoomCreation } from './lib/room-creation-view';
 import {createShortRoomLink,expandShortRoomLink} from './lib/short-room-link';
@@ -650,8 +652,6 @@ export class QuietRoomApp {
     fixedBottom: HTMLElement;
     underlay: HTMLElement;
     composer: HTMLElement;
-    notices: HTMLElement;
-    notice: HTMLElement;
   } | null = null;
   private chatScrollIntent: 'up' | 'down' | null = null;
   private chatRestoreAnchor: ChatScrollAnchor | null = null;
@@ -680,7 +680,7 @@ export class QuietRoomApp {
     const fault = makeFault(stage,error,serverId ?? (error instanceof ApiError ? error.faultId : undefined));
     this.faultPanel?.remove();
     this.latestFault = fault;
-    this.faultPanel = showFaultPanel(fault,this.faultLifetime.signal,this.session || this.browserProfile ? () => {
+    this.faultPanel = showFaultPanel(this.root,fault,this.faultLifetime.signal,this.session || this.browserProfile ? () => {
       this.faultPanel?.remove(); this.renderLanguageFeedback('feedback');
     } : undefined);
   }
@@ -1481,6 +1481,8 @@ export class QuietRoomApp {
     document.title = 'Chamber';
     cancelFormInput();
     this.queuedNotice = null;
+    document.getElementById('app-toast')?.remove();
+    this.root.querySelectorAll('.notice-ghost').forEach(node => node.remove());
     concealLinkPreviews();
     document.documentElement.classList.add('privacy-obscured');
     this.root.setAttribute('aria-hidden', 'true');
@@ -1844,7 +1846,7 @@ export class QuietRoomApp {
           this.gatewayTemplate(uiLiteral('密室暂未打开'), uiLiteral('暂时无法读取这间密室的本机数据。原有数据仍保留，请重试。'), uiLiteral('<p class="field-hint" role="alert" data-room-open-error></p><button class="primary-button" data-retry-room-open type="button">重新打开</button>'));
           if (openingFault) {
             this.latestFault=openingFault;
-            this.faultPanel=showFaultPanel(openingFault,this.faultLifetime.signal,undefined);
+            this.faultPanel=showFaultPanel(this.root,openingFault,this.faultLifetime.signal,undefined);
           } else this.captureFault('chat.session',cause);
           this.root.querySelector('[data-room-open-error]')!.textContent = cause instanceof Error ? t(cause.message) : uiLiteral('请稍后重试');
           this.root.querySelector('[data-retry-room-open]')!.addEventListener('click', () => {
@@ -7589,6 +7591,23 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const chatMarkup = uiTemplate`
       <section class="chat-shell ${(isChamberVault(this.session.vault) || Boolean(this.session.vault.roomArchiveV2)) && !cryptoReady ? 'chamber-waiting' : ''}">
         <header class="chat-header ${(isChamberVault(this.session.vault) || Boolean(this.session.vault.roomArchiveV2)) ? 'chamber-chat-header' : ''}" data-presence-style="${readPresenceStyle()}">
+          <div class="system-notices notice-rail" aria-label="提示">
+            ${(isChamberVault(this.session.vault) || Boolean(this.session.vault.roomArchiveV2))?uiLiteral('<aside class="pinned-notice" id="chamber-backup-notice" data-notice-details data-notice-priority="60" hidden><button type="button" class="pinned-recovery-content" id="chamber-backup-details"><strong>历史备份已暂停</strong><span></span></button></aside>'):''}
+            ${this.releaseUpdateBannerMarkup()}
+            ${this.session.vault.recoveryExperience?.completed === 'recovered' && !this.uiPreferences.historyImportDismissed ? uiTemplate`
+              <aside class="pinned-notice" id="history-import-banner" data-notice-details data-notice-priority="30">
+                <button type="button" id="import-own-history" class="pinned-recovery-content"><strong>导入自己的聊天备份</strong><span>只恢复你原本能阅读的内容</span></button>
+                <button type="button" id="dismiss-history-import" aria-label="关闭导入提醒">${icons.close}</button>
+              </aside>
+            ` : ''}
+            ${this.uploadPlans.length > 0 ? uiTemplate`
+              <aside class="upload-reminder" data-notice-details data-notice-priority="40">
+                <div><strong>有 ${this.uploadPlans.length} 个文件待续传</strong><span>重新选择同一文件即可从已完成的分块继续。</span></div>
+                <button type="button" id="clear-upload-reminder">清除记录</button>
+              </aside>
+            ` : ''}
+            <div class="chat-history-loading" data-notice-priority="70" role="status" hidden></div>
+          </div>
           ${(isChamberVault(this.session.vault) || Boolean(this.session.vault.roomArchiveV2)) ? uiTemplate`<div class="peer-summary chamber-presence-capsule" ${this.session.vault.role === 'creator' && cryptoReady && this.peerHasJoined(this.session) ? 'id="open-gallery" role="button" tabindex="0"' : 'role="status"'} aria-live="polite">
             <div class="presence-heading"><span class="presence-row" id="peer-presence"><span>TA</span><i class="presence-dot" aria-hidden="true"></i></span>${presenceCircuitMarkup}<span class="presence-row" id="self-presence"><i class="presence-dot" aria-hidden="true"></i><span>我</span><strong class="sr-only">同步中</strong></span></div><strong class="peer-status">等待加入</strong>
           </div>` : uiTemplate`
@@ -7603,24 +7622,6 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           </div>`}
           <button class="icon-button chat-settings-entry" id="chat-settings" type="button" aria-label="设置">${spaceIcons.settings}</button>
         </header>
-        <div class="system-notices" aria-label="本机安全提醒">
-          ${(isChamberVault(this.session.vault) || Boolean(this.session.vault.roomArchiveV2))?uiLiteral('<aside class="pinned-notice" id="chamber-backup-notice" hidden><button type="button" class="pinned-recovery-content" id="chamber-backup-details"><strong>历史备份已暂停</strong><span></span></button></aside>'):''}
-          ${this.releaseUpdateBannerMarkup()}
-          ${this.session.vault.recoveryExperience?.completed === 'recovered' && !this.uiPreferences.historyImportDismissed ? uiTemplate`
-            <aside class="pinned-notice" id="history-import-banner">
-              <button type="button" id="import-own-history" class="pinned-recovery-content"><strong>导入自己的聊天备份</strong><span>只恢复你原本能阅读的内容</span></button>
-              <button type="button" id="dismiss-history-import" aria-label="关闭导入提醒">${icons.close}</button>
-            </aside>
-          ` : ''}
-          ${this.uploadPlans.length > 0 ? uiTemplate`
-            <aside class="upload-reminder">
-              <div><strong>有 ${this.uploadPlans.length} 个文件待续传</strong><span>重新选择同一文件即可从已完成的分块继续。</span></div>
-              <button type="button" id="clear-upload-reminder">清除记录</button>
-            </aside>
-          ` : ''}
-        </div>
-        <div class="notice" id="notice" role="status" hidden></div>
-        <div class="chat-history-loading" role="status" hidden></div>
         <section class="message-list" id="message-list" aria-label="聊天消息">${(isChamberVault(this.session.vault) || Boolean(this.session.vault.roomArchiveV2)) ? uiTemplate`<details class="chamber-privacy-guide" ${(this.session.vault.roomArchiveV2 ? this.session.vault.roomArchiveV2.cardVerified : this.session.vault.personalGuide?.mnemonicViewed || this.session.vault.personalGuide?.mnemonicChecked) && this.session.vault.personalGuide?.coverRead && this.session.vault.personalGuide?.autoLockRead ? '' : 'open'}><summary>让你的密室更安心</summary><ol>
             ${this.session.vault.roomArchiveV2 ? `${this.roomGuideStep('cover','01',uiLiteral('入口遮蔽'),this.entranceCoverEnabled(),uiLiteral('进入时先打开遮蔽页'))}${this.roomGuideStep('lock','02',uiLiteral('应用锁与自动锁定'),this.roomLockEnabled,uiLiteral('进入时需要验证身份'))}${this.roomGuideStep('archive','03',uiLiteral('聊天记录恢复凭证'),Boolean(this.session.vault.roomArchiveV2.cardVerified),uiLiteral('可在任意新密室中找回您的历史记录'),true)}` : uiTemplate`<li><button type="button" data-personal-guide="mnemonic"><b>01</b><span><strong>助记词</strong><small>${this.session.vault.personalGuide?.mnemonicViewed ? uiLiteral('已查看，请妥善保存') : this.session.vault.personalGuide?.mnemonicChecked ? uiLiteral('已核对助记词') : uiLiteral('密室进不去时，用它找回并恢复记录')}</small></span><span aria-hidden="true">›</span></button></li>
             <li><button type="button" data-personal-guide="cover"><b>02</b><span><strong>入口遮蔽</strong><small>${this.session.vault.recoveryExperience?.coverEnabled ? uiLiteral('已开启') : uiLiteral('了解伪装入口，按需开启')}</small></span><span aria-hidden="true">›</span></button></li>
@@ -8326,9 +8327,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
 
   private releaseUpdateBannerMarkup(): string {
     return this.availableReleaseId ? uiTemplate`
-      <aside class="release-update-reminder" role="status">
-        <span aria-hidden="true">${createElement(Info).outerHTML}</span><strong>有新版本</strong>
-        <button type="button" data-release-update>更新</button>
+      <aside class="release-update-reminder" data-notice-priority="50" role="status">
+        <button type="button" data-release-update aria-label="更新"><strong>有新版本</strong> <span>更新</span>${createElement(ArrowUpFromLine).outerHTML}</button>
       </aside>
     ` : '';
   }
@@ -8484,9 +8484,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const shell = this.root.querySelector<HTMLElement>('.chat-shell')!;
     const list = shell.querySelector<HTMLElement>('#message-list')!;
     const header = shell.querySelector<HTMLElement>('.chat-header')!;
-    const notices = shell.querySelector<HTMLElement>('.system-notices')!;
+    mountNoticeRail(this.root,shell.querySelector<HTMLElement>('.system-notices')!);
     const composer = shell.querySelector<HTMLElement>('.composer')!;
-    const notice = shell.querySelector<HTMLElement>('#notice')!;
     const fixedOrigin = document.createElement('div');
     fixedOrigin.className = 'chat-fixed-origin';
     fixedOrigin.setAttribute('aria-hidden', 'true');
@@ -8498,7 +8497,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     underlay.addEventListener('touchstart', event => { this.retainKeyboardUnderlayFocus(event); }, { passive: false });
     shell.append(fixedOrigin, fixedBottom, underlay);
     this.nativeChatFollow = null;
-    this.chatLayoutElements = { shell, list, header, fixedOrigin, fixedBottom, underlay, composer, notices, notice };
+    this.chatLayoutElements = { shell, list, header, fixedOrigin, fixedBottom, underlay, composer };
     shell.dataset.scrollOwner = this.usesListScrolling ? 'list' : 'document';
     this.chatViewportMotion = createChatViewportMotion({
       // The native closed snapshot already arrives at the terminal position.
@@ -8629,13 +8628,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const sync = (position = true) => {
       if (!shell.isConnected || this.composerHandoff || this.chatViewportMotion?.moving || this.composerHeightMotion || this.nativeKeyboardDismiss) return;
       const headerHeight = header.offsetHeight;
-      const noticesHeight = notices.offsetHeight;
       const composerHeight = composer.offsetHeight;
       syncChatBubbleGradient(list);
       const settings = header.querySelector<HTMLElement>('#chat-settings');
       const topGap = settings ? Math.max(0, settings.offsetTop) : 14;
-      const topSpace = (isChamberVault(this.session?.vault) || this.session?.vault.roomArchiveV2) && settings ? settings.offsetTop + settings.offsetHeight + topGap + noticesHeight : headerHeight + noticesHeight + 14;
-      const measurements = `${headerHeight}:${noticesHeight}:${composerHeight}:${topSpace}`;
+      const topSpace = (isChamberVault(this.session?.vault) || this.session?.vault.roomArchiveV2) && settings ? settings.offsetTop + settings.offsetHeight + topGap : headerHeight + 14;
+      const measurements = `${headerHeight}:${composerHeight}:${topSpace}`;
       if (measurements === previousMeasurements) return;
       previousMeasurements = measurements;
       const pinned = this.chatPinnedToBottom;
@@ -8671,7 +8669,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     this.chatLayoutObserver = new ResizeObserver(() => sync());
     // Observe controls, not the document-height shell: changing message padding
     // also resizes that shell and creates a ResizeObserver feedback loop in WebKit.
-    for (const element of [header, notices, composer]) this.chatLayoutObserver.observe(element);
+    for (const element of [header, composer]) this.chatLayoutObserver.observe(element);
     if (this.presenceRefreshTimer !== null) window.clearInterval(this.presenceRefreshTimer);
     this.presenceRefreshTimer = window.setInterval(() => this.updatePeerStatus(), 30_000);
   }
@@ -9678,7 +9676,6 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       setStyle(chat.header.style, 'top', '0px');
       setStyle(chat.header.style, 'translate', 'none');
       setStyle(chat.composer.style, 'bottom', '0px');
-      setStyle(chat.notices.style, 'translate', 'none');
       return;
     }
     if (this.usesListScrolling) {
@@ -9719,8 +9716,6 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       setStyle(chat.header.style, 'top', '0px');
       setStyle(chat.header.style, 'translate', 'none');
       setStyle(chat.composer.style, 'bottom', '0px');
-      setStyle(chat.notices.style, 'translate', 'none');
-      setStyle(chat.notice.style, 'translate', '0 calc(var(--app-top) + var(--chat-header-height) + 8px)');
       return;
     }
     const fixedTop = this.visualClientCoordinates ? -chat.fixedOrigin.getBoundingClientRect().top : viewportTop;
@@ -9732,8 +9727,6 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const fixedBottom = this.visualClientCoordinates
       ? chat.fixedBottom.getBoundingClientRect().top : layoutHeight - fixedTop;
     setStyle(chat.composer.style, 'bottom', `${fixedBottom - viewportHeight}px`);
-    setStyle(chat.notices.style, 'translate', `0 ${fixedTop}px`);
-    setStyle(chat.notice.style, 'translate', `0 calc(${fixedTop}px + var(--chat-header-height) + 8px)`);
   }
 
   private beginListKeyboardLayout(direction: 'open' | 'closed'): void {
@@ -12363,12 +12356,13 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const entry = this.root.querySelector('#open-gallery'); if (!entry) return;
     const hint = document.createElement('aside'); hint.className = 'hidden-album-hint'; hint.setAttribute('aria-label', uiLiteral('仅本机可见的入口提示'));
     hint.innerHTML = uiLiteral('<button type="button" aria-label="相册与文件入口提示，点击关闭">相册与文件</button>');
-    const header=this.root.querySelector<HTMLElement>('.chat-header');if(!header)return;
-    const fit=()=>{if(!hint.isConnected)return;const h=header.getBoundingClientRect(),r=entry.getBoundingClientRect();hint.style.setProperty('--hint-right',`${h.right-r.left+8}px`);hint.style.setProperty('--hint-top',`${r.top-h.top+r.height/2}px`);};
-    const observer=new ResizeObserver(fit);observer.observe(header);observer.observe(entry);
-    const dismiss = () => { observer.disconnect();this.uiPreferences.hiddenAlbumHintDismissed = true; this.flushUiPreferencesSave(); hint.remove(); };
-    hint.querySelector('button')!.addEventListener('click', dismiss); entry.addEventListener('click', dismiss, { once: true, signal: this.runtimeAbort?.signal });
-    this.runtimeAbort?.signal.addEventListener('abort',()=>observer.disconnect(),{once:true});header.append(hint);fit();
+    const rail = this.root.querySelector<HTMLElement>('.chat-header .notice-rail');
+    if (!rail) return;
+    hint.dataset.noticePriority = '1';
+    const dismiss = () => { this.uiPreferences.hiddenAlbumHintDismissed = true; this.flushUiPreferencesSave(); hint.remove(); };
+    hint.querySelector('button')!.addEventListener('click', dismiss);
+    entry.addEventListener('click', dismiss, { once:true, signal:this.runtimeAbort?.signal });
+    rail.append(hint);
   }
 
   private showMessageInfo(original: DecryptedMessage): void {
@@ -17387,6 +17381,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     for (const control of this.root.querySelectorAll<HTMLButtonElement | HTMLInputElement>('#image-input, #camera-input, #file-input, #open-chat-tools, #open-memes, #open-image-picker, #open-camera-picker, #open-file-picker')) control.disabled = true;
     if (host.querySelector('#access-failure')) return;
     const banner = document.createElement('aside');
+    banner.dataset.noticeDetails = ''; banner.dataset.noticePriority = '90';
     banner.id = 'access-failure'; banner.className = 'upload-reminder'; banner.setAttribute('role', 'status');
     const reason = this.accessFailure;
     banner.innerHTML = `<div><strong></strong><span></span></div><button type="button"></button>`;
@@ -17463,14 +17458,16 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   }
 
   private ensureAppToast(): HTMLElement {
+    const rail = currentNoticeRail(this.root);
     let toast = document.getElementById('app-toast');
+    if (toast && toast.parentElement !== rail) { toast.remove(); toast = null; }
     if (!toast) {
       toast = document.createElement('div');
       toast.id = 'app-toast';
       toast.className = 'notice app-toast';
       toast.setAttribute('role', 'status');
       toast.hidden = true;
-      document.body.append(toast);
+      rail.append(toast);
     }
     return toast;
   }
@@ -17488,18 +17485,18 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (this.noticeRemovalTimer !== null) window.clearTimeout(this.noticeRemovalTimer);
     notice.hidden = false;
     notice.dataset.tone = tone;
-    notice.textContent = message;
-    if (notice.classList.contains('app-toast')) {
-      const activePage = [...this.root.querySelectorAll<HTMLElement>('.space-drawer-overlay,.space-profile-overlay,.password-page,.document-reader,.image-viewer')]
-        .filter(element => !element.classList.contains('is-closing')).at(-1) ?? this.root;
-      const header = activePage.querySelector<HTMLElement>('.space-drawer-header,.space-profile-header,.reader-header,.viewer-header,.chat-header,.subpage-header,.recovery-flow-nav,.backup-header');
-      const viewportTop = layoutViewport()?.offsetTop ?? 0;
-      notice.style.top = `${Math.max(viewportTop,header?.getBoundingClientRect().bottom ?? viewportTop + 48) + 8}px`;
-    }
-    if (notice.id === 'notice' && !notice.closest('.chat-shell')) {
-      const header = this.root.querySelector<HTMLElement>('.gallery-header,.subpage-header,.recovery-flow-nav,.backup-header,.chat-header');
-      if (header) notice.style.top = `${header.getBoundingClientRect().bottom - (notice.offsetParent?.getBoundingClientRect().top ?? 0) + 8}px`;
-    }
+    notice.dataset.noticePriority = tone === 'error' ? '110' : '100';
+    const content = document.createElement('button');
+    content.type = 'button'; content.className = 'toast-content';
+    const label = document.createElement('span'); label.textContent = message;
+    content.append(label, createElement(tone === 'error' ? Info : Check));
+    notice.replaceChildren(content);
+    content.addEventListener('click', () => {
+      if (!notice.isConnected || notice.closest('[inert]') || this.root.getAttribute('aria-hidden') === 'true') return;
+      showExplanation(this.root, uiLiteral('提示详情'), [message], {
+        signal:this.runtimeAbort?.signal, active:() => !document.hidden && this.root.getAttribute('aria-hidden') !== 'true',
+      });
+    });
     const alreadyVisible = notice.classList.contains('is-visible');
     notice.classList.remove('is-leaving');
     if (!alreadyVisible) requestAnimationFrame(() => {
@@ -17517,7 +17514,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         if (queued && queued.notice === notice && notice.isConnected && queued.epoch === this.runtimeEpoch
           && queued.surface === this.root.lastElementChild && !document.hidden
           && this.root.getAttribute('aria-hidden') !== 'true') this.showNotice(queued.message);
-      }, motion.menuOut);
+      }, noticeExitMs);
       this.noticeTimer = null;
     }, tone === 'error' ? 1860 : 1360);
   }

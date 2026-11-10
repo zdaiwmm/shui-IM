@@ -56,10 +56,10 @@ try {
   await page.evaluate(() => { window.fixture.fresh(0); window.fixture.app.showNotice('合成普通提示'); });
   await page.clock.runFor(1359); assert.equal(await page.locator('#app-toast').isVisible(), true);
   await page.clock.runFor(2); assert.equal(await page.locator('#app-toast').evaluate(e => e.classList.contains('is-leaving')), true);
-  await page.clock.runFor(140); assert.equal(await page.locator('#app-toast').isVisible(), false);
+  await page.clock.runFor(190); assert.equal(await page.locator('#app-toast').isVisible(), false);
   await page.evaluate(() => window.fixture.app.showNotice('合成错误提示', 'error'));
   await page.clock.runFor(1859); assert.equal(await page.locator('#app-toast').isVisible(), true);
-  await page.clock.runFor(142); assert.equal(await page.locator('#app-toast').isVisible(), false);
+  await page.clock.runFor(192); assert.equal(await page.locator('#app-toast').isVisible(), false);
   await page.evaluate(() => window.fixture.app.showNotice('优先保留的错误','error'));
   await page.clock.runFor(200);
   await page.evaluate(() => window.fixture.app.showNotice('后续操作结果'));
