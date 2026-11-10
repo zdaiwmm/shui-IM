@@ -178,8 +178,13 @@ export async function auditUiDetails(page, out) {
           assert.equal(await page.locator(`${screens[name]} h2`).first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize)),17,'secondary recovery heading shares the compact scale');
         }
         if(name==='notice'||name==='errorToast') {
-          const style=await page.locator(screens[name]).evaluate(e=>({radius:getComputedStyle(e).borderRadius,font:getComputedStyle(e).fontSize,filter:getComputedStyle(e).backdropFilter}));
-          assert.deepEqual(style,{radius:'12px',font:'13px',filter:'none'});
+          const style=await page.locator(screens[name]).evaluate(e=>{
+            const face=getComputedStyle(e,'::before'), box=e.getBoundingClientRect();
+            return {painted:box.height-parseFloat(face.top)-parseFloat(face.bottom),hit:box.height,
+              round:parseFloat(face.borderRadius)>=17,full:Math.abs(box.width-e.parentElement.getBoundingClientRect().width)<1,
+              font:getComputedStyle(e).fontSize,filter:getComputedStyle(e).backdropFilter};
+          });
+          assert.deepEqual(style,{painted:34,hit:44,round:true,full:true,font:'12px',filter:'none'});
         }
         presentations.push({name,scheme,width,...result});
         if(out)await page.screenshot({path:path.join(out,`detail-${name}-${width===390?'':width+'-'}${scheme}.png`)});

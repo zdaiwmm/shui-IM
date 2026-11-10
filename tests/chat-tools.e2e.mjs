@@ -78,8 +78,12 @@ try {
   }));
   await page.evaluate(() => window.fixture.app.showNotice('已收藏'));
   await page.waitForTimeout(220);
-  const toast=await page.locator('#app-toast').boundingBox();const header=await page.locator('.chat-header').boundingBox();
-  assert.ok(toast.width<150 && toast.y>=header.y+header.height && toast.y<=header.y+header.height+12, JSON.stringify({toast,header}));
+  const toast=await page.locator('#app-toast').boundingBox();
+  const rail=await page.locator('.chat-header .notice-rail').boundingBox();
+  const presence=await page.locator('.chat-header .peer-summary').boundingBox();
+  const settings=await page.locator('#chat-settings').boundingBox();
+  assert.ok(Math.abs(toast.width-rail.width)<1 && Math.abs(toast.x-rail.x)<1 && toast.x+toast.width<=presence.x
+    && Math.abs(toast.y+toast.height/2-(settings.y+settings.height/2))<1, JSON.stringify({toast,rail,presence,settings}));
   const positions=await page.locator('#chat-tools > button').evaluateAll(nodes=>nodes.map(e=>({top:e.getBoundingClientRect().top,left:e.getBoundingClientRect().left})));
   assert.equal(positions[0].top,positions[3].top);assert(positions[4].top>positions[3].top);assert.equal(positions[4].left,positions[0].left);
   assert.equal(await page.locator('#image-input').getAttribute('accept'),'image/*,video/*');
