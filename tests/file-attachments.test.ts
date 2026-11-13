@@ -129,6 +129,17 @@ describe('generic file encryption', () => {
     expect(restored.equals(bytes), 'Resumed download must preserve every original byte').toBe(true);
   });
 
+  it('durably checkpoints the encrypted manifest before a detached transport completes', async () => {
+    const transport = memoryTransport(), file = localFile();
+    let checkpoint: unknown;
+    await expect(encryptFileAttachment(file, {
+      ...transport.callbacks,
+      encrypted: async manifest => { checkpoint = manifest; },
+      complete: async () => { expect(checkpoint).toMatchObject({ originalSize:file.size, blobId:transport.state.plan!.blobId }); throw Error('transport paused'); },
+    })).rejects.toThrow('transport paused');
+    expect(checkpoint).toMatchObject({ originalName:file.name, sha256:expect.stringMatching(/^[0-9a-f]{64}$/) });
+  });
+
   it('rejects changed file bytes, metadata, and damaged or legacy resume plans before touching remote state', async () => {
     const file = localFile();
     const initial = memoryTransport();

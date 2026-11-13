@@ -53,5 +53,8 @@ export const WRITE_LIMITS = Object.freeze({
   'mls-events': { source: 720, device: 60 },
   'mls-welcome': { source: 240, device: 12 },
   'blob-complete': { source: 1_440, device: 120 },
+  'blob-transfer': { source: 240, device: 20 },
+  'blob-transfer-chunk': { source: 2_400, device: 600 },
+  'blob-transfer-done': { source: 1_440, device: 120 },
   'push-delete': { source: 240, device: 12 },
 });

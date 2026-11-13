@@ -237,7 +237,8 @@
 .composer .composer-send::after { content: ''; position: absolute; inset: -5px; border-radius: 50%; }
 .composer #record-voice { position: absolute; right: 0; bottom: 1px; transition: translate 220ms var(--motion-out), opacity 160ms var(--motion-out), transform 180ms var(--motion-out); }
 .composer.has-text #record-voice { translate: 44px 0; opacity: 0; pointer-events: none; }
-.composer.has-voice-draft .composer-row > :is(.composer-input-stack, #open-chat-tools, #record-voice) { visibility: hidden; }
+.composer.has-voice-draft .composer-row > :is(#open-chat-tools, #record-voice) { visibility: hidden; }
+.composer.has-voice-draft .composer-input-stack { opacity: 0; pointer-events: none; }
 .composer-row > .voice-recorder { position: absolute; inset: auto 0 0; height: 46px; z-index: 10; }
 .composer-row > .voice-retiring { pointer-events: none; }
 .voice-recorder:not([data-fullscreen="true"]) .voice-recording-bar { inset: 0; height: 46px; padding-left: 14px; padding-right: 76px; gap: 8px; animation: voice-guide-in 180ms var(--motion-out); }

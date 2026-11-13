@@ -330,7 +330,9 @@ export type ImageManifest = {
 export type FileManifest = ImageManifest;
 
 export type FilePayload = {
-  v: 1 | 2;
+  v: 1 | 2 | 3;
+  /** Bound to this original inside the authenticated encrypted message. */
+  videoPreview?: import('./video-message-preview').VideoMessagePreview;
   kind: 'file';
   file: FileManifest;
   sentAt: string;
@@ -526,6 +528,7 @@ export type LegacyImageUploadPlan = {
 export type ImageUploadPlanV2 = Omit<LegacyImageUploadPlan, 'v'> & {
   v: 2;
   plaintextSha256: string;
+  transferIntent?: { clientMsgId: string; transferId: string; payload: FilePayload; afterSeq?:number; linkVideoId?: string };
 };
 
 export type ImageUploadPlan = LegacyImageUploadPlan | ImageUploadPlanV2;

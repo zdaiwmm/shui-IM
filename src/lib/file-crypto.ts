@@ -50,6 +50,8 @@ async function encryptAttachmentFile(
     cacheCiphertext?: (blobId: string, index: number, bytes: ArrayBuffer) => Promise<void>;
     complete: (blobId: string) => Promise<void>;
     savePlan: (plan: ImageUploadPlan) => Promise<void>;
+    /** Persist a complete encrypted-send intent before detached transport. */
+    encrypted?: (manifest: ImageManifest) => Promise<void>;
     started?: () => void;
     progress?: (ratio: number) => void;
     signal?: AbortSignal;
@@ -151,13 +153,12 @@ async function encryptAttachmentFile(
     }
     callbacks.progress?.((index + 1) / chunkCount);
   }
-  if (!remote.completed) await atFaultStage('upload.complete',callbacks.complete(plan.blobId));
   const dimensionsResult = await dimensionsPromise;
   if ('error' in dimensionsResult) throw dimensionsResult.error;
   const { dimensions } = dimensionsResult;
   callbacks.signal?.throwIfAborted();
 
-  return {
+  const manifest: ImageManifest = {
     v: 1,
     ...dimensions,
     blobId: plan.blobId,
@@ -171,6 +172,10 @@ async function encryptAttachmentFile(
     lastModified: file.lastModified,
     sha256: plaintextSha256,
   };
+  await callbacks.encrypted?.(manifest);
+  callbacks.signal?.throwIfAborted();
+  if (!remote.completed) await atFaultStage('upload.complete',callbacks.complete(plan.blobId));
+  return manifest;
 }
 
 type UploadCallbacks = Parameters<typeof encryptAttachmentFile>[1];

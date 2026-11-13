@@ -3,6 +3,7 @@ import { fromBase64Url } from './base64';
 import { isReactionEmoji } from './reactions';
 import type { MessagePayload } from './types';
 import { isLinkPreview } from './link-preview-data';
+import { isVideoMessagePreview } from './video-message-preview';
 
 export const MAX_MESSAGE_TEXT_LENGTH = 4000;
 export const MAX_REPLY_PREVIEW_LENGTH = 160;
@@ -112,7 +113,7 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
   if (!value || typeof value !== 'object') return false;
   const payload = value as Record<string, unknown>;
   if (
-    (payload.v !== 1 && payload.v !== 2 && !(payload.v === 3 && payload.kind === 'text')) ||
+    (payload.v !== 1 && payload.v !== 2 && !(payload.v === 3 && (payload.kind === 'text' || payload.kind === 'file'))) ||
     typeof payload.sentAt !== 'string' ||
     payload.sentAt.length > 64 ||
     !Number.isFinite(Date.parse(payload.sentAt))
@@ -150,6 +151,9 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
   }
   if (payload.kind === 'file') {
     if (!isFileManifest(payload.file)) return false;
+    if (payload.v === 3) return hasOnlyKeys(payload, ['v','kind','file','sentAt','replyTo','videoPreview'])
+      && isVideoFile(payload.file as import('./types').FileManifest) && isVideoMessagePreview(payload.videoPreview)
+      && (payload.replyTo === undefined || isReplyReference(payload.replyTo));
     if (payload.v === 1) return hasOnlyKeys(payload, ['v', 'kind', 'file', 'sentAt']);
     return hasOnlyKeys(payload, ['v', 'kind', 'file', 'sentAt', 'replyTo']) && isReplyReference(payload.replyTo);
   }
