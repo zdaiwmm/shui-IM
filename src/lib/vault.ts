@@ -3619,12 +3619,24 @@ export async function loadPrivateMediaChunk(session:VaultSession,blobId:string,i
 
 // This room/device-scoped store is deliberately outside history, galleries exchanged with peers, and recovery exports.
 export interface SavedLinkVideo {id:string; key:string; name:string; size:number; created:number; duration:number; poster?:string; shared?:boolean}
+export interface PendingLinkDownload {kind:'link-source-v1';id:string;taskId:string;clip:import('./link-video').LinkClip;share:boolean;key:string;ivPrefix:string;created:number}
 const linkChunk = 2 ** 20;
 const linkAAD = (id: string, index: number) => encoder.encode(`chamber-link-video-body-v1:${id}:${index}`);
 type LinkVideoPart = { id: string; roomId: string; iv: Uint8Array<ArrayBuffer>; ciphertext: ArrayBuffer };
 
 export async function listLinkVideos(session: VaultSession, signal: AbortSignal): Promise<SavedLinkVideo[]> {
-  return (await loadLocalRecords<SavedLinkVideo>(session, 'linkVideos', signal)).sort((a,b) => b.created-a.created);
+  return (await loadLocalRecords<SavedLinkVideo & {kind?:string}>(session, 'linkVideos', signal)).filter(row=>row.kind!=='link-source-v1').sort((a,b) => b.created-a.created);
+}
+
+export async function listPendingLinkDownloads(session:VaultSession,signal:AbortSignal):Promise<PendingLinkDownload[]> {
+  const rows=await loadLocalRecords<PendingLinkDownload>(session,'linkVideos',signal);
+  return rows.filter(row=>row.kind==='link-source-v1');
+}
+export function savePendingLinkDownload(session:VaultSession,plan:PendingLinkDownload):Promise<void> {
+  return putLocalRecord(session,'linkVideos','pending-source:'+plan.id,plan);
+}
+export function deletePendingLinkDownload(session:VaultSession,id:string):Promise<void> {
+  return deleteLocalRecord(session,'linkVideos','pending-source:'+id);
 }
 
 export async function storeLinkVideo(session: VaultSession, meta: SavedLinkVideo, file: Blob, signal: AbortSignal): Promise<SavedLinkVideo> {
