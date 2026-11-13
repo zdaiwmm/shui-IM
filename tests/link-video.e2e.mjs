@@ -116,7 +116,10 @@ try {
               code: 200,
               tweet: {
                 id: '123',
-                media: { videos: [{ url: 'https://video.twimg.com/test/video.mp4', duration: 2 }] },
+                media: { videos: [
+                  { url: 'https://video.twimg.com/test/video.mp4', duration: 2 },
+                  ...(!large && role === 'joiner' ? [{ url: 'https://video.twimg.com/test/second.mp4', duration: 3 }] : []),
+                ] },
               },
             });
           }
@@ -190,7 +193,18 @@ try {
       await page.locator('#open-link-video').click();
       await sheet.getByRole('textbox').fill('https://x.com/demo/status/123');
     }
+    if(role==='joiner'&&!large){
+      await sheet.locator('.link-video-choice').nth(1).click();
+      assert.equal(await sheet.locator('.link-video-choice[aria-pressed="true"]').count(),2);
+      assert.equal(await sheet.locator('video,.link-video-preview').count(),0,'Selection has no expanded preview');
+      await page.evaluate(()=>{window.f.gateDownload=true;});
+    }
     await click(role === 'creator' ? '仅下载' : '下载并发送');
+    if(role==='joiner'&&!large){
+      await page.waitForFunction(()=>Boolean(window.f.resumeDownload));
+      assert.equal(await page.locator('.message.outgoing.video-upload').count(),2,'Both selections immediately occupy the chat');
+      await page.evaluate(()=>{window.f.queuedNodes=[...window.f.app.linkVideoQueued.values()].map(row=>row.view.element);window.f.gateDownload=false;window.f.resumeDownload();});
+    }
     if (role === 'creator') {
       await page.waitForFunction(() => Boolean(window.f.resumeDownload));
       await click('收起');
@@ -200,7 +214,10 @@ try {
       await page.locator('.link-video-resume').filter({ hasText: '已保存到我的下载' }).click();
       await sheet.getByText('已保存到我的下载', { exact:true }).waitFor();
       assert.equal(await sheet.getByRole('button', { name:'发送至聊天', exact:true }).count(), 0);
-      await click('查看视频');
+      await click('我的下载');
+      await sheet.locator('.link-video-tile').click();
+      assert.equal(await sheet.locator('.link-video-tile.concealed').count(),0,'First tap only reveals the private cover');
+      await sheet.locator('.link-video-tile').click();
       await sheet.locator('video[controls]').waitFor();
       await click('返回');
       await sheet.locator('.link-video-tile').waitFor();
@@ -234,6 +251,16 @@ try {
         };
       });
       assert.deepEqual(privateState, { chat: 0, outbox: 0, upload: false, equal: true, encrypted: true });
+      await page.evaluate(()=>{window.f.app.videoDownloads.dispose();window.f.app.renderGallery();});
+      const safeTile=page.locator('#gallery-grid .link-video-tile');
+      await safeTile.locator('.local-video-lock').waitFor();
+      assert.equal(await safeTile.evaluate(node=>node.classList.contains('concealed')),true,'Unsent Safe video starts concealed');
+      assert.equal(await safeTile.locator('.video-duration').textContent(),'00:02');
+      await safeTile.click();
+      assert.equal(await safeTile.evaluate(node=>node.classList.contains('concealed')),false);
+      assert.equal(await page.locator('.link-video-sheet').count(),0,'Revealing the Safe cover does not open or send it');
+      await page.evaluate(()=>{window.f.app.renderChat();window.f.app.openVideoDownloads();});
+      await click('我的下载');
       const tile = sheet.locator('.link-video-tile');
       await tile.locator('.local-video-lock').waitFor();
       await tile.dispatchEvent('pointerdown', { isPrimary: true, button: 0, pointerType: 'touch' });
@@ -249,12 +276,12 @@ try {
       await page.evaluate(() => {
         for (const member of window.f.session.vault.members) member.capabilities.push('large-video-v1');
       });
-      await click('发送至聊天');
+      await click('重试');
     }
     await sheet.getByText('已交给聊天发送').waitFor({ timeout: large ? 300000 : 18000 });
     const sent = await page.evaluate(async () => {
       const { app, vault, session, signal, uploads, essence } = window.f;
-      const [row] = await vault.listLinkVideos(session, signal),
+      const rows = await vault.listLinkVideos(session, signal), row = rows[0],
         outbox = await vault.loadOutbox(session);
       const { decryptFileAttachment } = await import('/src/lib/file-crypto.ts');
       const restored = await decryptFileAttachment(outbox[0].payload.file, async (_id, index) =>
@@ -270,7 +297,7 @@ try {
       }
       return {
         count: outbox.length,
-        sameId: outbox[0]?.clientMsgId === row.id,
+        sameId: outbox.every(item=>rows.some(saved=>saved.id===item.clientMsgId)),
         kind: outbox[0]?.payload.kind,
         losslessSize: outbox[0]?.payload.file.originalSize === essence.size,
         privateUntilAck: !row.shared,
@@ -278,15 +305,16 @@ try {
       };
     });
     assert.deepEqual(sent, {
-      count: 1,
+      count: role==='joiner'&&!large ? 2 : 1,
       sameId: true,
       kind: 'file',
       losslessSize: true,
       privateUntilAck: true,
       encrypted: true,
     });
+    if(role==='joiner'&&!large)assert.equal(await page.evaluate(()=>window.f.queuedNodes.every(node=>node.isConnected&&document.querySelector(`[data-client-msg-id="${node.dataset.clientMsgId}"]`)===node)),true,'Sending retains the queued article nodes');
     if (role === 'creator') {
-      // Closing the real privacy curtain must also revoke a minimized transfer.
+      // A foreground-only fallback detaches when the privacy curtain closes.
       await click('返回聊天');
       await page.evaluate(() => { window.f.gateDownload = true; delete window.f.resumeDownload; });
       await page.locator('#open-chat-tools').click();

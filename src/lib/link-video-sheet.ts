@@ -480,6 +480,7 @@ export function openLinkVideoSheet(opts: Options) {
         next++;
       }
       sent(share ? uiLiteral('已交给聊天发送') : uiLiteral('已保存到我的下载'));
+      if(!share)actions.prepend(button(uiLiteral('我的下载'), () => void manage(library)));
     };
     await run();
   }

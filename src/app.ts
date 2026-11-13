@@ -6983,17 +6983,39 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (this.privacyCovered || this.expireIdleSession()) return false;
     const session = this.session, profile = this.browserProfile, epoch = this.runtimeEpoch;
     const signal = this.runtimeAbort?.signal;
+    const current = () => this.runtimeEpoch === epoch && this.session === session && this.browserProfile === profile
+      && !this.privacyCovered && !signal?.aborted;
     if (session && signal && !signal.aborted) await this.rememberSpacePreview(session, signal).catch(() => undefined);
-    if (this.runtimeEpoch !== epoch || this.session !== session || this.browserProfile !== profile
-      || this.privacyCovered || this.expireIdleSession()) return false;
-    if(session&&signal){
-      this.videoDownloads?.abortOperations();
-      for(const id of new Set([...this.mediaUploads.keys(),...this.linkVideoQueued.keys()]))await this.cancelStagedVideoUpload(id);
-      for(const task of await listCipherTransfers(session.vault.roomId,session.vault.identity.publicBundle.deviceId))await cancelCipherTransfer(task.id);
-      for(const plan of await loadUploadPlans(session))if(plan.v===2&&plan.transferIntent)await this.cancelStagedVideoUpload(plan.transferIntent.clientMsgId);
-      for(const plan of await listPendingLinkDownloads(session,signal))await deletePendingLinkDownload(session,plan.id);
+    if (!current() || this.expireIdleSession()) return false;
+    try {
+      if(session&&signal){
+        this.videoDownloads?.abortOperations();
+        for(const id of new Set([...this.mediaUploads.keys(),...this.linkVideoQueued.keys()])){
+          if(!current())return false;
+          await this.cancelStagedVideoUpload(id);
+        }
+        for(const task of await listCipherTransfers(session.vault.roomId,session.vault.identity.publicBundle.deviceId)){
+          if(!current())return false;
+          await cancelCipherTransfer(task.id);
+        }
+        if(!current())return false;
+        for(const plan of await loadUploadPlans(session)){
+          if(!current())return false;
+          if(plan.v===2&&plan.transferIntent)await this.cancelStagedVideoUpload(plan.transferIntent.clientMsgId);
+        }
+        if(!current())return false;
+        for(const plan of await listPendingLinkDownloads(session,signal)){
+          if(!current())return false;
+          await deletePendingLinkDownload(session,plan.id);
+        }
+      }
+    } catch(error) {
+      // Locking or replacing the runtime supersedes navigation. Real storage
+      // failures still block an active navigation rather than losing its fence.
+      if(!current())return false;
+      throw error;
     }
-    if(this.runtimeEpoch!==epoch||this.session!==session||this.privacyCovered)return false;
+    if(!current())return false;
     this.unreadCounter.clear();
     this.coverStoredVault = null;
     // Navigation may retain this browser's credential or a recovery code.
@@ -15692,24 +15714,29 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const staged = await findCipherTransfer(session.vault.roomId,session.vault.identity.publicBundle.deviceId,manifest.blobId,'download').catch(()=>undefined);
     const complete = cached && !cached.previewOnly && !cached.displayCopy || staged?.state === 'done' || await hasCompleteMediaChunks(session, manifest).catch(() => false);
     if (!button.isConnected || !this.isRuntimeActive(epoch, session) || button.dataset.imageState !== 'pending') return;
-    if (complete) {
-      // A corrupt/missing local chunk must fall back to explicit consent too.
-      try { await this.hydrateImagePreview(button, manifest, false); } catch { /* consent below */ }
-      if (button.getAttribute('data-image-state') === 'loaded') return;
-    }
     const preview = await loadMediaPreview(session, manifest, this.runtimeAbort?.signal).catch(() => null)
       ?? videoMessagePoster(this.videoCardPreviews.get(button));
     if (!button.isConnected || !this.isRuntimeActive(epoch, session)) return;
-    button.dataset.manualDownload = 'true';
-    button.dataset.imageState = 'waiting';
+    if(complete){
+      // Completeness is enough to offer local playback. Opening/decrypting a
+      // large original waits for the play request, even when no poster exists.
+      delete button.dataset.manualDownload;
+      button.dataset.localCache=uiLiteral('本机已缓存');
+      button.setAttribute('aria-description',button.dataset.localCache);
+      if(!preview&&!cached?.posterUrl){this.showVideoPlaceholder(button,manifest);return;}
+    }else button.dataset.manualDownload = 'true';
+    button.dataset.imageState = complete ? 'loaded' : 'waiting';
     button.setAttribute('aria-busy', 'false');
     button.replaceChildren();
-    if (preview) {
-      this.cacheLocalImage(manifest, preview, true);
+    if (preview || cached?.posterUrl) {
+      if(preview)this.cacheLocalImage(manifest, preview, true);
       // Render the already verified cover only; never call loadImage here.
       const local = this.imageCache.get(manifest.blobId);
       if (local) {
-        local.posterUrl ??= local.url;
+        if(!local.posterUrl&&preview){
+          local.posterUrl=URL.createObjectURL(preview);local.bytes+=preview.size;this.imageCacheBytes+=preview.size;
+        }
+        if(!local.posterUrl)return;
         const image = document.createElement('img'); image.src = local.posterUrl; image.alt = manifest.originalName;
         button.append(image);
         await image.decode().catch(() => undefined);
@@ -15719,6 +15746,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         if (local.concealedUrl) this.setChatImagePreviewSource(button, local.concealedUrl);
       }
     }
+    if(complete)button.append(this.videoPlayBadge());
     this.mountVideoControls(button, manifest);
     this.updateChatImageVisibility(button);
     const list = this.chatLayoutElements?.list;
@@ -16787,20 +16815,20 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   }
 
   private async cancelStagedVideoUpload(clientMsgId:string): Promise<void> {
-    const session=this.session;
+    const session=this.session,epoch=this.runtimeEpoch;
     if(!session)return;
     const privateItem=(await listLinkVideos(session,new AbortController().signal)).find(item=>item.id===clientMsgId);
     clientMsgId=privateItem?.sendId??clientMsgId;
     // This durable fence also covers an intent concurrently being committed.
     await cancelOutboxItem(session,clientMsgId);
     const preferences=await loadUiPreferences(session);
-    if(this.session===session)this.uiPreferences.hiddenChatMessageIds=preferences.hiddenChatMessageIds;
+    if(this.session===session&&this.runtimeEpoch===epoch)this.uiPreferences.hiddenChatMessageIds=preferences.hiddenChatMessageIds;
     const plans=await loadUploadPlans(session);
     for(const plan of plans){
       if(plan.v!==2||plan.transferIntent?.clientMsgId!==clientMsgId)continue;
       await cancelCipherTransfer(plan.transferIntent.transferId);
       await deleteUploadPlan(session,plan.blobId);
-      this.uploadPlans=this.uploadPlans.filter(row=>row.blobId!==plan.blobId);
+      if(this.session===session&&this.runtimeEpoch===epoch)this.uploadPlans=this.uploadPlans.filter(row=>row.blobId!==plan.blobId);
     }
   }
 
