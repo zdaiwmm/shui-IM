@@ -29,6 +29,17 @@ function imageManifest() {
 }
 
 describe('shared encrypted message payload validation', () => {
+  it('accepts bounded encrypted video metadata only on the new file payload version', () => {
+    const file = { ...imageManifest(), mimeType: 'video/mp4', originalName: 'clip.mp4' };
+    const message = { v: 3, kind: 'file', file, sentAt: new Date().toISOString(), videoPreview: { durationMs: 48_000 } };
+    expect(isMessagePayload(message)).toBe(true);
+    for (const v of [1, 2]) expect(isMessagePayload({ ...message, v })).toBe(false);
+    expect(isMessagePayload({ ...message, file: imageManifest() })).toBe(false);
+    for (const videoPreview of [{}, {durationMs:0}, {durationMs:Infinity}, {durationMs:48_000,url:'https://example.com'},
+      {durationMs:48_000,image:{mimeType:'image/svg+xml',data:'bad',width:1,height:1}}]) {
+      expect(isMessagePayload({ ...message, videoPreview })).toBe(false);
+    }
+  });
   it('accepts valid text and image payloads but rejects unknown fields', () => {
     const text = { v: 1, kind: 'text', text: 'hello', sentAt: new Date().toISOString() };
     expect(isMessagePayload(text)).toBe(true);

@@ -1,3 +1,4 @@
+import { createBlobTransferAuthority } from './blob-transfer.mjs';
 import { leadPixelConfig } from './lead-pixel.mjs';
 import { clientVersion, openFaultStore } from './faults.mjs';
 import { createSocketBudget, SOCKET_LIMITS } from './socket-budget.mjs';
@@ -258,6 +259,7 @@ export async function startServer(options = {}) {
     privateKey: options.vapidPrivateKey,
     subject: options.vapidSubject,
   });
+  const blobTransfers = createBlobTransferAuthority({ authorize: (roomId, blobId, deviceId) => store.authorizeBlobTransfer(roomId, blobId, deviceId) });
   const clientsByRoom = new Map();
   const socketSessions = new WeakMap();
   const rateLimits = createRequestLimiter();
@@ -1489,6 +1491,49 @@ export async function startServer(options = {}) {
         const blob = store.createBlob(roomId, body.blobId, body.chunkCount, body.encryptedSize, actor.deviceId);
         json(request, response, 201, blob);
         return;
+      }
+
+      const transferMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/blobs/(${ID_PATTERN})/transfer(?:/(complete|chunks/(\\d+)))?$`));
+      if (transferMatch) {
+        const [, roomId, blobId, action, rawIndex] = transferMatch;
+        if (request.method === 'POST' && !action) {
+          if (!allowWrite(request, response, 'blob-transfer')) return;
+          const actor = requireActiveDevice(request, roomId);
+          if (!allowRequest(request, `blob-transfer:${roomId}:${actor.deviceId}`, 20)) { json(request,response,429,{error:'RATE_LIMITED'}); return; }
+          const body = await readJson(request);
+          if (!body || Object.keys(body).some(key => key !== 'direction') || !['upload','download'].includes(body.direction)) { json(request,response,400,{error:'INVALID_TRANSFER'}); return; }
+          const grant = blobTransfers.issue({ roomId, blobId, deviceId: actor.deviceId, direction: body.direction });
+          json(request,response,201,grant); return;
+        }
+        const token = /^Transfer ([A-Za-z0-9_-]{43})$/.exec(request.headers.authorization ?? '')?.[1];
+        const direction = request.method === 'PUT' || action === 'complete' ? 'upload' : request.headers['x-transfer-direction'];
+        if (!token || !['upload','download'].includes(direction)) { json(request,response,401,{error:'UNAUTHORIZED'}); return; }
+        const grant = blobTransfers.read(token,roomId,blobId,direction);
+        if (request.method === 'DELETE' && !action) { blobTransfers.revoke(token); json(request,response,200,{ok:true}); return; }
+        if (!action && request.method === 'GET') { json(request,response,200,store.blobStatus(roomId,blobId)); return; }
+        if (action === 'complete' && request.method === 'POST') {
+          if (!allowWrite(request,response,'blob-complete',roomId,grant.deviceId)) return;
+          const completed = await store.completeBlob(roomId,blobId,grant.deviceId);
+          blobTransfers.read(token,roomId,blobId,'upload'); json(request,response,200,completed); return;
+        }
+        if (rawIndex !== undefined && ['GET','PUT'].includes(request.method)) {
+          const index = Number(rawIndex);
+          if (!Number.isSafeInteger(index) || index < 0 || index >= store.blobStatus(roomId,blobId).chunkCount) { json(request,response,400,{error:'INVALID_CHUNK_INDEX'}); return; }
+          if (request.method === 'PUT') {
+            if (!allowWrite(request,response,'blob-transfer-chunk',roomId,grant.deviceId)) return;
+            const bytes = await readBody(request,MAX_CHUNK_BYTES);
+            blobTransfers.read(token,roomId,blobId,'upload');
+            await store.putBlobChunk(roomId,blobId,index,bytes,grant.deviceId);
+            json(request,response,200,{stored:true,index}); return;
+          }
+          if (direction !== 'download') { json(request,response,401,{error:'UNAUTHORIZED'}); return; }
+          const bytes = await store.getBlobChunk(roomId,blobId,index);
+          blobTransfers.read(token,roomId,blobId,'download');
+          applySecurityHeaders(request,response);
+          response.writeHead(200,{'Content-Type':'application/octet-stream','Content-Length':bytes.length,'Cache-Control':'no-store'});
+          response.end(bytes); return;
+        }
+        json(request,response,405,{error:'METHOD_NOT_ALLOWED'}); return;
       }
 
       const blobStatusMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/blobs/(${ID_PATTERN})$`));

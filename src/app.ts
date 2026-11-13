@@ -76,6 +76,10 @@ import { prepareMlsWindowUpdate, verifyMembershipEnvelope } from './lib/mls';
 import { createMediaPreview } from './lib/media-preview';
 import { MAX_VIDEO_BYTES, LARGE_VIDEO_CAPABILITY } from './lib/message-payload';
 import { isSelectedVideo } from './lib/video-media';
+import { shouldAutoDownloadVideo, videoDurationLabel } from './lib/video-download-policy';
+import { listPendingLinkDownloads } from './lib/vault';
+import { prepareCipherTransfer, runCipherTransfer, findCipherTransfer, readCipherPart, stageCipherPart, discardCipherTransfer, cancelCipherTransfer, readCipherTransfer, listCipherTransfers, type CipherTransfer } from './lib/cipher-transfer';
+import { VIDEO_PREVIEW_CAPABILITY, createVideoMessagePreview, videoMessagePoster, type VideoMessagePreview } from './lib/video-message-preview';
 import { createAnimatedDisplayCopy } from './lib/display-copy';
 import { MEDIA_CACHE_FILE_BYTES } from './lib/media-cache-policy';
 import { hasCompleteMediaChunks, loadMediaPlayback, loadMediaPreview, saveMediaPreview } from './lib/vault';
@@ -333,7 +337,7 @@ import { recoverFromCloud, syncCloudBackup, fetchRecoveryBundle, cloudBackupPref
 import './backup.css';
 import './motion.css';
 
-const CLIENT_CAPABILITIES = [LARGE_VIDEO_CAPABILITY, LINK_PREVIEW_CAPABILITY, MESSAGE_WINDOW_CAPABILITY, 'joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'expression-kind-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
+const CLIENT_CAPABILITIES = [VIDEO_PREVIEW_CAPABILITY, LARGE_VIDEO_CAPABILITY, LINK_PREVIEW_CAPABILITY, MESSAGE_WINDOW_CAPABILITY, 'joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'expression-kind-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
 const NEW_ROOM_CAPABILITIES = [...CLIENT_CAPABILITIES, 'room-archive-v2'];
 const PASSKEY_UNAVAILABLE_NOTICE = uiLiteral('当前浏览器无法获取到本设备的通行密钥信息，建议使用系统浏览器');
 const SPACE_DEVICE_LIMIT_NOTICE = uiLiteral('该密室接入设备已达上限。');
@@ -350,7 +354,7 @@ const CHAT_COMPOSER_MOTION_MS = 280;
 const CHAT_KEYBOARD_DISMISS_MS = 420;
 const CHAT_COMPOSER_VIEWPORT_SETTLE_MS = 500;
 
-type CachedImage = { previewOnly?: boolean; displayCopy?: boolean; blob: Blob; url: string; bytes: number; lastUsedAt: number; width?: number; height?: number; posterUrl?: string; posterPromise?: Promise<void>; posterUnavailable?: boolean; concealedUrl?: string; concealedPromise?: Promise<void> };
+type CachedImage = { previewOnly?: boolean; displayCopy?: boolean; blob: Blob; url: string; bytes: number; lastUsedAt: number; width?: number; height?: number; posterUrl?: string; durationMs?: number; posterPromise?: Promise<void>; posterUnavailable?: boolean; concealedUrl?: string; concealedPromise?: Promise<void> };
 const MAX_IMAGE_CACHE_BYTES = 96 * 1024 * 1024;
 
 const encoder = new TextEncoder();
@@ -555,6 +559,8 @@ export class QuietRoomApp {
   private chatWindowFrame: number | null = null;
   private chatWindowLastScroll = 0;
   private readCompatibility = '';
+  private videoCardPreviews = new WeakMap<HTMLElement, VideoMessagePreview>();
+  private linkVideoQueued = new Map<string, { sentAt: string; view: { element: HTMLElement; geometryReady: boolean } }>();
   private mediaUploads = new Map<string, { view: MediaUploadView; files: File[]; expression: boolean; autoHide: boolean; expressionKind?: 'gifs' | 'stickers'; reply: DecryptedMessage | null; sentAt: string; busy: boolean; prepared?: { payload: MessagePayload; manifests: ImageManifest[] } }>();
   private selectedMessageId: string | null = null;
   private privacyCurtain: HTMLElement;
@@ -2528,6 +2534,7 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch;
     try {
       for (const plan of plans) {
+        if (plan.v===2 && plan.transferIntent) await cancelCipherTransfer(plan.transferIntent.transferId);
         await deleteUploadPlan(session, plan.blobId);
         if (!this.isRuntimeActive(epoch, session)) return;
       }
@@ -2712,6 +2719,7 @@ export class QuietRoomApp {
       const session = this.session;
       if (!session) return;
       if (!confirmation.checked) throw new Error(uiLiteral('请先确认清除本地浏览器数据'));
+      for (const task of await listCipherTransfers(session.vault.roomId,session.vault.identity.publicBundle.deviceId)) await cancelCipherTransfer(task.id);
       await clearLocalBrowserData(session);
       if (isPasswordCredential(platformResult)) throw new Error(uiLiteral('此旧恢复包需要绑定设备密钥'));
       await bindRecoveredVaultToPlatform(session, '', platformResult);
@@ -10800,7 +10808,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       ready: () => {
         if (!this.isRuntimeActive(epoch, session) || this.voiceRecorder !== recorder) { recorder.destroy(); return; }
         this.voicePermissionPrepared = true;
-        this.root.querySelector<HTMLTextAreaElement>('#message-input')?.blur();
+        // Preserve an already open keyboard throughout a hold gesture. The
+        // recording surface overlays the same still-focusable input node.
         this.root.querySelector('#composer')?.classList.add('has-voice-draft');
         this.root.querySelector('.chat-shell')?.classList.add('is-voice-recording');
       },
@@ -11072,7 +11081,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
   }
 
-  private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal, expression = false, mediaRetryId?: string, expressionAutoHide = false, expressionKind?: 'gifs' | 'stickers', linkVideoId?: string): Promise<boolean> {
+  private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal, expression = false, mediaRetryId?: string, expressionAutoHide = false, expressionKind?: 'gifs' | 'stickers', linkVideoId?: string, transferProgress?: (ratio:number)=>void): Promise<boolean> {
     const session = this.session;
     if (!session || this.privacyCovered || files.length === 0) return false;
     if (expression && (destination !== 'chat' || files.length !== 1 || !files[0]!.type.startsWith('image/'))) return false;
@@ -11158,9 +11167,11 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           if (!draft || draft.busy || !this.isRuntimeActive(epoch, session)) return;
           if (this.root.querySelector('#composer.is-uploading')) { this.showNotice(uiLiteral('请等当前文件上传结束后再重试')); return; }
           void this.processImageBatch(draft.files, 'chat', undefined, draft.expression, clientMsgId, draft.autoHide, draft.expressionKind);
-        }, () => {
+        }, async () => {
           const draft = this.mediaUploads.get(clientMsgId);
           if (!draft || draft.busy) return;
+          try { await this.cancelStagedVideoUpload(clientMsgId); } catch { this.showNotice(uiLiteral('取消失败，请重试'),'error'); return; }
+          if (!this.isRuntimeActive(epoch,session)) return;
           const origins = new Map<HTMLElement, number>();
           for (const row of this.renderedMessageOrder) {
             const rect = row.getBoundingClientRect();
@@ -11171,7 +11182,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           this.animateChatReactionReflow(origins);
         }, () => {
           if (this.isRuntimeActive(epoch, session)) this.renderMessages({ scroll: 'preserve' });
-        }, expressionKind === 'gifs', replyTarget ? this.createMessageReplyQuote(this.replyReference(replyTarget)) : undefined, sentAt);
+        }, expressionKind === 'gifs', replyTarget ? this.createMessageReplyQuote(this.replyReference(replyTarget)) : undefined, sentAt, this.linkVideoQueued.get(clientMsgId)?.view.element);
+        this.linkVideoQueued.delete(clientMsgId);
         mediaUpload = { view, files, expression, autoHide: expressionAutoHide, expressionKind, reply: replyTarget, sentAt, busy: true };
         this.mediaUploads.set(clientMsgId, mediaUpload);
       }
@@ -11184,6 +11196,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const manifests: ImageManifest[] = mediaUpload?.prepared?.manifests ?? [];
     let payload = mediaUpload?.prepared?.payload;
     const usedUploadPlanIds = new Set<string>();
+    const stagedUploadIds = new Set<string>();
     const encryptFile = isFile ? encryptFileAttachment : encryptImageFile;
     try {
       if (mediaUpload) {
@@ -11207,8 +11220,14 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         this.renderMessages({ scroll: followMediaSend ? 'send' : 'preserve' });
       }
       const vault = session.vault;
+      let outgoingVideoPreview: VideoMessagePreview | undefined;
       if (!payload) {
         for (const [index, file] of files.entries()) {
+          let stagedUpload: CipherTransfer | undefined;
+          if (destination === 'chat' && isSelectedVideo(file) && this.activeDevicesSupport(VIDEO_PREVIEW_CAPABILITY)) {
+            outgoingVideoPreview = await createVideoMessagePreview(file, signal);
+            if (!this.isRuntimeActive(epoch, session)) return false;
+          }
           const matchingPlans = this.uploadPlans.filter((plan) =>
             plan.originalSize === file.size &&
             plan.originalName === file.name &&
@@ -11221,25 +11240,48 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
             this.uploadPlans = this.uploadPlans.filter((plan) => plan.blobId !== legacy.blobId);
           }
           const uploadCallbacks: Parameters<typeof encryptImageFile>[1] = {
-            cacheCiphertext: isSelectedVideo(file) ? (id, index, bytes) =>
-              saveCachedMediaChunk(session, id, index, bytes, signal, file.size).catch(() => undefined) : undefined,
+            cacheCiphertext: isSelectedVideo(file) ? async (id, index, bytes) => {
+              if (stagedUpload) await stageCipherPart(stagedUpload,index,bytes);
+              await saveCachedMediaChunk(session,id,index,bytes,signal,file.size).catch(()=>undefined);
+            } : undefined,
             includeDimensions: this.activeDevicesSupport('media-dimensions-v1'),
             started: () => {
               if (!this.isRuntimeActive(epoch, session)) return;
               mediaUpload?.view.update('uploading', completedBytes > 0 ? completedBytes / totalBytes : undefined);
               if (!mediaUpload && output) output.textContent = uiLiteral('上传中');
             },
-            reserve: (blobId, chunkCount, encryptedSize) => this.retryOperation(
-              () => reserveBlob(vault.roomId, vault.accessToken, blobId, chunkCount, encryptedSize, signal), 3, signal),
+            reserve: async (blobId, chunkCount, encryptedSize) => {
+              await this.retryOperation(()=>reserveBlob(vault.roomId,vault.accessToken,blobId,chunkCount,encryptedSize,signal),3,signal);
+              if (destination==='chat' && isSelectedVideo(file) && signal) stagedUpload=await prepareCipherTransfer({
+                roomId:vault.roomId,deviceId:vault.identity.publicBundle.deviceId,accessToken:vault.accessToken,
+                manifest:{blobId,chunkCount,originalSize:file.size,chunkSize:2*1024**2},direction:'upload',signal });
+              if (stagedUpload) stagedUploadIds.add(stagedUpload.id);
+            },
             status: (blobId) => this.retryOperation(
               () => getBlobStatus(vault.roomId, vault.accessToken, blobId, signal), 3, signal),
-            upload: (blobId, chunkIndex, bytes) => this.retryOperation(
+            upload: (blobId, chunkIndex, bytes) => stagedUpload ? Promise.resolve() : this.retryOperation(
               () => uploadBlobChunk(vault.roomId, vault.accessToken, blobId, chunkIndex, bytes, signal),
               3,
               signal,
             ),
-            complete: (blobId) => this.retryOperation(
-              () => completeBlob(vault.roomId, vault.accessToken, blobId, signal), 3, signal),
+            complete: (blobId) => stagedUpload && signal ? runCipherTransfer(stagedUpload,signal,ratio=>{
+              if (!this.isRuntimeActive(epoch,session)) return;
+              mediaUpload?.view.update('uploading',ratio); transferProgress?.(ratio);
+            }) : this.retryOperation(()=>completeBlob(vault.roomId,vault.accessToken,blobId,signal),3,signal),
+            encrypted: async manifest => {
+              if (!stagedUpload || !signal) return;
+              signal.throwIfAborted();
+              const plan=this.uploadPlans.find(row=>row.blobId===manifest.blobId);
+              if (!plan || plan.v!==2) throw Error('Encrypted upload plan unavailable');
+              const sentAt=mediaUpload?.sentAt ?? new Date().toISOString();
+              const pending: import('./lib/types').FilePayload = {v:replyTarget?2:1,kind:'file',file:manifest,sentAt,
+                ...(replyTarget?{replyTo:this.replyReference(replyTarget)}:{})};
+              if(outgoingVideoPreview){pending.v=3;pending.videoPreview=outgoingVideoPreview;}
+              const next={...plan,transferIntent:{clientMsgId,transferId:stagedUpload.id,payload:pending,...(linkVideoId?{linkVideoId}:{})}};
+              await saveUploadPlan(session,next);
+              signal.throwIfAborted();
+              const at=this.uploadPlans.findIndex(row=>row.blobId===plan.blobId);if(at>=0)this.uploadPlans[at]=next;
+            },
             savePlan: async (plan) => {
               await saveUploadPlan(session, plan);
               if (!this.isRuntimeActive(epoch, session)) return;
@@ -11250,7 +11292,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
             progress: (ratio) => {
               if (!this.isRuntimeActive(epoch, session)) return;
               const overall = (completedBytes + Math.max(file.size, 1) * ratio) / totalBytes;
-              mediaUpload?.view.update('uploading', overall);
+              mediaUpload?.view.update(stagedUpload ? 'preparing' : 'uploading', stagedUpload ? undefined : overall);
               if (!mediaUpload && bar) bar.style.transform = `scaleX(${overall})`;
               if (!mediaUpload && output) output.textContent = files.length > 1
                 ? uiTemplate`正在处理第 ${index + 1}/${files.length} 张 · ${Math.round(overall * 100)}%`
@@ -11296,6 +11338,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
               : replyTarget
                 ? { v: 2, kind: 'image', image: manifests[0]!, sentAt, replyTo: this.replyReference(replyTarget) }
                 : { v: 1, kind: 'image', image: manifests[0]!, sentAt };
+        if (payload.kind === 'file' && outgoingVideoPreview) { payload.v = 3; payload.videoPreview = outgoingVideoPreview; }
         if (expression && payload.kind === 'image') {
           payload.presentation = expressionAutoHide ? 'expression-hidden' : 'expression';
           payload.expressionAutoHide = Boolean(expressionAutoHide);
@@ -11320,6 +11363,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         if (!this.isRuntimeActive(epoch, session)) return false;
         this.uploadPlans = this.uploadPlans.filter((plan) => plan.blobId !== manifest.blobId);
       }
+      for (const id of stagedUploadIds) await discardCipherTransfer(id).catch(()=>undefined);
       if (destination === 'gallery' && this.root.querySelector('.gallery-shell')) this.renderGallery(isFile && !isVideoFile(manifests[0]!) ? 'files' : 'images');
       return true;
     } catch (cause) {
@@ -11484,6 +11528,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (media.some(item => item.width !== undefined) && !this.activeDevicesSupport('media-dimensions-v1')) {
       return uiLiteral('请先让所有已授权设备打开一次最新版，再发送带稳定占位的媒体');
     }
+    if (payload.kind === 'file' && payload.videoPreview && !this.activeDevicesSupport(VIDEO_PREVIEW_CAPABILITY)) return uiLiteral('视频预览等待设备更新');
     if(payload.kind==='text' && payload.preview && !this.activeDevicesSupport(LINK_PREVIEW_CAPABILITY)) return uiLiteral('链接预览等待设备更新');
     if (payload.kind === 'message-read' && !this.activeDevicesSupport('message-read-v1')) return uiLiteral('已读同步等待设备更新');
     if (payload.kind === 'media-read' && !this.activeDevicesSupport('media-read-v1')) return uiLiteral('已读同步等待设备更新');
@@ -12631,7 +12676,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       this.replyTarget = null;
       this.renderReplyDraft();
     }
-    if (messages.length === 0 && this.mediaUploads.size === 0) {
+    if (messages.length === 0 && this.mediaUploads.size === 0 && this.linkVideoQueued.size === 0) {
       this.chatRenderWindow.sync([], list.clientWidth);
       this.chatRenderWindow.choose(0);
       this.chatWindowSpacers.clear();
@@ -12724,7 +12769,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         element.style.height = `${Math.max(0, renderWindow.offset(to) - renderWindow.offset(from) - 4)}px`;
         this.chatWindowSpacers.set(key, { element, from, to }); timeline.push(element);
       };
-      const uploadDrafts = [...this.mediaUploads.entries()].filter(([id, draft]) => draft.view.geometryReady && !visibleMessageIds.has(id))
+      const uploadDrafts = [...this.mediaUploads.entries(), ...this.linkVideoQueued.entries()].filter(([id, draft]) => draft.view.geometryReady && !visibleMessageIds.has(id))
         .sort(([, a], [, b]) => a.sentAt.localeCompare(b.sentAt));
       let previousIndex = -1;
       const oldSteps = this.chatWindowSteps;
@@ -12839,8 +12884,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       // and compositing survive incoming messages and delivery receipts.
       this.reconcileChatRows(list, [...timeline, ...authorizationCards]);
       // Upload tiles participate in scrolling/geometry, never in read cursors.
-      for (const [id] of this.mediaUploads) if (!visibleMessageIds.has(id)) sequences.set(id, Number.MAX_SAFE_INTEGER);
-      this.renderedMessageOrder = this.mediaUploads.size ? timeline.filter(element => element.classList.contains('message')) : elements;
+      for (const [id] of [...this.mediaUploads, ...this.linkVideoQueued]) if (!visibleMessageIds.has(id)) sequences.set(id, Number.MAX_SAFE_INTEGER);
+      this.renderedMessageOrder = this.mediaUploads.size || this.linkVideoQueued.size ? timeline.filter(element => element.classList.contains('message')) : elements;
       this.renderedMessageSeq = sequences;
     }
     syncChatBubbleStyle(list);
@@ -13119,7 +13164,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       if (isVideoFile(message.payload.file)) {
         article.classList.add('has-media');
         bubble.classList.add('image-bubble');
-        bubble.append(this.createImagePreview(message.payload.file, [message.payload.file], 0, message.clientMsgId));
+        bubble.append(this.createImagePreview(message.payload.file, [message.payload.file], 0, message.clientMsgId, undefined, message.payload.videoPreview));
       } else {
         bubble.classList.add('file-bubble');
         bubble.append(this.createFileAttachment(message.payload.file, true, message));
@@ -14915,6 +14960,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         await saveMediaPreview(session, manifest, poster.blob, signal).catch(() => undefined);
         if (!this.isRuntimeActive(epoch, session)) return;
         cached.posterUrl = URL.createObjectURL(poster.blob);
+        cached.durationMs = poster.durationMs;
         cached.width = poster.width;
         cached.height = poster.height;
         cached.bytes += poster.blob.size;
@@ -15251,7 +15297,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     return { video, cleanup };
   }
 
-  private updateChatImageVisibility(button: HTMLButtonElement): void {
+  private updateChatImageVisibility(button: HTMLElement): void {
     const key = button.dataset.revealKey!;
     const expression = button.dataset.expression === 'true';
     const autoHide = button.dataset.expressionAutoHide === 'true';
@@ -15265,11 +15311,13 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
     button.dataset.revealed = String(revealed);
     button.setAttribute('aria-label', (revealed ? button.dataset.openLabel : button.dataset.revealLabel)!);
+    const control = button.querySelector<HTMLButtonElement>(':scope > .video-cover-control');
+    if (control) control.setAttribute('aria-label', button.getAttribute('aria-label')!);
     button.querySelector(':scope > .media-ready-hint')?.remove();
     if (button.dataset.posterUnavailable === 'true') button.setAttribute('aria-label', revealed ? uiLiteral('播放视频') : uiLiteral('显示视频'));
   }
 
-  private setChatImagePreviewSource(button: HTMLButtonElement, source: string): void {
+  private setChatImagePreviewSource(button: HTMLElement, source: string): void {
     // Use one cover-fitted layer for concealment; the hidden foreground keeps
     // the original geometry for reveal. JSON string quoting is valid CSS string
     // syntax and keeps the object URL out of generated markup.
@@ -15323,17 +15371,20 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     });
   }
 
-  private createImagePreview(manifest: ImageManifest, album: ImageManifest[], index: number, clientMsgId: string, description = manifest.originalName || uiLiteral('聊天图片')): HTMLButtonElement {
-    const button = document.createElement('button');
-    button.type = 'button';
+  private createImagePreview(manifest: ImageManifest, album: ImageManifest[], index: number, clientMsgId: string, description = manifest.originalName || uiLiteral('聊天图片'), videoPreview?: VideoMessagePreview): HTMLElement {
     const video = isVideoFile(manifest);
+    const button = document.createElement(video ? 'div' : 'button');
+    if (button instanceof HTMLButtonElement) button.type = 'button';
+    else button.setAttribute('role', 'group');
     button.className = `image-preview${video ? ' video-preview' : ''}`;
+    if (videoPreview) this.videoCardPreviews.set(button, videoPreview);
     button.dataset.blobId = manifest.blobId;
     button.dataset.mediaMessageId = clientMsgId;
     button.dataset.revealKey = `${clientMsgId}:${manifest.blobId}`;
     button.dataset.imageState = 'pending';
     const dimensions = validMediaDimensions(manifest) ? manifest : this.imageCache.get(manifest.blobId);
     if (dimensions && validMediaDimensions(dimensions)) setChatMediaDimensions(button, dimensions);
+    else if (video) setChatMediaDimensions(button, {width:288,height:216});
     button.dataset.openLabel = `${video ? uiLiteral('播放视频') : uiLiteral('放大查看')} ${description}`;
     button.dataset.revealLabel = `${video ? uiLiteral('显示视频预览') : uiLiteral('显示图片')} ${description}`;
     this.updateChatImageVisibility(button);
@@ -15341,7 +15392,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     this.mountChatImageLoadingFeedback(button, video);
     this.renderChatImageLoadFeedback(button, video, this.imageLoadStatus.get(manifest.blobId) ?? { stage: 'queued' });
     const cached = this.imageCache.get(manifest.blobId);
-    if (cached) {
+    if (cached && (!video || shouldAutoDownloadVideo(manifest.originalSize))) {
       this.assertImageManifestIdentity(manifest);
       cached.lastUsedAt = Date.now();
       if (cached.width && cached.height && cached.concealedUrl && (!video || cached.posterUrl)) {
@@ -15363,9 +15414,18 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         queueMicrotask(() => { if (button.isConnected) void this.hydrateImagePreview(button, manifest); });
       }
     }
+    if (video) this.mountVideoControls(button, manifest);
     button.addEventListener('click', () => {
       if (Date.now() < this.suppressMediaClickUntil || !button.isConnected || !this.session || this.privacyCovered ||
           document.documentElement.classList.contains('privacy-obscured') || this.root.querySelector('.message-actions')) return;
+      if (video && button.dataset.manualDownload === 'true') {
+        // Cover interaction never grants consent to fetch the original.
+        const key = button.dataset.revealKey!;
+        if (this.chatRevealedAssets.has(key)) this.chatRevealedAssets.delete(key);
+        else this.chatRevealedAssets.add(key);
+        this.updateChatImageVisibility(button);
+        return;
+      }
       if (button.dataset.imageState === 'error') {
         void this.hydrateImagePreview(button, manifest);
         return;
@@ -15409,7 +15469,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     return button;
   }
 
-  private async updateVideoCacheStatus(button: HTMLButtonElement, manifest: ImageManifest): Promise<void> {
+  private async updateVideoCacheStatus(button: HTMLElement, manifest: ImageManifest): Promise<void> {
     const session = this.session;
     const epoch = this.runtimeEpoch;
     if (!session) return;
@@ -15424,9 +15484,13 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
   }
 
-  private showVideoPlaceholder(button: HTMLButtonElement): void {
+  private showVideoPlaceholder(button: HTMLElement, manifest: ImageManifest): void {
     button.style.removeProperty('--chat-preview-source');
     button.replaceChildren(this.videoPlayBadge());
+    const coverControl = document.createElement('button');
+    coverControl.type = 'button'; coverControl.className = 'video-cover-control';
+    button.append(coverControl);
+    this.mountVideoControls(button, manifest);
     button.dataset.imageState = 'loaded';
     button.dataset.posterUnavailable = 'true';
     button.setAttribute('aria-busy', 'false');
@@ -15436,7 +15500,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (this.activeSurface === 'chat' && list?.contains(button)) this.finishChatAnchorRestore(list);
   }
 
-  private async renderImageIntoButton(button: HTMLButtonElement, manifest: ImageManifest, cached: CachedImage): Promise<void> {
+  private async renderImageIntoButton(button: HTMLElement, manifest: ImageManifest, cached: CachedImage): Promise<void> {
     const ownerList = () => {
       const list = this.chatLayoutElements?.list;
       return this.activeSurface === 'chat' && list?.isConnected && list.contains(button) ? list : null;
@@ -15447,7 +15511,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       if (!button.isConnected || this.privacyCovered) return;
       void this.updateVideoCacheStatus(button, manifest);
       if (!cached.posterUrl) {
-        this.showVideoPlaceholder(button);
+        this.showVideoPlaceholder(button, manifest);
         this.imageLoadStatus.delete(manifest.blobId);
         return;
       }
@@ -15494,7 +15558,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const retiringStatus = button.querySelector<HTMLElement>('.media-load-capsule');
     button.replaceChildren(image);
     if (retiringStatus) { button.append(retiringStatus); retireMediaCapsule(retiringStatus, this.runtimeAbort?.signal); }
-    if (video) button.append(this.videoPlayBadge());
+    if (video) { button.append(this.videoPlayBadge()); this.mountVideoControls(button, manifest); }
     button.dataset.imageState = 'loaded';
     button.setAttribute('aria-busy', 'false');
     delete button.dataset.loadStage;
@@ -15506,16 +15570,22 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     this.markVisibleMessagesRead();
   }
 
-  private async hydrateImagePreview(button: HTMLButtonElement, manifest: ImageManifest): Promise<void> {
+  private async hydrateImagePreview(button: HTMLElement, manifest: ImageManifest, allowNetwork = true, requireOriginal = false): Promise<void> {
     if (button.dataset.imageState === 'loading' || button.dataset.imageState === 'loaded') return;
     button.dataset.imageState = 'loading';
     button.setAttribute('aria-busy', 'true');
+    button.querySelector('.video-download-control')?.remove();
     try {
       delete button.dataset.loadStage;
       button.removeAttribute('title');
       if (button.querySelector('.media-load-capsule.is-error') || !button.querySelector('.media-load-capsule > .media-capsule-content > .media-load-progress')) this.mountChatImageLoadingFeedback(button, isVideoFile(manifest));
       this.renderChatImageLoadFeedback(button, isVideoFile(manifest), this.imageLoadStatus.get(manifest.blobId) ?? { stage: 'queued' });
-      const cached = await this.loadImage(manifest, true);
+      if (requireOriginal && isVideoFile(manifest) && this.session && this.runtimeAbort) {
+        const task = await prepareCipherTransfer({ roomId:this.session.vault.roomId, deviceId:this.session.vault.identity.publicBundle.deviceId,
+          accessToken:this.session.vault.accessToken, manifest, direction:'download', signal:this.runtimeAbort.signal });
+        if (task) await runCipherTransfer(task,this.runtimeAbort.signal,ratio=>this.updateChatImageLoadFeedback(manifest,'download',ratio));
+      }
+      const cached = await this.loadImage(manifest, true, requireOriginal, allowNetwork);
       if (!button.isConnected || this.privacyCovered) return;
       await this.renderImageIntoButton(button, manifest, cached);
     } catch (cause) {
@@ -15536,6 +15606,10 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         capsule.querySelector('.media-load-status')!.replaceWith(error);
       }, true, this.runtimeAbort?.signal);
       button.replaceChildren(capsule);
+      if (isVideoFile(manifest)) {
+        if (!shouldAutoDownloadVideo(manifest.originalSize)) button.dataset.manualDownload = 'true';
+        this.mountVideoControls(button, manifest);
+      }
       button.setAttribute('aria-label', cause instanceof Error ? uiTemplate`${cause.message}，点按重试` : error.textContent);
       button.title = button.getAttribute('aria-label')!;
       if (cause instanceof VideoBufferUnavailable) this.showNotice(cause.message, 'error');
@@ -15544,41 +15618,73 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
   }
 
-  private async prepareVisibleChatMedia(button: HTMLButtonElement, manifest: ImageManifest): Promise<void> {
+  private async prepareVisibleChatMedia(button: HTMLElement, manifest: ImageManifest): Promise<void> {
     const session = this.session;
     if (!session) return;
-    if (!isVideoFile(manifest) || manifest.originalSize <= MEDIA_CACHE_FILE_BYTES || this.imageCache.get(manifest.blobId)?.posterUrl) {
+    if (!isVideoFile(manifest) || shouldAutoDownloadVideo(manifest.originalSize)) {
       return this.hydrateImagePreview(button, manifest);
     }
     const epoch = this.runtimeEpoch;
-    const preview = await loadMediaPreview(session, manifest, this.runtimeAbort?.signal).catch(() => null);
+    const cached = this.imageCache.get(manifest.blobId);
+    const staged = await findCipherTransfer(session.vault.roomId,session.vault.identity.publicBundle.deviceId,manifest.blobId,'download').catch(()=>undefined);
+    const complete = cached && !cached.previewOnly && !cached.displayCopy || staged?.state === 'done' || await hasCompleteMediaChunks(session, manifest).catch(() => false);
     if (!button.isConnected || !this.isRuntimeActive(epoch, session) || button.dataset.imageState !== 'pending') return;
+    if (complete) {
+      // A corrupt/missing local chunk must fall back to explicit consent too.
+      try { await this.hydrateImagePreview(button, manifest, false); } catch { /* consent below */ }
+      if (button.getAttribute('data-image-state') === 'loaded') return;
+    }
+    const preview = await loadMediaPreview(session, manifest, this.runtimeAbort?.signal).catch(() => null)
+      ?? videoMessagePoster(this.videoCardPreviews.get(button));
+    if (!button.isConnected || !this.isRuntimeActive(epoch, session)) return;
+    button.dataset.manualDownload = 'true';
+    button.dataset.imageState = 'waiting';
+    button.setAttribute('aria-busy', 'false');
+    button.replaceChildren();
     if (preview) {
       this.cacheLocalImage(manifest, preview, true);
-      const cached = this.imageCache.get(manifest.blobId)!;
-      if (!cached.posterUrl) {
-        // Preserve an original already held in memory and attach just the verified poster.
-        cached.posterUrl = URL.createObjectURL(preview);
-        cached.bytes += preview.size;
-        this.imageCacheBytes += preview.size;
+      // Render the already verified cover only; never call loadImage here.
+      const local = this.imageCache.get(manifest.blobId);
+      if (local) {
+        local.posterUrl ??= local.url;
+        const image = document.createElement('img'); image.src = local.posterUrl; image.alt = manifest.originalName;
+        button.append(image);
+        await image.decode().catch(() => undefined);
+        if (!button.isConnected || !this.isRuntimeActive(epoch, session)) return;
+        await this.ensureChatConcealedImage(manifest, local, image);
+        if (!button.isConnected || !this.isRuntimeActive(epoch, session)) return;
+        if (local.concealedUrl) this.setChatImagePreviewSource(button, local.concealedUrl);
       }
-      return this.hydrateImagePreview(button, manifest);
     }
-    const complete = await hasCompleteMediaChunks(session, manifest).catch(() => false);
-    if (!button.isConnected || !this.isRuntimeActive(epoch, session) || button.dataset.imageState !== 'pending') return;
-    if (complete || this.imageCache.has(manifest.blobId)) {
-      if (complete) {
-        button.dataset.localCache = uiLiteral('本机已缓存');
-        button.setAttribute('aria-description', button.dataset.localCache);
+    this.mountVideoControls(button, manifest);
+    this.updateChatImageVisibility(button);
+    const list = this.chatLayoutElements?.list;
+    if (list?.contains(button)) this.finishChatAnchorRestore(list);
+  }
+
+  private mountVideoControls(card: HTMLElement, manifest: ImageManifest): void {
+    let cover = card.querySelector<HTMLButtonElement>(':scope > .video-cover-control');
+    if (!cover) { cover = document.createElement('button'); cover.type = 'button'; cover.className = 'video-cover-control'; card.append(cover); }
+    cover.setAttribute('aria-label', card.getAttribute('aria-label') || uiLiteral('显示视频预览'));
+    let duration = card.querySelector<HTMLElement>(':scope > .video-duration');
+    if (!duration) { duration = document.createElement('span'); duration.className = 'video-duration'; card.append(duration); }
+    duration.textContent = videoDurationLabel(this.videoCardPreviews.get(card)?.durationMs ?? this.imageCache.get(manifest.blobId)?.durationMs);
+    if (card.dataset.manualDownload === 'true') {
+      let download = card.querySelector<HTMLButtonElement>(':scope > .video-download-control');
+      if (!download) {
+        download = document.createElement('button'); download.type = 'button'; download.className = 'video-download-control';
+        download.innerHTML = '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M5 20h14"/></svg>';
+        download.setAttribute('aria-label', uiLiteral('下载视频'));
+        download.addEventListener('click', event => {
+          event.stopPropagation();
+          if (!this.session || this.privacyCovered || !card.isConnected) return;
+          delete card.dataset.manualDownload;
+          card.dataset.imageState = 'pending';
+          void this.hydrateImagePreview(card, manifest, true, true);
+        });
+        card.append(download);
       }
-      this.showVideoPlaceholder(button);
-      return;
     }
-    button.setAttribute('aria-busy', 'false');
-    button.setAttribute('aria-label', uiLiteral('点按下载视频'));
-    const label = button.querySelector('.media-load-status');
-    if (label) label.textContent = uiLiteral('点按下载视频');
-    button.querySelector('progress')?.setAttribute('hidden', '');
   }
 
   private mountChatImageObserver(list: HTMLElement): void {
@@ -15620,7 +15726,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     pending.forEach((button) => this.chatImageObserver?.observe(button));
   }
 
-  private async loadImage(manifest: ImageManifest, previewOnly = false, requireOriginal = false): Promise<CachedImage> {
+  private async loadImage(manifest: ImageManifest, previewOnly = false, requireOriginal = false, allowNetwork = true): Promise<CachedImage> {
     this.assertImageManifestIdentity(manifest);
     const existing = this.imageCache.get(manifest.blobId);
     if (existing && !(requireOriginal && existing.displayCopy) && (!existing.previewOnly || (!requireOriginal && (!isVideoFile(manifest) || previewOnly)))) {
@@ -15628,7 +15734,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       return existing;
     }
     const inFlight = this.imageLoadPromises.get(manifest.blobId);
-    if (inFlight) { await inFlight; return this.loadImage(manifest, previewOnly, requireOriginal); }
+    if (inFlight) { await inFlight; return this.loadImage(manifest, previewOnly, requireOriginal, allowNetwork); }
     const session = this.session;
     if (!session || this.privacyCovered) throw new Error(uiLiteral('会话已锁定'));
     const epoch = this.runtimeEpoch;
@@ -15647,6 +15753,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       }
       const decrypt = isVideoFile(manifest) ? decryptFileAttachment : decryptImageFile;
       let usedPersistentCiphertext = false;
+      const stagedDownload = await findCipherTransfer(roomId,session.vault.identity.publicBundle.deviceId,manifest.blobId,'download').catch(()=>undefined);
       let networkDownload = false;
       let fetchFailed = false;
       const decryptWithCiphertextCache = (allowCache: boolean) => decrypt(
@@ -15667,6 +15774,15 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
                 return cachedChunk;
               }
             }
+            if (stagedDownload && allowCache) {
+              const staged = await readCipherPart(stagedDownload.id,chunkIndex);
+              if (staged?.byteLength === expectedPlaintextBytes + 16) {
+                usedPersistentCiphertext = true;
+                await saveCachedMediaChunk(session,manifest.blobId,chunkIndex,staged,signal,manifest.originalSize).catch(()=>undefined);
+                return staged;
+              }
+            }
+            if (!allowNetwork) throw new Error(uiLiteral('请点按下载视频'));
             networkDownload = true;
             this.updateChatImageLoadFeedback(manifest, 'download', chunkIndex / manifest.chunkCount);
             const chunk = await fetchBlobChunk(roomId, accessToken, blobId, chunkIndex, signal).catch(error => {
@@ -15688,7 +15804,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       } catch (cause) {
         if (fetchFailed || signal?.aborted || cause instanceof VideoBufferUnavailable) throw cause;
         await deleteCachedMediaBlob(session, manifest.blobId).catch(() => undefined);
-        if (!usedPersistentCiphertext) throw cause;
+        if (stagedDownload) await discardCipherTransfer(stagedDownload.id).catch(()=>undefined);
+        if (!usedPersistentCiphertext || !allowNetwork) throw cause;
         signal?.throwIfAborted();
         // A partial, stale or externally corrupted local cache must not make a
         // valid server attachment permanently unreadable. Discard it and
@@ -15702,6 +15819,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       }
       if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
       this.cacheLocalImage(manifest, blob);
+      if (stagedDownload && await hasCompleteMediaChunks(session,manifest).catch(()=>false)) await discardCipherTransfer(stagedDownload.id).catch(()=>undefined);
       if (!isVideoFile(manifest)) {
         const preview = await createMediaPreview(blob, signal).catch(() => null)
           ?? await createAnimatedDisplayCopy(blob, signal).catch(() => null);
@@ -15721,7 +15839,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   }
 
   private renderChatImageLoadFeedback(
-    button: HTMLButtonElement,
+    button: HTMLElement,
     video: boolean,
     status: { stage: 'queued' | 'download' | 'decrypt' | 'decode'; ratio?: number },
   ): void {
@@ -15748,7 +15866,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     button.setAttribute('aria-label', uiTemplate`${text}，点按继续准备`);
   }
 
-  private mountChatImageLoadingFeedback(button: HTMLButtonElement, video: boolean): void {
+  private mountChatImageLoadingFeedback(button: HTMLElement, video: boolean): void {
     let capsule = button.querySelector<HTMLElement>('.media-load-capsule');
     if (!capsule) {
       button.innerHTML = video ? icons.video : icons.image;
@@ -16595,14 +16713,52 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     });
   }
 
+  private async cancelStagedVideoUpload(clientMsgId:string): Promise<void> {
+    const session=this.session;
+    if(!session)return;
+    for(const plan of [...this.uploadPlans]){
+      if(plan.v!==2||plan.transferIntent?.clientMsgId!==clientMsgId)continue;
+      await cancelCipherTransfer(plan.transferIntent.transferId);
+      await deleteUploadPlan(session,plan.blobId);
+      this.uploadPlans=this.uploadPlans.filter(row=>row.blobId!==plan.blobId);
+    }
+  }
+
+  private async resumeStagedVideoUploads(): Promise<void> {
+    const session=this.session,epoch=this.runtimeEpoch,signal=this.runtimeAbort?.signal;
+    if(!session||!signal||this.privacyCovered)return;
+    for(const plan of [...this.uploadPlans]){
+      if(plan.v!==2||!plan.transferIntent)continue;
+      const intent=plan.transferIntent;
+      signal.throwIfAborted();
+      const task=await readCipherTransfer(intent.transferId);
+      if(!task||task.state==='cancelled')continue;
+      if(task.roomId!==session.vault.roomId||task.deviceId!==session.vault.identity.publicBundle.deviceId||task.blobId!==plan.blobId||task.direction!=='upload')throw new SecurityViolation('Transfer scope mismatch');
+      if(task.state!=='done'){
+        const renewed=await prepareCipherTransfer({roomId:task.roomId,deviceId:task.deviceId,accessToken:session.vault.accessToken,
+          manifest:intent.payload.file,direction:'upload',signal});
+        if(!renewed)return;
+        await runCipherTransfer(renewed,signal);
+      }
+      if(!this.isRuntimeActive(epoch,session))return;
+      if(await loadCancelledSend(session,intent.clientMsgId))continue;
+      await this.enqueuePayload(intent.payload,intent.clientMsgId,signal,undefined,null);
+      if(!this.isRuntimeActive(epoch,session))return;
+      // The original client ID and any durable MLS ciphertext are reused.
+      await deleteUploadPlan(session,plan.blobId);
+      this.uploadPlans=this.uploadPlans.filter(row=>row.blobId!==plan.blobId);
+      await discardCipherTransfer(task.id);
+    }
+  }
+
   private videoDownloads?: ReturnType<typeof openLinkVideoSheet>;
 
-  private openVideoDownloads(start?:SavedLinkVideo):void {
+  private openVideoDownloads(start?:SavedLinkVideo,resume=false):void {
     const session=this.session, epoch=this.runtimeEpoch, signal=this.runtimeAbort?.signal;
     if(!session||!signal||this.privacyCovered)return;
     if (this.videoDownloads) { this.videoDownloads.show(); return; }
     const active=()=>this.isRuntimeActive(epoch,session)&&!this.privacyCovered;
-    const send = async (file: File, id: string, op: AbortSignal) => {
+    const send = async (file: File, id: string, op: AbortSignal, progress?: (ratio:number)=>void) => {
       const submit = async () => {
         op.throwIfAborted();
         if (!active() || this.imageBatchUploading || this.mediaUploads.get(id)?.busy) return false;
@@ -16610,14 +16766,39 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         try {
           if (await hasOutboxItem(session, id) || (await listLinkVideos(session, op)).some(row => row.id === id && row.shared)) return true;
           const retryId = this.mediaUploads.has(id) ? id : undefined;
-          return await this.processImageBatch([file], 'chat', op, false, retryId, false, undefined, id);
+          return await this.processImageBatch([file], 'chat', op, false, retryId, false, undefined, id, progress);
         } finally {
           if (this.isRuntimeActive(epoch, session)) this.imageBatchUploading = false;
         }
       };
       return navigator.locks ? navigator.locks.request('chamber-link-send:' + id, { signal: op }, submit) : submit();
     };
-    this.videoDownloads = openLinkVideoSheet({ root: this.root, session, signal, active, start, send, onDispose: () => { this.videoDownloads = undefined; }, largeVideoReady: () => this.activeDevicesSupport(LARGE_VIDEO_CAPABILITY) });
+    this.videoDownloads = openLinkVideoSheet({ root: this.root, session, signal, active, start, resume, send,
+      queue: items => {
+        this.beginChatSendScroll();
+        for (const item of items) {
+          if (this.linkVideoQueued.has(item.id) || this.mediaUploads.has(item.id)) continue;
+          const element = document.createElement('article'); element.className = 'message outgoing has-media media-upload video-upload';
+          element.dataset.clientMsgId = item.id;
+          const bubble = document.createElement('div'); bubble.className = 'message-bubble image-bubble media-upload-tile';
+          setChatMediaDimensions(bubble, { width: 288, height: 216 });
+          const label = document.createElement('span'); label.className = 'queued-link-video-state'; label.textContent = uiLiteral('等待下载');
+          const duration = document.createElement('span'); duration.className = 'video-duration'; duration.textContent = videoDurationLabel(item.duration * 1000);
+          bubble.append(duration, label); element.append(bubble);
+          this.linkVideoQueued.set(item.id, { sentAt: new Date().toISOString(), view: { element, geometryReady: true } });
+        }
+        this.renderMessages({ scroll: 'send' });
+      },
+      cancelQueued: async ids => { for (const id of ids) await this.cancelStagedVideoUpload(id); },
+      queuedState: (id, text) => {
+        const label = this.linkVideoQueued.get(id)?.view.element.querySelector('.queued-link-video-state');
+        if (label) label.textContent = text;
+      },
+      onDispose: () => {
+        for (const draft of this.linkVideoQueued.values()) draft.view.element.remove();
+        this.linkVideoQueued.clear(); this.videoDownloads = undefined;
+        if (active()) this.renderMessages({ scroll: 'preserve' });
+      }, largeVideoReady: () => this.activeDevicesSupport(LARGE_VIDEO_CAPABILITY) });
   }
 
   private renderGallery(tab: GalleryTab = 'images'): void {
@@ -17817,6 +17998,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     this.pending.clear();
     for (const draft of this.mediaUploads.values()) draft.view.destroy();
     this.mediaUploads.clear();
+    this.linkVideoQueued.clear();
     this.outbox.clear(); this.expiredOutboxIds.clear();
     this.pendingReceipts.clear();
     this.serverQueue.clear();

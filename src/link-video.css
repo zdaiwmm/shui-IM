@@ -192,3 +192,4 @@
 .link-video-choice small { color: var(--ink-muted); margin-top: 2px; }
 .link-video-choice[aria-pressed='true'] { background: var(--accent-soft); }
 .link-video-result-icon { box-sizing: content-box; padding: 10px; margin-block: 8px; border-radius: 50%; color: var(--accent); background: var(--accent-soft); }
+.queued-link-video-state { position:absolute; inset:0; display:grid; place-items:center; color:var(--ink-muted); font-size:13px; }

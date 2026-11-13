@@ -1760,6 +1760,7 @@ export async function createStore({
     authenticate,
     authenticateInvite,
     authenticatedDevice,
+    authorizeBlobTransfer: (roomId, blobId, deviceId) => { assertDeviceActive(roomId, deviceId); return blobStatus(roomId, blobId); },
     deviceRecoveryPending,
     createRecoveryRequest,
     recoveryStatus,

@@ -113,7 +113,14 @@ try {
     return { aligned: Math.abs(input.bottom - voice.bottom) < 2, abovePanel: voice.bottom < panel.top };
   });
   assert.deepEqual(panelGeometry, { aligned: true, abovePanel: true });
-  await reset(); await hold(); await page.waitForTimeout(700);
+  await reset();
+  await page.locator('#message-input').tap();
+  await hold();
+  assert.equal(await page.locator('#message-input').evaluate(e => document.activeElement === e), true,
+    'Holding voice recording preserves the existing keyboard focus');
+  assert.equal(await page.locator('#message-input').evaluate(e => getComputedStyle(e).visibility), 'visible',
+    'The focused input stays focusable beneath the recording overlay');
+  await page.waitForTimeout(700);
   assert.equal(await page.locator('.voice-recording-dot').evaluate(el=>getComputedStyle(el).animationName),'voice-recording-pulse');
   await page.emulateMedia({reducedMotion:'reduce'});
   assert.equal(await page.locator('.voice-recording-dot').evaluate(el=>getComputedStyle(el).animationName),'none');

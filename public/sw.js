@@ -1,4 +1,5 @@
 const RELEASE_ID = '__QUIET_ROOM_RELEASE_ID__';
+importScripts('/cipher-transfers.js?v=' + encodeURIComponent(RELEASE_ID));
 const CACHE = `quiet-room-shell-${RELEASE_ID}`;
 const NOTIFICATION_POLICY_CACHE = 'quiet-room-notification-policy-v1';
 const NOTIFICATION_POLICY_URL = '/__quiet-room-notification-policy';

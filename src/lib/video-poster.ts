@@ -1,6 +1,6 @@
 import { uiLiteral } from './language';
 /** A local, memory-only thumbnail. The caller supplies an already verified Blob URL. */
-export async function createVideoPoster(url: string, signal?: AbortSignal): Promise<{ blob: Blob; width: number; height: number }> {
+export async function createVideoPoster(url: string, signal?: AbortSignal): Promise<{ blob: Blob; width: number; height: number; durationMs?: number }> {
   signal?.throwIfAborted();
   const video = document.createElement('video');
   video.muted = true;
@@ -75,7 +75,7 @@ export async function createVideoPoster(url: string, signal?: AbortSignal): Prom
     const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
       result => result ? resolve(result) : reject(new Error(uiLiteral('视频预览不可用'))), 'image/jpeg', 0.82));
     signal?.throwIfAborted();
-    return { blob, width: canvas.width, height: canvas.height };
+    return { blob, width: canvas.width, height: canvas.height, ...(duration ? { durationMs: Math.round(duration * 1000) } : {}) };
   } finally {
     video.pause();
     video.removeAttribute('src');
