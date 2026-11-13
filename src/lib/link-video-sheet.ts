@@ -33,6 +33,7 @@ type Options = {
   active: () => boolean;
   send: (file: File, id: string, signal: AbortSignal, progress?: (ratio:number)=>void) => Promise<boolean>;
   largeVideoReady: () => boolean;
+  prepareSend?: (ids:string[],signal:AbortSignal)=>Promise<void>;
   queue?: (items: { id: string; name: string; duration: number }[]) => void;
   cancelQueued?: (ids:string[])=>Promise<void>;
   queuedState?: (id: string, text: string) => void;
@@ -119,7 +120,8 @@ export function localVideoTile(item: SavedLinkVideo, open: () => void, menu?: ()
 export function openLinkVideoSheet(opts: Options) {
   const { root, session } = opts;
   const life = new AbortController();
-  const signal = AbortSignal.any([life.signal, opts.signal]);
+  const work = new AbortController();
+  const signal = AbortSignal.any([life.signal, opts.signal, work.signal]);
   const sheet = el('div');
   sheet.className = 'link-video-sheet confirm-backdrop';
   sheet.setAttribute('role', 'dialog');
@@ -210,7 +212,9 @@ export function openLinkVideoSheet(opts: Options) {
     opts.onDispose();
   }
   const cancel = async () => {
-    try { for(const id of queuedIds) await cancelLinkSourceDownload(session,id,signal); await opts.cancelQueued?.(queuedIds); dispose(); }
+    work.abort(new DOMException('Task cancelled','AbortError'));
+    const cancellationSignal=new AbortController().signal;
+    try { for(const id of queuedIds) await cancelLinkSourceDownload(session,id,cancellationSignal); await opts.cancelQueued?.(queuedIds); dispose(); }
     catch { report(uiLiteral('取消失败，请重试'),'failed'); }
   };
   function show() {
@@ -269,7 +273,8 @@ export function openLinkVideoSheet(opts: Options) {
       busy = false;
     }
   };
-  async function sendSaved(item: SavedLinkVideo) {
+  async function sendSaved(item: SavedLinkVideo, explicit=false) {
+    if(explicit){queuedIds=[item.id];await opts.prepareSend?.(queuedIds,signal);signal.throwIfAborted();}
     phase = 'prepare';
     retry = () => sendSaved(item);
     taskScreen(item.name, uiLiteral('正在本地无损压缩'));
@@ -308,7 +313,7 @@ export function openLinkVideoSheet(opts: Options) {
     body.append(stateIcon, el('strong', item.name), el('p', item.shared ? uiLiteral('已发送至聊天') : uiLiteral('仅自己可见 · 本设备')));
     report(message, offerSend ? 'failed' : 'done');
     actions.append(button(uiLiteral('我的下载'), () => void manage(library)));
-    if (offerSend) actions.append(button(uiLiteral('发送至聊天'), () => void manage(() => sendSaved(item)), 'primary-button'));
+    if (offerSend) actions.append(button(uiLiteral('发送至聊天'), () => void manage(() => sendSaved(item,true)), 'primary-button'));
     else actions.append(button(uiLiteral('查看视频'), () => void manage(() => view(item)), 'primary-button'));
   }
   function itemActions(item: SavedLinkVideo) {
@@ -322,7 +327,7 @@ export function openLinkVideoSheet(opts: Options) {
     actions.append(button(uiLiteral('我的下载'), () => void manage(library)));
     if (!item.shared)
       actions.append(
-        button(uiLiteral('发送至聊天'), () => void manage(() => sendSaved(item)), 'primary-button'),
+        button(uiLiteral('发送至聊天'), () => void manage(() => sendSaved(item,true)), 'primary-button'),
       );
   }
   async function view(item: SavedLinkVideo) {
@@ -366,7 +371,7 @@ export function openLinkVideoSheet(opts: Options) {
         tip.className = 'link-video-menu';
         const action = button(item.shared ? uiLiteral('已发送至聊天') : uiLiteral('发送至聊天'), () => {
           tip.remove();
-          void manage(() => sendSaved(item));
+          void manage(() => sendSaved(item,true));
         });
         action.disabled = !!item.shared;
         tip.append(
@@ -453,6 +458,8 @@ export function openLinkVideoSheet(opts: Options) {
     const stored = await listLinkVideos(session, signal);
     const pending=await listPendingLinkDownloads(session,signal);
     const entries = clips.map(clip => ({ clip, id: stored.find(item => item.key === clip.key)?.id ?? pending.find(item=>item.clip.key===clip.key)?.id ?? crypto.randomUUID() }));
+    queuedIds=entries.map(entry=>entry.id);
+    if(share)await opts.prepareSend?.(queuedIds,signal);signal.throwIfAborted();
     for(const entry of entries)if(!stored.some(item=>item.id===entry.id)){
       const plan=await prepareLinkSourceDownload(session,entry.clip,entry.id,share,signal);
       void plan;
@@ -589,5 +596,5 @@ export function openLinkVideoSheet(opts: Options) {
     for(const item of pending){await download(item.clip,item.share,item.id);if(!active()||phase==='failed')return;}
   });
   else form();
-  return { show, refresh, dispose };
+  return { show, refresh, dispose, abortOperations:()=>work.abort(new DOMException('Room exited','AbortError')) };
 }

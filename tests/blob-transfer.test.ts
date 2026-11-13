@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { createBlobTransferAuthority } from '../server/blob-transfer.mjs';
+import { WRITE_LIMITS } from '../server/request-limits.mjs';
 
 describe('ciphertext-only transfer grants', () => {
+  it('registers every new mutation with the existing request limiter', () => {
+    for(const operation of ['blob-transfer','blob-transfer-chunk','blob-transfer-done']) {
+      expect(WRITE_LIMITS[operation]).toMatchObject({source:expect.any(Number),device:expect.any(Number)});
+    }
+  });
   it('binds one device, blob, direction and expiry without retaining its room credential', () => {
     let now = 1_000, active = true;
     const authority = createBlobTransferAuthority({ now: () => now, authorize: () => { if (!active) throw Error('UNAUTHORIZED'); } });

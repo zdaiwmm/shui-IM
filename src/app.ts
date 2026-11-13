@@ -559,7 +559,7 @@ export class QuietRoomApp {
   private chatWindowFrame: number | null = null;
   private chatWindowLastScroll = 0;
   private readCompatibility = '';
-  private videoDownloadOperations = new WeakMap<HTMLElement,{controller:AbortController;task?:CipherTransfer;cancelled:boolean}>();
+  private videoDownloadOperations = new WeakMap<HTMLElement,{controller:AbortController;task?:CipherTransfer;cancelled:boolean;cancelPromise?:Promise<void>}>();
   private videoCardPreviews = new WeakMap<HTMLElement, VideoMessagePreview>();
   private linkVideoQueued = new Map<string, { sentAt: string; view: { element: HTMLElement; geometryReady: boolean } }>();
   private mediaUploads = new Map<string, { view: MediaUploadView; files: File[]; expression: boolean; autoHide: boolean; expressionKind?: 'gifs' | 'stickers'; reply: DecryptedMessage | null; sentAt: string; busy: boolean; prepared?: { payload: MessagePayload; manifests: ImageManifest[] } }>();
@@ -5159,7 +5159,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     void this.connectSocket().catch(cause => { if (runtime.isCurrent()) {this.captureFault('chat.identity',cause);this.operationalError(cause, uiLiteral('安全通话身份准备失败，请重新解锁'));} });
     if (activeRoles.size === 2) { void this.resumeDeferredImage(); this.showPairingWelcome(); }
     this.startAutomaticBackup();
-    void this.resumeStagedVideoUploads().then(()=>listPendingLinkDownloads(session,runtime.signal)).then(pending=>{
+    void this.resumeStagedVideoUploads().then(()=>this.resumeAuthorizedVideoDownloads()).then(()=>listPendingLinkDownloads(session,runtime.signal)).then(pending=>{
       if(pending.length&&runtime.isCurrent())this.openVideoDownloads(undefined,true);
     }).catch(cause=>{if(runtime.isCurrent()&&!(cause instanceof DOMException&&cause.name==='AbortError'))this.operationalError(cause,uiLiteral('附件传输已暂停，可重新解锁后继续'));});
     this.startOwnDirectoryServices(session, runtime.signal);
@@ -6987,6 +6987,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (this.runtimeEpoch !== epoch || this.session !== session || this.browserProfile !== profile
       || this.privacyCovered || this.expireIdleSession()) return false;
     if(session&&signal){
+      this.videoDownloads?.abortOperations();
       for(const id of new Set([...this.mediaUploads.keys(),...this.linkVideoQueued.keys()]))await this.cancelStagedVideoUpload(id);
       for(const task of await listCipherTransfers(session.vault.roomId,session.vault.identity.publicBundle.deviceId))await cancelCipherTransfer(task.id);
       for(const plan of await loadUploadPlans(session))if(plan.v===2&&plan.transferIntent)await this.cancelStagedVideoUpload(plan.transferIntent.clientMsgId);
@@ -15670,12 +15671,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       if (list) this.finishChatAnchorRestore(list);
     } finally {
       if(operation){
-        if(operation.cancelled&&operation.task)await cancelCipherTransfer(operation.task.id).catch(()=>undefined);
+        if(operation.cancelled&&operation.task)await (operation.cancelPromise??cancelCipherTransfer(operation.task.id)).catch(()=>undefined);
         this.videoDownloadOperations.delete(button);
         if(operation.cancelled&&button.isConnected&&!this.privacyCovered){
           button.dataset.imageState='waiting';button.dataset.manualDownload='true';button.setAttribute('aria-busy','false');
           button.querySelector('.media-load-capsule')?.remove();this.mountVideoControls(button,manifest);this.updateChatImageVisibility(button);
-        }
+        }else if(button.dataset.imageState==='error'&&button.isConnected&&!this.privacyCovered)this.mountVideoControls(button,manifest);
       }
     }
   }
@@ -15740,8 +15741,11 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           if (!this.session || this.privacyCovered || !card.isConnected) return;
           const running=this.videoDownloadOperations.get(card);
           if(running){
-            try{if(running.task)await cancelCipherTransfer(running.task.id);running.cancelled=true;running.controller.abort(new DOMException('Download cancelled','AbortError'));}
-            catch{this.showNotice(uiLiteral('取消下载失败，请重试'),'error');}return;
+            if(running.cancelled)return;
+            running.cancelled=true;
+            if(running.task)running.cancelPromise=cancelCipherTransfer(running.task.id);
+            running.controller.abort(new DOMException('Download cancelled','AbortError'));
+            try{await running.cancelPromise;}catch{this.showNotice(uiLiteral('取消下载失败，请重试'),'error');}return;
           }
           this.videoDownloadOperations.set(card,{controller:new AbortController(),cancelled:false});
           card.dataset.imageState = 'pending';
@@ -16827,6 +16831,25 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
   }
 
+  private async resumeAuthorizedVideoDownloads():Promise<void>{
+    const session=this.session,epoch=this.runtimeEpoch,signal=this.runtimeAbort?.signal;
+    if(!session||!signal)return;
+    for(const previous of await listCipherTransfers(session.vault.roomId,session.vault.identity.publicBundle.deviceId)){
+      if(previous.direction!=='download'||['done','cancelled','preparing'].includes(previous.state))continue;
+      signal.throwIfAborted();
+      const task=await prepareCipherTransfer({roomId:previous.roomId,deviceId:previous.deviceId,accessToken:session.vault.accessToken,manifest:previous,direction:'download',signal});
+      if(!task)throw Error('后台传输服务尚未就绪，请刷新后重试');
+      const card=this.root.querySelector<HTMLElement>(`.image-preview[data-blob-id="${CSS.escape(task.blobId)}"]`);
+      const message=this.orderedMessages().find(row=>row.payload.kind==='file'&&row.payload.file.blobId===task.blobId);
+      if(card&&message?.payload.kind==='file'){
+        card.dataset.imageState='pending';card.dataset.manualDownload='true';
+        this.videoDownloadOperations.set(card,{controller:new AbortController(),task,cancelled:false});
+        await this.hydrateImagePreview(card,message.payload.file,true,true);
+      }else await runCipherTransfer(task,signal);
+      if(!this.isRuntimeActive(epoch,session))return;
+    }
+  }
+
   private videoDownloads?: ReturnType<typeof openLinkVideoSheet>;
 
   private openVideoDownloads(start?:SavedLinkVideo,resume=false):void {
@@ -16834,6 +16857,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if(!session||!signal||this.privacyCovered)return;
     if (this.videoDownloads) { this.videoDownloads.show(); return; }
     const active=()=>this.isRuntimeActive(epoch,session)&&!this.privacyCovered;
+    const preparedSendIds=new Map<string,string>();
     const send = async (file: File, id: string, op: AbortSignal, progress?: (ratio:number)=>void) => {
       const submit = async () => {
         op.throwIfAborted();
@@ -16841,7 +16865,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         this.imageBatchUploading = true;
         try {
           if (await hasOutboxItem(session, id) || (await listLinkVideos(session, op)).some(row => row.id === id && row.shared)) return true;
-          const sendId=await linkVideoSendId(session,id);
+          const sendId=preparedSendIds.get(id)??(await listLinkVideos(session,op)).find(item=>item.id===id)?.sendId??id;
+          op.throwIfAborted();
           const retryId = this.mediaUploads.has(sendId) ? sendId : undefined;
           return await this.processImageBatch([file], 'chat', op, false, retryId, false, undefined, id, progress, sendId);
         } finally {
@@ -16851,6 +16876,10 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       return navigator.locks ? navigator.locks.request('chamber-link-send:' + id, { signal: op }, submit) : submit();
     };
     this.videoDownloads = openLinkVideoSheet({ root: this.root, session, signal, active, start, resume, send,
+      prepareSend:async(ids,op)=>{
+        const items=await listLinkVideos(session,op);
+        for(const id of ids){op.throwIfAborted();preparedSendIds.set(id,items.some(item=>item.id===id)?await linkVideoSendId(session,id):id);op.throwIfAborted();}
+      },
       queue: items => {
         this.beginChatSendScroll();
         for (const item of items) {

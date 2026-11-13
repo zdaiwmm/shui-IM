@@ -154,6 +154,7 @@ function normalizeError(error) {
     ['ROOM_CREATE_CONFLICT', [409, '本次密室创建凭据不一致，请保留本机身份后重试']],
     ['INVITATION_CODE_INVALID', [400, '验证码不正确，请核对本次请求编号后重试']],
     ['BACKUP_QUOTA', [413, '备份容量不足，已保留先前的有效备份']],
+    ['TRANSFER_LIMIT', [429, '同时进行的附件任务过多，请稍后重试']],
     ['BACKUP_NOT_FOUND', [404, '部分备份内容缺失，请保留已验证的记录']],
     ['INVALID_BACKUP', [400, '备份格式或身份范围不正确']],
     ['BACKUP_CONFLICT', [409, '备份版本发生冲突，请重新验证后重试']],
