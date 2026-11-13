@@ -17,6 +17,10 @@
     tx.oncomplete=()=>{db.close();resolve(value);};tx.onabort=()=>{db.close();reject(tx.error??Error('Cancelled'));};tx.onerror=()=>{};
     try{fn(tx,result=>{value=result;});}catch(error){tx.abort();reject(error);}});}
   const get=id=>transaction('readonly',(tx,done)=>{const r=tx.objectStore('tasks').get(id);r.onsuccess=()=>done(r.result);});
+  async function roomFor(bytes){
+    const estimate=typeof navigator!=='undefined'&&navigator.storage?.estimate?await navigator.storage.estimate().catch(()=>null):null;
+    if(estimate&&Math.min(estimate.quota??Infinity,10*1024**3)-(estimate.usage??0)<bytes+64*1024**2)throw Error('Transfer storage full');
+  }
   async function update(id,fields,part){return transaction('readwrite',(tx,done)=>{const store=tx.objectStore('tasks'),r=store.get(id);
     r.onsuccess=()=>{if(!r.result||r.result.state==='cancelled'){tx.abort();return;}
       store.put({...r.result,...fields,updated:Date.now()});if(part)tx.objectStore('parts').put(part);done();};});}
@@ -30,7 +34,14 @@
         ||source.key.usages.length!==1||source.key.usages[0]!=='encrypt'||!(source.ivPrefix instanceof Uint8Array)||source.ivPrefix.byteLength!==8
         || ![task.roomId,task.deviceId,task.blobId].every(value=>uuid.test(value))||task.chunkSize!==chunk||task.expiresAt<=Date.now())throw Error('Invalid source task');
       const offset=task.receivedBytes??0;
-      if(!Number.isSafeInteger(offset)||offset<0||offset>limit||offset%chunk!==0)throw Error('Invalid source offset');
+      if(!Number.isSafeInteger(offset)||offset<0||offset>limit)throw Error('Invalid source offset');
+      if(offset>0&&offset===task.originalSize){
+        let complete=true;
+        for(let index=0;index<Math.ceil(offset/chunk);index++){const part=await transaction('readonly',(tx,done)=>{const r=tx.objectStore('parts').get(id+':'+index);r.onsuccess=()=>done(r.result);});
+          if(!(part?.bytes instanceof ArrayBuffer)||part.bytes.byteLength!==Math.min(chunk,offset-index*chunk)+16){complete=false;break;}}
+        await update(id,complete?{state:'done',chunkCount:Math.ceil(offset/chunk)}:{state:'restart'});return;
+      }
+      if(offset%chunk!==0){await update(id,{state:'restart'});return;}
       if(offset && !task.etag){await update(id,{state:'restart'});return;}
       response=await fetch(url.href,{signal,credentials:'omit',cache:'no-store',redirect:'error',referrerPolicy:'no-referrer',
         ...(offset?{headers:{Range:`bytes=${offset}-`,'If-Range':task.etag}}:{})});
@@ -48,12 +59,13 @@
       if(total>limit||total<0||!Number.isSafeInteger(total))throw Error('Source too large');
       await update(id,{state:'running',originalSize:total,etag:strong?etag:undefined});
       let received=offset,index=offset/chunk,pending=new Uint8Array(chunk),used=0;
-      const commit=async(size)=>{
+      const commit=async(size,final=false)=>{
         const current=await get(id);if(!current||current.state==='cancelled')throw Error('Cancelled');signal.throwIfAborted();
         const iv=new Uint8Array(12);iv.set(source.ivPrefix);new DataView(iv.buffer).setUint32(8,index,false);
         const bytes=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:new TextEncoder().encode(id+':'+index)},source.key,pending.slice(0,size));
         signal.throwIfAborted();
-        await update(id,{receivedBytes:received},{id:id+':'+index,taskId:id,index,bytes});index++;used=0;pending=new Uint8Array(chunk);
+        await roomFor(bytes.byteLength);
+        await update(id,{receivedBytes:received,...(final?{state:'done',originalSize:received,chunkCount:index+1}:{})},{id:id+':'+index,taskId:id,index,bytes});index++;used=0;pending=new Uint8Array(chunk);
       };
       reader=response.body.getReader();
       while(true){
@@ -65,10 +77,17 @@
         }
       }
       if(!received||total&&received!==total)throw Error('Source incomplete');
-      if(used)await commit(used);
+      if(used){await commit(used,true);return;}
       await update(id,{state:'done',originalSize:received,chunkCount:index,receivedBytes:received});
     }catch{await update(id,{state:'paused'}).catch(()=>{});}
-    finally{await reader?.cancel().catch(()=>{});reader?.releaseLock();}
+    finally{await reader?.cancel().catch(()=>{});reader?.releaseLock();if(!reader)await response?.body?.cancel().catch(()=>{});}
+  }
+  async function exactBytes(response,expected){
+    if(!response.body)throw Error('Transfer body missing');
+    const reader=response.body.getReader(),bytes=new Uint8Array(expected);let length=0;
+    try{while(true){const part=await reader.read();if(part.done)break;if(length+part.value.byteLength>expected)throw Error('Transfer too large');bytes.set(part.value,length);length+=part.value.byteLength;}
+      if(length!==expected)throw Error('Transfer truncated');return bytes.buffer;
+    }finally{await reader.cancel().catch(()=>{});reader.releaseLock();}
   }
   async function run(id,signal,source){let task=await get(id);if(task?.direction==='source'){if(['ready','running'].includes(task.state))await runSource(task,signal,source);return;}if(!valid(task)||!['ready','running'].includes(task.state))return;
     const endpoint=`/api/rooms/${task.roomId}/blobs/${task.blobId}/transfer`;
@@ -92,12 +111,14 @@
         }else if(!(existing?.bytes instanceof ArrayBuffer)||existing.bytes.byteLength!==expected){
           const response=await request('/chunks/'+index);const length=Number(response.headers.get('content-length'));
           if(length && length!==expected)throw Error('Transfer size mismatch');
-          const bytes=await response.arrayBuffer();if(bytes.byteLength!==expected)throw Error('Transfer size mismatch');
+          const bytes=await exactBytes(response,expected);
+          await roomFor(bytes.byteLength);
           await update(id,{}, {id:id+':'+index,taskId:id,index,bytes});
         }
       }
       if(task.direction==='upload')await request('/complete',{method:'POST'});
-      await update(id,{state:'done',token:''});
+      let retired=false;try{await request('/done',{method:'POST'});retired=true;}catch{}
+      await update(id,{state:'done',...(retired?{token:''}:{})});
     }catch{await update(id,{state:'paused'}).catch(()=>{});}
   }
   self.addEventListener('message',event=>{

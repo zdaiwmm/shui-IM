@@ -715,6 +715,25 @@ export async function loadMediaPreview(session: VaultSession, manifest: import('
 
 const playbackMimes = ['video/mp4', 'video/webm'];
 
+export async function saveVideoDuration(session:VaultSession,manifest:import('./types').ImageManifest,durationMs:number,signal?:AbortSignal):Promise<void>{
+  if(!Number.isSafeInteger(durationMs)||durationMs<=0||durationMs>7*24*3600_000)return;
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const additionalData=encoder.encode(canonicalStringify({purpose:'quiet-room-video-duration-v1',roomId:localDataScope(session.vault),manifest}));
+  const bytes=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData},await mediaPreviewKey(session),encoder.encode(JSON.stringify({v:1,durationMs})));
+  signal?.throwIfAborted();
+  await writeMediaCacheRecord(session,{id:mediaChunkId(localDataScope(session.vault),manifest.blobId,-4),roomId:localDataScope(session.vault),blobKey:mediaBlobKey(localDataScope(session.vault),manifest.blobId),blobId:manifest.blobId,index:-4,bytes,iv,mimeType:'application/json',cachedAt:Date.now()},signal,VIDEO_CACHE_ENTRY_LIMIT);
+}
+export async function loadVideoDuration(session:VaultSession,manifest:import('./types').ImageManifest,signal?:AbortSignal):Promise<number|undefined>{
+  const record=await transaction<StoredMediaChunk|undefined>('mediaChunks','readonly',store=>store.get(mediaChunkId(localDataScope(session.vault),manifest.blobId,-4)),()=>session.stored);
+  if(!record?.iv||record.mimeType!=='application/json'||record.bytes.byteLength>128)return;
+  try{
+    const additionalData=encoder.encode(canonicalStringify({purpose:'quiet-room-video-duration-v1',roomId:localDataScope(session.vault),manifest}));
+    const bytes=await crypto.subtle.decrypt({name:'AES-GCM',iv:record.iv,additionalData},await mediaPreviewKey(session),record.bytes);
+    signal?.throwIfAborted();const value=JSON.parse(decoder.decode(bytes));
+    if(value.v===1&&Object.keys(value).every(key=>['v','durationMs'].includes(key))&&Number.isSafeInteger(value.durationMs)&&value.durationMs>0&&value.durationMs<=7*24*3600_000)return value.durationMs;
+  }catch{signal?.throwIfAborted();}
+}
+
 /** Authenticated local playback file. It does not replace the poster or the server original. */
 export async function saveMediaPlayback(session: VaultSession, manifest: import('./types').ImageManifest, blob: Blob, signal?: AbortSignal): Promise<void> {
   if (blob.size > 48 * 1024 ** 2 || !playbackMimes.includes(blob.type)) return;
@@ -3618,7 +3637,7 @@ export async function loadPrivateMediaChunk(session:VaultSession,blobId:string,i
 }
 
 // This room/device-scoped store is deliberately outside history, galleries exchanged with peers, and recovery exports.
-export interface SavedLinkVideo {id:string; key:string; name:string; size:number; created:number; duration:number; poster?:string; shared?:boolean}
+export interface SavedLinkVideo {id:string; key:string; name:string; size:number; created:number; duration:number; poster?:string; shared?:boolean; sendId?:string; sendIds?:string[]}
 export interface PendingLinkDownload {kind:'link-source-v1';id:string;taskId:string;clip:import('./link-video').LinkClip;share:boolean;key:string;ivPrefix:string;created:number}
 const linkChunk = 2 ** 20;
 const linkAAD = (id: string, index: number) => encoder.encode(`chamber-link-video-body-v1:${id}:${index}`);
@@ -3730,13 +3749,28 @@ export async function readLinkVideo(session: VaultSession, id: string, signal: A
   signal.throwIfAborted();
   return new File(parts,meta.name,{type:'video/mp4',lastModified:meta.created});
 }
+/** A new explicit send after cancellation gets a fresh logical message ID. */
+export async function linkVideoSendId(session:VaultSession,id:string):Promise<string> {
+  return withVaultMutation(session,async mutation=>{
+    const row=await transaction<StoredLocalRecord|undefined>('linkVideos','readonly',store=>store.get(localDataScope(session.vault)+':'+id));
+    if(!row)throw Error('Private video unavailable');
+    const item=await decryptLocalRecord<SavedLinkVideo>(session,'linkVideos',row);
+    const preferences=await loadUiPreferences(session);
+    let sendId=item.sendId??id;
+    if(preferences.hiddenChatMessageIds?.includes(sendId))sendId=crypto.randomUUID();
+    const sendIds=[...new Set([...(item.sendIds??[id]),sendId])];
+    if(sendIds.length>100)throw Error('Too many cancelled send attempts');
+    await putLocalRecord(session,'linkVideos',id,{...item,sendId,sendIds},mutation);
+    return sendId;
+  });
+}
 /** Prepare under the vault lease; publish with the authenticated own-device history. */
 async function prepareLinkVideoShared(session: VaultSession, id: string): Promise<StoredLocalRecord | undefined> {
   const row = await transaction<StoredLocalRecord|undefined>('linkVideos','readonly',store=>store.get(localDataScope(session.vault)+':'+id));
-  if (!row) return;
-  const meta = await decryptLocalRecord<SavedLinkVideo>(session,'linkVideos',row);
-  if (meta.shared) return;
-  return encryptLocalRecord(session,'linkVideos',id,{...meta,shared:true});
+  const meta = row ? await decryptLocalRecord<SavedLinkVideo>(session,'linkVideos',row)
+    : (await listLinkVideos(session,new AbortController().signal)).find(item=>item.sendIds?.includes(id));
+  if (!meta || meta.shared) return;
+  return encryptLocalRecord(session,'linkVideos',meta.id,{...meta,shared:true});
 }
 
 export async function confirmLinkVideoShared(session: VaultSession, id: string): Promise<void> {

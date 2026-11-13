@@ -42,6 +42,8 @@ export async function findCipherTransfer(roomId:string,deviceId:string,blobId:st
     .sort((a,b)=>b.updated-a.updated)[0];
 }
 export async function discardCipherTransfer(id:string):Promise<void> {
+  const task=await readCipherTransfer(id);
+  if(task&&task.direction!=='source'&&task.token)await fetch(`/api/rooms/${task.roomId}/blobs/${task.blobId}/transfer`,{method:'DELETE',credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(5000),headers:{Authorization:'Transfer '+task.token,'X-Transfer-Direction':task.direction}}).catch(()=>undefined);
   await transact<void>('readwrite',(tx,done)=>{
     tx.objectStore('tasks').delete(id);
     const cursor=tx.objectStore('parts').index('taskId').openCursor(IDBKeyRange.only(id));
@@ -77,7 +79,7 @@ export async function prepareCipherTransfer(options: {
   if (prior && (prior.originalSize!==m.originalSize || prior.chunkCount!==m.chunkCount || prior.chunkSize!==m.chunkSize)) throw Error('Transfer manifest conflict');
   if (prior?.state==='done') return prior;
   const estimate=await navigator.storage?.estimate?.().catch(()=>undefined);
-  if (!prior && estimate?.quota && estimate.quota-(estimate.usage??0) < m.originalSize+16*m.chunkCount+64*1024**2) throw new DOMException('Insufficient transfer storage','QuotaExceededError');
+  if (!prior && estimate?.quota && Math.min(estimate.quota,10*1024**3)-(estimate.usage??0) < m.originalSize+16*m.chunkCount+64*1024**2) throw new DOMException('Insufficient transfer storage','QuotaExceededError');
   const response=await authorizedFetch(`/api/rooms/${roomId}/blobs/${m.blobId}/transfer`,options.accessToken,{
     method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({direction}),signal,
   });
@@ -95,6 +97,8 @@ export async function prepareCipherTransfer(options: {
 export async function stageCipherPart(task:CipherTransfer,index:number,bytes:ArrayBuffer):Promise<void> {
   const expected=Math.min(task.chunkSize,task.originalSize-index*task.chunkSize)+16;
   if(!Number.isSafeInteger(index)||index<0||index>=task.chunkCount||bytes.byteLength!==expected)throw Error('Invalid encrypted transfer chunk');
+  const estimate=await navigator.storage?.estimate?.().catch(()=>undefined);
+  if(estimate?.quota&&Math.min(estimate.quota,10*1024**3)-(estimate.usage??0)<bytes.byteLength+64*1024**2)throw new DOMException('Transfer storage full','QuotaExceededError');
   await transact<void>('readwrite',(tx,done)=>{
     const request=tx.objectStore('tasks').get(task.id);
     request.onsuccess=()=>{if(!request.result||request.result.state==='cancelled'){tx.abort();return;}
@@ -152,6 +156,6 @@ export async function cancelCipherTransfer(id:string):Promise<void> {
   });
   navigator.serviceWorker?.controller?.postMessage({type:'quiet-room-cipher-transfer-cancel',id});
   if(task.direction==='source')return;
-  await fetch(`/api/rooms/${task.roomId}/blobs/${task.blobId}/transfer`,{method:'DELETE',credentials:'omit',cache:'no-store',
+  await fetch(`/api/rooms/${task.roomId}/blobs/${task.blobId}/transfer`,{method:'DELETE',credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(5000),
     headers:{Authorization:'Transfer '+task.token,'X-Transfer-Direction':task.direction}}).catch(()=>undefined);
 }

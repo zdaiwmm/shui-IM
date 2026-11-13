@@ -30,14 +30,19 @@ try{
         originalSize:30*1024**2,originalName:'manual.mp4',mimeType:'video/mp4',lastModified:1,sha256:'a'.repeat(64),width:64,height:48};
       const payload={v:3,kind:'file',file:manifest,sentAt:new Date().toISOString(),videoPreview:{durationMs:48000,image:{mimeType:'image/jpeg',data,width:64,height:48}}};
       const message={seq:1,clientMsgId:crypto.randomUUID(),senderId:peer.deviceId,status:'delivered',acceptedAt:payload.sentAt,payload};
-      let downloads=0,viewers=0;
+      let downloads=0,viewers=0;const state={pause:false};
       app.openImageViewer=()=>{viewers++;};
-      app.loadImage=async()=>{
-        downloads++;app.cacheLocalImage(manifest,new Blob(['verified-fixture'],{type:'video/mp4'}));
+      app.loadImage=async(_manifest,_preview,_original,_network,signal)=>{
+        downloads++;
+        if(state.pause)await new Promise((_resolve,reject)=>{signal.addEventListener('abort',()=>reject(signal.reason),{once:true});});
+        signal?.throwIfAborted();app.cacheLocalImage(manifest,new Blob(['verified-fixture'],{type:'video/mp4'}));
         const cached=app.imageCache.get(manifest.blobId);cached.posterUrl=URL.createObjectURL(jpeg);cached.width=64;cached.height=48;cached.durationMs=48000;return cached;
       };
       app.messages=new Map([[1,message]]);app.renderMessages({scroll:'bottom'});
-      window.videoFixture={app,manifest,get downloads(){return downloads;},get viewers(){return viewers;}};
+      window.videoFixture={app,manifest,state,get downloads(){return downloads;},get viewers(){return viewers;}};
+      // Native cover clicks before asynchronous IDB/cache checks are consent-free too.
+      const cover=document.querySelector('.video-cover-control');cover.click();cover.click();
+      if(downloads!==0)throw Error('Early cover click downloaded a large original');
     });
     const card=page.locator('.image-preview.video-preview');
     await page.locator('.video-download-control').waitFor();
@@ -48,9 +53,18 @@ try{
     await card.locator('.video-cover-control').press('Enter');assert.equal(await card.getAttribute('data-revealed'),'false');
     assert.equal(await page.evaluate(()=>videoFixture.downloads),0,'cover reveal and conceal must not download the original');
     const before=await card.boundingBox();
+    await page.evaluate(()=>videoFixture.state.pause=true);
+    await card.locator('.video-download-control').click();
+    await page.getByRole('button',{name:'取消下载',exact:true}).waitFor();
+    await card.locator('.video-cover-control').click();assert.equal(await card.getAttribute('data-revealed'),'true');
+    await card.locator('.video-cover-control').click();assert.equal(await card.getAttribute('data-revealed'),'false');
+    await page.getByRole('button',{name:'取消下载',exact:true}).click();
+    await page.getByRole('button',{name:'下载视频',exact:true}).waitFor();
+    assert.equal(await card.getAttribute('data-image-state'),'waiting');
+    await page.evaluate(()=>videoFixture.state.pause=false);
     await card.locator('.video-download-control').click();
     await page.waitForFunction(()=>document.querySelector('.image-preview.video-preview').dataset.imageState==='loaded');
-    assert.equal(await page.evaluate(()=>videoFixture.downloads),1);
+    assert.equal(await page.evaluate(()=>videoFixture.downloads),2);
     assert.equal(await page.evaluate(()=>videoFixture.viewers),0,'download completion never auto-plays');
     const after=await card.boundingBox();assert.ok(Math.abs(before.width-after.width)<1&&Math.abs(before.height-after.height)<1,'manual download keeps bubble geometry');
     assert.equal(await card.locator('.video-download-control').count(),0);assert.equal(await card.locator('.video-play').count(),1);

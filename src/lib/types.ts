@@ -528,7 +528,7 @@ export type LegacyImageUploadPlan = {
 export type ImageUploadPlanV2 = Omit<LegacyImageUploadPlan, 'v'> & {
   v: 2;
   plaintextSha256: string;
-  transferIntent?: { clientMsgId: string; transferId: string; payload: FilePayload; linkVideoId?: string };
+  transferIntent?: { clientMsgId: string; transferId: string; payload: FilePayload; afterSeq?:number; linkVideoId?: string };
 };
 
 export type ImageUploadPlan = LegacyImageUploadPlan | ImageUploadPlanV2;

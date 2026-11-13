@@ -45,7 +45,8 @@ describe('isolated ciphertext worker',()=>{
     await fixture.run();
     expect(fixture.tasks.get(input.id)).toMatchObject({state:'done',token:''});
     expect(fixture.parts.get(input.id+':0').bytes.byteLength).toBe(20);
-    expect(calls).toHaveLength(1);expect(calls[0].init.headers.Authorization).toBe('Transfer '+input.token);
+    expect(calls).toHaveLength(2);expect(calls[1].url).toMatch(/\/done$/);
+    expect(calls[0].init.headers.Authorization).toBe('Transfer '+input.token);
     expect(calls[0].init.credentials).toBe('omit');
     expect(JSON.stringify([...fixture.tasks.values()])).not.toContain('key');
   });
@@ -81,5 +82,16 @@ describe('isolated ciphertext worker',()=>{
     await fixture.run({url:'https://video.twimg.com/example.mp4',key,ivPrefix:new Uint8Array(8)});
     expect(headers).toMatchObject({Range:`bytes=${1024**2}-`,'If-Range':'"old"'});
     expect(fixture.tasks.get(input.id).state).toBe('restart');expect(fixture.parts.size).toBe(0);
+  });
+  it('finishes a committed EOF checkpoint without re-encrypting or requesting an invalid Range',async()=>{
+    const input={...task('source'),chunkSize:1024**2,originalSize:5,receivedBytes:5,chunkCount:0,token:'',etag:'"old"'};
+    const bytes=new Uint8Array(21).buffer;
+    const parts=new Map([[input.id+':0',{id:input.id+':0',taskId:input.id,index:0,bytes}]]);
+    let requests=0;
+    const fixture=await worker(input,async()=>{requests++;throw Error('Must not fetch at EOF');},parts);
+    const key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},false,['encrypt']);
+    await fixture.run({url:'https://video.twimg.com/example.mp4',key,ivPrefix:new Uint8Array(8)});
+    expect(requests).toBe(0);expect(fixture.tasks.get(input.id)).toMatchObject({state:'done',chunkCount:1});
+    expect(fixture.parts.get(input.id+':0').bytes).toEqual(bytes);
   });
 });

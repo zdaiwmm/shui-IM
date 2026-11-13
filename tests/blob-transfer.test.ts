@@ -20,7 +20,8 @@ describe('ciphertext-only transfer grants', () => {
     const authority = createBlobTransferAuthority({ authorize: () => {}, maximum: 1 });
     const scope = { roomId:'r',blobId:'b',deviceId:'d',direction:'upload' };
     const grant = authority.issue(scope);
-    expect(() => authority.issue(scope)).toThrow('TRANSFER_LIMIT');
+    expect(authority.issue(scope).token).toBe(grant.token);
+    expect(() => authority.issue({...scope,blobId:'other'})).toThrow('TRANSFER_LIMIT');
     authority.revoke(grant.token);
     expect(() => authority.read(grant.token,'r','b','upload')).toThrow('UNAUTHORIZED');
     expect(authority.issue(scope).token).not.toBe(grant.token);

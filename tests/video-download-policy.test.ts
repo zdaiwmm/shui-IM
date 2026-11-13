@@ -13,6 +13,7 @@ describe('history video download policy', () => {
   });
   it('displays actual metadata without making up a duration', () => {
     expect(videoDurationLabel(48_990)).toBe('00:48');
+    expect(videoDurationLabel(500)).toBe('00:01');
     expect(videoDurationLabel(3_661_100)).toBe('1:01:01');
     for (const duration of [undefined, 0, -1, NaN, Infinity]) expect(videoDurationLabel(duration)).toBe('—:—');
   });

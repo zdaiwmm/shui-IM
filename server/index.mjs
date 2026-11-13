@@ -1493,7 +1493,7 @@ export async function startServer(options = {}) {
         return;
       }
 
-      const transferMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/blobs/(${ID_PATTERN})/transfer(?:/(complete|chunks/(\\d+)))?$`));
+      const transferMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/blobs/(${ID_PATTERN})/transfer(?:/(complete|done|chunks/(\\d+)))?$`));
       if (transferMatch) {
         const [, roomId, blobId, action, rawIndex] = transferMatch;
         if (request.method === 'POST' && !action) {
@@ -1509,6 +1509,10 @@ export async function startServer(options = {}) {
         const direction = request.method === 'PUT' || action === 'complete' ? 'upload' : request.headers['x-transfer-direction'];
         if (!token || !['upload','download'].includes(direction)) { json(request,response,401,{error:'UNAUTHORIZED'}); return; }
         const grant = blobTransfers.read(token,roomId,blobId,direction);
+        if (request.method === 'POST' && action === 'done') {
+          if(!allowWrite(request,response,'blob-transfer-done',roomId,grant.deviceId))return;
+          blobTransfers.revoke(token);json(request,response,200,{ok:true});return;
+        }
         if (request.method === 'DELETE' && !action) { blobTransfers.revoke(token); json(request,response,200,{ok:true}); return; }
         if (!action && request.method === 'GET') { json(request,response,200,store.blobStatus(roomId,blobId)); return; }
         if (action === 'complete' && request.method === 'POST') {

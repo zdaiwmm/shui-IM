@@ -6,7 +6,7 @@ import { toBase64Url } from './base64';
 import { uiLiteral } from './language';
 import { MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from './message-payload';
 import { mountLinkVideoCapsule, type LinkVideoPhase } from './link-video-capsule';
-import { launchLinkSourceDownload, downloadLinkSource, prepareLinkSourceDownload, finishLinkSourceDownload, cancelLinkSourceDownload } from './link-source-transfer';
+import { downloadLinkSource, prepareLinkSourceDownload, finishLinkSourceDownload, cancelLinkSourceDownload } from './link-source-transfer';
 import { listPendingLinkDownloads } from './vault';
 import { videoDurationLabel } from './video-download-policy';
 import {
@@ -415,9 +415,11 @@ export function openLinkVideoSheet(opts: Options) {
       const blob = await downloadLinkSource(session,c,requestedId,share,signal,track) ?? await directBlob(c.url,signal,LOCAL_VIDEO_LIMIT,track);
       await verifyMp4(blob, signal);
       let poster: string | undefined;
+      let duration=c.duration;
       const url = URL.createObjectURL(blob);
       try {
         const p = await createVideoPoster(url, signal);
+        if(p.durationMs)duration=p.durationMs/1000;
         poster = toBase64Url(await p.blob.arrayBuffer())
           .replace(/-/g, '+')
           .replace(/_/g, '/');
@@ -435,7 +437,7 @@ export function openLinkVideoSheet(opts: Options) {
           name: c.name,
           size: blob.size,
           created: Date.now(),
-          duration: c.duration,
+          duration,
           poster,
         },
         blob,
@@ -453,7 +455,7 @@ export function openLinkVideoSheet(opts: Options) {
     const entries = clips.map(clip => ({ clip, id: stored.find(item => item.key === clip.key)?.id ?? pending.find(item=>item.clip.key===clip.key)?.id ?? crypto.randomUUID() }));
     for(const entry of entries)if(!stored.some(item=>item.id===entry.id)){
       const plan=await prepareLinkSourceDownload(session,entry.clip,entry.id,share,signal);
-      if(plan)void launchLinkSourceDownload(plan,signal).catch(()=>undefined);
+      void plan;
     }
     queuedIds=entries.map(entry=>entry.id);
     if (share) opts.queue?.(entries.map(({clip,id}) => ({id,name:clip.name,duration:clip.duration})));

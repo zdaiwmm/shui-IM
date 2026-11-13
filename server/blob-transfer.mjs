@@ -9,6 +9,8 @@ export function createBlobTransferAuthority({ authorize, now = Date.now, maximum
       purge();
       if (!['upload','download'].includes(direction)) throw Error('UNAUTHORIZED');
       authorize(roomId, blobId, deviceId);
+      const existing=[...grants].find(([,g])=>g.roomId===roomId&&g.blobId===blobId&&g.deviceId===deviceId&&g.direction===direction);
+      if(existing)return {token:existing[0],expiresAt:existing[1].expiresAt};
       if (grants.size >= maximum || [...grants.values()].filter(g => g.roomId === roomId && g.deviceId === deviceId).length >= 8) throw Error('TRANSFER_LIMIT');
       const token = randomBytes(32).toString('base64url'), expiresAt = now() + ttl;
       grants.set(token, { roomId, blobId, deviceId, direction, expiresAt });
