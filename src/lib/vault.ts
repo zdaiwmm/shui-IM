@@ -3652,7 +3652,10 @@ export async function listPendingLinkDownloads(session:VaultSession,signal:Abort
   return rows.filter(row=>row.kind==='link-source-v1');
 }
 export function savePendingLinkDownload(session:VaultSession,plan:PendingLinkDownload):Promise<void> {
-  return putLocalRecord(session,'linkVideos','pending-source:'+plan.id,plan);
+  return withVaultMutation(session,async mutation=>{
+    if((await loadUiPreferences(session)).hiddenChatMessageIds?.includes(plan.id))throw new DOMException('Download cancelled','AbortError');
+    await putLocalRecord(session,'linkVideos','pending-source:'+plan.id,plan,mutation);
+  });
 }
 export function deletePendingLinkDownload(session:VaultSession,id:string):Promise<void> {
   return deleteLocalRecord(session,'linkVideos','pending-source:'+id);

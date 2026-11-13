@@ -70,12 +70,15 @@ export function readCipherPart(id: string,index: number): Promise<ArrayBuffer | 
 export async function prepareCipherTransfer(options: {
   roomId:string;deviceId:string;accessToken:string;manifest:Pick<ImageManifest,'blobId'|'chunkCount'|'originalSize'|'chunkSize'>;
   direction:'upload'|'download';signal:AbortSignal;
+  /** Automatic recovery cannot allocate a replacement for a cancelled task. */
+  expectedTaskId?:string;
 }): Promise<CipherTransfer | undefined> {
   if (!navigator.serviceWorker?.controller) return;
   const {manifest:m,roomId,deviceId,direction,signal}=options;
   signal.throwIfAborted();
   const id=cipherTransferId(roomId,deviceId,m.blobId,direction);
-  const prior=await findCipherTransfer(roomId,deviceId,m.blobId,direction);
+  const prior=options.expectedTaskId ? await readCipherTransfer(options.expectedTaskId) : await findCipherTransfer(roomId,deviceId,m.blobId,direction);
+  if(options.expectedTaskId&&(!prior||prior.state==='cancelled'||prior.roomId!==roomId||prior.deviceId!==deviceId||prior.blobId!==m.blobId||prior.direction!==direction))throw new DOMException('Transfer cancelled','AbortError');
   if (prior && (prior.originalSize!==m.originalSize || prior.chunkCount!==m.chunkCount || prior.chunkSize!==m.chunkSize)) throw Error('Transfer manifest conflict');
   if (prior?.state==='done') return prior;
   const estimate=await navigator.storage?.estimate?.().catch(()=>undefined);
@@ -90,7 +93,7 @@ export async function prepareCipherTransfer(options: {
     token:grant.token,expiresAt:grant.expiresAt,state:direction==='upload'?'preparing':'ready',updated:Date.now()};
   await transact<void>('readwrite',(tx,done)=>{
     const store=tx.objectStore('tasks'),read=store.get(task.id);
-    read.onsuccess=()=>{if(read.result?.state==='cancelled'){tx.abort();return;}store.put(task);done();};
+    read.onsuccess=()=>{if(read.result?.state==='cancelled'||options.expectedTaskId&&!read.result){tx.abort();return;}store.put(task);done();};
   });
   return task;
 }

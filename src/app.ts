@@ -15631,7 +15631,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       this.renderChatImageLoadFeedback(button, isVideoFile(manifest), this.imageLoadStatus.get(manifest.blobId) ?? { stage: 'queued' });
       if (requireOriginal && isVideoFile(manifest) && this.session && this.runtimeAbort) {
         const task = await prepareCipherTransfer({ roomId:this.session.vault.roomId, deviceId:this.session.vault.identity.publicBundle.deviceId,
-          accessToken:this.session.vault.accessToken, manifest, direction:'download', signal:signal! });
+          accessToken:this.session.vault.accessToken, manifest, direction:'download', signal:signal!,expectedTaskId:operation?.task?.id });
         if(operation)operation.task=task;
         if(operation?.cancelled&&task)await cancelCipherTransfer(task.id);
         signal?.throwIfAborted();
@@ -16816,7 +16816,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       if(task.roomId!==session.vault.roomId||task.deviceId!==session.vault.identity.publicBundle.deviceId||task.blobId!==plan.blobId||task.direction!=='upload')throw new SecurityViolation('Transfer scope mismatch');
       if(task.state!=='done'){
         const renewed=await prepareCipherTransfer({roomId:task.roomId,deviceId:task.deviceId,accessToken:session.vault.accessToken,
-          manifest:intent.payload.file,direction:'upload',signal});
+          manifest:intent.payload.file,direction:'upload',signal,expectedTaskId:intent.transferId});
         if(!renewed)throw Error('后台传输服务尚未就绪，请刷新后重试');
         await runCipherTransfer(renewed,signal);
       }
@@ -16837,7 +16837,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     for(const previous of await listCipherTransfers(session.vault.roomId,session.vault.identity.publicBundle.deviceId)){
       if(previous.direction!=='download'||['done','cancelled','preparing'].includes(previous.state))continue;
       signal.throwIfAborted();
-      const task=await prepareCipherTransfer({roomId:previous.roomId,deviceId:previous.deviceId,accessToken:session.vault.accessToken,manifest:previous,direction:'download',signal});
+      const task=await prepareCipherTransfer({roomId:previous.roomId,deviceId:previous.deviceId,accessToken:session.vault.accessToken,manifest:previous,direction:'download',signal,expectedTaskId:previous.id});
       if(!task)throw Error('后台传输服务尚未就绪，请刷新后重试');
       const card=this.root.querySelector<HTMLElement>(`.image-preview[data-blob-id="${CSS.escape(task.blobId)}"]`);
       const message=this.orderedMessages().find(row=>row.payload.kind==='file'&&row.payload.file.blobId===task.blobId);

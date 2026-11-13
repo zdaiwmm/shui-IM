@@ -214,7 +214,7 @@ export function openLinkVideoSheet(opts: Options) {
   const cancel = async () => {
     work.abort(new DOMException('Task cancelled','AbortError'));
     const cancellationSignal=new AbortController().signal;
-    try { for(const id of queuedIds) await cancelLinkSourceDownload(session,id,cancellationSignal); await opts.cancelQueued?.(queuedIds); dispose(); }
+    try { await opts.cancelQueued?.(queuedIds); for(const id of queuedIds) await cancelLinkSourceDownload(session,id,cancellationSignal); dispose(); }
     catch { report(uiLiteral('取消失败，请重试'),'failed'); }
   };
   function show() {

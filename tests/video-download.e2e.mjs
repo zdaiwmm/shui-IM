@@ -68,6 +68,35 @@ try{
     assert.equal(await page.evaluate(()=>videoFixture.viewers),0,'download completion never auto-plays');
     const after=await card.boundingBox();assert.ok(Math.abs(before.width-after.width)<1&&Math.abs(before.height-after.height)<1,'manual download keeps bubble geometry');
     assert.equal(await card.locator('.video-download-control').count(),0);assert.equal(await card.locator('.video-play').count(),1);
+    const generationFence=await page.evaluate(async()=>{
+      const transfers=await import('/src/lib/cipher-transfer.ts');
+      const owner=videoFixture.app.session.vault;
+      const task={id:transfers.cipherTransferId(owner.roomId,owner.identity.publicBundle.deviceId,crypto.randomUUID(),'download'),roomId:owner.roomId,
+        deviceId:owner.identity.publicBundle.deviceId,blobId:crypto.randomUUID(),direction:'download',originalSize:32*1024**2,chunkSize:2097152,
+        chunkCount:16,token:'a'.repeat(43),expiresAt:Date.now()+60000,state:'paused',updated:Date.now()};
+      // Use a matching opaque ID; the real worker validates this binding too.
+      task.id=transfers.cipherTransferId(task.roomId,task.deviceId,task.blobId,'download');
+      const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('quiet-room-cipher-transfers-v1',1);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+      await new Promise((resolve,reject)=>{const tx=db.transaction('tasks','readwrite');tx.objectStore('tasks').put(task);tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});db.close();
+      Object.defineProperty(navigator.serviceWorker,'controller',{configurable:true,value:{postMessage(){}}});
+      const originalFetch=window.fetch;let requests=0;
+      window.fetch=async(input,init)=>{
+        if(String(input).endsWith('/transfer')){
+          if(init?.method==='POST'){requests++;await transfers.cancelCipherTransfer(task.id);return Response.json({token:'b'.repeat(43),expiresAt:Date.now()+60000});}
+          if(init?.method==='DELETE')return Response.json({ok:true});
+        }
+        return originalFetch(input,init);
+      };
+      let rejected=false;
+      try{await transfers.prepareCipherTransfer({roomId:task.roomId,deviceId:task.deviceId,accessToken:'fixture',manifest:task,direction:'download',signal:new AbortController().signal,expectedTaskId:task.id});}
+      catch{rejected=true;}
+      finally{window.fetch=originalFetch;delete navigator.serviceWorker.controller;}
+      const rows=await transfers.listCipherTransfers(task.roomId,task.deviceId);
+      return {rejected,requests,matching:rows.filter(row=>row.blobId===task.blobId).map(row=>({id:row.id,state:row.state})),id:task.id};
+    });
+    assert.equal(generationFence.rejected,true,'recovery rejects a cancellation committed during grant renewal');
+    assert.equal(generationFence.requests,1);
+    assert.deepEqual(generationFence.matching,[{id:generationFence.id,state:'cancelled'}],'recovery never creates a replacement for a cancelled generation');
     assert.deepEqual(errors,[]);await page.close();await browser.close();browser=undefined;
   }
   console.log('Video download consent, encrypted cover, duration and stable geometry passed in Chromium/WebKit.');
