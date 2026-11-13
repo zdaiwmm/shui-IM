@@ -102,7 +102,7 @@ try {
         ]);
         const source = new Blob([essence, atom('free', new Uint8Array(80))], { type: 'video/mp4' });
         const requests = [],
-          uploads = [],
+          uploads = new Map(),
           realFetch = window.fetch.bind(window);
         window.fetch = async (input, init = {}) => {
           const url = new URL(typeof input === 'string' ? input : input.url, location.href);
@@ -142,7 +142,13 @@ try {
           }
           if (url.pathname.includes('/blobs')) {
             requests.push('chamber-upload');
-            if (init.method === 'PUT') uploads[Number(url.pathname.split('/').pop())] = new Blob([init.body]);
+            if (init.method === 'PUT') {
+              const match=url.pathname.match(/\/blobs\/([^/]+)\/chunks\/(\d+)$/);
+              if(!match)throw Error('Unexpected fixture upload path');
+              const chunks=uploads.get(match[1])??[];
+              chunks[Number(match[2])]=new Blob([init.body]);
+              uploads.set(match[1],chunks);
+            }
             return Response.json({ ok: true, uploadedIndexes: [], completed: false });
           }
           return realFetch(input, init);
@@ -272,7 +278,7 @@ try {
     }
     if (large) {
       await sheet.getByText('请先让所有已授权设备打开一次最新版，再发送大视频').waitFor({ timeout: 240000 });
-      assert.equal(await page.evaluate(() => window.f.uploads.length), 0);
+      assert.equal(await page.evaluate(() => window.f.uploads.size), 0);
       await page.evaluate(() => {
         for (const member of window.f.session.vault.members) member.capabilities.push('large-video-v1');
       });
@@ -281,27 +287,31 @@ try {
     await sheet.getByText('已交给聊天发送').waitFor({ timeout: large ? 300000 : 18000 });
     const sent = await page.evaluate(async () => {
       const { app, vault, session, signal, uploads, essence } = window.f;
-      const rows = await vault.listLinkVideos(session, signal), row = rows[0],
+      const rows = await vault.listLinkVideos(session, signal),
         outbox = await vault.loadOutbox(session);
       const { decryptFileAttachment } = await import('/src/lib/file-crypto.ts');
-      const restored = await decryptFileAttachment(outbox[0].payload.file, async (_id, index) =>
-        uploads[index].arrayBuffer(),
-      );
-      if (restored.size !== essence.size) throw Error('Decoded attachment changed size');
-      // Compare the entire restored file in bounded portions, including large fixtures.
-      for (let offset = 0; offset < essence.size; offset += 2 ** 20) {
-        const actual = new Uint8Array(await restored.slice(offset, offset + 2 ** 20).arrayBuffer());
-        const original = new Uint8Array(await essence.slice(offset, offset + 2 ** 20).arrayBuffer());
-        if (!actual.every((byte, index) => byte === original[index]))
-          throw Error('Decoded attachment lost media bytes');
+      // Each selected video owns distinct ciphertext, even when chunk indexes
+      // coincide. Verify every complete attachment against its own blob ID.
+      for (const item of outbox) {
+        const restored = await decryptFileAttachment(item.payload.file, async (id, index) =>
+          uploads.get(id)[index].arrayBuffer(),
+        );
+        if (restored.size !== essence.size) throw Error('Decoded attachment changed size');
+        // Compare the entire restored file in bounded portions, including large fixtures.
+        for (let offset = 0; offset < essence.size; offset += 2 ** 20) {
+          const actual = new Uint8Array(await restored.slice(offset, offset + 2 ** 20).arrayBuffer());
+          const original = new Uint8Array(await essence.slice(offset, offset + 2 ** 20).arrayBuffer());
+          if (!actual.every((byte, index) => byte === original[index]))
+            throw Error('Decoded attachment lost media bytes');
+        }
       }
       return {
         count: outbox.length,
         sameId: outbox.every(item=>rows.some(saved=>saved.id===item.clientMsgId)),
         kind: outbox[0]?.payload.kind,
-        losslessSize: outbox[0]?.payload.file.originalSize === essence.size,
-        privateUntilAck: !row.shared,
-        encrypted: uploads.length > 0 && !(await uploads[0].slice(0, 64).text()).includes('ftyp'),
+        losslessSize: outbox.every(item=>item.payload.file.originalSize === essence.size),
+        privateUntilAck: rows.every(row=>!row.shared),
+        encrypted: uploads.size === outbox.length && (await Promise.all([...uploads.values()].flat().map(async chunk=>!(await chunk.slice(0,64).text()).includes('ftyp')))).every(Boolean),
       };
     });
     assert.deepEqual(sent, {

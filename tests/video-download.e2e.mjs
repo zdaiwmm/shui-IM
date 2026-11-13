@@ -45,19 +45,26 @@ try{
       if(downloads!==0)throw Error('Early cover click downloaded a large original');
     });
     const card=page.locator('.image-preview.video-preview');
+    // The center belongs to the independent download/cancel button. Exercise
+    // the real surrounding cover hit area, without bypassing pointer checks.
+    const clickCover=()=>card.locator('.video-cover-control').click({position:{x:8,y:8}});
     await page.locator('.video-download-control').waitFor();
+    await page.waitForFunction(()=>document.querySelector('.video-preview[data-image-state="waiting"] > .video-download-control'));
+    const downloadBounds=await card.locator('.video-download-control').boundingBox();
+    assert.equal(downloadBounds.width,48,'Download keeps its own 48px hit target instead of covering the surrounding cover');
+    assert.equal(downloadBounds.height,48,'Generic media loading styles must not stretch the download hit target');
     assert.equal(await card.locator('.video-duration').textContent(),'00:48');
     assert.equal(await page.evaluate(()=>videoFixture.downloads),0,'history loading must not download a 30 MiB original');
     assert.equal(await card.locator('button button').count(),0,'cover and download are independent native controls');
-    await card.locator('.video-cover-control').click();assert.equal(await card.getAttribute('data-revealed'),'true');
+    await clickCover();assert.equal(await card.getAttribute('data-revealed'),'true');
     await card.locator('.video-cover-control').press('Enter');assert.equal(await card.getAttribute('data-revealed'),'false');
     assert.equal(await page.evaluate(()=>videoFixture.downloads),0,'cover reveal and conceal must not download the original');
     const before=await card.boundingBox();
     await page.evaluate(()=>videoFixture.state.pause=true);
     await card.locator('.video-download-control').click();
     await page.getByRole('button',{name:'取消下载',exact:true}).waitFor();
-    await card.locator('.video-cover-control').click();assert.equal(await card.getAttribute('data-revealed'),'true');
-    await card.locator('.video-cover-control').click();assert.equal(await card.getAttribute('data-revealed'),'false');
+    await clickCover();assert.equal(await card.getAttribute('data-revealed'),'true');
+    await clickCover();assert.equal(await card.getAttribute('data-revealed'),'false');
     await page.getByRole('button',{name:'取消下载',exact:true}).click();
     await page.getByRole('button',{name:'下载视频',exact:true}).waitFor();
     assert.equal(await card.getAttribute('data-image-state'),'waiting');
