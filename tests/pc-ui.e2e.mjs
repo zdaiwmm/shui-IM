@@ -67,10 +67,12 @@ try {
       const frames=await page.evaluate(()=>{desktopSendWatch.stop();return desktopSendWatch.frames;});
       assert.ok(frames.every(frame=>frame.same&&frame.connected&&!frame.covered&&frame.surfaces.every(surface=>surface.opacity===1&&surface.visibility==='visible'&&surface.display!=='none')),
         `${engine.name()}: desktop send flashes or replaces the page ${JSON.stringify(frames.filter(frame=>!frame.same||!frame.connected||frame.covered||frame.surfaces.some(surface=>surface.opacity!==1||surface.visibility!=='visible'||surface.display==='none')))}`);
+      await peer.locator('.message.incoming').filter({hasText:text}).waitFor();
     };
     await watchSend('桌面发送的验证消息。'.repeat(55),()=>page.locator('#message-input').press('Enter'));
     await watchSend('点击发送按钮的桌面连续性验证。',()=>page.locator('#send-text').click());
-    await peer.locator('.message.incoming').waitFor();
+    assert.equal(await page.locator('.message.outgoing').count(),2);
+    assert.equal(await peer.locator('.message.incoming').count(),2);
     await page.emulateMedia({reducedMotion:'reduce'});
     await page.locator('#message-input').fill('保留的桌面草稿\n第二行');
     for(const size of [{width:1024,height:600},{width:1280,height:800},{width:1440,height:900},{width:1920,height:1080},{width:1366,height:420}]) {
