@@ -3648,9 +3648,14 @@ export async function listLinkVideos(session: VaultSession, signal: AbortSignal)
 }
 
 export async function listPendingLinkSends(session:VaultSession,signal:AbortSignal):Promise<SavedLinkVideo[]> {
-  const items=await listLinkVideos(session,signal),preferences=await loadUiPreferences(session);
+  const items=(await listLinkVideos(session,signal)).filter(item=>item.pendingSend&&!item.shared);
   signal.throwIfAborted();
-  return items.filter(item=>item.pendingSend&&!item.shared&&!preferences.hiddenChatMessageIds?.includes(item.sendId??item.id));
+  // Legacy history-owner repair may leave an invalid preference namespace.
+  // With no authorized video sends there is no cancellation state to read.
+  if(!items.length)return [];
+  const preferences=await loadUiPreferences(session);
+  signal.throwIfAborted();
+  return items.filter(item=>!preferences.hiddenChatMessageIds?.includes(item.sendId??item.id));
 }
 
 export async function setLinkVideoPendingSend(session:VaultSession,id:string,pendingSend:boolean):Promise<void> {
