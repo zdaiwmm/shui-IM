@@ -311,6 +311,19 @@ try {
       await click('重试');
     }
     await sheet.getByText('已交给聊天发送').waitFor({ timeout: large ? 300000 : 18000 });
+    const expectedSendCount = role === 'joiner' && !large ? 2 : 1;
+    // sendSaved reports each accepted item before runSelected advances. Wait
+    // for every selected send and its durable cleanup, rather than treating
+    // the first item's status text as completion of the entire batch.
+    await page.waitForFunction(async (expected) => {
+      const { vault, session, signal } = window.f;
+      const [outbox, pendingSends, pendingDownloads] = await Promise.all([
+        vault.loadOutbox(session),
+        vault.listPendingLinkSends(session, signal),
+        vault.listPendingLinkDownloads(session, signal),
+      ]);
+      return outbox.length === expected && pendingSends.length === 0 && pendingDownloads.length === 0;
+    }, expectedSendCount, { timeout: large ? 300000 : 18000 });
     const sent = await page.evaluate(async () => {
       const { app, vault, session, signal, uploads, essence } = window.f;
       const rows = await vault.listLinkVideos(session, signal),
@@ -333,6 +346,7 @@ try {
       }
       return {
         count: outbox.length,
+        uniqueIds: new Set(outbox.map(item=>item.clientMsgId)).size === outbox.length,
         sameId: outbox.every(item=>rows.some(saved=>saved.id===item.clientMsgId)),
         kind: outbox[0]?.payload.kind,
         losslessSize: outbox.every(item=>item.payload.file.originalSize === essence.size),
@@ -341,7 +355,8 @@ try {
       };
     });
     assert.deepEqual(sent, {
-      count: role==='joiner'&&!large ? 2 : 1,
+      count: expectedSendCount,
+      uniqueIds: true,
       sameId: true,
       kind: 'file',
       losslessSize: true,
