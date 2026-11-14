@@ -9,6 +9,7 @@ import { createConcealedImage } from './concealed-image';
 import { isVideoFile, videoMimeType } from './video-media';
 import { createFileFormatIcon } from './file-format';
 import { messageTimeLabel } from './message-date';
+import { videoDurationLabel } from './video-download-policy';
 
 type UploadState = 'preparing' | 'uploading' | 'finishing' | 'failed';
 
@@ -32,7 +33,12 @@ export class MediaUploadView {
   private uploadState?: UploadState;
 
   constructor(id: string, files: File[], expression: boolean, autoHide: boolean,
-    retry: () => void, remove: () => void, changed: () => void, gif = false, quote?: HTMLElement, sentAt = new Date().toISOString()) {
+    retry: () => void, remove: () => void, changed: () => void, gif = false, quote?: HTMLElement, sentAt = new Date().toISOString(), placeholder?: HTMLElement) {
+    if (placeholder) {
+      this.element = placeholder;
+      this.tile = placeholder.querySelector<HTMLDivElement>(':scope > .image-bubble') ?? this.tile;
+      this.tile.replaceChildren(); this.element.replaceChildren();
+    }
     const video = isVideoFile({ mimeType: files[0]!.type, originalName: files[0]!.name });
     const plainFile = !video && !files[0]!.type.startsWith('image/');
     this.plainFile = plainFile;
@@ -207,6 +213,10 @@ export class MediaUploadView {
       cell.replaceChildren(preview);
       retargetMotion(cell, null, { opacity: .55 }, { opacity: 1 }, motion.feedback);
       if (video) {
+        const duration = document.createElement('span');
+        duration.className = 'video-duration';
+        duration.textContent = videoDurationLabel(poster?.durationMs);
+        cell.append(duration);
         const badge = document.createElement('span');
         badge.className = 'media-upload-video-label';
         badge.append(createElement(Video), document.createTextNode(uiLiteral('视频')));

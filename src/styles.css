@@ -1852,7 +1852,7 @@ button:disabled {
   pointer-events: none;
 }
 
-.image-preview[data-image-state='loaded'][data-revealed='false']::before { opacity: 1; }
+.image-preview:is([data-image-state='loaded'],[data-image-state='waiting'])[data-revealed='false']::before { opacity: 1; }
 .image-preview > img { position: relative; z-index: 1; }
 .message-bubble.image-bubble > .image-preview[data-image-state='loaded'] { width: 100%; }
 

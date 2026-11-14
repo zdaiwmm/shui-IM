@@ -42,7 +42,38 @@ try {
     await page.bringToFront();await page.waitForFunction(()=>document.querySelector('#message-input')?.disabled===false);await fullChat();
     const send=async(p,text)=>{await p.locator('#message-input').fill(text);await p.locator('#composer').evaluate(form=>form.requestSubmit());};
     await send(peer,'桌面收到的验证消息。'.repeat(55));await page.locator('.message.incoming').waitFor();
-    await send(page,'桌面发送的验证消息。'.repeat(55));await peer.locator('.message.incoming').waitFor();
+    // The rest of this layout suite uses reduced motion. Sending must also
+    // retain the real desktop surface with normal animation and real controls.
+    await page.emulateMedia({reducedMotion:'no-preference'});
+    await page.evaluate(async()=>{await Promise.allSettled(document.querySelector('#app').getAnimations({subtree:true})
+      .filter(animation=>Number.isFinite(animation.effect?.getTiming().iterations)).map(animation=>animation.finished));});
+    const watchSend=async(text,activate)=>{
+      await page.locator('#message-input').fill(text);await settle();
+      await page.evaluate(()=>{
+        const root=document.querySelector('#app'),shell=root.querySelector('.chat-shell'),header=shell.querySelector('.chat-header'),
+          composer=shell.querySelector('#composer'),input=composer.querySelector('#message-input'),list=shell.querySelector('#message-list');
+        const frames=[];let watching=true;
+        const sample=()=>{
+          const nodes=[root,shell,header,composer,list];
+          frames.push({same:root===document.querySelector('#app')&&shell===root.querySelector('.chat-shell')&&input===root.querySelector('#message-input'),
+            connected:nodes.every(node=>node.isConnected),covered:document.documentElement.classList.contains('privacy-obscured'),
+            surfaces:nodes.map(node=>{const style=getComputedStyle(node);return {opacity:Number(style.opacity),visibility:style.visibility,display:style.display};})});
+          if(watching)requestAnimationFrame(sample);
+        };
+        window.desktopSendWatch={frames,stop(){watching=false;}};sample();
+      });
+      await activate();await page.locator('.message.outgoing').filter({hasText:text}).waitFor();await settle();
+      await page.waitForFunction(()=>desktopSendWatch.frames.length>=12);
+      const frames=await page.evaluate(()=>{desktopSendWatch.stop();return desktopSendWatch.frames;});
+      assert.ok(frames.every(frame=>frame.same&&frame.connected&&!frame.covered&&frame.surfaces.every(surface=>surface.opacity===1&&surface.visibility==='visible'&&surface.display!=='none')),
+        `${engine.name()}: desktop send flashes or replaces the page ${JSON.stringify(frames.filter(frame=>!frame.same||!frame.connected||frame.covered||frame.surfaces.some(surface=>surface.opacity!==1||surface.visibility!=='visible'||surface.display==='none')))}`);
+      await peer.locator('.message.incoming').filter({hasText:text}).waitFor();
+    };
+    await watchSend('桌面发送的验证消息。'.repeat(55),()=>page.locator('#message-input').press('Enter'));
+    await watchSend('点击发送按钮的桌面连续性验证。',()=>page.locator('#send-text').click());
+    assert.equal(await page.locator('.message.outgoing').count(),2);
+    assert.equal(await peer.locator('.message.incoming').count(),2);
+    await page.emulateMedia({reducedMotion:'reduce'});
     await page.locator('#message-input').fill('保留的桌面草稿\n第二行');
     for(const size of [{width:1024,height:600},{width:1280,height:800},{width:1440,height:900},{width:1920,height:1080},{width:1366,height:420}]) {
       await page.evaluate(()=>window.originalInput=document.querySelector('#message-input'));

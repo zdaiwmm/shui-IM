@@ -13,6 +13,9 @@ async function worker(fetchResponse: () => Promise<Response>, cached?: Response,
   vm.runInNewContext(await readFile(new URL('../public/sw.js', import.meta.url), 'utf8'), {
     self: { registration: { showNotification: async (title: string, options: unknown) => { notifications.push({ title, options }); } }, location: { origin: 'https://ai.shui.click' }, addEventListener: (type: string, handler: any) => handlers.set(type, handler), skipWaiting() {}, clients: { claim: async () => {}, matchAll: async () => [{ postMessage: (message: unknown) => posted.push(message) }] } },
     URL, Response, fetch: fetchResponse,
+    // Background transport has its own behavioral coverage; this harness owns
+    // only the existing offline-shell and notification listeners.
+    importScripts: (url: string) => { expect(url).toBe('/cipher-transfers.js?v=__QUIET_ROOM_RELEASE_ID__'); },
     caches: {
       match: async (key: string) => stored.get(key)?.clone(),
       open: async () => ({ match: async (key: string) => stored.get(key)?.clone(), put: async (key: string, response: Response) => { stored.set(key, response); } }),

@@ -48,8 +48,12 @@ export function isLinkPreview(value: unknown, messageText?: string): value is Li
     || !cleanText(p.siteName, 100) || !p.siteName.trim() || !cleanText(p.title, 300) || !p.title.trim()
     || !cleanText(p.description, 600) || typeof p.layout !== 'string' || !['large','compact','text'].includes(p.layout)) return false;
   if (p.image === undefined) return p.layout === 'text';
-  if (p.layout === 'text' || !p.image || typeof p.image !== 'object' || Array.isArray(p.image)) return false;
-  const image = p.image as Record<string, unknown>;
+  return p.layout !== 'text' && isPreviewImage(p.image);
+}
+
+export function isPreviewImage(value: unknown): value is PreviewImage {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const image = value as Record<string, unknown>;
   if (Object.keys(image).some(key => !['mimeType','data','width','height'].includes(key))
     || image.mimeType !== 'image/jpeg' || typeof image.data !== 'string' || !/^[A-Za-z0-9_-]+$/.test(image.data)
     || image.data.length > Math.ceil(PREVIEW_IMAGE_BYTES * 4 / 3)

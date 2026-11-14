@@ -71,6 +71,7 @@ try {
           'link-video-fixture-password',
           'password',
         );
+        const createApp = () => {
         const app = new QuietRoomApp(document.querySelector('#app'));
         app.session = session;
         app.privacyCovered = false;
@@ -81,6 +82,9 @@ try {
         app.unreadCounter.markRead = async () => {};
         app.connectionState = 'disconnected';
         app.retryOperation = (operation) => operation();
+        return app;
+        };
+        const app = createApp();
         // Synthetic ISO boxes isolate byte preservation and do not require a device codec.
         const atom = (tag, data) => {
           const b = new Uint8Array(8 + data.length);
@@ -102,7 +106,7 @@ try {
         ]);
         const source = new Blob([essence, atom('free', new Uint8Array(80))], { type: 'video/mp4' });
         const requests = [],
-          uploads = [],
+          uploads = new Map(),
           realFetch = window.fetch.bind(window);
         window.fetch = async (input, init = {}) => {
           const url = new URL(typeof input === 'string' ? input : input.url, location.href);
@@ -116,7 +120,10 @@ try {
               code: 200,
               tweet: {
                 id: '123',
-                media: { videos: [{ url: 'https://video.twimg.com/test/video.mp4', duration: 2 }] },
+                media: { videos: [
+                  { url: 'https://video.twimg.com/test/video.mp4', duration: 2 },
+                  ...(!large && role === 'joiner' ? [{ url: 'https://video.twimg.com/test/second.mp4', duration: 3 }] : []),
+                ] },
               },
             });
           }
@@ -139,7 +146,13 @@ try {
           }
           if (url.pathname.includes('/blobs')) {
             requests.push('chamber-upload');
-            if (init.method === 'PUT') uploads[Number(url.pathname.split('/').pop())] = new Blob([init.body]);
+            if (init.method === 'PUT') {
+              const match=url.pathname.match(/\/blobs\/([^/]+)\/chunks\/(\d+)$/);
+              if(!match)throw Error('Unexpected fixture upload path');
+              const chunks=uploads.get(match[1])??[];
+              chunks[Number(match[2])]=new Blob([init.body]);
+              uploads.set(match[1],chunks);
+            }
             return Response.json({ ok: true, uploadedIndexes: [], completed: false });
           }
           return realFetch(input, init);
@@ -155,6 +168,12 @@ try {
           essence,
           large,
           signal: app.runtimeAbort.signal,
+          recreate: () => {
+            window.f.app.runtimeAbort.abort();
+            const next = createApp();
+            window.f.app = next; window.f.signal = next.runtimeAbort.signal;
+            next.renderChat();
+          },
         };
       },
       { role, roomId, large },
@@ -190,7 +209,18 @@ try {
       await page.locator('#open-link-video').click();
       await sheet.getByRole('textbox').fill('https://x.com/demo/status/123');
     }
+    if(role==='joiner'&&!large){
+      await sheet.locator('.link-video-choice').nth(1).click();
+      assert.equal(await sheet.locator('.link-video-choice[aria-pressed="true"]').count(),2);
+      assert.equal(await sheet.locator('video,.link-video-preview').count(),0,'Selection has no expanded preview');
+      await page.evaluate(()=>{window.f.gateDownload=true;});
+    }
     await click(role === 'creator' ? '仅下载' : '下载并发送');
+    if(role==='joiner'&&!large){
+      await page.waitForFunction(()=>Boolean(window.f.resumeDownload));
+      assert.equal(await page.locator('.message.outgoing.video-upload').count(),2,'Both selections immediately occupy the chat');
+      await page.evaluate(()=>{window.f.queuedNodes=[...window.f.app.linkVideoQueued.values()].map(row=>row.view.element);window.f.gateDownload=false;window.f.resumeDownload();});
+    }
     if (role === 'creator') {
       await page.waitForFunction(() => Boolean(window.f.resumeDownload));
       await click('收起');
@@ -200,7 +230,10 @@ try {
       await page.locator('.link-video-resume').filter({ hasText: '已保存到我的下载' }).click();
       await sheet.getByText('已保存到我的下载', { exact:true }).waitFor();
       assert.equal(await sheet.getByRole('button', { name:'发送至聊天', exact:true }).count(), 0);
-      await click('查看视频');
+      await click('我的下载');
+      await sheet.locator('.link-video-tile').click();
+      assert.equal(await sheet.locator('.link-video-tile.concealed').count(),0,'First tap only reveals the private cover');
+      await sheet.locator('.link-video-tile').click();
       await sheet.locator('video[controls]').waitFor();
       await click('返回');
       await sheet.locator('.link-video-tile').waitFor();
@@ -234,6 +267,16 @@ try {
         };
       });
       assert.deepEqual(privateState, { chat: 0, outbox: 0, upload: false, equal: true, encrypted: true });
+      await page.evaluate(()=>{window.f.app.videoDownloads.dispose();window.f.app.renderGallery();});
+      const safeTile=page.locator('#gallery-grid .link-video-tile');
+      await safeTile.locator('.local-video-lock').waitFor();
+      assert.equal(await safeTile.evaluate(node=>node.classList.contains('concealed')),true,'Unsent Safe video starts concealed');
+      assert.equal(await safeTile.locator('.video-duration').textContent(),'00:02');
+      await safeTile.click();
+      assert.equal(await safeTile.evaluate(node=>node.classList.contains('concealed')),false);
+      assert.equal(await page.locator('.link-video-sheet').count(),0,'Revealing the Safe cover does not open or send it');
+      await page.evaluate(()=>{window.f.app.renderChat();window.f.app.openVideoDownloads();});
+      await click('我的下载');
       const tile = sheet.locator('.link-video-tile');
       await tile.locator('.local-video-lock').waitFor();
       await tile.dispatchEvent('pointerdown', { isPrimary: true, button: 0, pointerType: 'touch' });
@@ -241,52 +284,125 @@ try {
       assert.equal(await page.evaluate(() => window.f.requests.includes('chamber-upload')), false);
       await click('取消');
       await sheet.getByRole('button', { name: '更多操作' }).click();
+      if (!large) await page.evaluate(() => {
+        const {app,requests} = window.f;
+        window.f.sourceRequests = requests.filter(value=>value==='video.twimg.com').length;
+        app.processImageBatch = async (_files,_destination,signal) => {
+          window.f.preparationReached = true;
+          await new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
+        };
+      });
       await click('发送至聊天');
+      if (!large) {
+        await page.waitForFunction(()=>window.f.preparationReached);
+        assert.equal(await page.evaluate(async()=>
+          (await window.f.vault.listPendingLinkSends(window.f.session,window.f.signal)).length),1,
+          'Saved original keeps durable send authorization before encryption');
+        await page.evaluate(()=>{window.f.recreate();window.f.app.openVideoDownloads(undefined,true);});
+        await page.locator('.link-video-resume').filter({hasText:'已交给聊天发送'}).click();
+      }
     }
     if (large) {
       await sheet.getByText('请先让所有已授权设备打开一次最新版，再发送大视频').waitFor({ timeout: 240000 });
-      assert.equal(await page.evaluate(() => window.f.uploads.length), 0);
+      assert.equal(await page.evaluate(() => window.f.uploads.size), 0);
       await page.evaluate(() => {
         for (const member of window.f.session.vault.members) member.capabilities.push('large-video-v1');
       });
-      await click('发送至聊天');
+      await click('重试');
     }
     await sheet.getByText('已交给聊天发送').waitFor({ timeout: large ? 300000 : 18000 });
+    const expectedSendCount = role === 'joiner' && !large ? 2 : 1;
+    // sendSaved reports each accepted item before runSelected advances. Wait
+    // for every selected send and its durable cleanup, rather than treating
+    // the first item's status text as completion of the entire batch.
+    await page.waitForFunction(async (expected) => {
+      const { vault, session, signal } = window.f;
+      const [outbox, pendingSends, pendingDownloads] = await Promise.all([
+        vault.loadOutbox(session),
+        vault.listPendingLinkSends(session, signal),
+        vault.listPendingLinkDownloads(session, signal),
+      ]);
+      return outbox.length === expected && pendingSends.length === 0 && pendingDownloads.length === 0;
+    }, expectedSendCount, { timeout: large ? 300000 : 18000 });
     const sent = await page.evaluate(async () => {
       const { app, vault, session, signal, uploads, essence } = window.f;
-      const [row] = await vault.listLinkVideos(session, signal),
+      const rows = await vault.listLinkVideos(session, signal),
         outbox = await vault.loadOutbox(session);
       const { decryptFileAttachment } = await import('/src/lib/file-crypto.ts');
-      const restored = await decryptFileAttachment(outbox[0].payload.file, async (_id, index) =>
-        uploads[index].arrayBuffer(),
-      );
-      if (restored.size !== essence.size) throw Error('Decoded attachment changed size');
-      // Compare the entire restored file in bounded portions, including large fixtures.
-      for (let offset = 0; offset < essence.size; offset += 2 ** 20) {
-        const actual = new Uint8Array(await restored.slice(offset, offset + 2 ** 20).arrayBuffer());
-        const original = new Uint8Array(await essence.slice(offset, offset + 2 ** 20).arrayBuffer());
-        if (!actual.every((byte, index) => byte === original[index]))
-          throw Error('Decoded attachment lost media bytes');
+      // Each selected video owns distinct ciphertext, even when chunk indexes
+      // coincide. Verify every complete attachment against its own blob ID.
+      for (const item of outbox) {
+        const restored = await decryptFileAttachment(item.payload.file, async (id, index) =>
+          uploads.get(id)[index].arrayBuffer(),
+        );
+        if (restored.size !== essence.size) throw Error('Decoded attachment changed size');
+        // Compare the entire restored file in bounded portions, including large fixtures.
+        for (let offset = 0; offset < essence.size; offset += 2 ** 20) {
+          const actual = new Uint8Array(await restored.slice(offset, offset + 2 ** 20).arrayBuffer());
+          const original = new Uint8Array(await essence.slice(offset, offset + 2 ** 20).arrayBuffer());
+          if (!actual.every((byte, index) => byte === original[index]))
+            throw Error('Decoded attachment lost media bytes');
+        }
       }
       return {
         count: outbox.length,
-        sameId: outbox[0]?.clientMsgId === row.id,
+        uniqueIds: new Set(outbox.map(item=>item.clientMsgId)).size === outbox.length,
+        sameId: outbox.every(item=>rows.some(saved=>saved.id===item.clientMsgId)),
         kind: outbox[0]?.payload.kind,
-        losslessSize: outbox[0]?.payload.file.originalSize === essence.size,
-        privateUntilAck: !row.shared,
-        encrypted: uploads.length > 0 && !(await uploads[0].slice(0, 64).text()).includes('ftyp'),
+        losslessSize: outbox.every(item=>item.payload.file.originalSize === essence.size),
+        privateUntilAck: rows.every(row=>!row.shared),
+        encrypted: uploads.size === outbox.length && (await Promise.all([...uploads.values()].flat().map(async chunk=>!(await chunk.slice(0,64).text()).includes('ftyp')))).every(Boolean),
       };
     });
     assert.deepEqual(sent, {
-      count: 1,
+      count: expectedSendCount,
+      uniqueIds: true,
       sameId: true,
       kind: 'file',
       losslessSize: true,
       privateUntilAck: true,
       encrypted: true,
     });
+    if (role === 'creator' && !large) {
+      await page.waitForFunction(async()=>
+        (await window.f.vault.listPendingLinkSends(window.f.session,window.f.signal)).length===0);
+      const recovery = await page.evaluate(async()=>{
+        const {vault,session,signal,requests}=window.f;
+        return {pending:(await vault.listPendingLinkSends(session,signal)).length,
+          sourceRequests:requests.filter(value=>value==='video.twimg.com').length,
+          before:window.f.sourceRequests};
+      });
+      assert.equal(recovery.pending,0,'Accepted send releases its preparation intent');
+      assert.equal(recovery.sourceRequests,recovery.before,'Recovery reuses the encrypted local original');
+      // Emulate interruption after outbox acceptance but before intent cleanup.
+      await page.evaluate(async()=>{
+        const {vault,session,signal,uploads}=window.f;
+        const [item]=await vault.listLinkVideos(session,signal);
+        window.f.recoveredId=item.id;window.f.beforeUploads=uploads.size;
+        await vault.setLinkVideoPendingSend(session,item.id,true);
+        window.f.recreate();window.f.app.openVideoDownloads(undefined,true);
+      });
+      await page.locator('.link-video-resume').filter({hasText:'已交给聊天发送'}).click();
+      await sheet.getByText('已交给聊天发送').waitFor();
+      const deduplicated=await page.evaluate(async()=>({
+        ids:(await window.f.vault.loadOutbox(window.f.session)).map(item=>item.clientMsgId),
+        id:window.f.recoveredId,uploads:window.f.uploads.size,before:window.f.beforeUploads,
+      }));
+      assert.deepEqual(deduplicated.ids,[deduplicated.id],'Accepted recovery reuses one original message ID');
+      assert.equal(deduplicated.uploads,deduplicated.before,'Accepted recovery does not upload again');
+      const cancelled=await page.evaluate(async()=>{
+        const {app,vault,session,signal}=window.f,[item]=await vault.listLinkVideos(session,signal);
+        await vault.setLinkVideoPendingSend(session,item.id,true);
+        await app.cancelStagedVideoUpload(item.id);
+        const pending=await vault.listPendingLinkSends(session,signal);
+        let blocked=false;try{await vault.setLinkVideoPendingSend(session,item.id,true);}catch(error){blocked=error.name==='AbortError';}
+        return {pending:pending.length,blocked};
+      });
+      assert.deepEqual(cancelled,{pending:0,blocked:true},'Cancellation fences automatic preparation recovery');
+    }
+    if(role==='joiner'&&!large)assert.equal(await page.evaluate(()=>window.f.queuedNodes.every(node=>node.isConnected&&document.querySelector(`[data-client-msg-id="${node.dataset.clientMsgId}"]`)===node)),true,'Sending retains the queued article nodes');
     if (role === 'creator') {
-      // Closing the real privacy curtain must also revoke a minimized transfer.
+      // A foreground-only fallback detaches when the privacy curtain closes.
       await click('返回聊天');
       await page.evaluate(() => { window.f.gateDownload = true; delete window.f.resumeDownload; });
       await page.locator('#open-chat-tools').click();

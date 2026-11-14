@@ -1,6 +1,16 @@
 import { uiLiteral } from './language';
+/** Metadata only, for an already verified local Blob URL. */
+export async function readVideoDuration(url:string,signal?:AbortSignal):Promise<number|undefined> {
+  signal?.throwIfAborted();const video=document.createElement('video');video.preload='metadata';video.muted=true;
+  try{return await new Promise<number|undefined>((resolve,reject)=>{
+    const finish=()=>{const duration=video.duration;cleanup();resolve(Number.isFinite(duration)&&duration>0&&duration<=7*24*3600?Math.round(duration*1000):undefined);};
+    const abort=()=>{cleanup();reject(signal?.reason);};
+    const cleanup=()=>{clearTimeout(timer);signal?.removeEventListener('abort',abort);video.onloadedmetadata=null;video.onerror=null;};
+    const timer=setTimeout(finish,5000);signal?.addEventListener('abort',abort,{once:true});video.onloadedmetadata=finish;video.onerror=finish;video.src=url;
+  });}finally{video.removeAttribute('src');video.load();}
+}
 /** A local, memory-only thumbnail. The caller supplies an already verified Blob URL. */
-export async function createVideoPoster(url: string, signal?: AbortSignal): Promise<{ blob: Blob; width: number; height: number }> {
+export async function createVideoPoster(url: string, signal?: AbortSignal): Promise<{ blob: Blob; width: number; height: number; durationMs?: number }> {
   signal?.throwIfAborted();
   const video = document.createElement('video');
   video.muted = true;
@@ -75,7 +85,7 @@ export async function createVideoPoster(url: string, signal?: AbortSignal): Prom
     const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
       result => result ? resolve(result) : reject(new Error(uiLiteral('视频预览不可用'))), 'image/jpeg', 0.82));
     signal?.throwIfAborted();
-    return { blob, width: canvas.width, height: canvas.height };
+    return { blob, width: canvas.width, height: canvas.height, ...(duration ? { durationMs: Math.round(duration * 1000) } : {}) };
   } finally {
     video.pause();
     video.removeAttribute('src');

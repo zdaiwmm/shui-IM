@@ -584,3 +584,10 @@ Video originals are admitted by upgraded clients up to 2 GiB (1024 authenticated
 双方可从聊天工具栏打开「链接视频」，输入公开 X 帖子链接并选择视频。「仅下载」存入当前设备、当前密室的「我的下载」，封面带锁；创建者的保险箱相册也显示这些私有条目。「下载并发送」及长按本机封面选择「发送至聊天」均在设备端无损整理 MP4，然后按视频的 2 GiB 上限加密发送。超过 256 MiB 须所有活跃设备支持大视频。无法缩小时沿用原件。仅在本人发送的消息写入已确认历史后移除私有锁。
 
 粘贴后自动识别。收起半屏可在当前解锁的聊天继续下载，从聊天进度入口返回；明确取消、离开聊天或隐私遮蔽时终止本次操作，完整落盘的本机视频仍保留。仅下载成功后可直接查看或打开我的下载。
+
+
+## Video task refinement (2026-11-13 candidate)
+
+Link-video results support multiple selection, without a second enlarged preview. Download-and-send inserts one stable queued bubble per video immediately, then downloads and uploads sequentially within the existing heavy-file budget. Private downloads appear concealed in the Safe album with a lock and duration, and require explicit send. The minimized task occupies the existing 34px surface / 44px target left notice capsule, with progress ring, phase feedback and reduced-motion support. Presentation uses latest-state-wins and does not queue skipped intermediate animations. Business checkpoints still execute.
+
+Video bubbles display known duration at upper-left; missing historical metadata uses an unknown marker. History videos at least 30 MiB display a central download button. The surrounding cover control toggles concealment without downloading the original. Successful download becomes a play control without auto-play. New capability-gated encrypted video metadata supplies cover/duration before downloading. Background execution is best effort: chat locks immediately, ciphertext transfer may continue, and encrypted progress/intents resume after authenticated return. Explicit cancellation prevents resurrection. This supersedes the older rule that every locked upload requires original-file reselection once a complete encrypted transfer intent has been staged; incomplete encryption can still require reselection. Native background delivery is excluded.

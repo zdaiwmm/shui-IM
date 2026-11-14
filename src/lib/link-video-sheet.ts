@@ -5,6 +5,11 @@ import { createVideoPoster } from './video-poster';
 import { toBase64Url } from './base64';
 import { uiLiteral } from './language';
 import { MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from './message-payload';
+import { mountLinkVideoCapsule, type LinkVideoPhase } from './link-video-capsule';
+import { downloadLinkSource, prepareLinkSourceDownload, finishLinkSourceDownload, cancelLinkSourceDownload } from './link-source-transfer';
+import { listPendingLinkDownloads, listPendingLinkSends, setLinkVideoPendingSend } from './vault';
+import { withSavedLinkVideoSend } from './link-video-send';
+import { videoDurationLabel } from './video-download-policy';
 import {
   compactMp4,
   verifyMp4,
@@ -27,9 +32,14 @@ type Options = {
   session: VaultSession;
   signal: AbortSignal;
   active: () => boolean;
-  send: (file: File, id: string, signal: AbortSignal) => Promise<boolean>;
+  send: (file: File, id: string, signal: AbortSignal, progress?: (ratio:number)=>void) => Promise<boolean>;
   largeVideoReady: () => boolean;
+  prepareSend?: (ids:string[],signal:AbortSignal)=>Promise<void>;
+  queue?: (items: { id: string; name: string; duration: number }[]) => void;
+  cancelQueued?: (ids:string[])=>Promise<void>;
+  queuedState?: (id: string, text: string) => void;
   start?: SavedLinkVideo;
+  resume?: boolean;
   onDispose: () => void;
 };
 const el = <K extends keyof HTMLElementTagNameMap>(name: K, text?: string) => {
@@ -54,6 +64,9 @@ function cover(file: SavedLinkVideo) {
 export function localVideoTile(item: SavedLinkVideo, open: () => void, menu?: () => void) {
   const b = button('', () => {}, 'gallery-tile link-video-tile concealed');
   b.append(cover(item));
+  const duration = el('span', videoDurationLabel(item.duration * 1000));
+  duration.className = 'video-duration';
+  b.append(duration);
   const privateLabel = uiLiteral('仅自己可见 · 本设备');
   b.setAttribute('aria-label', item.name + (!item.shared ? ' · ' + privateLabel : ''));
   if (!item.shared) {
@@ -108,7 +121,8 @@ export function localVideoTile(item: SavedLinkVideo, open: () => void, menu?: ()
 export function openLinkVideoSheet(opts: Options) {
   const { root, session } = opts;
   const life = new AbortController();
-  const signal = AbortSignal.any([life.signal, opts.signal]);
+  const work = new AbortController();
+  const signal = AbortSignal.any([life.signal, opts.signal, work.signal]);
   const sheet = el('div');
   sheet.className = 'link-video-sheet confirm-backdrop';
   sheet.setAttribute('role', 'dialog');
@@ -129,10 +143,14 @@ export function openLinkVideoSheet(opts: Options) {
   sheet.append(panel);
 
   const urls = new Set<string>();
+  let minimizeOnStart=Boolean(opts.resume);
+  let queuedIds:string[] = [];
   let busy = false,
     screen = 0;
   const active = () => !signal.aborted && opts.active();
   const badge = button('', show, 'link-video-resume');
+  const capsule = mountLinkVideoCapsule(badge);
+  let phase: LinkVideoPhase = 'download';
   const banner = el('aside');
   banner.className = 'link-video-banner';
   banner.dataset.noticePriority = '55';
@@ -142,15 +160,18 @@ export function openLinkVideoSheet(opts: Options) {
   let presentation: AbortController | undefined;
   let lookup: AbortController | undefined;
   let lookupTimer = 0;
-  let retry: (() => Promise<void>) | undefined;
+  let retry: (() => Promise<unknown>) | undefined;
   function refresh() {
     if (!active() || mounted || !resumable) { banner.remove(); return; }
     const notices = root.querySelector('.chat-shell .system-notices');
     if (notices && banner.parentNode !== notices) notices.append(banner);
   }
-  function report(text: string) {
+  function report(text: string, next = phase, ratio?: number) {
+    phase = next;
     status.textContent = text;
-    badge.textContent = text + ' ›';
+    capsule.update({ text, phase, ratio });
+    if (phase === 'failed') banner.dataset.tone = 'error';
+    else delete banner.dataset.tone;
   }
   function stopLookup() {
     clearTimeout(lookupTimer);
@@ -180,6 +201,7 @@ export function openLinkVideoSheet(opts: Options) {
   function dispose() {
     if (life.signal.aborted) return;
     life.abort();
+    capsule.dispose();
     opts.signal.removeEventListener('abort', dispose);
     presentation?.abort();
     closeDialog(sheet, { animate: false, restoreFocus: false });
@@ -190,6 +212,12 @@ export function openLinkVideoSheet(opts: Options) {
     body.replaceChildren();
     opts.onDispose();
   }
+  const cancel = async () => {
+    work.abort(new DOMException('Task cancelled','AbortError'));
+    const cancellationSignal=new AbortController().signal;
+    try { await opts.cancelQueued?.(queuedIds); for(const id of queuedIds) await cancelLinkSourceDownload(session,id,cancellationSignal); dispose(); }
+    catch { report(uiLiteral('取消失败，请重试'),'failed'); }
+  };
   function show() {
     if (!active() || mounted) return;
     closeDialog(sheet, { animate: false, restoreFocus: false });
@@ -218,9 +246,10 @@ export function openLinkVideoSheet(opts: Options) {
     resumable = true;
     body.append(el('strong', name));
     report(message);
-    actions.append(button(uiLiteral('取消'), dispose), button(uiLiteral('收起'), close, 'primary-button'));
+    actions.append(button(uiLiteral('取消'), () => void cancel()), button(uiLiteral('收起'), close, 'primary-button'));
+    if(minimizeOnStart){minimizeOnStart=false;queueMicrotask(close);}
   }
-  const manage = async (fn: () => Promise<void>) => {
+  const manage = async (fn: () => Promise<unknown>) => {
     if (busy || !active()) return;
     busy = true;
 
@@ -235,7 +264,7 @@ export function openLinkVideoSheet(opts: Options) {
           : err instanceof Error
             ? err.message
             : uiLiteral('操作失败，请重试');
-        report(message);
+        report(message, 'failed');
         if (retry && resumable) {
           const again = retry;
           actions.replaceChildren(button(uiLiteral('链接视频'), form), button(uiLiteral('重试'), () => void manage(again), 'primary-button'));
@@ -245,33 +274,38 @@ export function openLinkVideoSheet(opts: Options) {
       busy = false;
     }
   };
-  async function sendSaved(item: SavedLinkVideo) {
+  async function sendSaved(item: SavedLinkVideo, explicit=false):Promise<boolean> {
+    if(explicit){queuedIds=[item.id];await opts.prepareSend?.(queuedIds,signal);signal.throwIfAborted();}
+    phase = 'prepare';
     retry = () => sendSaved(item);
     taskScreen(item.name, uiLiteral('正在本地无损压缩'));
     if (item.shared || (await listLinkVideos(session, signal)).some(row => row.id === item.id && row.shared)) {
       sent(uiLiteral('已发送至聊天'));
-      return;
+      return true;
     }
+    return withSavedLinkVideoSend(session,item.id,signal,async()=>{
     const file = await readLinkVideo(session, item.id, signal);
     const packed = await compactMp4(file, signal);
     signal.throwIfAborted();
     if (packed.size > MAX_VIDEO_BYTES) {
       saved(item, uiLiteral('单个视频不能超过 2 GiB'), true);
-      return;
+      return false;
     }
     if (packed.size > MAX_IMAGE_BYTES && !opts.largeVideoReady()) {
       saved(item, uiLiteral('请先让所有已授权设备打开一次最新版，再发送大视频'), true);
-      return;
+      return false;
     }
-    report(uiLiteral('正在加密发送'));
-    const ok = await opts.send(packed, item.id, signal);
-    if (!active()) return;
+    report(uiLiteral('正在加密发送'), 'upload');
+    const ok = await opts.send(packed,item.id,signal,ratio=>report(uiLiteral('加密上传中')+` · ${Math.floor(ratio*100)}%`,'upload',ratio));
+    if (!active()) return false;
     if (ok) sent(uiLiteral('已交给聊天发送'));
     else saved(item, uiLiteral('发送失败，可从本机重试'), true);
+    return ok;
+    });
   }
   function sent(message: string) {
     reset(uiLiteral('链接视频'));
-    report(message);
+    report(message, 'done');
     resumable = !mounted;
     actions.append(button(uiLiteral('返回聊天'), dispose, 'primary-button'));
   }
@@ -281,9 +315,9 @@ export function openLinkVideoSheet(opts: Options) {
     const stateIcon = createElement(offerSend ? Film : Check);
     stateIcon.classList.add('link-video-result-icon');
     body.append(stateIcon, el('strong', item.name), el('p', item.shared ? uiLiteral('已发送至聊天') : uiLiteral('仅自己可见 · 本设备')));
-    report(message);
+    report(message, offerSend ? 'failed' : 'done');
     actions.append(button(uiLiteral('我的下载'), () => void manage(library)));
-    if (offerSend) actions.append(button(uiLiteral('发送至聊天'), () => void manage(() => sendSaved(item)), 'primary-button'));
+    if (offerSend) actions.append(button(uiLiteral('发送至聊天'), () => void manage(() => sendSaved(item,true)), 'primary-button'));
     else actions.append(button(uiLiteral('查看视频'), () => void manage(() => view(item)), 'primary-button'));
   }
   function itemActions(item: SavedLinkVideo) {
@@ -297,7 +331,7 @@ export function openLinkVideoSheet(opts: Options) {
     actions.append(button(uiLiteral('我的下载'), () => void manage(library)));
     if (!item.shared)
       actions.append(
-        button(uiLiteral('发送至聊天'), () => void manage(() => sendSaved(item)), 'primary-button'),
+        button(uiLiteral('发送至聊天'), () => void manage(() => sendSaved(item,true)), 'primary-button'),
       );
   }
   async function view(item: SavedLinkVideo) {
@@ -341,7 +375,7 @@ export function openLinkVideoSheet(opts: Options) {
         tip.className = 'link-video-menu';
         const action = button(item.shared ? uiLiteral('已发送至聊天') : uiLiteral('发送至聊天'), () => {
           tip.remove();
-          void manage(() => sendSaved(item));
+          void manage(() => sendSaved(item,true));
         });
         action.disabled = !!item.shared;
         tip.append(
@@ -366,8 +400,10 @@ export function openLinkVideoSheet(opts: Options) {
     }
     status.textContent = uiLiteral('长按视频封面可发送至聊天');
   }
-  async function download(c: LinkClip, share: boolean) {
-    retry = () => download(c, share);
+  async function download(c: LinkClip, share: boolean, requestedId?: string) {
+    phase = 'download';
+    requestedId ??= crypto.randomUUID();
+    retry = () => download(c, share, requestedId);
     taskScreen(c.name, uiLiteral('正在直下本机'));
     const meter = el('progress');
     meter.setAttribute('aria-label', uiLiteral('正在直下本机'));
@@ -376,19 +412,23 @@ export function openLinkVideoSheet(opts: Options) {
     let lastPaint = -Infinity;
     let item = (await listLinkVideos(session, signal)).find((i) => i.key === c.key);
     if (!item) {
-      const blob = await directBlob(c.url, signal, LOCAL_VIDEO_LIMIT, (bytes, total) => {
+      const track = (bytes:number,total:number) => {
         if (!active() || (performance.now() - lastPaint < 160 && bytes !== total)) return;
         lastPaint = performance.now();
+        if (requestedId) opts.queuedState?.(requestedId, uiLiteral('下载中') + (total ? ` · ${Math.floor(bytes / total * 100)}%` : ''));
         if (total > 0) { meter.max = total; meter.value = bytes; }
         const received = (bytes / 1048576).toFixed(1);
         amount.textContent = received + (total ? ' / ' + (total / 1048576).toFixed(1) : '') + ' MiB';
-        report(uiLiteral('正在直下本机') + ' · ' + (total ? Math.min(100, Math.floor(bytes / total * 100)) + '%' : received + ' MiB'));
-      });
+        report(uiLiteral('正在直下本机') + ' · ' + (total ? Math.min(100, Math.floor(bytes / total * 100)) + '%' : received + ' MiB'), 'download', total ? bytes / total : undefined);
+      };
+      const blob = await downloadLinkSource(session,c,requestedId,share,signal,track) ?? await directBlob(c.url,signal,LOCAL_VIDEO_LIMIT,track);
       await verifyMp4(blob, signal);
       let poster: string | undefined;
+      let duration=c.duration;
       const url = URL.createObjectURL(blob);
       try {
         const p = await createVideoPoster(url, signal);
+        if(p.durationMs)duration=p.durationMs/1000;
         poster = toBase64Url(await p.blob.arrayBuffer())
           .replace(/-/g, '+')
           .replace(/_/g, '/');
@@ -401,12 +441,12 @@ export function openLinkVideoSheet(opts: Options) {
       item = await storeLinkVideo(
         session,
         {
-          id: crypto.randomUUID(),
+          id: requestedId ?? crypto.randomUUID(),
           key: c.key,
           name: c.name,
           size: blob.size,
           created: Date.now(),
-          duration: c.duration,
+          duration,
           poster,
         },
         blob,
@@ -414,8 +454,45 @@ export function openLinkVideoSheet(opts: Options) {
       );
     }
     if (!active()) return;
-    if (share) await sendSaved(item);
-    else saved(item, uiLiteral('已保存到我的下载'));
+    if (share) {
+      if(await sendSaved(item))await finishLinkSourceDownload(session,requestedId,signal);
+    } else {
+      await finishLinkSourceDownload(session,requestedId,signal);
+      saved(item, uiLiteral('已保存到我的下载'));
+    }
+  }
+  async function runSelected(clips: LinkClip[], share: boolean) {
+    const stored = await listLinkVideos(session, signal);
+    const pending=await listPendingLinkDownloads(session,signal);
+    const entries = clips.map(clip => ({ clip, id: stored.find(item => item.key === clip.key)?.id ?? pending.find(item=>item.clip.key===clip.key)?.id ?? crypto.randomUUID() }));
+    queuedIds=entries.map(entry=>entry.id);
+    if(share)await opts.prepareSend?.(queuedIds,signal);signal.throwIfAborted();
+    if(share)for(const entry of entries)if(stored.some(item=>item.id===entry.id)){
+      await setLinkVideoPendingSend(session,entry.id,true);signal.throwIfAborted();
+    }
+    for(const entry of entries)if(!stored.some(item=>item.id===entry.id)){
+      const plan=await prepareLinkSourceDownload(session,entry.clip,entry.id,share,signal);
+      void plan;
+    }
+    queuedIds=entries.map(entry=>entry.id);
+    if (share) opts.queue?.(entries.map(({clip,id}) => ({id,name:clip.name,duration:clip.duration})));
+    let next = 0;
+    const run = async () => {
+      retry = run;
+      while (next < entries.length) {
+        const { clip, id } = entries[next]!;
+        opts.queuedState?.(id, uiLiteral('正在下载'));
+        try { await download(clip, share, id); }
+        catch (error) { opts.queuedState?.(id, uiLiteral('下载失败 · 在任务面板重试')); retry = run; throw error; }
+        if (!active()) return;
+        // Do not load another potentially large file while this upload failed.
+        if (phase === 'failed') { retry = run; actions.replaceChildren(button(uiLiteral('取消'), () => void cancel()), button(uiLiteral('重试'), () => void manage(run), 'primary-button')); return; }
+        next++;
+      }
+      sent(share ? uiLiteral('已交给聊天发送') : uiLiteral('已保存到我的下载'));
+      if(!share)actions.prepend(button(uiLiteral('我的下载'), () => void manage(library)));
+    };
+    await run();
   }
   function form() {
     resumable = false;
@@ -430,14 +507,14 @@ export function openLinkVideoSheet(opts: Options) {
     input.placeholder = uiLiteral('粘贴 X 帖子链接');
     input.setAttribute('aria-label', input.placeholder);
     const choices = el('div');
-    let selected: LinkClip | undefined;
+    const selected = new Map<string, LinkClip>();
     const hint = uiLiteral('使用 FxTwitter 识别帖子，视频从 X 直下本机。');
     const parse = async () => {
       stopLookup();
       const owner = new AbortController();
       lookup = owner;
       const querySignal = AbortSignal.any([signal, owner.signal]);
-      selected = undefined;
+      selected.clear();
       choices.replaceChildren();
       actions.replaceChildren();
       clearUrls();
@@ -454,17 +531,17 @@ export function openLinkVideoSheet(opts: Options) {
       }
       if (!active() || querySignal.aborted) return;
       const buttonList: HTMLButtonElement[] = [];
-      const select = (c: LinkClip, index: number) => {
-        selected = c;
-        buttonList.forEach((b, i) => {
-          b.setAttribute('aria-pressed', String(i === index));
-        });
+      const select = (c: LinkClip) => {
+        if (selected.has(c.key)) selected.delete(c.key); else selected.set(c.key, c);
+        buttonList.forEach((b, i) => b.setAttribute('aria-pressed', String(selected.has(clips[i]!.key))));
+        status.textContent = uiLiteral('已选') + ` ${selected.size} / ${clips.length}`;
+        actions.querySelectorAll('button').forEach(b => b.disabled = selected.size === 0);
       };
       const seq = screen;
       for (const [i, c] of clips.entries()) {
-        const b = button('', () => select(c, i), 'link-video-choice');
+        const b = button('', () => select(c), 'link-video-choice');
         const info = el('span');
-        const duration = Math.floor(c.duration / 60) + ':' + String(Math.floor(c.duration % 60)).padStart(2, '0');
+        const duration = videoDurationLabel(c.duration * 1000);
         const meta = el('small', duration);
         info.append(el('strong', c.name), meta);
         b.append(createElement(Film), info, createElement(Check));
@@ -488,16 +565,16 @@ export function openLinkVideoSheet(opts: Options) {
             })
             .catch(() => {});
       }
-      select(clips[0]!, 0);
+      select(clips[0]!);
       status.textContent = hint;
       actions.append(
         button(uiLiteral('仅下载'), () => {
-          if (selected) void manage(() => download(selected!, false));
+          if (selected.size) void manage(() => runSelected([...selected.values()], false));
         }, 'primary-button'),
         button(
           uiLiteral('下载并发送'),
           () => {
-            if (selected) void manage(() => download(selected!, true));
+            if (selected.size) void manage(() => runSelected([...selected.values()], true));
           },
         ),
       );
@@ -506,7 +583,7 @@ export function openLinkVideoSheet(opts: Options) {
       stopLookup();
       clearUrls();
       if (input.value.trim()) lookupTimer = window.setTimeout(() => void parse(), 350);
-      selected = undefined;
+      selected.clear();
       choices.replaceChildren();
       actions.replaceChildren();
       status.textContent = hint;
@@ -523,6 +600,14 @@ export function openLinkVideoSheet(opts: Options) {
   }
   show();
   if (opts.start) void manage(() => view(opts.start!));
+  else if(opts.resume)void manage(async()=>{
+    const pending=await listPendingLinkDownloads(session,signal);
+    const saved=(await listPendingLinkSends(session,signal)).filter(item=>!pending.some(source=>source.id===item.id));
+    queuedIds=[...pending.map(item=>item.id),...saved.map(item=>item.id)];
+    opts.queue?.([...pending.filter(item=>item.share).map(item=>({id:item.id,name:item.clip.name,duration:item.clip.duration})),...saved.map(item=>({id:item.id,name:item.name,duration:item.duration}))]);
+    for(const item of saved){await sendSaved(item);if(!active()||phase==='failed')return;}
+    for(const item of pending){await download(item.clip,item.share,item.id);if(!active()||phase==='failed')return;}
+  });
   else form();
-  return { show, refresh, dispose };
+  return { show, refresh, dispose, abortOperations:()=>work.abort(new DOMException('Room exited','AbortError')) };
 }
