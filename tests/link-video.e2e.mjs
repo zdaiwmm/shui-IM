@@ -71,6 +71,7 @@ try {
           'link-video-fixture-password',
           'password',
         );
+        const createApp = () => {
         const app = new QuietRoomApp(document.querySelector('#app'));
         app.session = session;
         app.privacyCovered = false;
@@ -81,6 +82,9 @@ try {
         app.unreadCounter.markRead = async () => {};
         app.connectionState = 'disconnected';
         app.retryOperation = (operation) => operation();
+        return app;
+        };
+        const app = createApp();
         // Synthetic ISO boxes isolate byte preservation and do not require a device codec.
         const atom = (tag, data) => {
           const b = new Uint8Array(8 + data.length);
@@ -164,6 +168,12 @@ try {
           essence,
           large,
           signal: app.runtimeAbort.signal,
+          recreate: () => {
+            window.f.app.runtimeAbort.abort();
+            const next = createApp();
+            window.f.app = next; window.f.signal = next.runtimeAbort.signal;
+            next.renderChat();
+          },
         };
       },
       { role, roomId, large },
@@ -274,7 +284,23 @@ try {
       assert.equal(await page.evaluate(() => window.f.requests.includes('chamber-upload')), false);
       await click('取消');
       await sheet.getByRole('button', { name: '更多操作' }).click();
+      if (!large) await page.evaluate(() => {
+        const {app,requests} = window.f;
+        window.f.sourceRequests = requests.filter(value=>value==='video.twimg.com').length;
+        app.processImageBatch = async (_files,_destination,signal) => {
+          window.f.preparationReached = true;
+          await new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
+        };
+      });
       await click('发送至聊天');
+      if (!large) {
+        await page.waitForFunction(()=>window.f.preparationReached);
+        assert.equal(await page.evaluate(async()=>
+          (await window.f.vault.listPendingLinkSends(window.f.session,window.f.signal)).length),1,
+          'Saved original keeps durable send authorization before encryption');
+        await page.evaluate(()=>{window.f.recreate();window.f.app.openVideoDownloads(undefined,true);});
+        await page.locator('.link-video-resume').filter({hasText:'已交给聊天发送'}).click();
+      }
     }
     if (large) {
       await sheet.getByText('请先让所有已授权设备打开一次最新版，再发送大视频').waitFor({ timeout: 240000 });
@@ -322,6 +348,43 @@ try {
       privateUntilAck: true,
       encrypted: true,
     });
+    if (role === 'creator' && !large) {
+      await page.waitForFunction(async()=>
+        (await window.f.vault.listPendingLinkSends(window.f.session,window.f.signal)).length===0);
+      const recovery = await page.evaluate(async()=>{
+        const {vault,session,signal,requests}=window.f;
+        return {pending:(await vault.listPendingLinkSends(session,signal)).length,
+          sourceRequests:requests.filter(value=>value==='video.twimg.com').length,
+          before:window.f.sourceRequests};
+      });
+      assert.equal(recovery.pending,0,'Accepted send releases its preparation intent');
+      assert.equal(recovery.sourceRequests,recovery.before,'Recovery reuses the encrypted local original');
+      // Emulate interruption after outbox acceptance but before intent cleanup.
+      await page.evaluate(async()=>{
+        const {vault,session,signal,uploads}=window.f;
+        const [item]=await vault.listLinkVideos(session,signal);
+        window.f.recoveredId=item.id;window.f.beforeUploads=uploads.size;
+        await vault.setLinkVideoPendingSend(session,item.id,true);
+        window.f.recreate();window.f.app.openVideoDownloads(undefined,true);
+      });
+      await page.locator('.link-video-resume').filter({hasText:'已交给聊天发送'}).click();
+      await sheet.getByText('已交给聊天发送').waitFor();
+      const deduplicated=await page.evaluate(async()=>({
+        ids:(await window.f.vault.loadOutbox(window.f.session)).map(item=>item.clientMsgId),
+        id:window.f.recoveredId,uploads:window.f.uploads.size,before:window.f.beforeUploads,
+      }));
+      assert.deepEqual(deduplicated.ids,[deduplicated.id],'Accepted recovery reuses one original message ID');
+      assert.equal(deduplicated.uploads,deduplicated.before,'Accepted recovery does not upload again');
+      const cancelled=await page.evaluate(async()=>{
+        const {app,vault,session,signal}=window.f,[item]=await vault.listLinkVideos(session,signal);
+        await vault.setLinkVideoPendingSend(session,item.id,true);
+        await app.cancelStagedVideoUpload(item.id);
+        const pending=await vault.listPendingLinkSends(session,signal);
+        let blocked=false;try{await vault.setLinkVideoPendingSend(session,item.id,true);}catch(error){blocked=error.name==='AbortError';}
+        return {pending:pending.length,blocked};
+      });
+      assert.deepEqual(cancelled,{pending:0,blocked:true},'Cancellation fences automatic preparation recovery');
+    }
     if(role==='joiner'&&!large)assert.equal(await page.evaluate(()=>window.f.queuedNodes.every(node=>node.isConnected&&document.querySelector(`[data-client-msg-id="${node.dataset.clientMsgId}"]`)===node)),true,'Sending retains the queued article nodes');
     if (role === 'creator') {
       // A foreground-only fallback detaches when the privacy curtain closes.

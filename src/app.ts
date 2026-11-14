@@ -77,7 +77,7 @@ import { createMediaPreview } from './lib/media-preview';
 import { MAX_VIDEO_BYTES, LARGE_VIDEO_CAPABILITY } from './lib/message-payload';
 import { isSelectedVideo } from './lib/video-media';
 import { shouldAutoDownloadVideo, videoDurationLabel } from './lib/video-download-policy';
-import { saveVideoDuration, loadVideoDuration, linkVideoSendId, deletePendingLinkDownload, listPendingLinkDownloads } from './lib/vault';
+import { saveVideoDuration, loadVideoDuration, linkVideoSendId, deletePendingLinkDownload, listPendingLinkDownloads, listPendingLinkSends, setLinkVideoPendingSend } from './lib/vault';
 import { prepareCipherTransfer, runCipherTransfer, findCipherTransfer, readCipherPart, stageCipherPart, discardCipherTransfer, cancelCipherTransfer, readCipherTransfer, listCipherTransfers, type CipherTransfer } from './lib/cipher-transfer';
 import { VIDEO_PREVIEW_CAPABILITY, createVideoMessagePreview, videoMessagePoster, type VideoMessagePreview } from './lib/video-message-preview';
 import { createAnimatedDisplayCopy } from './lib/display-copy';
@@ -5159,7 +5159,9 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     void this.connectSocket().catch(cause => { if (runtime.isCurrent()) {this.captureFault('chat.identity',cause);this.operationalError(cause, uiLiteral('安全通话身份准备失败，请重新解锁'));} });
     if (activeRoles.size === 2) { void this.resumeDeferredImage(); this.showPairingWelcome(); }
     this.startAutomaticBackup();
-    void this.resumeStagedVideoUploads().then(()=>this.resumeAuthorizedVideoDownloads()).then(()=>listPendingLinkDownloads(session,runtime.signal)).then(pending=>{
+    void this.resumeStagedVideoUploads().then(()=>this.resumeAuthorizedVideoDownloads()).then(async()=>[
+      ...await listPendingLinkDownloads(session,runtime.signal),...await listPendingLinkSends(session,runtime.signal),
+    ]).then(pending=>{
       if(pending.length&&runtime.isCurrent())this.openVideoDownloads(undefined,true);
     }).catch(cause=>{if(runtime.isCurrent()&&!(cause instanceof DOMException&&cause.name==='AbortError'))this.operationalError(cause,uiLiteral('附件传输已暂停，可重新解锁后继续'));});
     this.startOwnDirectoryServices(session, runtime.signal);
@@ -7007,6 +7009,10 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         for(const plan of await listPendingLinkDownloads(session,signal)){
           if(!current())return false;
           await deletePendingLinkDownload(session,plan.id);
+        }
+        for(const item of await listPendingLinkSends(session,signal)){
+          if(!current())return false;
+          await this.cancelStagedVideoUpload(item.id);
         }
       }
     } catch(error) {
@@ -16817,10 +16823,11 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   private async cancelStagedVideoUpload(clientMsgId:string): Promise<void> {
     const session=this.session,epoch=this.runtimeEpoch;
     if(!session)return;
-    const privateItem=(await listLinkVideos(session,new AbortController().signal)).find(item=>item.id===clientMsgId);
+    const privateItem=(await listLinkVideos(session,new AbortController().signal)).find(item=>item.id===clientMsgId||item.sendId===clientMsgId);
     clientMsgId=privateItem?.sendId??clientMsgId;
     // This durable fence also covers an intent concurrently being committed.
     await cancelOutboxItem(session,clientMsgId);
+    if(privateItem)await setLinkVideoPendingSend(session,privateItem.id,false);
     const preferences=await loadUiPreferences(session);
     if(this.session===session&&this.runtimeEpoch===epoch)this.uiPreferences.hiddenChatMessageIds=preferences.hiddenChatMessageIds;
     const plans=await loadUploadPlans(session);
@@ -16892,8 +16899,9 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         if (!active() || this.imageBatchUploading || this.mediaUploads.get(id)?.busy) return false;
         this.imageBatchUploading = true;
         try {
-          if (await hasOutboxItem(session, id) || (await listLinkVideos(session, op)).some(row => row.id === id && row.shared)) return true;
-          const sendId=preparedSendIds.get(id)??(await listLinkVideos(session,op)).find(item=>item.id===id)?.sendId??id;
+          const item=(await listLinkVideos(session,op)).find(item=>item.id===id);
+          const sendId=preparedSendIds.get(id)??item?.sendId??id;
+          if (await hasOutboxItem(session, sendId) || item?.shared) return true;
           op.throwIfAborted();
           const retryId = this.mediaUploads.has(sendId) ? sendId : undefined;
           return await this.processImageBatch([file], 'chat', op, false, retryId, false, undefined, id, progress, sendId);

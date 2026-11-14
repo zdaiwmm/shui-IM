@@ -7,7 +7,8 @@ import { uiLiteral } from './language';
 import { MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from './message-payload';
 import { mountLinkVideoCapsule, type LinkVideoPhase } from './link-video-capsule';
 import { downloadLinkSource, prepareLinkSourceDownload, finishLinkSourceDownload, cancelLinkSourceDownload } from './link-source-transfer';
-import { listPendingLinkDownloads } from './vault';
+import { listPendingLinkDownloads, listPendingLinkSends, setLinkVideoPendingSend } from './vault';
+import { withSavedLinkVideoSend } from './link-video-send';
 import { videoDurationLabel } from './video-download-policy';
 import {
   compactMp4,
@@ -159,7 +160,7 @@ export function openLinkVideoSheet(opts: Options) {
   let presentation: AbortController | undefined;
   let lookup: AbortController | undefined;
   let lookupTimer = 0;
-  let retry: (() => Promise<void>) | undefined;
+  let retry: (() => Promise<unknown>) | undefined;
   function refresh() {
     if (!active() || mounted || !resumable) { banner.remove(); return; }
     const notices = root.querySelector('.chat-shell .system-notices');
@@ -248,7 +249,7 @@ export function openLinkVideoSheet(opts: Options) {
     actions.append(button(uiLiteral('取消'), () => void cancel()), button(uiLiteral('收起'), close, 'primary-button'));
     if(minimizeOnStart){minimizeOnStart=false;queueMicrotask(close);}
   }
-  const manage = async (fn: () => Promise<void>) => {
+  const manage = async (fn: () => Promise<unknown>) => {
     if (busy || !active()) return;
     busy = true;
 
@@ -273,31 +274,34 @@ export function openLinkVideoSheet(opts: Options) {
       busy = false;
     }
   };
-  async function sendSaved(item: SavedLinkVideo, explicit=false) {
+  async function sendSaved(item: SavedLinkVideo, explicit=false):Promise<boolean> {
     if(explicit){queuedIds=[item.id];await opts.prepareSend?.(queuedIds,signal);signal.throwIfAborted();}
     phase = 'prepare';
     retry = () => sendSaved(item);
     taskScreen(item.name, uiLiteral('正在本地无损压缩'));
     if (item.shared || (await listLinkVideos(session, signal)).some(row => row.id === item.id && row.shared)) {
       sent(uiLiteral('已发送至聊天'));
-      return;
+      return true;
     }
+    return withSavedLinkVideoSend(session,item.id,signal,async()=>{
     const file = await readLinkVideo(session, item.id, signal);
     const packed = await compactMp4(file, signal);
     signal.throwIfAborted();
     if (packed.size > MAX_VIDEO_BYTES) {
       saved(item, uiLiteral('单个视频不能超过 2 GiB'), true);
-      return;
+      return false;
     }
     if (packed.size > MAX_IMAGE_BYTES && !opts.largeVideoReady()) {
       saved(item, uiLiteral('请先让所有已授权设备打开一次最新版，再发送大视频'), true);
-      return;
+      return false;
     }
     report(uiLiteral('正在加密发送'), 'upload');
     const ok = await opts.send(packed,item.id,signal,ratio=>report(uiLiteral('加密上传中')+` · ${Math.floor(ratio*100)}%`,'upload',ratio));
-    if (!active()) return;
+    if (!active()) return false;
     if (ok) sent(uiLiteral('已交给聊天发送'));
     else saved(item, uiLiteral('发送失败，可从本机重试'), true);
+    return ok;
+    });
   }
   function sent(message: string) {
     reset(uiLiteral('链接视频'));
@@ -450,9 +454,12 @@ export function openLinkVideoSheet(opts: Options) {
       );
     }
     if (!active()) return;
-    await finishLinkSourceDownload(session,item.id,signal);
-    if (share) await sendSaved(item);
-    else saved(item, uiLiteral('已保存到我的下载'));
+    if (share) {
+      if(await sendSaved(item))await finishLinkSourceDownload(session,requestedId,signal);
+    } else {
+      await finishLinkSourceDownload(session,requestedId,signal);
+      saved(item, uiLiteral('已保存到我的下载'));
+    }
   }
   async function runSelected(clips: LinkClip[], share: boolean) {
     const stored = await listLinkVideos(session, signal);
@@ -460,6 +467,9 @@ export function openLinkVideoSheet(opts: Options) {
     const entries = clips.map(clip => ({ clip, id: stored.find(item => item.key === clip.key)?.id ?? pending.find(item=>item.clip.key===clip.key)?.id ?? crypto.randomUUID() }));
     queuedIds=entries.map(entry=>entry.id);
     if(share)await opts.prepareSend?.(queuedIds,signal);signal.throwIfAborted();
+    if(share)for(const entry of entries)if(stored.some(item=>item.id===entry.id)){
+      await setLinkVideoPendingSend(session,entry.id,true);signal.throwIfAborted();
+    }
     for(const entry of entries)if(!stored.some(item=>item.id===entry.id)){
       const plan=await prepareLinkSourceDownload(session,entry.clip,entry.id,share,signal);
       void plan;
@@ -592,8 +602,10 @@ export function openLinkVideoSheet(opts: Options) {
   if (opts.start) void manage(() => view(opts.start!));
   else if(opts.resume)void manage(async()=>{
     const pending=await listPendingLinkDownloads(session,signal);
-    queuedIds=pending.map(item=>item.id);
-    opts.queue?.(pending.filter(item=>item.share).map(item=>({id:item.id,name:item.clip.name,duration:item.clip.duration})));
+    const saved=(await listPendingLinkSends(session,signal)).filter(item=>!pending.some(source=>source.id===item.id));
+    queuedIds=[...pending.map(item=>item.id),...saved.map(item=>item.id)];
+    opts.queue?.([...pending.filter(item=>item.share).map(item=>({id:item.id,name:item.clip.name,duration:item.clip.duration})),...saved.map(item=>({id:item.id,name:item.name,duration:item.duration}))]);
+    for(const item of saved){await sendSaved(item);if(!active()||phase==='failed')return;}
     for(const item of pending){await download(item.clip,item.share,item.id);if(!active()||phase==='failed')return;}
   });
   else form();
