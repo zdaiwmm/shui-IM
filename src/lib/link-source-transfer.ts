@@ -9,8 +9,7 @@ function sourceUrl(value:string):boolean {
 export async function launchLinkSourceDownload(plan:PendingLinkDownload,signal:AbortSignal):Promise<void> {
   const task=await readCipherTransfer(plan.taskId);if(!task||task.state==='done')return;
   signal.throwIfAborted();
-  const key=await crypto.subtle.importKey('raw',fromBase64Url(plan.key),'AES-GCM',false,['encrypt']);
-  await runCipherTransfer(task,signal,undefined,{url:plan.clip.url,key,ivPrefix:fromBase64Url(plan.ivPrefix)});
+  await runCipherTransfer(task,signal,undefined,{url:plan.clip.url,keyBytes:fromBase64Url(plan.key),ivPrefix:fromBase64Url(plan.ivPrefix)});
 }
 export async function prepareLinkSourceDownload(session:VaultSession,clip:LinkClip,id:string,share:boolean,signal:AbortSignal):Promise<PendingLinkDownload|undefined> {
   if(!navigator.serviceWorker?.controller)return;
@@ -31,8 +30,7 @@ export async function downloadLinkSource(session:VaultSession,clip:LinkClip,id:s
     if(task.roomId!==session.vault.roomId||task.deviceId!==session.vault.identity.publicBundle.deviceId||task.blobId!==id||task.direction!=='source'||!sourceUrl(plan.clip.url))throw Error('Source scope mismatch');
     try{
       if(task.state!=='done'){
-        const key=await crypto.subtle.importKey('raw',fromBase64Url(plan.key),'AES-GCM',false,['encrypt']);
-        await runCipherTransfer(task,signal,undefined,{url:plan.clip.url,key,ivPrefix:fromBase64Url(plan.ivPrefix)},progress);
+        await runCipherTransfer(task,signal,undefined,{url:plan.clip.url,keyBytes:fromBase64Url(plan.key),ivPrefix:fromBase64Url(plan.ivPrefix)},progress);
       }
       const complete=await readCipherTransfer(plan.taskId);signal.throwIfAborted();
       if(!complete||complete.state!=='done'||complete.originalSize<=0||complete.originalSize>2*1024**3||complete.chunkCount!==Math.ceil(complete.originalSize/complete.chunkSize))throw Error('Incomplete source download');

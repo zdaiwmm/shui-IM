@@ -24,11 +24,14 @@ async function worker(task: any, fetcher: (url:string,init:any)=>Promise<Respons
     self:{location:{origin:'https://ai.shui.click'},addEventListener:(name:string,fn:any)=>listeners.set(name,fn)},
     indexedDB,fetch:fetcher,URL,Response,ArrayBuffer,Uint8Array,DataView,TextEncoder,CryptoKey:key.constructor,crypto,AbortController,Date,Error,Map,Set,
   });
-  async function run(source?:unknown) {
+  async function run(source?:unknown,origin='https://ai.shui.click/') {
     let wait:Promise<unknown>|undefined;
-    listeners.get('message')({data:{type:'quiet-room-cipher-transfer',id:task.id,...(source?{source}:{})},source:{url:'https://ai.shui.click/'},
+    const replies:unknown[]=[];
+    listeners.get('message')({data:{type:'quiet-room-cipher-transfer',id:task.id,...(source?{source}:{})},source:{url:origin},
+      ports:[{postMessage:(value:unknown)=>replies.push(value)}],
       waitUntil:(promise:Promise<unknown>)=>{wait=promise;}});
     await wait;
+    return replies;
   }
   function ready(origin='https://ai.shui.click/') {
     const replies:unknown[]=[];
@@ -48,7 +51,7 @@ describe('isolated ciphertext worker',()=>{
   it('answers same-origin readiness without reading or starting a transfer',async()=>{
     const input=task();let requests=0;
     const fixture=await worker(input,async()=>{requests++;throw Error('Readiness must not fetch');});
-    expect(fixture.ready()).toEqual([{version:1}]);
+    expect(fixture.ready()).toEqual([{version:1,sourceKeyBytes:1}]);
     expect(fixture.ready('https://untrusted.invalid/')).toEqual([]);
     expect(fixture.tasks.get(input.id)).toEqual(input);
     expect(fixture.parts.size).toBe(0);expect(requests).toBe(0);
@@ -87,6 +90,36 @@ describe('isolated ciphertext worker',()=>{
     const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv,additionalData:new TextEncoder().encode(input.id+':1')},decryptKey,fixture.parts.get(input.id+':1').bytes);
     expect([...new Uint8Array(plain)]).toEqual([73,73,73,73,73]);
     const persisted=JSON.stringify([...fixture.tasks.values()]);expect(persisted).not.toContain('video.twimg.com');expect(persisted).not.toContain('ivPrefix');
+  });
+  it('imports a one-time source buffer and erases it before fetching or retaining the job',async()=>{
+    const input={...task('source'),chunkSize:1024**2,originalSize:0,chunkCount:0,token:''};
+    const raw=crypto.getRandomValues(new Uint8Array(32)),keyBytes=raw.slice(),prefix=new Uint8Array(8);
+    const fixture=await worker(input,async()=>{
+      expect([...keyBytes]).toEqual(Array(32).fill(0));
+      return new Response(new Uint8Array([1,2,3]),{headers:{'content-length':'3'}});
+    });
+    expect(await fixture.run({url:'https://video.twimg.com/bytes.mp4',keyBytes,ivPrefix:prefix})).toEqual([{version:1}]);
+    expect([...keyBytes]).toEqual(Array(32).fill(0));
+    expect(fixture.tasks.get(input.id)).toMatchObject({state:'done',originalSize:3});
+    const iv=new Uint8Array(12);iv.set(prefix);
+    const key=await crypto.subtle.importKey('raw',raw,'AES-GCM',false,['decrypt']);
+    const plain=await crypto.subtle.decrypt({name:'AES-GCM',iv,additionalData:new TextEncoder().encode(input.id+':0')},key,fixture.parts.get(input.id+':0').bytes);
+    expect([...new Uint8Array(plain)]).toEqual([1,2,3]);
+    expect(JSON.stringify([...fixture.tasks.values()])).not.toMatch(/keyBytes|ivPrefix|twimg/);
+  });
+  it('erases and rejects an invalid source grant without a source request',async()=>{
+    const input={...task('source'),chunkSize:1024**2,token:''},keyBytes=new Uint8Array(31).fill(19);
+    let fetched=false;
+    const fixture=await worker(input,async()=>{fetched=true;throw Error('Invalid grant must not fetch');});
+    expect(await fixture.run({url:'https://video.twimg.com/bytes.mp4',keyBytes,ivPrefix:new Uint8Array(8)})).toEqual([{version:1,error:'SOURCE_GRANT_INVALID'}]);
+    expect([...keyBytes]).toEqual(Array(31).fill(0));
+    expect(fetched).toBe(false);expect(fixture.parts.size).toBe(0);
+  });
+  it('erases an ignored foreign-origin source grant without starting it',async()=>{
+    const input={...task('source'),chunkSize:1024**2,token:''},keyBytes=new Uint8Array(32).fill(9);
+    const fixture=await worker(input,async()=>{throw Error('Foreign origin must not fetch');});
+    expect(await fixture.run({keyBytes},'https://untrusted.invalid/')).toEqual([]);
+    expect([...keyBytes]).toEqual(Array(32).fill(0));expect(fixture.tasks.get(input.id)).toEqual(input);
   });
   it('requires a new source generation when the origin ignores Range',async()=>{
     const input={...task('source'),chunkSize:1024**2,originalSize:2*1024**2,receivedBytes:1024**2,chunkCount:0,token:'',etag:'"old"'};
