@@ -1,4 +1,4 @@
-import { createElement, Film, LockKeyhole, MoreHorizontal, Check } from 'lucide';
+import { createElement, Film, LockKeyhole, MoreHorizontal, Check, Link, X } from 'lucide';
 import { closeDialog, mountDialog } from './dialog';
 import { bindHalfSheetHandle } from './half-sheet';
 import { createVideoPoster } from './video-poster';
@@ -151,6 +151,8 @@ export function openLinkVideoSheet(opts: Options) {
   const badge = button('', show, 'link-video-resume');
   const capsule = mountLinkVideoCapsule(badge);
   let phase: LinkVideoPhase = 'download';
+  let batch: HTMLElement | undefined;
+  let currentRow: HTMLElement | undefined;
   const banner = el('aside');
   banner.className = 'link-video-banner';
   banner.dataset.noticePriority = '55';
@@ -169,6 +171,14 @@ export function openLinkVideoSheet(opts: Options) {
   function report(text: string, next = phase, ratio?: number) {
     phase = next;
     status.textContent = text;
+    if (currentRow) {
+      currentRow.querySelector('small')!.textContent = text;
+      const meter = currentRow.querySelector('progress')!;
+      if (ratio !== undefined || next === 'done') meter.value = next === 'done' ? 1 : ratio!;
+      else if (next === 'failed') { if (!meter.hasAttribute('value')) meter.value = 0; }
+      else meter.removeAttribute('value');
+      currentRow.dataset.phase = next;
+    }
     capsule.update({ text, phase, ratio });
     if (phase === 'failed') banner.dataset.tone = 'error';
     else delete banner.dataset.tone;
@@ -190,11 +200,13 @@ export function openLinkVideoSheet(opts: Options) {
   function reset(label: string) {
     screen++;
     stopLookup();
-    clearUrls();
+    if (!batch) clearUrls();
     title.textContent = label;
     head.replaceChildren(title);
     body.replaceChildren();
     actions.replaceChildren();
+    status.className = 'field-hint';
+    panel.insertBefore(status, actions);
     status.textContent = '';
   }
   const close = () => closeDialog(sheet);
@@ -244,7 +256,7 @@ export function openLinkVideoSheet(opts: Options) {
   function taskScreen(name: string, message: string) {
     reset(uiLiteral('链接视频'));
     resumable = true;
-    body.append(el('strong', name));
+    body.append(batch ?? el('strong', name));
     report(message);
     actions.append(button(uiLiteral('取消'), () => void cancel()), button(uiLiteral('收起'), close, 'primary-button'));
     if(minimizeOnStart){minimizeOnStart=false;queueMicrotask(close);}
@@ -298,7 +310,10 @@ export function openLinkVideoSheet(opts: Options) {
     report(uiLiteral('正在加密发送'), 'upload');
     const ok = await opts.send(packed,item.id,signal,ratio=>report(uiLiteral('加密上传中')+` · ${Math.floor(ratio*100)}%`,'upload',ratio));
     if (!active()) return false;
-    if (ok) sent(uiLiteral('已交给聊天发送'));
+    if (ok) {
+      if (batch) report(uiLiteral('已交给聊天发送'), 'done');
+      else sent(uiLiteral('已交给聊天发送'));
+    }
     else saved(item, uiLiteral('发送失败，可从本机重试'), true);
     return ok;
     });
@@ -306,10 +321,16 @@ export function openLinkVideoSheet(opts: Options) {
   function sent(message: string) {
     reset(uiLiteral('链接视频'));
     report(message, 'done');
+    if (batch) body.append(batch);
     resumable = !mounted;
     actions.append(button(uiLiteral('返回聊天'), dispose, 'primary-button'));
   }
   function saved(item: SavedLinkVideo, message: string, offerSend = false) {
+    if (batch) {
+      body.replaceChildren(batch);
+      report(message, offerSend ? 'failed' : 'done');
+      return;
+    }
     reset(uiLiteral('我的下载'));
     head.append(button(uiLiteral('链接视频'), form, 'link-video-text'));
     const stateIcon = createElement(offerSend ? Film : Check);
@@ -352,6 +373,7 @@ export function openLinkVideoSheet(opts: Options) {
     );
   }
   async function library() {
+    batch = currentRow = undefined;
     resumable = false;
     retry = undefined;
     reset(uiLiteral('我的下载'));
@@ -408,7 +430,7 @@ export function openLinkVideoSheet(opts: Options) {
     const meter = el('progress');
     meter.setAttribute('aria-label', uiLiteral('正在直下本机'));
     const amount = el('small');
-    body.append(meter, amount);
+    if (!batch) body.append(meter, amount);
     let lastPaint = -Infinity;
     let item = (await listLinkVideos(session, signal)).find((i) => i.key === c.key);
     if (!item) {
@@ -465,6 +487,23 @@ export function openLinkVideoSheet(opts: Options) {
     const stored = await listLinkVideos(session, signal);
     const pending=await listPendingLinkDownloads(session,signal);
     const entries = clips.map(clip => ({ clip, id: stored.find(item => item.key === clip.key)?.id ?? pending.find(item=>item.clip.key===clip.key)?.id ?? crypto.randomUUID() }));
+    batch = el('div');
+    batch.className = 'link-video-batch';
+    batch.append(el('strong', uiLiteral('视频') + ` · ${entries.length}`));
+    const rows = entries.map(({clip}) => {
+      const row = el('div');
+      row.className = 'link-video-batch-row';
+      const art = el('span');
+      art.className = 'link-video-batch-cover';
+      const image = [...body.querySelectorAll<HTMLImageElement>('.link-video-choice img')].find(img => img.closest('button')?.dataset.clipKey === clip.key);
+      art.append(image ? image.cloneNode() : createElement(Film));
+      const info = el('div');
+      const meter = el('progress');
+      meter.max = 1; meter.value = 0;
+      meter.setAttribute('aria-label', clip.name);
+      info.append(el('strong',clip.name), el('small',uiLiteral('等待处理')), meter);
+      row.append(art,info); batch!.append(row); return row;
+    });
     queuedIds=entries.map(entry=>entry.id);
     if(share)await opts.prepareSend?.(queuedIds,signal);signal.throwIfAborted();
     if(share)for(const entry of entries)if(stored.some(item=>item.id===entry.id)){
@@ -481,6 +520,7 @@ export function openLinkVideoSheet(opts: Options) {
       retry = run;
       while (next < entries.length) {
         const { clip, id } = entries[next]!;
+        currentRow = rows[next];
         opts.queuedState?.(id, uiLiteral('正在下载'));
         try { await download(clip, share, id); }
         catch (error) { opts.queuedState?.(id, uiLiteral('下载失败 · 在任务面板重试')); retry = run; throw error; }
@@ -495,6 +535,7 @@ export function openLinkVideoSheet(opts: Options) {
     await run();
   }
   function form() {
+    batch = currentRow = undefined;
     resumable = false;
     retry = undefined;
     reset(uiLiteral('链接视频'));
@@ -506,7 +547,20 @@ export function openLinkVideoSheet(opts: Options) {
     input.autocomplete = 'off';
     input.placeholder = uiLiteral('粘贴 X 帖子链接');
     input.setAttribute('aria-label', input.placeholder);
+    const clear = button('', () => {
+      input.value = '';
+      input.dispatchEvent(new Event('input'));
+      input.focus();
+    }, 'link-video-clear');
+    clear.setAttribute('aria-label', uiLiteral('清空链接'));
+    clear.append(createElement(X));
     const choices = el('div');
+    choices.className = 'link-video-choices';
+    const summary = el('div');
+    summary.className = 'link-video-section';
+    const empty = el('div');
+    empty.className = 'link-video-empty';
+    empty.append(createElement(Film), el('strong',uiLiteral('粘贴链接，选择想分享的视频')));
     const selected = new Map<string, LinkClip>();
     const hint = uiLiteral('使用 FxTwitter 识别帖子，视频从 X 直下本机。');
     const parse = async () => {
@@ -516,6 +570,8 @@ export function openLinkVideoSheet(opts: Options) {
       const querySignal = AbortSignal.any([signal, owner.signal]);
       selected.clear();
       choices.replaceChildren();
+      summary.replaceChildren();
+      empty.hidden = true;
       actions.replaceChildren();
       clearUrls();
       status.textContent = uiLiteral('正在识别');
@@ -531,20 +587,44 @@ export function openLinkVideoSheet(opts: Options) {
       }
       if (!active() || querySignal.aborted) return;
       const buttonList: HTMLButtonElement[] = [];
-      const select = (c: LinkClip) => {
-        if (selected.has(c.key)) selected.delete(c.key); else selected.set(c.key, c);
-        buttonList.forEach((b, i) => b.setAttribute('aria-pressed', String(selected.has(clips[i]!.key))));
+      const all = button(uiLiteral('全选'), () => {
+        const deselect = selected.size === clips.length;
+        selected.clear();
+        if (!deselect) clips.forEach(c => selected.set(c.key, c));
+        paintSelection();
+      }, 'link-video-text');
+      summary.append(el('strong', uiLiteral('视频') + ` · ${clips.length}`), all);
+      const paintSelection = () => {
+        const picked = clips.filter(c => selected.has(c.key));
+        buttonList.forEach((b, i) => {
+          const index = picked.indexOf(clips[i]!);
+          b.setAttribute('aria-pressed', String(index >= 0));
+          b.querySelector('.link-video-check')!.textContent = index >= 0 ? String(index + 1) : '';
+        });
+        all.textContent = uiLiteral(selected.size === clips.length ? '取消全选' : '全选');
         status.textContent = uiLiteral('已选') + ` ${selected.size} / ${clips.length}`;
         actions.querySelectorAll('button').forEach(b => b.disabled = selected.size === 0);
+      };
+      const select = (c: LinkClip) => {
+        if (selected.has(c.key)) selected.delete(c.key); else selected.set(c.key, c);
+        paintSelection();
       };
       const seq = screen;
       for (const [i, c] of clips.entries()) {
         const b = button('', () => select(c), 'link-video-choice');
+        b.dataset.clipKey = c.key;
         const info = el('span');
         const duration = videoDurationLabel(c.duration * 1000);
         const meta = el('small', duration);
+        info.className = 'link-video-choice-info';
         info.append(el('strong', c.name), meta);
-        b.append(createElement(Film), info, createElement(Check));
+        const art = el('span');
+        art.className = 'link-video-choice-cover';
+        art.append(createElement(Film));
+        const check = el('span');
+        check.className = 'link-video-check';
+        check.setAttribute('aria-hidden', 'true');
+        b.append(art, check, info);
         buttonList.push(b);
         choices.append(b);
         void clipSize(c, querySignal)
@@ -560,24 +640,27 @@ export function openLinkVideoSheet(opts: Options) {
                 const img = el('img');
                 img.alt = '';
                 img.src = object(blob);
-                b.firstChild?.replaceWith(img);
+                art.replaceChildren(img);
               }
             })
             .catch(() => {});
       }
       select(clips[0]!);
-      status.textContent = hint;
       actions.append(
         button(uiLiteral('仅下载'), () => {
-          if (selected.size) void manage(() => runSelected([...selected.values()], false));
-        }, 'primary-button'),
+          if (selected.size) void manage(() => runSelected(clips.filter(c => selected.has(c.key)), false));
+        }),
         button(
           uiLiteral('下载并发送'),
           () => {
-            if (selected.size) void manage(() => runSelected([...selected.values()], true));
+            if (selected.size) void manage(() => runSelected(clips.filter(c => selected.has(c.key)), true));
           },
+          'primary-button',
         ),
       );
+      const privacy = el('p', uiLiteral('仅下载保存在本机，不会发送给对方。'));
+      privacy.className = 'link-video-footer-note';
+      actions.append(privacy);
     };
     input.oninput = () => {
       stopLookup();
@@ -585,8 +668,10 @@ export function openLinkVideoSheet(opts: Options) {
       if (input.value.trim()) lookupTimer = window.setTimeout(() => void parse(), 350);
       selected.clear();
       choices.replaceChildren();
+      summary.replaceChildren();
       actions.replaceChildren();
-      status.textContent = hint;
+      status.textContent = '';
+      empty.hidden = Boolean(input.value.trim());
     };
     input.onkeydown = (e) => {
       if (e.key === 'Enter' && !e.isComposing) {
@@ -594,9 +679,12 @@ export function openLinkVideoSheet(opts: Options) {
         void parse();
       }
     };
-    field.append(input);
-    body.append(field, choices);
-    status.textContent = hint;
+    field.append(createElement(Link), input, clear);
+    const note = el('p', hint);
+    note.className = 'link-video-note';
+    status.className = 'link-video-selection';
+    body.append(field, note, summary, choices, status, empty);
+    status.textContent = '';
   }
   show();
   if (opts.start) void manage(() => view(opts.start!));

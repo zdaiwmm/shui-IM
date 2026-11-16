@@ -30,7 +30,7 @@
     try{
       const url=new URL(source?.url??'');
       if(url.origin!=='https://video.twimg.com'||url.username||url.password||!url.pathname.endsWith('.mp4')
-        || !(source.key instanceof CryptoKey)||source.key.type!=='secret'||source.key.algorithm.name!=='AES-GCM'||source.key.algorithm.length!==256
+        || !(source.key instanceof CryptoKey)||source.key.extractable||source.key.type!=='secret'||source.key.algorithm.name!=='AES-GCM'||source.key.algorithm.length!==256
         ||source.key.usages.length!==1||source.key.usages[0]!=='encrypt'||!(source.ivPrefix instanceof Uint8Array)||source.ivPrefix.byteLength!==8
         || ![task.roomId,task.deviceId,task.blobId].every(value=>uuid.test(value))||task.chunkSize!==chunk||task.expiresAt<=Date.now())throw Error('Invalid source task');
       const offset=task.receivedBytes??0;
@@ -123,19 +123,35 @@
   }
   self.addEventListener('message',event=>{
     const {type,id}=event.data??{};
+    const receivedSource=event.data?.source,raw=receivedSource?.keyBytes;
+    const erase=()=>{if(raw instanceof Uint8Array)raw.fill(0);};
     if(type==='quiet-room-cipher-transfer-ready'){
-      if(event.source?.url&&new URL(event.source.url).origin===self.location.origin)event.ports?.[0]?.postMessage({version:1});
+      if(event.source?.url&&new URL(event.source.url).origin===self.location.origin)event.ports?.[0]?.postMessage({version:1,sourceKeyBytes:1});
+      erase();
       return;
     }
-    if(typeof id!=='string'||id.length>180||!event.source?.url||new URL(event.source.url).origin!==self.location.origin)return;
-    if(type==='quiet-room-cipher-transfer-cancel'){jobs.get(id)?.abort();return;}
-    if(type!=='quiet-room-cipher-transfer')return;
-    event.ports?.[0]?.postMessage({version:1});
-    if(jobs.has(id))return;
+    if(typeof id!=='string'||id.length>180||!event.source?.url||new URL(event.source.url).origin!==self.location.origin){erase();return;}
+    if(type==='quiet-room-cipher-transfer-cancel'){erase();jobs.get(id)?.abort();return;}
+    if(type!=='quiet-room-cipher-transfer'){erase();return;}
+    if(jobs.has(id)){erase();event.ports?.[0]?.postMessage({version:1});return;}
     const controller=new AbortController();jobs.set(id,controller);
-    const operation=event.data.source
-      ? (sourceChain=sourceChain.catch(()=>{}).then(()=>run(id,controller.signal,event.data.source)))
-      : run(id,controller.signal);
+    const operation=(async()=>{
+      let source=receivedSource;
+      if(receivedSource&&Object.hasOwn(receivedSource,'keyBytes')){
+        try{
+          if(!(raw instanceof Uint8Array)||raw.byteLength!==32)throw Error('Invalid source grant');
+          const key=await crypto.subtle.importKey('raw',raw,'AES-GCM',false,['encrypt']);
+          source={url:receivedSource.url,key,ivPrefix:receivedSource.ivPrefix};
+        }finally{erase();}
+      }
+      event.ports?.[0]?.postMessage({version:1});
+      return source
+        ? (sourceChain=sourceChain.catch(()=>{}).then(()=>run(id,controller.signal,source)))
+        : run(id,controller.signal);
+    })().catch(async()=>{
+      erase();event.ports?.[0]?.postMessage({version:1,error:'SOURCE_GRANT_INVALID'});
+      await update(id,{state:'paused'}).catch(()=>{});
+    });
     event.waitUntil(operation.finally(()=>jobs.delete(id)));
   });
 })();

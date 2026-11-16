@@ -1,5 +1,6 @@
 import { authorizedFetch } from './api';
 import type { ImageManifest } from './types';
+import { uiLiteral } from './language';
 
 export type CipherTransfer = {
   id: string; roomId: string; blobId: string; deviceId: string; direction: 'upload' | 'download' | 'source';
@@ -108,7 +109,7 @@ export async function stageCipherPart(task:CipherTransfer,index:number,bytes:Arr
       tx.objectStore('parts').put({id:task.id+':'+index,taskId:task.id,index,bytes});done();};
   });
 }
-async function readyCipherWorker(signal:AbortSignal):Promise<ServiceWorker> {
+async function readyCipherWorker(signal:AbortSignal,sourceKeyBytes=false):Promise<ServiceWorker> {
   signal.throwIfAborted();
   const workers=navigator.serviceWorker;
   if(!workers?.controller)throw Error('后台传输服务尚未就绪，请刷新后重试');
@@ -122,7 +123,7 @@ async function readyCipherWorker(signal:AbortSignal):Promise<ServiceWorker> {
       probed=controller;port?.close();
       const channel=new MessageChannel();port=channel.port1;
       channel.port1.onmessage=event=>{
-        if(event.data?.version===1&&workers.controller===controller){cleanup();resolve(controller);}
+        if(event.data?.version===1&&(!sourceKeyBytes||event.data.sourceKeyBytes===1)&&workers.controller===controller){cleanup();resolve(controller);}
       };
       // Readiness carries no task ID, source key or transfer capability. An old
       // controller may ignore it while the new release installs and claims us.
@@ -141,27 +142,34 @@ async function readyCipherWorker(signal:AbortSignal):Promise<ServiceWorker> {
   });
 }
 
-export async function runCipherTransfer(task:CipherTransfer,signal:AbortSignal,progress?:(ratio:number)=>void,source?:{url:string;key:CryptoKey;ivPrefix:Uint8Array<ArrayBuffer>},bytesProgress?:(bytes:number,total:number)=>void):Promise<void> {
+export async function runCipherTransfer(task:CipherTransfer,signal:AbortSignal,progress?:(ratio:number)=>void,source?:{url:string;keyBytes:Uint8Array<ArrayBuffer>;ivPrefix:Uint8Array<ArrayBuffer>},bytesProgress?:(bytes:number,total:number)=>void):Promise<void> {
+  try {
   signal.throwIfAborted();
   await transact<void>('readwrite',(tx,done)=>{
     const store=tx.objectStore('tasks'),request=store.get(task.id);
     request.onsuccess=()=>{if(!request.result||request.result.state==='cancelled'){tx.abort();return;}
       if(request.result.state!=='done')store.put({...request.result,state:'ready',updated:Date.now()});done();};
   });
-  // The worker receives an opaque ID only. No vault, MLS key, original File or
-  // general room credential crosses this boundary. Aborting this wait detaches
+  // Ordinary ciphertext transport receives an opaque ID. Source imports also
+  // receive their isolated grant, never a vault, MLS key, original File or
+  // general room credential. Aborting this wait detaches
   // the locked UI; explicit cancellation is the separate durable operation.
   if((await readCipherTransfer(task.id))?.state==='done')return;
-  const controller=await readyCipherWorker(signal);
+  const controller=await readyCipherWorker(signal,Boolean(source));
   signal.throwIfAborted();
   await new Promise<void>((resolve,reject)=>{
     const channel=new MessageChannel();
     const cleanup=()=>{clearTimeout(timer);signal.removeEventListener('abort',abort);channel.port1.close();};
     const abort=()=>{cleanup();reject(signal.reason);};
     const timer=setTimeout(()=>{cleanup();reject(Error('后台传输服务尚未更新，请刷新后重试'));},5000);
-    channel.port1.onmessage=event=>{if(event.data?.version===1){cleanup();resolve();}};
+    channel.port1.onmessage=event=>{if(event.data?.version===1){cleanup();if(event.data.error)reject(Error(uiLiteral('操作失败，请重试')));else resolve();}};
     signal.addEventListener('abort',abort,{once:true});
-    controller.postMessage({type:'quiet-room-cipher-transfer',id:task.id,...(source?{source}:{})},[channel.port2]);
+    try {
+      // Safari cannot reliably clone CryptoKey into a Service Worker. Transfer
+      // ownership of this isolated source key; the worker imports encrypt-only
+      // and erases the buffer before acknowledging or queueing the source job.
+      controller.postMessage({type:'quiet-room-cipher-transfer',id:task.id,...(source?{source}:{})},[channel.port2,...(source?[source.keyBytes.buffer]:[])]);
+    } catch(error) {cleanup();reject(error);}
   });
   await new Promise<void>((resolve,reject)=>{
     let timer:ReturnType<typeof setTimeout>|undefined;
@@ -182,6 +190,7 @@ export async function runCipherTransfer(task:CipherTransfer,signal:AbortSignal,p
     };
     signal.addEventListener('abort',abort,{once:true});void poll();
   });
+  } finally {if(source?.keyBytes.byteLength)source.keyBytes.fill(0);}
 }
 export async function cancelCipherTransfer(id:string):Promise<void> {
   const task=await readCipherTransfer(id);if(!task)return;

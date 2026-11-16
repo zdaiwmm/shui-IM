@@ -111,14 +111,18 @@ export function startReleaseUpdateDetection(): void {
     try { await registration.update(); } catch { /* A later visibility/online check retries. */ }
     finally { checking = false; }
   };
-  window.addEventListener('load', () => {
-    void navigator.serviceWorker.register('/sw.js').then(value => {
+  const register = () => {
+    void navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(value => {
       registration = value;
       return check();
     }).catch(() => {
       // The application remains usable online when worker registration fails.
     });
-  });
+  };
+  // Language initialization can finish after load. An existing controller must
+  // still be updated, including its imported transfer protocol.
+  if (document.readyState === 'complete') register();
+  else window.addEventListener('load', register, { once: true });
   document.addEventListener('visibilitychange', () => void check());
   window.addEventListener('online', () => void check());
   window.setInterval(() => void check(), 15 * 60 * 1000);

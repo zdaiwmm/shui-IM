@@ -1,5 +1,27 @@
 import { describe, expect, it, vi } from 'vitest';
-import { collectReleaseNotes, prepareReleaseVisit } from '../src/lib/release-update';
+import { collectReleaseNotes, prepareReleaseVisit, startReleaseUpdateDetection } from '../src/lib/release-update';
+
+describe('worker update startup', () => {
+  for (const readyState of ['complete', 'loading']) it(`registers when startup is ${readyState}`, async () => {
+    const update = vi.fn().mockResolvedValue(undefined);
+    const register = vi.fn().mockResolvedValue({ update });
+    const windowEvents = new EventTarget();
+    vi.stubGlobal('window', Object.assign(windowEvents, { setInterval: vi.fn() }));
+    vi.stubGlobal('document', Object.assign(new EventTarget(), { readyState, hidden: false }));
+    vi.stubGlobal('navigator', { onLine: true, serviceWorker: { register, addEventListener: vi.fn() } });
+    try {
+      startReleaseUpdateDetection();
+      if (readyState === 'loading') {
+        expect(register).not.toHaveBeenCalled();
+        windowEvents.dispatchEvent(new Event('load'));
+        windowEvents.dispatchEvent(new Event('load'));
+      }
+      await Promise.resolve();
+      expect(register).toHaveBeenCalledExactlyOnceWith('/sw.js', { updateViaCache: 'none' });
+      expect(update).toHaveBeenCalledOnce();
+    } finally { vi.unstubAllGlobals(); }
+  });
+});
 
 function memoryStorage(initial: Record<string, string> = {}) {
   const values = new Map(Object.entries(initial));

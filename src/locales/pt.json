@@ -3185,5 +3185,12 @@
   "浏览器无法处理此视频。请在普通窗口重试，并检查设备可用空间。": "Tente em uma janela normal e confira o espaço livre.",
   "查看视频": "Ver vídeo",
   "查看更早的消息": "Ver mensagens anteriores",
-  "查看后面的消息": "Ver mensagens seguintes"
+  "查看后面的消息": "Ver mensagens seguintes",
+  "清空链接": "Limpar link",
+  "全选": "Selecionar tudo",
+  "取消全选": "Desmarcar tudo",
+  "等待处理": "Aguardando",
+  "粘贴链接，选择想分享的视频": "Cole um link para escolher vídeos",
+  "仅下载保存在本机，不会发送给对方。": "Apenas baixar salva neste dispositivo sem enviar à outra pessoa.",
+  "已选": "Selecionados"
 }
