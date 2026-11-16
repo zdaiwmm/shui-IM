@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -20,6 +20,46 @@ function fixture(directory: string, tags = [`quiet-room-app:${sha}`]) {
   writeFileSync(path.join(directory, 'image.json'), JSON.stringify(manifest));
   return manifest;
 }
+
+function exportFixture(directory: string, format: string, invalid = '') {
+  const config = JSON.stringify({ os: 'linux', architecture: invalid === 'platform' ? 'arm64' : 'amd64',
+    config: { Labels: { 'org.opencontainers.image.revision': invalid === 'revision' ? 'b'.repeat(40) : sha } } });
+  const digest = createHash('sha256').update(config).digest('hex');
+  const namedDigest = invalid === 'content-digest' ? '0'.repeat(64) : digest;
+  const file = format === 'oci' ? `blobs/sha256/${namedDigest}` : `${namedDigest}.json`;
+  mkdirSync(path.dirname(path.join(directory, file)), { recursive: true });
+  writeFileSync(path.join(directory, file), config);
+  writeFileSync(path.join(directory, 'manifest.json'), JSON.stringify([{ Config: invalid === 'unsafe-config' ? '../outside.json' : file,
+    RepoTags: [`quiet-room-app:${invalid === 'tag' ? 'b'.repeat(40) : sha}`], Layers: [] }]));
+  execFileSync('tar', ['-czf', path.join(directory, 'image.tar.gz'), '-C', directory, 'manifest.json', file]);
+  rmSync(path.join(directory, format === 'oci' ? 'blobs' : file), { recursive: true });
+  rmSync(path.join(directory, 'manifest.json'));
+  return `sha256:${digest}`;
+}
+
+describe('CI image manifest generation', () => {
+  const generate = (directory: string) => execFileSync(process.execPath, ['scripts/ci-image.mjs', 'manifest', directory], {
+    env: { ...process.env, GITHUB_SHA: sha, GITHUB_RUN_ID: '42', GITHUB_RUN_ATTEMPT: '2', IMAGE_PLATFORM: 'linux/amd64',
+      // Docker's containerd store can report a manifest digest instead of this archive's configuration digest.
+      IMAGE_ID: `sha256:${'f'.repeat(64)}` }, stdio: 'pipe',
+  });
+  it.each(['classic', 'oci'])('binds the saved %s archive configuration rather than an engine-reported manifest ID', format => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'quiet-image-export-'));
+    try {
+      const expected = exportFixture(directory, format);
+      generate(directory);
+      expect(validateImage(directory, sha, run, 'linux/amd64').imageId).toBe(expected);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+  it.each(['content-digest', 'revision', 'platform', 'tag', 'unsafe-config'])('rejects an invalid export before publishing metadata (%s)', invalid => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'quiet-image-export-invalid-'));
+    try {
+      exportFixture(directory, 'oci', invalid);
+      expect(() => generate(directory)).toThrow();
+      expect(existsSync(path.join(directory, 'image.json'))).toBe(false);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+});
 
 describe('CI image provenance and transfer', () => {
   it('accepts only the verified commit, attempt and platform, with a complete archive checksum', () => {

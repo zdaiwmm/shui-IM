@@ -20,6 +20,27 @@ export function artifactName(sha, attempt, platform) {
   return `quiet-room-image-${sha}-${attempt}-${platform.split('/')[1]}`;
 }
 
+function archiveConfigurationId(archive, sha, platform) {
+  const readEntry = name => {
+    const result = spawnSync('tar', ['-xOzf', archive, name], { timeout: 60000, maxBuffer: 1024 * 1024 });
+    if (result.error || result.status !== 0) throw new Error('Invalid Docker image archive');
+    return result.stdout;
+  };
+  const entries = JSON.parse(readEntry('manifest.json').toString('utf8'));
+  if (!Array.isArray(entries) || entries.length !== 1 ||
+      JSON.stringify(entries[0].RepoTags) !== JSON.stringify([`quiet-room-app:${sha}`])) {
+    throw new Error('Image archive contains unexpected tags or configuration');
+  }
+  const named = /^(?:([a-f0-9]{64})\.json|blobs\/sha256\/([a-f0-9]{64}))$/.exec(entries[0].Config);
+  if (!named) throw new Error('Invalid image configuration path');
+  const bytes = readEntry(entries[0].Config);
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  const config = JSON.parse(bytes.toString('utf8'));
+  if (digest !== (named[1] ?? named[2]) || config.os !== 'linux' || config.architecture !== platform.split('/')[1] ||
+      config.config?.Labels?.['org.opencontainers.image.revision'] !== sha) throw new Error('Image configuration identity mismatch');
+  return `sha256:${digest}`;
+}
+
 export function validateImage(directory, sha, run, platform) {
   if (readdirSync(directory).sort().join(',') !== 'image.json,image.tar.gz') throw new Error('Unexpected CI image files');
   for (const name of ['image.json', 'image.tar.gz']) {
@@ -71,9 +92,11 @@ if (isMainModule(import.meta.url)) {
   const attempt = Number(process.env.GITHUB_RUN_ATTEMPT);
   const platform = process.env.IMAGE_PLATFORM;
   artifactName(sha, attempt, platform);
-  const imageId = process.env.IMAGE_ID;
-  if (!/^sha256:[a-f0-9]{64}$/.test(imageId ?? '')) throw new Error('Invalid built image ID');
   const archive = path.join(directory, 'image.tar.gz');
+  // Engine/containerd versions can expose a manifest digest as .Id. The
+  // deployment protocol binds the configuration actually saved in this archive.
+  const imageId = archiveConfigurationId(archive, sha, platform);
   writeFileSync(path.join(directory, 'image.json'), JSON.stringify({ version: 1, sha, runId: Number(process.env.GITHUB_RUN_ID), attempt, platform, imageId,
     archiveSha256: hashFile(archive), archiveBytes: lstatSync(archive).size }) + '\n', { flag: 'wx' });
+  validateImage(directory, sha, { id: Number(process.env.GITHUB_RUN_ID), run_attempt: attempt }, platform);
 }
