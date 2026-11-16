@@ -228,7 +228,7 @@ try {
       await page.locator('#message-input').fill('draft');
       await page.evaluate(() => { window.f.gateDownload = false; window.f.resumeDownload(); });
       await page.locator('.link-video-resume').filter({ hasText: '已保存到我的下载' }).click();
-      await sheet.getByText('已保存到我的下载', { exact:true }).waitFor();
+      await sheet.getByRole('status').filter({ hasText: '已保存到我的下载' }).waitFor();
       assert.equal(await sheet.getByRole('button', { name:'发送至聊天', exact:true }).count(), 0);
       await click('我的下载');
       await sheet.locator('.link-video-tile').click();
@@ -310,7 +310,7 @@ try {
       });
       await click('重试');
     }
-    await sheet.getByText('已交给聊天发送').waitFor({ timeout: large ? 300000 : 18000 });
+    await sheet.getByRole('status').filter({ hasText: '已交给聊天发送' }).waitFor({ timeout: large ? 300000 : 18000 });
     const expectedSendCount = role === 'joiner' && !large ? 2 : 1;
     // sendSaved reports each accepted item before runSelected advances. Wait
     // for every selected send and its durable cleanup, rather than treating
@@ -383,7 +383,7 @@ try {
         window.f.recreate();window.f.app.openVideoDownloads(undefined,true);
       });
       await page.locator('.link-video-resume').filter({hasText:'已交给聊天发送'}).click();
-      await sheet.getByText('已交给聊天发送').waitFor();
+      await sheet.getByRole('status').filter({ hasText: '已交给聊天发送' }).waitFor();
       const deduplicated=await page.evaluate(async()=>({
         ids:(await window.f.vault.loadOutbox(window.f.session)).map(item=>item.clientMsgId),
         id:window.f.recoveredId,uploads:window.f.uploads.size,before:window.f.beforeUploads,
