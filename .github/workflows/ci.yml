@@ -243,7 +243,6 @@ jobs:
           image="quiet-room-app:$GITHUB_SHA"
           mkdir ci-image
           docker image save "$image" | gzip -1 > ci-image/image.tar.gz
-          export IMAGE_ID="$(docker image inspect "$image" --format '{{.Id}}')"
           node scripts/ci-image.mjs manifest ci-image
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
