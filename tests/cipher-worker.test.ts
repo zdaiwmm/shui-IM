@@ -30,7 +30,13 @@ async function worker(task: any, fetcher: (url:string,init:any)=>Promise<Respons
       waitUntil:(promise:Promise<unknown>)=>{wait=promise;}});
     await wait;
   }
-  return {tasks,parts,run};
+  function ready(origin='https://ai.shui.click/') {
+    const replies:unknown[]=[];
+    listeners.get('message')({data:{type:'quiet-room-cipher-transfer-ready'},source:{url:origin},
+      ports:[{postMessage:(value:unknown)=>replies.push(value)}],waitUntil:()=>{throw Error('Readiness must not start a task');}});
+    return replies;
+  }
+  return {tasks,parts,run,ready};
 }
 function task(direction='download') {
   const roomId=crypto.randomUUID(),deviceId=crypto.randomUUID(),blobId=crypto.randomUUID();
@@ -39,6 +45,14 @@ function task(direction='download') {
 }
 
 describe('isolated ciphertext worker',()=>{
+  it('answers same-origin readiness without reading or starting a transfer',async()=>{
+    const input=task();let requests=0;
+    const fixture=await worker(input,async()=>{requests++;throw Error('Readiness must not fetch');});
+    expect(fixture.ready()).toEqual([{version:1}]);
+    expect(fixture.ready('https://untrusted.invalid/')).toEqual([]);
+    expect(fixture.tasks.get(input.id)).toEqual(input);
+    expect(fixture.parts.size).toBe(0);expect(requests).toBe(0);
+  });
   it('downloads ciphertext using only a scoped grant and commits a complete task',async()=>{
     const input=task(),calls:any[]=[];
     const fixture=await worker(input,async(url,init)=>{calls.push({url,init});return new Response(new Uint8Array(20),{headers:{'Content-Length':'20'}});});

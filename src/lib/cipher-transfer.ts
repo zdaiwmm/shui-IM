@@ -108,6 +108,39 @@ export async function stageCipherPart(task:CipherTransfer,index:number,bytes:Arr
       tx.objectStore('parts').put({id:task.id+':'+index,taskId:task.id,index,bytes});done();};
   });
 }
+async function readyCipherWorker(signal:AbortSignal):Promise<ServiceWorker> {
+  signal.throwIfAborted();
+  const workers=navigator.serviceWorker;
+  if(!workers?.controller)throw Error('后台传输服务尚未就绪，请刷新后重试');
+  return new Promise<ServiceWorker>((resolve,reject)=>{
+    let settled=false,probed:ServiceWorker|null=null,port:MessagePort|undefined;
+    const cleanup=()=>{settled=true;clearTimeout(deadline);clearTimeout(updateTimer);port?.close();workers.removeEventListener('controllerchange',probe);signal.removeEventListener('abort',abort);};
+    const abort=()=>{cleanup();reject(signal.reason);};
+    const probe=()=>{
+      const controller=workers.controller;
+      if(settled||!controller||controller===probed)return;
+      probed=controller;port?.close();
+      const channel=new MessageChannel();port=channel.port1;
+      channel.port1.onmessage=event=>{
+        if(event.data?.version===1&&workers.controller===controller){cleanup();resolve(controller);}
+      };
+      // Readiness carries no task ID, source key or transfer capability. An old
+      // controller may ignore it while the new release installs and claims us.
+      try{controller.postMessage({type:'quiet-room-cipher-transfer-ready'},[channel.port2]);}
+      catch{/* A replacing controller is retried by controllerchange. */}
+    };
+    const deadline=setTimeout(()=>{cleanup();reject(Error('后台传输服务尚未更新，请刷新后重试'));},15000);
+    const updateTimer=setTimeout(()=>{
+      void workers.getRegistration().then(registration=>{
+        if(!settled&&!signal.aborted)return registration?.update();
+      }).catch(()=>{/* The bounded wait retains the original task for retry. */});
+    },250);
+    workers.addEventListener('controllerchange',probe);
+    signal.addEventListener('abort',abort,{once:true});
+    probe();
+  });
+}
+
 export async function runCipherTransfer(task:CipherTransfer,signal:AbortSignal,progress?:(ratio:number)=>void,source?:{url:string;key:CryptoKey;ivPrefix:Uint8Array<ArrayBuffer>},bytesProgress?:(bytes:number,total:number)=>void):Promise<void> {
   signal.throwIfAborted();
   await transact<void>('readwrite',(tx,done)=>{
@@ -119,8 +152,8 @@ export async function runCipherTransfer(task:CipherTransfer,signal:AbortSignal,p
   // general room credential crosses this boundary. Aborting this wait detaches
   // the locked UI; explicit cancellation is the separate durable operation.
   if((await readCipherTransfer(task.id))?.state==='done')return;
-  const controller=navigator.serviceWorker.controller;
-  if(!controller)throw Error('后台传输服务尚未就绪，请刷新后重试');
+  const controller=await readyCipherWorker(signal);
+  signal.throwIfAborted();
   await new Promise<void>((resolve,reject)=>{
     const channel=new MessageChannel();
     const cleanup=()=>{clearTimeout(timer);signal.removeEventListener('abort',abort);channel.port1.close();};

@@ -49,7 +49,7 @@ const MIME_TYPES = new Map([
   ['.woff2', 'font/woff2'],
 ]);
 
-function applySecurityHeaders(request, response, leadCollector = null, videoClient = false) {
+function applySecurityHeaders(request, response, leadCollector = null, videoClient = false, videoWorker = false) {
   const hostHeader = typeof request.headers.host === 'string' && /^[A-Za-z0-9.:[\]-]+$/.test(request.headers.host)
     ? request.headers.host
     : null;
@@ -66,7 +66,7 @@ function applySecurityHeaders(request, response, leadCollector = null, videoClie
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' blob: data:",
     "media-src 'self' blob:",
-    `connect-src 'self'${socketSources}${leadConnections}${videoClient ? ' https://api.fxtwitter.com https://video.twimg.com https://pbs.twimg.com' : ''}`,
+    `connect-src 'self'${socketSources}${leadConnections}${videoClient ? ' https://api.fxtwitter.com https://video.twimg.com https://pbs.twimg.com' : videoWorker ? ' https://video.twimg.com' : ''}`,
     "worker-src 'self'",
     "manifest-src 'self'",
   ].join('; '));
@@ -1623,7 +1623,7 @@ export async function startServer(options = {}) {
         target = path.join(staticDir, 'index.html');
       }
       const bytes = await readFile(target);
-      applySecurityHeaders(request, response, target === path.join(staticDir, 'index.html') ? publicPixel?.collector : null, target === path.join(staticDir, 'index.html'));
+      applySecurityHeaders(request, response, target === path.join(staticDir, 'index.html') ? publicPixel?.collector : null, target === path.join(staticDir, 'index.html'), target === path.join(staticDir, 'sw.js'));
       response.writeHead(200, {
         'Content-Type': MIME_TYPES.get(path.extname(target)) ?? 'application/octet-stream',
         'Cache-Control': ['index.html', 'sw.js', 'manifest.webmanifest'].includes(path.basename(target))
