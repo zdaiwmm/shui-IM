@@ -4,6 +4,21 @@
 
 跨设备操作见[GitHub 双站发布与独立回读](docs/requirements/2026-11-09-cross-device-release/README.md)。
 
+## 视频两站发布与 iPhone 验收接续（2026-11-16）
+<a id="release-video-transfer-20261116"></a>
+
+本轮用户精确确认 `52686c2399be01f98e22b543d0c688ea56330e1b`／`2026.11.16.2` 依次发布至 production 与 home-frp。主站[固定云端发布 43878496501](https://github.com/zdaiwmm/shui-IM/actions/runs/43878496501) 取得 DEPLOY_VERIFIED，批次 20261116T134447Z；北京时间 21:49:08 独立 READBACK_OK（3237ms），应用与备份 healthy、维护门解除，提交／镜像、HTTPS、数据库／存储、公开与容器产物及新 WebSocket 均通过。固定发布及自动接续独立回读合计 351299ms。线上新后台能力与合成不存在任务的源密钥交接在 Chromium／WebKit 均通过，没有真实视频请求或聊天写入。家庭站已在主站独立回读成功后更新本批精确镜像许可。首轮固定发布在镜像流式导入末段 SSH 断连，总耗时 5884945ms；只读核验仍为 a591e8fa、维护门 absent，原发布进程已退出，公网健康正常，没有切换业务。同一固定入口复用经认证的镜像缓存续跑，预检确认旧版后进入导入，仍因 SSH 断连停止（263379ms），没有进入维护阶段；两次均无 DEPLOY_VERIFIED。家庭仍待网络恢复后续发及独立回读，不能写成两站新版完成。 23:43:38 的维护通道只读核验确认家庭仍为 a591e8fa，应用和备份 healthy、维护门 absent、发布锁空闲。对旧 SHA 的追加固定回读在 server-state 阶段以 server-inspection 失败（6602ms），不把补充维护核验冒记为新的 READBACK_OK。
+
+此前用户精确确认 `a591e8fa163aa4b104614811c548d5586cf90920`／`2026.11.16.1` 依次发布至 production（ai.shui.click）和 home-frp（mijiu.cloud）。[完整 main CI 43825060064](https://github.com/zdaiwmm/shui-IM/actions/runs/43825060064/attempts/2) attempt 2 成功，两站采用同轮 amd64 产物 14206717631；首轮既有回应动画失败记录保留，整轮重试保证镜像与验证同轮。主站[固定云端发布 43830192262](https://github.com/zdaiwmm/shui-IM/actions/runs/43830192262) 取得 DEPLOY_VERIFIED，批次 20261116T082203Z，并于北京时间 16:26:30 独立 READBACK_OK（3509ms）。随后家庭站固定入口取得 DEPLOY_VERIFIED，批次 20261116T083233Z，于 16:41:29 独立 READBACK_OK（7488ms）。两站应用／备份健康、维护门解除，提交／镜像、HTTPS、数据库／存储、公开与容器产物及新 WebSocket 均通过；成功提交未重发。
+
+此前 297fce13 主站回读受 mac-pull 备份过期阻塞，按原已确认的 reserve 容量策略完成真实备份校验后，对同一提交续跑回读成功。主站 SSH 单一维护来源及家庭 FRP 专用单一 /32 来源分别按本次单独授权替换，其他规则核对不变。PR #528 修正后台升级等待与 Worker 来源策略；PR #529 修正 Docker 29 归档配置摘要导出，原产物消费门禁保留严格。东京旧应用保持停用。
+
+此前 a591e8fa 的基础设施回读成功未解决用户的链接视频验收：当时真实 iPhone Safari 能确认后台准备，但携带 CryptoKey 的源任务没有 ACK。[修复 PR #530](https://github.com/zdaiwmm/shui-IM/pull/530) 已合并为 `52686c2399be01f98e22b543d0c688ea56330e1b`／`2026.11.16.2`，与冻结源 555545c2 同树。修复源任务缓冲区交接并还原 V3；本地构建、分阶段单测覆盖及 97／97 浏览器脚本、[精确 PR full CI](https://github.com/zdaiwmm/shui-IM/actions/runs/43853651905) 首轮通过。本地原 check:full 的三个清理夹具 5 秒超时保留，其整组 26 项在独立 15 秒 CLI 预算下原样通过，不把原命令伪记成功。
+
+同一 iPhone16,1／iOS 27.3 的可信本机 HTTPS 合成验收两模式各两视频通过、原字节一致，发送仅交测试回调；不等于真实外部视频源、生产聊天发送、触摸或键盘验收。最终 UI 另有 20 组双引擎尺寸／实际明暗主题检查。[精确 main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/43859421322) attempt 1 完整通过，同轮 amd64 产物 14222653395 已下载并校验；主站[云端只读预检](https://github.com/zdaiwmm/shui-IM/actions/runs/43861676522) 取得 PREFLIGHT_OK，家庭站只读 doctor 通过。本次新提交与两目标已另获用户“确认”，主站已发布并独立回读，家庭站受镜像导入链路中断阻塞。发布后 USB iPhone 已断开，真实链接操作的用户反馈待回收，不将桌面线上握手检查写成新增真机验收。
+
+脱敏发布／回读、备份与网络恢复、真机、截图、原失败及续跑证据位于公共 Git 目录 `quiet-room-deliveries/evidence/video-release-20261116`。对账在第二个不含部署配置的工作树进行，明确保存主站完成与家庭受阻的不同状态；文档提交不替换线上应用。家庭尚无本批发布回执与独立 READBACK_OK，不能将清理门禁标记为通过，任务资源继续保留。
+
 ## 聊天顶栏 A 方案发布（2026-11-10）
 <a id="release-chat-notice-rail-20261110"></a>
 
