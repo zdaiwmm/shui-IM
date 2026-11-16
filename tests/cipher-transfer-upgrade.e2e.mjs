@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { chromium, webkit } from 'playwright';
+import { expect } from 'playwright/test';
 import { createServer } from 'vite';
 import { startServer } from '../server/index.mjs';
 
@@ -136,11 +137,11 @@ async function popupDownload(browser, origin, engine, share) {
     if (process.env.QUIET_ROOM_SCREENSHOT_DIR) await page.screenshot({path:path.join(process.env.QUIET_ROOM_SCREENSHOT_DIR,`link-video-${engine}-${share?'send':'download'}.png`)});
     await sheet.getByRole('button',{name:share?'下载并发送':'仅下载',exact:true}).click();
     await sheet.getByRole('status').filter({hasText:share?'已交给聊天发送':'已保存到我的下载'}).waitFor({timeout:20000});
-    await page.waitForFunction(async share=>{
+    await expect.poll(() => page.evaluate(async share=>{
       const f=window.popupFixture;
       return (await f.vault.listLinkVideos(f.session,f.signal)).length===2 &&
         (await f.vault.listPendingLinkDownloads(f.session,f.signal)).length===0 && f.sent.length===(share?2:0);
-    },share,{timeout:20000});
+    },share),{timeout:20000}).toBe(true);
     await sheet.locator('.link-video-batch-row').first().waitFor();
     const result=await page.evaluate(async()=>{
       const f=window.popupFixture,rows=await f.vault.listLinkVideos(f.session,f.signal);

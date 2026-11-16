@@ -65,7 +65,7 @@
   border-top: 1px solid var(--line);
 }
 #app .link-video-footer-note { flex-basis: 100%; margin: 0; font-size: 11px; line-height: 1.6; color: var(--ink-muted); }
-.link-video-panel footer > button {
+#app .link-video-panel footer > button {
   flex: 1;
   min-height: 46px;
   margin: 0;
@@ -74,6 +74,7 @@
   font-size: 14px;
   font-weight: 600;
 }
+#app .link-video-panel footer > .secondary-button { background: var(--surface-raised); border: 1px solid var(--line); color: var(--ink); }
 .link-video-text,
 .link-video-clear {
   background: transparent;

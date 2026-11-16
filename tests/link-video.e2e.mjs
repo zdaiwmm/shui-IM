@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { chromium, webkit } from 'playwright';
+import { expect } from 'playwright/test';
 import { createServer } from 'vite';
 
 const server = await createServer({
@@ -315,7 +316,7 @@ try {
     // sendSaved reports each accepted item before runSelected advances. Wait
     // for every selected send and its durable cleanup, rather than treating
     // the first item's status text as completion of the entire batch.
-    await page.waitForFunction(async (expected) => {
+    await expect.poll(() => page.evaluate(async (expected) => {
       const { vault, session, signal } = window.f;
       const [outbox, pendingSends, pendingDownloads] = await Promise.all([
         vault.loadOutbox(session),
@@ -323,7 +324,7 @@ try {
         vault.listPendingLinkDownloads(session, signal),
       ]);
       return outbox.length === expected && pendingSends.length === 0 && pendingDownloads.length === 0;
-    }, expectedSendCount, { timeout: large ? 300000 : 18000 });
+    }, expectedSendCount), { timeout: large ? 300000 : 18000 }).toBe(true);
     const sent = await page.evaluate(async () => {
       const { app, vault, session, signal, uploads, essence } = window.f;
       const rows = await vault.listLinkVideos(session, signal),
@@ -364,8 +365,8 @@ try {
       encrypted: true,
     });
     if (role === 'creator' && !large) {
-      await page.waitForFunction(async()=>
-        (await window.f.vault.listPendingLinkSends(window.f.session,window.f.signal)).length===0);
+      await expect.poll(() => page.evaluate(async()=>
+        (await window.f.vault.listPendingLinkSends(window.f.session,window.f.signal)).length===0)).toBe(true);
       const recovery = await page.evaluate(async()=>{
         const {vault,session,signal,requests}=window.f;
         return {pending:(await vault.listPendingLinkSends(session,signal)).length,
