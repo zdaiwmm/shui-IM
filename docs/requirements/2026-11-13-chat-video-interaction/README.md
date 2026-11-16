@@ -25,3 +25,5 @@
 
 
 本轮同时修正链接视频验收等待：项目实际 Playwright 1.62.1 的 waitForFunction 对异步谓词会将 Promise 直接判真，双引擎最小复现中 async () => false 在 14／15ms 即返回 false，未等待条件成立。将本链路改为官方支持异步回调的 expect.poll，保持原批量数量、待发／待下载清理、原字节和私有锁断言及原总超时；不修改无关专项。依据为安装包实现、独立最小复现及[同版本断言文档](https://github.com/microsoft/playwright/blob/v1.62.1/docs/src/test-assertions-js.md#expectpoll)。
+
+新增的选择、清空与本机隐私文案已同步 source.json 和十份语言目录；阿拉伯语方向及长文换行随弹窗样式验收，不改变用户内容。
