@@ -11,9 +11,10 @@
   display: flex;
   flex-direction: column;
   width: min(100%, 540px);
-  height: min(54dvh, 540px);
-  min-height: min(340px, 92dvh);
-  max-height: calc(100dvh - 16px);
+  height: min(570px, calc(100dvh - 44px));
+  min-height: 0;
+  max-height: calc(100dvh - 44px);
+  overflow: hidden;
   padding: 0;
   gap: 0;
   box-sizing: border-box;
@@ -192,7 +193,6 @@
 }
 .link-video-body > small, .link-video-grid small { color: var(--ink-muted); }
 .link-video-grid small { padding-inline-end: 42px; }
-.link-video-panel:has(.link-video-choice) { min-height: min(380px, 92dvh); }
 .link-video-field input { font-size: 16px; }
 .link-video-grid {
   display: grid;

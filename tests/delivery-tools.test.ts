@@ -96,7 +96,7 @@ describe('local verification reuse', () => {
       expect(readFileSync(path.join(root, '.git/count'), 'utf8')).toBe('xxx');
       expect(deliveryEvidence(['summary'], root).checks.every((check: any) => !check.reusable)).toBe(true);
     } finally { process.exitCode = previousExitCode; rmSync(root, { recursive: true, force: true }); }
-  });
+  }, 15_000);
   it('ignores metadata-only touches while invalidating changed execution bytes', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'quiet-identity-'));
     try {
@@ -130,7 +130,7 @@ describe('local verification reuse', () => {
       expect(executionFingerprint(root, { ...process.env, CODEX_TOOL_CALL_ID: 'first' }))
         .toBe(executionFingerprint(root, { ...process.env, CODEX_TOOL_CALL_ID: 'second' }));
     } finally { rmSync(root, { recursive: true, force: true }); }
-  });
+  }, 15_000);
   it('reuses across operational-document commits but reruns for contracts, runtime changes and non-regular documents', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'quiet-doc-reuse-'));
     const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();

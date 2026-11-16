@@ -146,6 +146,40 @@ async function popupDownload(browser, origin, engine, share) {
       return {sameRow:choices[0].top===choices[1].top,heading:getComputedStyle(sheet.querySelector('h2')).fontSize,inputRadius:getComputedStyle(sheet.querySelector('.link-video-field')).borderRadius,selected:[...sheet.querySelectorAll('.link-video-check')].map(el=>el.textContent)};
     });
     assert.deepEqual(layout,{sameRow:true,heading:'20px',inputRadius:'12px',selected:['1','2']});
+    if (!share) {
+      for (const [width,height] of [[320,568],[390,664],[390,844],[768,800],[1440,900]]) {
+        await page.setViewportSize({width,height});
+        for (const scheme of ['light','dark']) {
+          await page.emulateMedia({colorScheme:scheme});
+          const geometry=await sheet.evaluate(async(el,{scheme})=>{
+            const appearance=await import('/src/lib/appearance.ts');
+            localStorage.setItem(appearance.COLOR_SCHEME_KEY,scheme);appearance.applyAppearance();
+            const panel=el.querySelector('.link-video-panel'),body=el.querySelector('.link-video-body'),input=el.querySelector('input');
+            body.scrollTop=0;
+            await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+            await Promise.allSettled(document.getAnimations().filter(animation=>Number.isFinite(Number(animation.effect?.getComputedTiming().endTime))).map(animation=>animation.finished));
+            const bounds=node=>{const r=node.getBoundingClientRect();return {top:r.top,bottom:r.bottom,height:r.height};};
+            const initial={input:bounds(input),body:bounds(body)};
+            el.querySelector('.link-video-choice:last-child').scrollIntoView({block:'nearest'});
+            const last={choice:bounds(el.querySelector('.link-video-choice:last-child')),body:bounds(body)};
+            input.scrollIntoView({block:'nearest'});
+            return {panel:bounds(panel),initial,last,returned:{input:bounds(input),body:bounds(body)},scheme:document.documentElement.dataset.colorScheme,
+              horizontalOverflow:document.documentElement.scrollWidth>innerWidth,
+              buttons:[...el.querySelectorAll('footer button')].map(bounds)};
+          },{scheme});
+          assert.equal(geometry.scheme,scheme,'The fixture must apply the real product theme');
+          assert.ok(Math.abs(geometry.panel.height-Math.min(570,height-44))<2,'V3 panel height must replace the legacy 54dvh');
+          assert.equal(geometry.horizontalOverflow,false);
+          for (const state of [geometry.initial,geometry.returned]) {
+            assert.ok(state.input.height>=44&&state.input.top>=state.body.top-1&&state.input.bottom<=state.body.bottom+1,'The link input must be fully reachable, not clipped');
+          }
+          assert.ok(geometry.last.choice.top>=geometry.last.body.top-1&&geometry.last.choice.bottom<=geometry.last.body.bottom+1,'Short screens must scroll the complete video choice into view');
+          assert.ok(geometry.buttons.every(button=>button.height>=44&&button.top>=0&&button.bottom<=height),'Actions remain visible while the body scrolls');
+          if(process.env.QUIET_ROOM_SCREENSHOT_DIR)await page.screenshot({path:path.join(process.env.QUIET_ROOM_SCREENSHOT_DIR,`link-video-${engine}-${width}-${height}-${scheme}.png`)});
+        }
+      }
+      await page.setViewportSize({width:390,height:844});
+    }
     if (process.env.QUIET_ROOM_SCREENSHOT_DIR) await page.screenshot({path:path.join(process.env.QUIET_ROOM_SCREENSHOT_DIR,`link-video-${engine}-${share?'send':'download'}.png`)});
     if (share) await page.evaluate(()=>{window.popupFixture.failNext=true;});
     await sheet.getByRole('button',{name:share?'下载并发送':'仅下载',exact:true}).click();
