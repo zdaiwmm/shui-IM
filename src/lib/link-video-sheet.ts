@@ -175,7 +175,7 @@ export function openLinkVideoSheet(opts: Options) {
       currentRow.querySelector('small')!.textContent = text;
       const meter = currentRow.querySelector('progress')!;
       if (ratio !== undefined || next === 'done') meter.value = next === 'done' ? 1 : ratio!;
-      else if (next === 'failed') meter.value = 0;
+      else if (next === 'failed') { if (!meter.hasAttribute('value')) meter.value = 0; }
       else meter.removeAttribute('value');
       currentRow.dataset.phase = next;
     }
@@ -326,7 +326,11 @@ export function openLinkVideoSheet(opts: Options) {
     actions.append(button(uiLiteral('返回聊天'), dispose, 'primary-button'));
   }
   function saved(item: SavedLinkVideo, message: string, offerSend = false) {
-    if (batch && !offerSend) { report(message, 'done'); return; }
+    if (batch) {
+      body.replaceChildren(batch);
+      report(message, offerSend ? 'failed' : 'done');
+      return;
+    }
     reset(uiLiteral('我的下载'));
     head.append(button(uiLiteral('链接视频'), form, 'link-video-text'));
     const stateIcon = createElement(offerSend ? Film : Check);

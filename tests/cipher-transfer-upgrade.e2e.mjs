@@ -111,15 +111,16 @@ async function popupDownload(browser, origin, engine, share) {
         channel.port1.onmessage=()=>{clearTimeout(timer);channel.port1.close();resolve();};
         navigator.serviceWorker.controller.postMessage({type:'fixture-source',blob:source},[channel.port2]);
       });
-      const sent = [], sentNames = [];
+      const sent = [], sentNames = [], failedIds = [];
       const signal = new AbortController().signal;
-      (await import('/src/lib/link-video-sheet.ts')).openLinkVideoSheet({root:document.querySelector('#app'),session,signal,active:()=>true,largeVideoReady:()=>true,onDispose:()=>{},send:async(file,id)=>{
+      (await import('/src/lib/link-video-sheet.ts')).openLinkVideoSheet({root:document.querySelector('#app'),session,signal,active:()=>true,largeVideoReady:()=>true,onDispose:()=>{},send:async(file,id,_signal,progress)=>{
         if (file.size !== essence.size) throw Error('Sending changed the original media bytes');
         const actual=new Uint8Array(await file.arrayBuffer()),expected=new Uint8Array(await essence.arrayBuffer());
         if (!actual.every((byte,index)=>byte===expected[index])) throw Error('Sending changed media content');
+        if (window.popupFixture.failNext) { window.popupFixture.failNext=false; failedIds.push(id); progress(.4); return false; }
         sent.push(id);sentNames.push(file.name);return true;
       }});
-      window.popupFixture = {vault,session,signal,source,sent,sentNames};
+      window.popupFixture = {vault,session,signal,source,sent,sentNames,failedIds};
     });
     const sheet = page.locator('.link-video-sheet');
     await sheet.getByRole('textbox').fill('https://x.com/demo/status/123');
@@ -135,7 +136,15 @@ async function popupDownload(browser, origin, engine, share) {
     });
     assert.deepEqual(layout,{sameRow:true,heading:'20px',inputRadius:'12px',selected:['1','2']});
     if (process.env.QUIET_ROOM_SCREENSHOT_DIR) await page.screenshot({path:path.join(process.env.QUIET_ROOM_SCREENSHOT_DIR,`link-video-${engine}-${share?'send':'download'}.png`)});
+    if (share) await page.evaluate(()=>{window.popupFixture.failNext=true;});
     await sheet.getByRole('button',{name:share?'下载并发送':'仅下载',exact:true}).click();
+    if (share) {
+      await sheet.getByRole('button',{name:'重试',exact:true}).waitFor();
+      assert.equal(await sheet.locator('.link-video-batch-row').count(),2,'Failure keeps every item in the batch');
+      assert.equal(await sheet.locator('.link-video-batch-row').first().getAttribute('data-phase'),'failed');
+      assert.equal(await sheet.locator('.link-video-batch-row progress').first().evaluate(el=>el.value),.4,'A failure preserves acknowledged progress and stops indeterminate motion');
+      await sheet.getByRole('button',{name:'重试',exact:true}).click();
+    }
     await sheet.getByRole('status').filter({hasText:share?'已交给聊天发送':'已保存到我的下载'}).waitFor({timeout:20000});
     await expect.poll(() => page.evaluate(async share=>{
       const f=window.popupFixture;
@@ -150,9 +159,9 @@ async function popupDownload(browser, origin, engine, share) {
         const restored=new Uint8Array(await (await f.vault.readLinkVideo(f.session,row.id,f.signal)).arrayBuffer());
         if(restored.length!==original.length||!restored.every((byte,i)=>byte===original[i]))throw Error('The private download changed bytes');
       }
-      return {private:rows.every(row=>!row.shared),sent:f.sent.length,names:f.sentNames,rows:document.querySelectorAll('.link-video-batch-row').length};
+      return {private:rows.every(row=>!row.shared),sent:f.sent.length,names:f.sentNames,retriedOriginalId:f.failedIds.every(id=>f.sent.includes(id)),rows:document.querySelectorAll('.link-video-batch-row').length};
     });
-    assert.deepEqual(result,{private:true,sent:share?2:0,names:share?['X-123-1.mp4','X-123-2.mp4']:[],rows:2});
+    assert.deepEqual(result,{private:true,sent:share?2:0,names:share?['X-123-1.mp4','X-123-2.mp4']:[],retriedOriginalId:true,rows:2});
     assert.deepEqual(errors,[]);
     console.log(engine,share?'download and send':'download only','real worker popup passed');
   } finally {await page.close();}
