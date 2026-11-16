@@ -33,6 +33,11 @@ it.each([false, true])('isolates the deployment pixel settings (configured=%s)',
     for (const host of ['mijiu.cloud', 'ai.shui.click', 'admin.mijiu.cloud']) {
       const shell = await request(host, '/');
       const runtime = await request(host, '/api/site-runtime.js');
+      const worker = await request(host, '/sw.js');
+      if (!host.startsWith('admin.')) {
+        expect(worker.policy.split('; ')).toContain(`connect-src 'self' ws://${host} wss://${host} https://video.twimg.com`);
+      } else expect(worker.policy).not.toContain('video.twimg.com');
+      expect(worker.policy).not.toMatch(/api\.fxtwitter\.com|pbs\.twimg\.com|https:\/\/shui\.click/);
       expect(runtime.policy).not.toContain('video.twimg.com');
       if (configured && host === 'mijiu.cloud') {
         const collector = 'https://shui.click/collect/' + connection;

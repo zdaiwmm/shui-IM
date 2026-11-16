@@ -123,6 +123,10 @@
   }
   self.addEventListener('message',event=>{
     const {type,id}=event.data??{};
+    if(type==='quiet-room-cipher-transfer-ready'){
+      if(event.source?.url&&new URL(event.source.url).origin===self.location.origin)event.ports?.[0]?.postMessage({version:1});
+      return;
+    }
     if(typeof id!=='string'||id.length>180||!event.source?.url||new URL(event.source.url).origin!==self.location.origin)return;
     if(type==='quiet-room-cipher-transfer-cancel'){jobs.get(id)?.abort();return;}
     if(type!=='quiet-room-cipher-transfer')return;
