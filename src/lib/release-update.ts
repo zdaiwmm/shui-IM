@@ -115,34 +115,33 @@ export function startReleaseUpdateDetection(): void {
   workers?.addEventListener('message', event => acceptReleaseWorkerMessage(event.data));
   let registration: ServiceWorkerRegistration | null = null;
   let checking = false;
-  let registering = false;
-  const register = async () => {
-    if (!workers || registration || registering) return;
-    registering = true;
-    try { registration = await workers.register('/sw.js', { updateViaCache: 'none' }); }
+  let updatingWorker = false;
+  const updateWorker = async () => {
+    if (!workers || updatingWorker) return;
+    updatingWorker = true;
+    try {
+      registration ??= await workers.register('/sw.js', { updateViaCache: 'none' });
+      await registration.update();
+      registration.active?.postMessage({ type: 'quiet-room-release-query' });
+    }
     catch { /* Retry on the next foreground/online check. */ }
-    finally { registering = false; }
+    finally { updatingWorker = false; }
   };
   const check = async () => {
     if (checking || document.hidden || !navigator.onLine) return;
     checking = true;
+    // Worker maintenance can stay pending while a mobile browser is suspended.
+    // It must not hold the independent, bounded manifest check open.
+    void updateWorker();
     try {
       // A worker may activate while Safari has suspended this page, or before
       // its listener exists. The uncached manifest also works without workers.
-      await Promise.allSettled([
-        (async () => {
-          const response = await fetch('/release.json', { cache: 'no-store', signal: AbortSignal.timeout(10000) });
-          if (!response.ok || response.redirected) return;
-          const manifest = await response.json() as { id?: unknown };
-          acceptReleaseWorkerMessage({ type: 'quiet-room-release-ready', releaseId: manifest?.id });
-        })(),
-        (async () => {
-          await register();
-          await registration?.update();
-          registration?.active?.postMessage({ type: 'quiet-room-release-query' });
-        })(),
-      ]);
+      const response = await fetch('/release.json', { cache: 'no-store', signal: AbortSignal.timeout(10000) });
+      if (!response.ok || response.redirected) return;
+      const manifest = await response.json() as { id?: unknown };
+      acceptReleaseWorkerMessage({ type: 'quiet-room-release-ready', releaseId: manifest?.id });
     }
+    catch { /* A later foreground/online check retries. */ }
     finally { checking = false; }
   };
   // Language initialization can finish after load. An existing controller must

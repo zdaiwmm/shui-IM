@@ -10392,6 +10392,13 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       await this.enqueuePayload(payload, undefined, undefined, this.composerCheckpoint?.submission());
       if (!this.isRuntimeActive(epoch, session)) return;
       if (this.chatPinnedToBottom && this.chatScrollIntent !== 'up') this.trackChatViewport(!this.desktopBrowser);
+      // Commit reply removal before resizing the cleared editor. Otherwise a
+      // multiline shrink measures the reply's old height and jumps on its
+      // first frame when that separate row disappears.
+      if (shouldClearSentReply(replyTarget, this.replyTarget)) {
+        this.replyTarget = null;
+        this.renderReplyDraft();
+      }
       if (input?.isConnected && this.composerDraftVersion === draftVersion && input.value === originalDraft) {
         // The optimistic row is inserted before the draft is cleared. Own the
         // ensuing programmatic scroll/caret adjustment for single-line sends
@@ -10404,10 +10411,6 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         input.dispatchEvent(new Event('input'));
         this.flushUiPreferencesSave();
         if (retainKeyboard) this.restoreComposerFocus();
-      }
-      if (shouldClearSentReply(replyTarget, this.replyTarget)) {
-        this.replyTarget = null;
-        this.renderReplyDraft();
       }
     } catch (cause) {
       if (!this.isRuntimeActive(epoch, session)) return;

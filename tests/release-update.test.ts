@@ -63,9 +63,44 @@ describe('foreground version checks', () => {
     vi.stubGlobal('fetch', vi.fn(async () => Response.json({ id: currentRelease.id })));
     try {
       startReleaseUpdateDetection();
-      await vi.waitFor(() => { windowEvents.dispatchEvent(new Event('online')); expect(update).toHaveBeenCalledOnce(); });
+      await vi.waitFor(() => {
+        if (register.mock.calls.length < 2) windowEvents.dispatchEvent(new Event('online'));
+        expect(update).toHaveBeenCalledOnce();
+      });
       expect(register).toHaveBeenCalledTimes(2);
       expect(postMessage).toHaveBeenCalledWith({ type: 'quiet-room-release-query' });
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  for (const pending of ['register', 'update']) it(`keeps manifest checks alive while worker ${pending} stays pending`, async () => {
+    const never = new Promise<never>(() => {});
+    const update = vi.fn(() => pending === 'update' ? never : Promise.resolve());
+    const register = vi.fn(() => pending === 'register' ? never : Promise.resolve({ update }));
+    const windowEvents = Object.assign(new EventTarget(), { setInterval: vi.fn() });
+    const fetcher = vi.fn()
+      .mockRejectedValueOnce(Error('offline'))
+      .mockImplementation(async () => Response.json({ id: currentRelease.id }));
+    vi.stubGlobal('window', windowEvents);
+    vi.stubGlobal('document', Object.assign(new EventTarget(), { readyState: 'complete', hidden: false }));
+    vi.stubGlobal('navigator', { onLine: true, serviceWorker: { register, addEventListener: vi.fn() } });
+    vi.stubGlobal('fetch', fetcher);
+    try {
+      startReleaseUpdateDetection();
+      await vi.waitFor(() => expect(register).toHaveBeenCalledOnce());
+      for (const event of ['online', 'focus', 'pageshow']) {
+        const before = fetcher.mock.calls.length;
+        await vi.waitFor(() => {
+          windowEvents.dispatchEvent(new Event(event));
+          expect(fetcher.mock.calls.length).toBeGreaterThan(before);
+        });
+      }
+      const before = fetcher.mock.calls.length;
+      await vi.waitFor(() => {
+        windowEvents.setInterval.mock.calls[0]![0]();
+        expect(fetcher.mock.calls.length).toBeGreaterThan(before);
+      });
+      expect(register).toHaveBeenCalledOnce();
+      expect(update).toHaveBeenCalledTimes(pending === 'update' ? 1 : 0);
     } finally { vi.unstubAllGlobals(); }
   });
 });

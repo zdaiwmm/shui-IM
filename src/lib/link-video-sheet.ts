@@ -429,6 +429,7 @@ export function openLinkVideoSheet(opts: Options) {
   async function download(c: LinkClip, share: boolean, requestedId?: string) {
     phase = 'download';
     requestedId ??= crypto.randomUUID();
+    currentTaskId = requestedId;
     retry = () => download(c, share, requestedId);
     taskScreen(c.name, uiLiteral('正在直下本机'));
     const meter = el('progress');
