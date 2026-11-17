@@ -14,8 +14,11 @@ try {
   await server.listen();
   for (const engine of ['webkit', 'chromium']) {
     browser = engine === 'webkit' ? await webkit.launch() : await chromium.launch();
-    for (const desktop of [false, true]) {
-      const page = await browser.newPage({ locale: 'zh-CN', viewport: desktop ? { width: 1280, height: 800 } : { width: 393, height: 844 },
+    for (const layout of ['mobile', 'desktop', 'desktop-narrow', 'desktop-resized', 'desktop-short']) {
+      const desktop = layout !== 'mobile', narrow = layout.startsWith('desktop-');
+      const historyLength = layout === 'desktop-short' ? 1 : 180;
+      const page = await browser.newPage({ locale: 'zh-CN', viewport: narrow && layout !== 'desktop-resized' ? { width: 390, height: 800 }
+        : desktop ? { width: 1280, height: 800 } : { width: 393, height: 844 },
         isMobile: !desktop, hasTouch: !desktop });
       const errors = []; page.on('pageerror', error => errors.push(error.message));
       await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/__scroll_stability`);
@@ -24,7 +27,7 @@ try {
         const { QuietRoomApp } = await import('/src/app.ts');
         const vault = await import('/src/lib/vault.ts');
         const app = new QuietRoomApp(document.querySelector('#app'));
-        app.visualClientCoordinates = !desktop; app.usesListScrolling = true;
+        if (!desktop) { app.visualClientCoordinates = true; app.usesListScrolling = true; }
         const own = { deviceId: crypto.randomUUID(), role: 'creator', status: 'active', capabilities: ['media-dimensions-v1', 'file-message-v1', 'reply-v2'] };
         const peer = { ...own, deviceId: crypto.randomUUID(), role: 'joiner' };
         const session = await vault.createVault({ v: 1, roomId: crypto.randomUUID(), accessToken: 'scroll-fixture', role: 'creator',
@@ -110,25 +113,40 @@ try {
         }
       };
       await settle();
+      if (layout === 'desktop-resized') {
+        await page.setViewportSize({ width: 390, height: 800 });
+        await settle();
+      }
+      if (narrow) assert.deepEqual(await page.evaluate(() => {
+        const app = window.scrollFixture.app;
+        return [app.desktopBrowser, app.visualClientCoordinates, app.usesListScrolling, app.chatLayoutElements.shell.dataset.scrollOwner];
+      }), [true, false, false, 'document'], `${engine}/${layout}: expected native desktop document scrolling`);
 
       // Use the real textarea submission and full production cascade. Checking
       // enqueuePayload alone misses the second motion when a sent draft shrinks.
       if (desktop) {
         for (const trigger of ['enter', 'button']) {
           for (const [draft, reply] of [['short send', false], ['line one\nline two\nline three\nline four', false], ['reply send', true], ['reply line one\nreply line two\nreply line three\nreply line four', true]]) {
-            await page.evaluate(() => {
-              const app = window.scrollFixture.app;
+            await page.evaluate(historyLength => {
+              const f = window.scrollFixture, app = f.app;
+              if (historyLength === 1) {
+                app.messages = new Map([[1, f.message(1)]]); app.outbox.clear();
+              }
               let seq = Math.max(...app.messages.keys());
-              for (const message of app.pending.values()) app.messages.set(++seq, { ...message, seq, status: 'delivered' });
+              if (historyLength > 1) for (const message of app.pending.values()) app.messages.set(++seq, { ...message, seq, status: 'delivered' });
               app.pending.clear(); app.session.vault.lastSeq = seq;
               app.renderMessages({ scroll: 'bottom' });
-            });
+            }, historyLength);
             await page.locator('#message-input').focus();
             if (reply) await page.evaluate(() => {
-              const app = window.scrollFixture.app; app.replyTarget = app.messages.get(180); app.renderReplyDraft();
+              const app = window.scrollFixture.app; app.replyTarget = app.messages.values().next().value; app.renderReplyDraft();
             });
             await page.locator('#message-input').fill(draft);
             await settle();
+            assert.ok(await page.evaluate(() => window.scrollFixture.app.chatBottomGap() <= 2),
+              `${engine}/${layout}: input growth lost bottom following`);
+            if (draft.includes('\n')) assert.ok(await page.locator('#message-input').evaluate(input => input.getBoundingClientRect().height > 44),
+              `${engine}/${layout}: multiline input did not grow`);
             await page.evaluate(() => {
               const f = window.scrollFixture, app = f.app;
               const bubble = app.renderedMessageOrder.at(-1).querySelector('.message-bubble');
@@ -169,20 +187,22 @@ try {
               return { samples:f.sendTrace.samples, draft:document.querySelector('#message-input').value, reply:f.app.replyTarget !== null,
                 confirmed:[...f.app.messages.values()].some(message => message.clientMsgId === f.sendTrace.sentId) };
             });
-            assert.ok(trace.confirmed && !trace.draft && !trace.reply, `${engine}/${trigger}: desktop draft was not sent`);
+            const label = `${engine}/${layout}/${historyLength}/${trigger}/${reply ? 'reply' : 'plain'}/${draft.includes('\n') ? 'multiline' : 'short'}`;
+            assert.ok(trace.confirmed && !trace.draft && !trace.reply, `${label}: desktop draft was not sent`);
             const samples = trace.samples;
             const first=samples[0], last=samples.at(-1), direction=Math.sign(last.top-first.top);
             for (let i=1; i<samples.length; i++) {
               const sample=samples[i];
-              assert.ok(Math.abs(sample.left-first.left)<1 && Math.abs(sample.width-first.width)<1, `${engine}/${trigger}: desktop send shifted horizontally ${JSON.stringify(trace)}`);
-              assert.ok(sample.connected && sample.opacity===1, `${engine}/${trigger}: desktop send replaced or hid the timeline`);
-              assert.equal(sample.shellX, 0, `${engine}/${trigger}: desktop shell panned horizontally`);
-              assert.equal(sample.shellY, 0, `${engine}/${trigger}: desktop shell panned vertically`);
-              assert.ok(Math.abs(sample.headerLeft-first.headerLeft)<1 && Math.abs(sample.header-first.header)<1 && Math.abs(sample.bottom-first.bottom)<1, `${engine}/${trigger}: desktop send moved fixed chrome`);
+              if (historyLength === 1) assert.ok(Math.abs(sample.top-first.top)<=2, `${label}: short timeline moved away from the top`);
+              assert.ok(Math.abs(sample.left-first.left)<1 && Math.abs(sample.width-first.width)<1, `${label}: desktop send shifted horizontally ${JSON.stringify(trace)}`);
+              assert.ok(sample.connected && sample.opacity===1, `${label}: desktop send replaced or hid the timeline`);
+              assert.equal(sample.shellX, 0, `${label}: desktop shell panned horizontally`);
+              assert.equal(sample.shellY, 0, `${label}: desktop shell panned vertically`);
+              assert.ok(Math.abs(sample.headerLeft-first.headerLeft)<1 && Math.abs(sample.header-first.header)<1 && Math.abs(sample.bottom-first.bottom)<1, `${label}: desktop send moved fixed chrome`);
               assert.ok(sample.top>=Math.min(first.top,last.top)-2 && sample.top<=Math.max(first.top,last.top)+2,
-                `${engine}/${trigger}: desktop send overshot its final position ${JSON.stringify(trace)}`);
+                `${label}: desktop send overshot its final position ${JSON.stringify(trace)}`);
               assert.ok(!direction || direction*(sample.top-samples[i-1].top)>=-2,
-                `${engine}/${trigger}: desktop send reversed direction ${JSON.stringify(trace)}`);
+                `${label}: desktop send reversed direction ${JSON.stringify(trace)}`);
             }
           }
         }
@@ -192,6 +212,17 @@ try {
           app.pending.clear(); app.outbox.clear(); app.session.vault.lastSeq = 180;
           app.renderMessages({ scroll:'bottom' });
         });
+      }
+
+      if (narrow) {
+        await page.evaluate(() => { const f = window.scrollFixture; f.up(); f.watch = f.observe(); });
+        await page.locator('#message-input').fill('history line one\nhistory line two\nhistory line three\nhistory line four');
+        await stable(`${engine}/${layout}: input growth while reading history`);
+        await page.evaluate(() => { const f = window.scrollFixture; f.watch = f.observe(); });
+        await page.locator('#message-input').fill('');
+        await stable(`${engine}/${layout}: cleared draft while reading history`);
+        await page.evaluate(() => window.scrollFixture.app.scrollChatToBottom());
+        await settle();
       }
 
       // A durable send waits behind another vault operation. Newer user input
@@ -241,6 +272,13 @@ try {
         f.app.renderMessages({ scroll: 'preserve' });
       });
       await stable(`${engine}/${desktop}: scroll after local send then status update`);
+
+      if (narrow) {
+        assert.deepEqual(errors, []);
+        console.log(`${engine}/${layout} chat send, growth and scroll combinations passed`);
+        await page.close();
+        continue;
+      }
 
       // Metadata preparation is asynchronous too, before the upload placeholder
       // first appears. A gesture in that interval must also cancel positioning.
