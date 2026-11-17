@@ -101,6 +101,34 @@ describe('generic file encryption', () => {
     expect(restored.type).toBe(type || 'application/octet-stream');
   });
 
+  it('reconstructs a large WebKit video without a contiguous Response allocation and still verifies the whole file', async () => {
+    const block = new Uint8Array(IMAGE_CHUNK_SIZE).map((_, index) => index % 251);
+    const file = new File([...Array(64).fill(new Blob([block])), block.subarray(0, 31)], 'large.mp4', { type: 'video/mp4' });
+    const transport = memoryTransport();
+    const manifest = await encryptFileAttachment(file, transport.callbacks);
+    vi.stubGlobal('navigator', { vendor: 'Apple Computer, Inc.' });
+    // Model WebKit refusing the extra full-file buffer, rather than depending
+    // on the machine running the test to actually exhaust its memory.
+    vi.stubGlobal('Response', class { constructor() { throw new RangeError('Contiguous allocation unavailable'); } });
+    try {
+      const restored = await decryptFileAttachment(manifest, transport.fetch);
+      expect(restored.size).toBe(file.size);
+      expect(restored.type).toBe('video/mp4');
+      for (let offset = 0; offset < file.size; offset += IMAGE_CHUNK_SIZE) {
+        expect(Buffer.from(await restored.slice(offset, offset + IMAGE_CHUNK_SIZE).arrayBuffer())
+          .equals(block.subarray(0, Math.min(IMAGE_CHUNK_SIZE, file.size - offset)))).toBe(true);
+      }
+      await expect(decryptFileAttachment({ ...manifest, sha256: '0'.repeat(64) }, transport.fetch)).rejects.toThrow('附件完整性校验失败');
+      const controller = new AbortController();
+      await expect(decryptFileAttachment(manifest, async (id, index) => {
+        if (index === 2) controller.abort();
+        return transport.fetch(id, index);
+      }, undefined, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  }, 20_000);
+
   it('resumes only missing chunks with the same key, IV, blob ID, and file hash', async () => {
     const bytes = new Uint8Array(IMAGE_CHUNK_SIZE + 125).map((_, index) => index % 251);
     const file = localFile(bytes);

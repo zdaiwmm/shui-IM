@@ -246,8 +246,20 @@ async function decryptAttachmentFile(
     return new Blob(parts, { type });
   }
 
-  // A single backpressured stream lets the browser spool a large Blob. A list
-  // of independent small Blobs can exhaust Chromium's backing store at 2 GiB.
+  // WebKit collects Response.blob() into one contiguous buffer. Hand off each
+  // authenticated chunk to Blob storage instead, without retaining JS buffers
+  // or making a second full-size copy before playback.
+  if (typeof navigator !== 'undefined' && navigator.vendor?.includes('Apple')) {
+    const parts: Blob[] = [];
+    for (let index = 0; index < manifest.chunkCount; index++) {
+      parts.push(new Blob([await readVerifiedChunk(index)]));
+    }
+    signal?.throwIfAborted();
+    return readableVideoBlob(new Blob(parts, { type }), manifest.originalSize, signal);
+  }
+
+  // Chromium can spool this stream to disk. Keep its single-Blob path: many
+  // independent small Blobs can exhaust its backing store at 2 GiB.
   let next = 0;
   let sourceError: unknown;
   const body = new ReadableStream<Uint8Array<ArrayBuffer>>({
@@ -263,13 +275,23 @@ async function decryptAttachmentFile(
   });
   try {
     const blob = await new Response(body).blob();
-    signal?.throwIfAborted();
-    // Some private browsers report the expected size even for an unreadable Blob.
-    if (blob.size !== manifest.originalSize || (await blob.slice(-1).arrayBuffer()).byteLength !== 1) throw new VideoBufferUnavailable();
-    return blob.slice(0, blob.size, type);
+    return await readableVideoBlob(blob.slice(0, blob.size, type), manifest.originalSize, signal);
   } catch {
     signal?.throwIfAborted();
     if (sourceError) throw sourceError;
+    throw new VideoBufferUnavailable();
+  }
+}
+
+async function readableVideoBlob(blob: Blob, size: number, signal?: AbortSignal): Promise<Blob> {
+  try {
+    signal?.throwIfAborted();
+    // Some private browsers report the expected size even for an unreadable Blob.
+    if (blob.size !== size || (await blob.slice(-1).arrayBuffer()).byteLength !== 1) throw new VideoBufferUnavailable();
+    signal?.throwIfAborted();
+    return blob;
+  } catch {
+    signal?.throwIfAborted();
     throw new VideoBufferUnavailable();
   }
 }

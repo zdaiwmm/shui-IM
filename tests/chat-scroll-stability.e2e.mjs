@@ -114,44 +114,84 @@ try {
       // Use the real textarea submission and full production cascade. Checking
       // enqueuePayload alone misses the second motion when a sent draft shrinks.
       if (desktop) {
-        for (const [draft, reply] of [['short send', false], ['line one\nline two\nline three\nline four', false], ['reply send', true], ['reply line one\nreply line two\nreply line three\nreply line four', true]]) {
-          await page.evaluate(() => window.scrollFixture.app.scrollChatToBottom());
-          await page.locator('#message-input').focus();
-          if (reply) await page.evaluate(() => {
-            const app = window.scrollFixture.app; app.replyTarget = app.messages.get(180); app.renderReplyDraft();
-          });
-          await page.locator('#message-input').fill(draft);
-          await settle();
-          const trace = await page.evaluate(async () => {
-            const f = window.scrollFixture, app = f.app;
-            const bubble = app.renderedMessageOrder.at(-1).querySelector('.message-bubble');
-            const { header, composer } = app.chatLayoutElements;
-            const samples = []; let running = true;
-            const sample = () => {
-              samples.push({top:bubble.getBoundingClientRect().top, left:bubble.getBoundingClientRect().left, width:bubble.getBoundingClientRect().width, header:header.getBoundingClientRect().top,
-                bottom:composer.getBoundingClientRect().bottom, opacity:Number(getComputedStyle(composer).opacity), connected:bubble.isConnected});
-              if(running) requestAnimationFrame(sample);
-            };
-            sample();
-            const pending = app.pending.size;
-            await app.handleSendText(new Event('submit', { cancelable:true }));
-            await new Promise(resolve => setTimeout(resolve, 700)); running = false; sample();
-            return { samples, submitted: app.pending.size === pending + 1, draft: document.querySelector('#message-input').value, reply: app.replyTarget !== null };
-          });
-          assert.ok(trace.submitted && !trace.draft && !trace.reply, `${engine}: desktop draft was not sent`);
-          const samples = trace.samples;
-          const first=samples[0], last=samples.at(-1), direction=Math.sign(last.top-first.top);
-          for(let i=1;i<samples.length;i++) {
-            const sample=samples[i];
-            assert.ok(Math.abs(sample.left-first.left)<1 && Math.abs(sample.width-first.width)<1, `${engine}: desktop send shifted horizontally ${JSON.stringify(trace)}`);
-            assert.ok(sample.connected && sample.opacity===1, `${engine}: desktop send replaced or hid the timeline`);
-            assert.ok(Math.abs(sample.header-first.header)<1 && Math.abs(sample.bottom-first.bottom)<1, `${engine}: desktop send moved fixed chrome`);
-            assert.ok(sample.top>=Math.min(first.top,last.top)-2 && sample.top<=Math.max(first.top,last.top)+2,
-              `${engine}: desktop send overshot its final position ${JSON.stringify(trace)}`);
-            assert.ok(!direction || direction*(sample.top-samples[i-1].top)>=-2,
-              `${engine}: desktop send reversed direction ${JSON.stringify(trace)}`);
+        for (const trigger of ['enter', 'button']) {
+          for (const [draft, reply] of [['short send', false], ['line one\nline two\nline three\nline four', false], ['reply send', true], ['reply line one\nreply line two\nreply line three\nreply line four', true]]) {
+            await page.evaluate(() => {
+              const app = window.scrollFixture.app;
+              let seq = Math.max(...app.messages.keys());
+              for (const message of app.pending.values()) app.messages.set(++seq, { ...message, seq, status: 'delivered' });
+              app.pending.clear(); app.session.vault.lastSeq = seq;
+              app.renderMessages({ scroll: 'bottom' });
+            });
+            await page.locator('#message-input').focus();
+            if (reply) await page.evaluate(() => {
+              const app = window.scrollFixture.app; app.replyTarget = app.messages.get(180); app.renderReplyDraft();
+            });
+            await page.locator('#message-input').fill(draft);
+            await settle();
+            await page.evaluate(() => {
+              const f = window.scrollFixture, app = f.app;
+              const bubble = app.renderedMessageOrder.at(-1).querySelector('.message-bubble');
+              const { header, composer } = app.chatLayoutElements;
+              const samples = []; let running = true;
+              const sample = () => {
+                samples.push({ top:bubble.getBoundingClientRect().top, left:bubble.getBoundingClientRect().left, width:bubble.getBoundingClientRect().width, header:header.getBoundingClientRect().top,
+                  bottom:composer.getBoundingClientRect().bottom, opacity:Number(getComputedStyle(composer).opacity), connected:bubble.isConnected, shellX:app.chatLayoutElements.shell.scrollLeft, shellY:app.chatLayoutElements.shell.scrollTop, headerLeft:header.getBoundingClientRect().left });
+                if (running) requestAnimationFrame(sample);
+              };
+              const send = app.handleSendText.bind(app);
+              f.sendTrace = { samples, complete:false, stop() { running = false; sample(); app.handleSendText = send; } };
+              app.handleSendText = async event => {
+                await send(event);
+                f.sendTrace.complete = true;
+                const message = [...app.pending.values()].at(-1);
+                f.sendTrace.sentId = message?.clientMsgId;
+                // Model confirmation during the composer/send motion while
+                // preserving the logical row, as the receive path does.
+                setTimeout(() => {
+                  if (!message) return;
+                  app.pending.delete(message.clientMsgId);
+                  const seq = Math.max(...app.messages.keys()) + 1;
+                  app.messages.set(seq, { ...message, seq, status:'delivered', payload:structuredClone(message.payload) });
+                  app.session.vault.lastSeq = seq;
+                  app.renderMessages({ scroll:'preserve' });
+                }, 50);
+              };
+              sample();
+            });
+            if (trigger === 'enter') await page.locator('#message-input').press('Enter');
+            else await page.locator('#send-text').click();
+            await page.waitForFunction(() => window.scrollFixture.sendTrace.complete);
+            await settle();
+            const trace = await page.evaluate(async () => {
+              const f = window.scrollFixture;
+              await new Promise(resolve => setTimeout(resolve, 100)); f.sendTrace.stop();
+              return { samples:f.sendTrace.samples, draft:document.querySelector('#message-input').value, reply:f.app.replyTarget !== null,
+                confirmed:[...f.app.messages.values()].some(message => message.clientMsgId === f.sendTrace.sentId) };
+            });
+            assert.ok(trace.confirmed && !trace.draft && !trace.reply, `${engine}/${trigger}: desktop draft was not sent`);
+            const samples = trace.samples;
+            const first=samples[0], last=samples.at(-1), direction=Math.sign(last.top-first.top);
+            for (let i=1; i<samples.length; i++) {
+              const sample=samples[i];
+              assert.ok(Math.abs(sample.left-first.left)<1 && Math.abs(sample.width-first.width)<1, `${engine}/${trigger}: desktop send shifted horizontally ${JSON.stringify(trace)}`);
+              assert.ok(sample.connected && sample.opacity===1, `${engine}/${trigger}: desktop send replaced or hid the timeline`);
+              assert.equal(sample.shellX, 0, `${engine}/${trigger}: desktop shell panned horizontally`);
+              assert.equal(sample.shellY, 0, `${engine}/${trigger}: desktop shell panned vertically`);
+              assert.ok(Math.abs(sample.headerLeft-first.headerLeft)<1 && Math.abs(sample.header-first.header)<1 && Math.abs(sample.bottom-first.bottom)<1, `${engine}/${trigger}: desktop send moved fixed chrome`);
+              assert.ok(sample.top>=Math.min(first.top,last.top)-2 && sample.top<=Math.max(first.top,last.top)+2,
+                `${engine}/${trigger}: desktop send overshot its final position ${JSON.stringify(trace)}`);
+              assert.ok(!direction || direction*(sample.top-samples[i-1].top)>=-2,
+                `${engine}/${trigger}: desktop send reversed direction ${JSON.stringify(trace)}`);
+            }
           }
         }
+        await page.evaluate(() => {
+          const f = window.scrollFixture, app = f.app;
+          app.messages = new Map(Array.from({ length: 180 }, (_, i) => [i + 1, f.message(i + 1)]));
+          app.pending.clear(); app.outbox.clear(); app.session.vault.lastSeq = 180;
+          app.renderMessages({ scroll:'bottom' });
+        });
       }
 
       // A durable send waits behind another vault operation. Newer user input
