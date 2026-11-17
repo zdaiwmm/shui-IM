@@ -514,6 +514,7 @@ export type OutboxItem = {
 
 export type LegacyImageUploadPlan = {
   v: 1;
+  clientMsgId?: string;
   blobId: string;
   key: string;
   ivPrefix: string;

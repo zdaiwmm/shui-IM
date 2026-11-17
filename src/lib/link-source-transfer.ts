@@ -1,5 +1,5 @@
 import { fromBase64Url, toBase64Url } from './base64';
-import { createSourceCipherTransfer, readCipherTransfer, readCipherPart, runCipherTransfer, cancelCipherTransfer, discardCipherTransfer } from './cipher-transfer';
+import { cleanupCipherTransfers, createSourceCipherTransfer, readCipherTransfer, readCipherPart, runCipherTransfer, cancelCipherTransfer, discardCipherTransfer } from './cipher-transfer';
 import { listPendingLinkDownloads, savePendingLinkDownload, deletePendingLinkDownload, type PendingLinkDownload, type VaultSession } from './vault';
 import type { LinkClip } from './link-video';
 
@@ -13,9 +13,20 @@ export async function launchLinkSourceDownload(plan:PendingLinkDownload,signal:A
 }
 export async function prepareLinkSourceDownload(session:VaultSession,clip:LinkClip,id:string,share:boolean,signal:AbortSignal):Promise<PendingLinkDownload|undefined> {
   if(!navigator.serviceWorker?.controller)return;
+  await cleanupCipherTransfers();
+  signal.throwIfAborted();
   if(!sourceUrl(clip.url))throw Error('Invalid video source');
   const existing=(await listPendingLinkDownloads(session,signal)).find(row=>row.id===id);
-  if(existing)return existing;
+  if(existing){
+    const prior=await readCipherTransfer(existing.taskId);
+    if(prior&&!prior.expired){
+      if(prior.state==='cancelled')throw new DOMException('Download cancelled','AbortError');
+      return existing;
+    }
+    // Expired source bytes restart with a new task, key and nonce prefix.
+    await deletePendingLinkDownload(session,id);
+    await discardCipherTransfer(existing.taskId);
+  }
   const task=await createSourceCipherTransfer(session.vault.roomId,session.vault.identity.publicBundle.deviceId,id);
   const plan:PendingLinkDownload={kind:'link-source-v1',id,taskId:task.id,clip,share,created:Date.now(),
     key:toBase64Url(crypto.getRandomValues(new Uint8Array(32))),ivPrefix:toBase64Url(crypto.getRandomValues(new Uint8Array(8)))};

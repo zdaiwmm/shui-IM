@@ -8,6 +8,7 @@ import { compareOutboxItems } from './outbox-order';
 import { isWindowMessage, expiredMessage, retentionBoundary, validRetentionBoundary, MLS_WINDOW_MESSAGES } from './message-window';
 import { mergeHistoryProjection } from './history-projection';
 import { mediaCacheBudget, mediaCacheEvictions, MEDIA_CACHE_FILE_BYTES, type MediaCacheEntry } from './media-cache-policy';
+import { attachmentBlobIds, staleMediaActivity } from './media-retention';
 import { argon2id } from 'hash-wasm';
 import { derivePasswordCredential, isPasswordCredential, validPasswordKdf, wrapPasswordMaster, unwrapPasswordMaster, type LocalCredentialResult } from './password-protection';
 import { fromBase64Url, toBase64Url } from './base64';
@@ -783,6 +784,72 @@ export async function deleteCachedMediaBlob(session: VaultSession, blobId: strin
     tx.oncomplete = () => { database.close(); resolve(); };
     tx.onabort = () => { database.close(); reject(tx.error ?? staleVaultError()); };
     tx.onerror = () => reject(tx.error ?? new Error(uiLiteral('媒体密文缓存清理失败')));
+  });
+}
+
+/** Remove only disposable, unreferenced attachments in this authenticated local
+ * scope. Strict reads fail closed: damaged or unavailable history is not proof
+ * that a file is unused. The lifecycle lease excludes concurrent durable writes. */
+export async function cleanupUnusedMediaCache(session:VaultSession, options:{signal:AbortSignal;now?:number;immediateBlobIds?:ReadonlySet<string>;expiredTransferIds?:ReadonlySet<string>;liveTransferIds?:ReadonlySet<string>}):Promise<string[]> {
+  const {signal}=options,now=options.now??Date.now(),scope=localDataScope(session.vault);
+  return withVaultMutation(session,async()=>{
+    signal.throwIfAborted();
+    const rows=await transaction<MediaCacheEntry[]>('mediaCacheEntries','readonly',store=>store.index('roomId').getAll(IDBKeyRange.only(scope)),()=>session.stored);
+    // Other cache namespaces include recovery manifests, which are durable.
+    const candidates=rows.filter(row=>/^[0-9a-f-]{36}$/i.test(row.id.slice(scope.length+1))&&(staleMediaActivity(row.usedAt,now)||options.immediateBlobIds?.has(row.id.slice(scope.length+1))));
+    if(!candidates.length)return [];
+    const referenced=new Set<string>();
+    const keep=(payload:import('./types').MessagePayload)=>{
+      if(!isMessagePayload(payload))throw new Error('Invalid authenticated media reference');
+      attachmentBlobIds(payload).forEach(id=>referenced.add(id));
+    };
+    for(const store of ['history','galleryHistory','restoredGallery'] as const){
+      let afterSeq=0;
+      for(;;){
+        const records=await loadHistoryRecordsAfter(session,{limit:200,afterSeq,signal},store);
+        if(!records.length)break;
+        const messages=await decryptHistoryRecords(session,records,signal,{strict:true});
+        for(const message of messages)keep(message.payload);
+        afterSeq=records[records.length-1]!.seq;
+        if(records.length<200)break;
+      }
+    }
+    for(const item of await loadLocalRecords<OutboxItem>(session,'outbox',signal))keep(item.payload);
+    // A pre-encryption plan can be retried from the selected original; it is
+    // retained, along with its key/hash, even when its unused cached copy ages out.
+    for(const plan of await loadLocalRecords<ImageUploadPlan>(session,'uploads',signal)){
+      if(plan.v===2&&plan.transferIntent&&!options.expiredTransferIds?.has(plan.transferIntent.transferId)&&(!options.liveTransferIds||options.liveTransferIds.has(plan.transferIntent.transferId)))referenced.add(plan.blobId);
+    }
+    signal.throwIfAborted();
+    const removable=candidates.filter(row=>!referenced.has(row.id.slice(scope.length+1)));
+    if(!removable.length)return [];
+    const database=await openDatabase();
+    return new Promise<string[]>((resolve,reject)=>{
+      const tx=database.transaction(['vault','mediaCacheEntries','mediaChunks'],'readwrite'),removed:string[]=[];
+      const abort=()=>{try{tx.abort();}catch{/* Already complete. */}};
+      signal.addEventListener('abort',abort,{once:true});
+      const finish=()=>{signal.removeEventListener('abort',abort);database.close();};
+      const current=tx.objectStore('vault').get(vaultSpaceId(session.stored));
+      current.onsuccess=()=>{
+        if(signal.aborted||!sameStoredVault(current.result,session.stored)){tx.abort();return;}
+        for(const snapshot of removable){
+          const read=tx.objectStore('mediaCacheEntries').get(snapshot.id);
+          read.onsuccess=()=>{
+            // A cache write/read in another tab may have renewed this asset
+            // while authenticated references were being scanned.
+            if(!read.result||read.result.usedAt!==snapshot.usedAt||read.result.bytes!==snapshot.bytes)return;
+            tx.objectStore('mediaCacheEntries').delete(snapshot.id);
+            removed.push(snapshot.id.slice(scope.length+1));
+            const cursor=tx.objectStore('mediaChunks').index('blobKey').openKeyCursor(IDBKeyRange.only(snapshot.id));
+            cursor.onsuccess=()=>{if(cursor.result){tx.objectStore('mediaChunks').delete(cursor.result.primaryKey);cursor.result.continue();}};
+          };
+        }
+      };
+      if(signal.aborted)abort();
+      tx.oncomplete=()=>{finish();resolve(removed);};
+      tx.onabort=()=>{finish();reject(signal.reason??tx.error??staleVaultError());};
+      tx.onerror=()=>{};
+    });
   });
 }
 

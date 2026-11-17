@@ -22,7 +22,7 @@ async function worker(task: any, fetcher: (url:string,init:any)=>Promise<Respons
   const key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},false,['encrypt']);
   vm.runInNewContext(await readFile(new URL('../public/cipher-transfers.js',import.meta.url),'utf8'),{
     self:{location:{origin:'https://ai.shui.click'},addEventListener:(name:string,fn:any)=>listeners.set(name,fn)},
-    indexedDB,fetch:fetcher,URL,Response,ArrayBuffer,Uint8Array,DataView,TextEncoder,CryptoKey:key.constructor,crypto,AbortController,Date,Error,Map,Set,
+    indexedDB,fetch:fetcher,URL,Response,ArrayBuffer,Uint8Array,DataView,TextEncoder,CryptoKey:key.constructor,crypto,AbortController,Date,Error,Map,Set,setInterval,clearInterval,
   });
   async function run(source?:unknown,origin='https://ai.shui.click/') {
     let wait:Promise<unknown>|undefined;

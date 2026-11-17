@@ -82,6 +82,9 @@ import { prepareCipherTransfer, runCipherTransfer, findCipherTransfer, readCiphe
 import { VIDEO_PREVIEW_CAPABILITY, createVideoMessagePreview, videoMessagePoster, type VideoMessagePreview } from './lib/video-message-preview';
 import { createAnimatedDisplayCopy } from './lib/display-copy';
 import { MEDIA_CACHE_FILE_BYTES } from './lib/media-cache-policy';
+import { attachmentBlobIds, MEDIA_CLEANUP_INTERVAL_MS } from './lib/media-retention';
+import { cleanupCipherTransfers } from './lib/cipher-transfer';
+import { cleanupUnusedMediaCache } from './lib/vault';
 import { hasCompleteMediaChunks, loadMediaPlayback, loadMediaPreview, saveMediaPreview } from './lib/vault';
 import './browser-access.css';
 import { openPasskeyManagement } from './lib/passkey-management';
@@ -574,6 +577,7 @@ export class QuietRoomApp {
   private livePresenceMessages = new WeakSet<ServerMessage>();
   private receiptQueue = new Map<number, ServerReceipt>();
   private uploadPlans: ImageUploadPlan[] = [];
+  private mediaCleanup?: Promise<void>;
   private imageCache = new Map<string, CachedImage>();
   private memeCache = createMemePickerCache();
   private memePicker: MemePicker | null = null;
@@ -921,6 +925,8 @@ export class QuietRoomApp {
       });
     };
     window.setInterval(refreshUnread, 5_000);
+    void this.cleanupLocalMedia().catch(() => undefined);
+    window.setInterval(() => { if (!document.hidden) void this.cleanupLocalMedia().catch(() => undefined); }, MEDIA_CLEANUP_INTERVAL_MS);
     window.addEventListener('online', refreshUnread);
     window.addEventListener('hashchange', () => {
       if (/^#(?:j|invite|device|repair|recover)(?:=|&|$)/.test(location.hash)) { void this.routeInvitation(); return; }
@@ -1367,6 +1373,7 @@ export class QuietRoomApp {
       } else {
         if (this.expireDeviceVerification() || this.expireIdleSession()) return;
         this.revealReturningForeground(); refreshUnread();
+        void this.cleanupLocalMedia().catch(() => undefined);
         if (!this.privacyCovered && this.session) { this.socket?.setChatPresence(this.activeSurface === 'chat'); this.scheduleIdleLock(); }
         if (this.privacyCovered && localStorage.getItem('quiet-room:cover-enabled') === '0') {
           void this.renderGateway({ trustedCoverActivation: true, autoUnlock: false });
@@ -2540,6 +2547,10 @@ export class QuietRoomApp {
         if (!this.isRuntimeActive(epoch, session)) return;
       }
       const cleared = new Set(plans.map(plan => plan.blobId));
+      for (const task of await listCipherTransfers(session.vault.roomId,session.vault.identity.publicBundle.deviceId)) {
+        if (task.direction==='upload' && cleared.has(task.blobId)) await cancelCipherTransfer(task.id);
+      }
+      await this.cleanupLocalMedia(cleared).catch(() => undefined);
       this.uploadPlans = this.uploadPlans.filter(plan => !cleared.has(plan.blobId));
       this.renderChat();
       this.showNotice(uiLiteral('已清除待续传记录'));
@@ -5159,7 +5170,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     void this.connectSocket().catch(cause => { if (runtime.isCurrent()) {this.captureFault('chat.identity',cause);this.operationalError(cause, uiLiteral('安全通话身份准备失败，请重新解锁'));} });
     if (activeRoles.size === 2) { void this.resumeDeferredImage(); this.showPairingWelcome(); }
     this.startAutomaticBackup();
-    void this.resumeStagedVideoUploads().then(()=>this.resumeAuthorizedVideoDownloads()).then(async()=>[
+    void this.cleanupLocalMedia().then(()=>this.resumeStagedVideoUploads()).then(()=>this.resumeAuthorizedVideoDownloads()).then(async()=>[
       ...await listPendingLinkDownloads(session,runtime.signal),...await listPendingLinkSends(session,runtime.signal),
     ]).then(pending=>{
       if(pending.length&&runtime.isCurrent())this.openVideoDownloads(undefined,true);
@@ -11311,7 +11322,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
               await this.retryOperation(()=>reserveBlob(vault.roomId,vault.accessToken,blobId,chunkCount,encryptedSize,signal),3,signal);
               if (destination==='chat' && isSelectedVideo(file) && signal) stagedUpload=await prepareCipherTransfer({
                 roomId:vault.roomId,deviceId:vault.identity.publicBundle.deviceId,accessToken:vault.accessToken,
-                manifest:{blobId,chunkCount,originalSize:file.size,chunkSize:2*1024**2},direction:'upload',signal });
+                manifest:{blobId,chunkCount,originalSize:file.size,chunkSize:2*1024**2},direction:'upload',signal,clientMsgId });
               if (stagedUpload) stagedUploadIds.add(stagedUpload.id);
             },
             status: (blobId) => this.retryOperation(
@@ -11341,6 +11352,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
               const at=this.uploadPlans.findIndex(row=>row.blobId===plan.blobId);if(at>=0)this.uploadPlans[at]=next;
             },
             savePlan: async (plan) => {
+              plan = {...plan, clientMsgId};
               await saveUploadPlan(session, plan);
               if (!this.isRuntimeActive(epoch, session)) return;
               const planIndex = this.uploadPlans.findIndex((item) => item.blobId === plan.blobId);
@@ -12087,6 +12099,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       });
       if(this.isRuntimeActive(epoch,session)){
         if(this.replyTarget?.clientMsgId===id)this.replyTarget=null;
+        await this.cleanupLocalMedia(new Set(attachmentBlobIds(message.payload))).catch(() => undefined);
+        if(!this.isRuntimeActive(epoch,session))return;
         this.renderMessages({scroll:'preserve'});this.renderReplyDraft();this.showNotice(uiLiteral('已删除，不再发送'));
         void this.resumeOutbox();
       }
@@ -16829,6 +16843,33 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     });
   }
 
+  private async cleanupLocalMedia(immediateBlobIds?:ReadonlySet<string>):Promise<void> {
+    if(this.mediaCleanup){
+      await this.mediaCleanup;
+      if(immediateBlobIds?.size)return this.cleanupLocalMedia(immediateBlobIds);
+      return;
+    }
+    const work=(async()=>{
+      await cleanupCipherTransfers();
+      const session=this.session,signal=this.runtimeAbort?.signal,epoch=this.runtimeEpoch;
+      if(!session||!signal||signal.aborted||this.privacyCovered)return;
+      const tasks=await listCipherTransfers(session.vault.roomId,session.vault.identity.publicBundle.deviceId);
+      const expiredTransferIds=new Set(tasks.filter(task=>task.expired).map(task=>task.id));
+      const liveTransferIds=new Set(tasks.filter(task=>task.state!=='cancelled').map(task=>task.id));
+      const removed=await cleanupUnusedMediaCache(session,{signal,immediateBlobIds,expiredTransferIds,liveTransferIds});
+      if(!this.isRuntimeActive(epoch,session))return;
+      for(const id of removed){
+        const cached=this.imageCache.get(id);if(!cached)continue;
+        URL.revokeObjectURL(cached.url);
+        if(cached.posterUrl)URL.revokeObjectURL(cached.posterUrl);
+        if(cached.concealedUrl)URL.revokeObjectURL(cached.concealedUrl);
+        this.imageCacheBytes-=cached.bytes;this.imageCache.delete(id);
+      }
+    })();
+    this.mediaCleanup=work;
+    try{await work;}finally{if(this.mediaCleanup===work)this.mediaCleanup=undefined;}
+  }
+
   private async cancelStagedVideoUpload(clientMsgId:string): Promise<void> {
     const session=this.session,epoch=this.runtimeEpoch;
     if(!session)return;
@@ -16840,12 +16881,21 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const preferences=await loadUiPreferences(session);
     if(this.session===session&&this.runtimeEpoch===epoch)this.uiPreferences.hiddenChatMessageIds=preferences.hiddenChatMessageIds;
     const plans=await loadUploadPlans(session);
+    const blobIds=new Set<string>();
+    const tasks=await listCipherTransfers(session.vault.roomId,session.vault.identity.publicBundle.deviceId);
+    for(const task of tasks){
+      if(task.direction!=='upload'||task.clientMsgId!==clientMsgId)continue;
+      await cancelCipherTransfer(task.id);blobIds.add(task.blobId);
+    }
     for(const plan of plans){
-      if(plan.v!==2||plan.transferIntent?.clientMsgId!==clientMsgId)continue;
-      await cancelCipherTransfer(plan.transferIntent.transferId);
+      if(plan.clientMsgId!==clientMsgId&&!(plan.v===2&&plan.transferIntent?.clientMsgId===clientMsgId)&&!blobIds.has(plan.blobId))continue;
+      blobIds.add(plan.blobId);
+      if(plan.v===2&&plan.transferIntent)await cancelCipherTransfer(plan.transferIntent.transferId);
       await deleteUploadPlan(session,plan.blobId);
       if(this.session===session&&this.runtimeEpoch===epoch)this.uploadPlans=this.uploadPlans.filter(row=>row.blobId!==plan.blobId);
     }
+    for(const manifest of this.mediaUploads.get(clientMsgId)?.prepared?.manifests??[])blobIds.add(manifest.blobId);
+    await this.cleanupLocalMedia(blobIds).catch(() => undefined);
   }
 
   private async resumeStagedVideoUploads(): Promise<void> {
@@ -16856,7 +16906,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       const intent=plan.transferIntent;
       signal.throwIfAborted();
       const task=await readCipherTransfer(intent.transferId);
-      if(!task||task.state==='cancelled')continue;
+      if(!task||task.expired){this.showNotice(uiLiteral('传输临时文件已超过24小时，请重新选择文件上传或重新下载。'));continue;}
+      if(task.state==='cancelled')continue;
       if(task.roomId!==session.vault.roomId||task.deviceId!==session.vault.identity.publicBundle.deviceId||task.blobId!==plan.blobId||task.direction!=='upload')throw new SecurityViolation('Transfer scope mismatch');
       if(task.state!=='done'){
         const renewed=await prepareCipherTransfer({roomId:task.roomId,deviceId:task.deviceId,accessToken:session.vault.accessToken,
