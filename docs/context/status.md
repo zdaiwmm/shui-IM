@@ -1,14 +1,16 @@
 # Quiet Room 当前状态
 
-## 待发布：重发视频空间与失败标签修复（2026-11-17）
+## 当前生产：重发视频空间与失败标签修复已回读（2026-11-18）
 
 [PR #542](https://github.com/zdaiwmm/shui-IM/pull/542) 已合并为 `e8d4136215ec92aa155e0cfd697d1b22716cfd56`／`2026.11.17.5`。故障诊断为上传空间预留被配额拒绝；已确认的本机视频重发可在认证历史、原件全文件摘要及当前授权完成状态一致时复用原附件，经正常 MLS／outbox 发送新消息，已有配额失败保留当前 ID 恢复。失败状态标签文字偏移归零。没有提高配额、删除服务端附件或新增持久化格式。
 
-源 `20e5c800` 的本地构建、1,359 项单测、99／99 浏览器入口与 PR full CI attempt 2 通过，独立 WebKit 配额重发及四配置真实失败 UI 通过；[精确 main full CI](https://github.com/zdaiwmm/shui-IM/actions/runs/44113680099) attempt 1 全部通过。本轮未发布，也未获得本批精确生产授权；上次已回读的生产版本仍记在下方。原生 Safari／物理 iPhone 与用户原视频播放崩溃仍未验证。[需求与失败记录](../requirements/2026-11-17-video-update-regressions/README.md#重发空间故障与失败标签接续2026-11-17)
+源 `20e5c800` 的本地构建、1,359 项单测、99／99 浏览器入口与 PR full CI attempt 2 通过，独立 WebKit 配额重发及四配置真实失败 UI 通过；[精确 main full CI](https://github.com/zdaiwmm/shui-IM/actions/runs/44113680099) attempt 1 全部通过。用户精确确认后，云预检通过，两次云发布均在 GitHub CLI 步骤停止且未提交部署命令；随后仓库支持的本机固定入口执行一次服务器切换，取得 DEPLOY_VERIFIED。北京时间 **01:20:00** 独立 READBACK_OK，公开版本为 200／no-cache、`2026.11.17.5`；应用／备份 healthy、TURN running／探针 none、维护门 absent，镜像、HTTPS／存储、公开／容器资源及新 WebSocket 均通过。[本批发布与失败边界](../../RELEASING.md#release-video-resend-quota-20261118)拥有详细证据。
 
-## 当前生产：主站 2026.11.17.4 已切换并独立回读（2026-11-17）
+原生 Safari／物理 iPhone 与用户原视频播放崩溃仍未验证，家庭站本轮未操作。文档 main 后续前进不改变线上应用 SHA，不触发再次发布。[需求与失败记录](../requirements/2026-11-17-video-update-regressions/README.md#重发空间故障与失败标签接续2026-11-17)
 
-production／ai.shui.click 当前为用户精确确认的 `f51ff05b5f3e1998287bc391a0959a431b66c3af`／`2026.11.17.4`，来自 [PR #540](https://github.com/zdaiwmm/shui-IM/pull/540)。修复窄桌面多行发送回弹，支持将已发送的本机视频再次发送为新消息；重试保留当前 ID，私有锁历史事实不倒退。本地 1,359 项单测、98／98 浏览器及[精确 main full CI attempt 2](https://github.com/zdaiwmm/shui-IM/actions/runs/44083438208/attempts/2)通过。
+## 此前生产：主站 2026.11.17.4 已切换并独立回读（2026-11-17）
+
+production／ai.shui.click 上一批为用户精确确认的 `f51ff05b5f3e1998287bc391a0959a431b66c3af`／`2026.11.17.4`，来自 [PR #540](https://github.com/zdaiwmm/shui-IM/pull/540)。修复窄桌面多行发送回弹，支持将已发送的本机视频再次发送为新消息；重试保留当前 ID，私有锁历史事实不倒退。本地 1,359 项单测、98／98 浏览器及[精确 main full CI attempt 2](https://github.com/zdaiwmm/shui-IM/actions/runs/44083438208/attempts/2)通过。
 
 只读云预检通过。正式运行在部署命令提交后因云 API 结果查询失败而结束，外层没有 DEPLOY_VERIFIED；服务器继续完成切换，没有第二次部署。北京时间 **21:32:18** 同 SHA 独立 READBACK_OK：应用／备份 healthy、TURN running／探针 none、维护门 absent，镜像、HTTPS／存储、公开／容器资源及新 WebSocket 均匹配。公开版本文件为 200／no-cache、ID `2026.11.17.4`。[本批发布、回执缺口及回读证据](../../RELEASING.md#release-narrow-safari-resend-20261117)
 

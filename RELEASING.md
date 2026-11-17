@@ -4,6 +4,19 @@
 
 跨设备操作见[GitHub 双站发布与独立回读](docs/requirements/2026-11-09-cross-device-release/README.md)。
 
+## 视频重发空间与失败标签：主站已发布并独立回读（2026-11-18）
+<a id="release-video-resend-quota-20261118"></a>
+
+用户在本聊天确认完整应用 `e8d4136215ec92aa155e0cfd697d1b22716cfd56`／`2026.11.17.5` 发布至 production／ai.shui.click，包含本次 GitHub production 环境审核。本批从 `f51ff05b5f3e1998287bc391a0959a431b66c3af` 升级，纳入 [PR #542](https://github.com/zdaiwmm/shui-IM/pull/542) 的已确认视频原附件复用、配额失败重试恢复与失败标签居中；家庭站不在范围。原生 Safari／物理 iPhone 及用户原视频播放崩溃仍未验收。
+
+风险 full，源 `20e5c8002ec3fa0fb684ca7100889a64e54fe461` 与应用 main 同树，本地构建、1,359 项单测及 99／99 浏览器入口通过；[精确 main CI 44113680099](https://github.com/zdaiwmm/shui-IM/actions/runs/44113680099) attempt 1 全部成功。PR 首轮既有回应 FLIP 断言失败、同提交第二轮成功的记录保留。无新增依赖、数据库迁移、Compose 或 helper 变更，没有提高配额或清理服务端附件。
+
+[云端只读预检 44131613842](https://github.com/zdaiwmm/shui-IM/actions/runs/44131613842) 取得 PREFLIGHT_OK。随后 [44131968590](https://github.com/zdaiwmm/shui-IM/actions/runs/44131968590) 与一次有界重试 [44132856299](https://github.com/zdaiwmm/shui-IM/actions/runs/44132856299) 均在 GitHub CLI 步骤退出；两份回执只有成功的只读 preflight 调用，未提交 deploy 命令。旧版独立回读通过后，改用仓库支持的 `node scripts/publish.mjs --environment production --sha <同一完整SHA>`。该固定入口完成精确 CI、隔离克隆和镜像校验，仅执行一次服务器部署，取得 DEPLOY_VERIFIED。
+
+北京时间 **2026-11-18 01:20:00** 同 SHA 独立 READBACK_OK（3100ms）。批次 `20261117T171334Z`，应用与备份 running／healthy，TURN running／探针 none，维护门 absent；SHA、镜像、HTTPS／数据库／存储、公开与容器资源及新 WebSocket 均通过。公开 `/release.json` 另核对为 HTTP 200／no-cache、ID `2026.11.17.5`。
+
+采用同轮 linux/amd64 产物 `14341124422`，镜像 `sha256:70ff548483f550cb16e781176818500c826c82fa0fe424a565ea84031faa3fe8`，归档 195130359 字节、SHA-256 `6103f3bc821d3705eee9be3805ef545d9b4c5273bf7fb4fc700d6c948c0cbba6`。本机固定入口总耗时 659271ms，镜像获取校验 246780ms，服务器冷备份 211000ms；没有跳过备份或缩减门禁。脱敏候选、两份切换前失败回执、镜像、精确成功回执与独立回读保存在公共 Git 目录 `quiet-room-deliveries/evidence/verified-video-resend-production-20261118/`。文档对账在第二独立工作树完成，不触发再次发布。
+
 ## 窄窗发送与视频重发：主站已切换并独立回读（2026-11-17）
 <a id="release-narrow-safari-resend-20261117"></a>
 

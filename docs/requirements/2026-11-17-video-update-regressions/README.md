@@ -1,6 +1,6 @@
 # 视频发送、占位与版本更新回归
 
-状态：PR #532、#535、#540、#542 已合并；#542 的重发空间与失败标签修复为 e8d4136215ec92aa155e0cfd697d1b22716cfd56／2026.11.17.5，尚未发布。主站上一批为 f51ff05b5f3e1998287bc391a0959a431b66c3af／2026.11.17.4，并通过独立回读。上一批云端结果查询失败，外层发布回执未恢复，服务器实际切换与独立回读已核实，不能为补回执重发。长视频原生 Safari 崩溃仍未确认修复。此前发布及家庭站切换前阻塞保留在下文；本轮未操作家庭站。
+状态：PR #532、#535、#540、#542 已合并；主站当前为 #542 的 e8d4136215ec92aa155e0cfd697d1b22716cfd56／2026.11.17.5，已取得精确 DEPLOY_VERIFIED 与北京时间 2026-11-18 01:20:00 独立 READBACK_OK。此前版本的云端回执缺口与家庭站切换前阻塞保留在下文，不为补回执重发旧提交。长视频原生 Safari 崩溃仍未确认修复；本轮未操作家庭站。
 
 基线及规则来源：GitHub main 与本机 origin/main 均为 `92b977d7af7776f6af24f4fce465b03acf0dec1f`，读取该版 AGENTS.md、docs/context/workflow.md 和发布效率规程。独占克隆 `chat-video-update-fixes-20261117`，分支 `codex/chat-video-update-fixes-20261117`；Git 元数据在任务目录自身，不写其他任务。
 
@@ -78,4 +78,6 @@
 
 [PR #542](https://github.com/zdaiwmm/shui-IM/pull/542) 源 `20e5c8002ec3fa0fb684ca7100889a64e54fe461` 合并为同树应用 `e8d4136215ec92aa155e0cfd697d1b22716cfd56`／`2026.11.17.5`。冻结本地 `delivery:evidence ensure check:full` 构建、1,359 项单测与 99／99 浏览器入口全部通过，执行耗时 2163962ms；独立 WebKit 实际配额重发用例通过。本地首轮因新入口登记后清单仍为旧计数而失败，补齐枚举及计数后原执行检查全部通过。[PR full CI 44106694478](https://github.com/zdaiwmm/shui-IM/actions/runs/44106694478/attempts/2) attempt 2 全部通过；attempt 1 的既有回应 FLIP 动画断言失败保留，相关实现与断言未修改，同提交完整重跑成功。
 
-[精确 main full CI 44113680099](https://github.com/zdaiwmm/shui-IM/actions/runs/44113680099) attempt 1 全部通过。本机 main 已同步，未将 Git 同步记为本机服务、真机或生产验收。本轮尚无精确生产确认，未执行发布；上一批确认不能沿用至本轮。
+[精确 main full CI 44113680099](https://github.com/zdaiwmm/shui-IM/actions/runs/44113680099) attempt 1 全部通过。本机 main 已同步，未将 Git 同步记为本机服务或真机验收。
+
+用户随后在本聊天精确确认本批生产 SHA、版本、ai.shui.click 与 GitHub 环境审核。2026-11-18 云预检通过；两次云端发布在 GitHub CLI 步骤失败，回执均只有只读预检，没有部署命令。旧版本独立回读通过后，使用仓库支持的本机固定入口完成一次服务器切换并取得 DEPLOY_VERIFIED，北京时间 **01:20:00** 独立 READBACK_OK（3100ms），公开版本为 200／no-cache、`2026.11.17.5`。云失败、镜像与实际生产回读由[本批发布记录](../../../RELEASING.md#release-video-resend-quota-20261118)持有；家庭站、原生 Safari／物理 iPhone 及原视频播放仍未新增验收。
