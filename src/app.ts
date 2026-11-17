@@ -11571,7 +11571,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   }
 
   private activeDevicesSupport(capability: string): boolean {
-    const members = capabilityGateMembers(this.session?.vault.members ?? [], this.session ? {
+    // Correct stale self announcements only for this batch's large-video gate.
+    const members = capabilityGateMembers(this.session?.vault.members ?? [], capability === LARGE_VIDEO_CAPABILITY && this.session ? {
       deviceId: this.session.vault.identity.publicBundle.deviceId, capabilities: CLIENT_CAPABILITIES,
     } : undefined);
     return members.length > 0 && members.every((member) => member.capabilities?.includes(capability));
