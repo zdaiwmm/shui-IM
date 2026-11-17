@@ -36,6 +36,12 @@ describe('capability gate', () => {
     expect(gated.every(row => row.capabilities?.includes('large-video-v1'))).toBe(false);
     expect(own.capabilities).toEqual(['file-message-v1']);
   });
+  it('keeps an unannounced current placeholder outside the gate until its first session', () => {
+    const fresh = member({ capabilities: [] });
+    const running = { deviceId: fresh.deviceId, capabilities: ['large-video-v1'] };
+    expect(capabilityGateMembers([fresh], running)).toEqual([]);
+    expect(capabilityGateMembers([{ ...fresh, lastSeenAt: '2026-09-23T03:20:00Z' }], running)[0]?.capabilities).toContain('large-video-v1');
+  });
   it('does not let a newly authorized device that has never opened chat block the others', () => {
     const existing = member({ capabilities: ['voice-message-v1'], lastSeenAt: '2026-09-23T03:10:00.000Z' });
     const fresh = member({ deviceId: '22222222-2222-2222-2222-222222222222', capabilities: [] });

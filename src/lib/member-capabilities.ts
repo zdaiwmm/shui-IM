@@ -7,10 +7,10 @@ import type { RoomMember } from './types';
  * capability list makes it part of the gate again.
  */
 export function capabilityGateMembers(members: readonly RoomMember[], currentDevice?: { deviceId: string; capabilities: readonly string[] }): RoomMember[] {
-  return members.map(member => member.deviceId === currentDevice?.deviceId
-    ? { ...member, capabilities: [...currentDevice.capabilities] } : member).filter(member => {
+  return members.filter(member => {
     if (member.status === 'pending' || member.status === 'revoked') return false;
     if ((!member.capabilities || member.capabilities.length === 0) && !member.lastSeenAt) return false;
     return true;
-  });
+  }).map(member => member.deviceId === currentDevice?.deviceId
+    ? { ...member, capabilities: [...currentDevice.capabilities] } : member);
 }

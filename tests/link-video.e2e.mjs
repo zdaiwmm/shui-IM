@@ -316,7 +316,7 @@ try {
       }
     }
     if (large) {
-      await sheet.getByText('有设备的旧版仅支持 256 MiB 以内的视频；发送此原件前需更新该设备').waitFor({ timeout: 240000 });
+      await sheet.getByRole('status').filter({ hasText: '有设备的旧版仅支持 256 MiB 以内的视频；发送此原件前需更新该设备' }).waitFor({ timeout: 240000 });
       assert.equal(await page.evaluate(() => window.f.uploads.size), 0);
       await page.evaluate(() => {
         for (const member of window.f.session.vault.members) if(member.deviceId!==window.f.session.vault.identity.publicBundle.deviceId) member.capabilities.push('large-video-v1');
