@@ -41,6 +41,7 @@ export default defineConfig({
       const placeholder = '__QUIET_ROOM_RELEASE_ID__';
       if (!worker.includes(placeholder)) throw new Error('Service worker release placeholder is missing.');
       writeFileSync(workerPath, worker.replaceAll(placeholder, release.id));
+      writeFileSync(resolve('dist/release.json'), JSON.stringify({ id: release.id }));
     },
   }],
   server: {

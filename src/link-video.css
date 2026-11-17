@@ -263,4 +263,14 @@
 .link-video-choice small { color: var(--ink-muted); margin-top: 2px; }
 
 .link-video-result-icon { box-sizing: content-box; padding: 10px; margin-block: 8px; border-radius: 50%; color: var(--accent); background: var(--accent-soft); }
-.queued-link-video-state { position:absolute; inset:0; display:grid; place-items:center; color:var(--ink-muted); font-size:13px; }
+.queued-link-video-preview { background: var(--surface); }
+.queued-link-video-state { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#app .queued-link-video-preview + .media-load-capsule {
+  position: absolute; top: 50%; left: 50%; right: auto; bottom: auto;
+  translate: -50% -50%; max-width: calc(100% - 24px);
+}
+.link-video-result { display: grid; gap: 10px; }
+.link-video-result .link-video-tile { aspect-ratio: 4 / 3; padding: 0; }
+.link-video-result .link-video-tile > svg { width: 48px; height: 48px; color: var(--ink-muted); }
+.link-video-result strong { overflow-wrap: anywhere; font-size: 14px; }
+#app .link-video-result p { margin: 0; color: var(--ink-muted); font-size: 12px; }

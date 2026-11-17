@@ -208,6 +208,42 @@ async function popupDownload(browser, origin, engine, share) {
       return {private:rows.every(row=>!row.shared),sent:f.sent.length,names:f.sentNames,retriedOriginalId:f.failedIds.every(id=>f.sent.includes(id)),rows:document.querySelectorAll('.link-video-batch-row').length};
     });
     assert.deepEqual(result,{private:true,sent:share?2:0,names:share?['X-123-1.mp4','X-123-2.mp4']:[],retriedOriginalId:true,rows:2});
+    if (!share) {
+      // A pending source download resumes without runSelected's batch setup.
+      // Its progress must still target the queued video, before sendSaved runs.
+      await sheet.getByRole('button',{name:'返回聊天',exact:true}).click();
+      await sheet.waitFor({state:'detached'});
+      await page.evaluate(async()=>{
+        const f=window.popupFixture;
+        const {prepareLinkSourceDownload}=await import('/src/lib/link-source-transfer.ts');
+        const {openLinkVideoSheet}=await import('/src/lib/link-video-sheet.ts');
+        const id=crypto.randomUUID();
+        const clip={key:'pending-'+id,name:'resumed.mp4',url:'https://video.twimg.com/popup-resumed.mp4',duration:2};
+        const plan=await prepareLinkSourceDownload(f.session,clip,id,true,f.signal);
+        if(!plan)throw Error('The resume regression requires a real worker source plan');
+        f.resume={id,updates:[],queued:[],sent:[]};
+        const root=document.querySelector('#app');
+        root.innerHTML='<section class="chat-shell"><div class="system-notices"></div></section>';
+        f.resumeView=openLinkVideoSheet({root,session:f.session,signal:f.signal,active:()=>!f.signal.aborted,resume:true,
+          largeVideoReady:()=>true,onDispose:()=>{},
+          queue:items=>f.resume.queued.push(...items.map(item=>item.id)),
+          queuedState:(id,text,phase,ratio)=>f.resume.updates.push({id,text,phase,ratio}),
+          send:async(_file,id)=>{f.resume.sent.push(id);return true;}});
+      });
+      await expect.poll(()=>page.evaluate(async()=>{
+        const f=window.popupFixture;
+        return f.resume.sent.length===1&&(await f.vault.listPendingLinkDownloads(f.session,f.signal)).length===0;
+      }),{timeout:20000}).toBe(true);
+      const resumed=await page.evaluate(()=>window.popupFixture.resume);
+      assert.deepEqual(resumed.queued,[resumed.id],'Resume restores the original queued video');
+      assert.deepEqual(resumed.sent,[resumed.id],'Resume sends the original pending ID once');
+      assert.ok(resumed.updates.every(update=>update.id===resumed.id),'Resume never paints another video');
+      assert.ok(resumed.updates.some(update=>update.phase==='download'&&update.text==='正在直下本机'),
+        'Resumed source download reaches the queued video with its phase');
+      assert.ok(resumed.updates.some(update=>update.phase==='download'&&update.text==='正在保存到本机'),
+        'Resumed source preparation reaches the queued video before sending');
+      await page.evaluate(()=>window.popupFixture.resumeView.dispose());
+    }
     assert.deepEqual(errors,[]);
     console.log(engine,share?'download and send':'download only','real worker popup passed');
   } finally {await page.close();}

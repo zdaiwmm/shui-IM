@@ -220,6 +220,18 @@ try {
     if(role==='joiner'&&!large){
       await page.waitForFunction(()=>Boolean(window.f.resumeDownload));
       assert.equal(await page.locator('.message.outgoing.video-upload').count(),2,'Both selections immediately occupy the chat');
+      const queuedGeometry = await page.evaluate(() => {
+        const app=window.f.app, composer=document.querySelector('#composer').getBoundingClientRect();
+        return [...app.linkVideoQueued.values()].map(({view})=>{
+          const bubble=view.element.querySelector('.image-bubble').getBoundingClientRect();
+          const status=view.element.querySelector('.media-load-capsule').getBoundingClientRect();
+          return {height:bubble.height, width:bubble.width, statusInside:status.top>=bubble.top&&status.bottom<=bubble.bottom,
+            center:Math.abs((status.top+status.bottom-bubble.top-bubble.bottom)/2), bottom:bubble.bottom, composerTop:composer.top};
+        });
+      });
+      assert.ok(queuedGeometry.every(row=>row.height>=100&&row.width>=100&&row.statusInside&&row.center<2), `Queued videos keep real card geometry ${JSON.stringify(queuedGeometry)}`);
+      assert.ok(queuedGeometry.at(-1).bottom<=queuedGeometry.at(-1).composerTop-4, 'Last queued video clears the composer');
+
       await page.evaluate(()=>{window.f.queuedNodes=[...window.f.app.linkVideoQueued.values()].map(row=>row.view.element);window.f.gateDownload=false;window.f.resumeDownload();});
     }
     if (role === 'creator') {
@@ -304,10 +316,10 @@ try {
       }
     }
     if (large) {
-      await sheet.getByText('请先让所有已授权设备打开一次最新版，再发送大视频').waitFor({ timeout: 240000 });
+      await sheet.getByRole('status').filter({ hasText: '有设备的旧版仅支持 256 MiB 以内的视频；发送此原件前需更新该设备' }).waitFor({ timeout: 240000 });
       assert.equal(await page.evaluate(() => window.f.uploads.size), 0);
       await page.evaluate(() => {
-        for (const member of window.f.session.vault.members) member.capabilities.push('large-video-v1');
+        for (const member of window.f.session.vault.members) if(member.deviceId!==window.f.session.vault.identity.publicBundle.deviceId) member.capabilities.push('large-video-v1');
       });
       await click('重试');
     }
@@ -330,6 +342,7 @@ try {
       const rows = await vault.listLinkVideos(session, signal),
         outbox = await vault.loadOutbox(session);
       const { decryptFileAttachment } = await import('/src/lib/file-crypto.ts');
+      if(outbox.some(item=>item.payload.v!==1||item.payload.videoPreview))throw Error('An older file client must receive the established payload without optional preview metadata');
       // Each selected video owns distinct ciphertext, even when chunk indexes
       // coincide. Verify every complete attachment against its own blob ID.
       for (const item of outbox) {

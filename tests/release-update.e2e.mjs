@@ -1,4 +1,4 @@
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -17,7 +17,8 @@ const server = await createServer({
 let browser;
 try {
   await server.listen();
-  browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
+  browser = process.env.QUIET_ROOM_TEST_BROWSER === 'webkit' ? await webkit.launch()
+    : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   const page = await browser.newPage({ locale: 'zh-CN', viewport: { width: 390, height: 844 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -47,8 +48,9 @@ try {
     window.releaseFixture = { app, release };
   });
 
-  if(await page.locator('.release-notes-sheet').count())throw Error('A normal room visit must not show update notes');
-  await page.evaluate(()=>{sessionStorage.setItem('quiet-room:update-requested','previous-release');window.releaseFixture.app.showReleaseNotesIfNeeded();});
+  // An actual version transition shows once even without clicking Update in
+  // this tab; Safari reloads and restored tabs do not retain that click marker.
+  if(await page.evaluate(()=>sessionStorage.getItem('quiet-room:update-requested')))throw Error('Fixture unexpectedly opted into update');
   await page.locator('.release-notes-sheet.is-visible').waitFor();
   await page.waitForTimeout(400);
   const notesStyle=await page.locator('.release-notes-panel').evaluate(panel=>({radius:getComputedStyle(panel).borderRadius,padding:getComputedStyle(panel).padding,

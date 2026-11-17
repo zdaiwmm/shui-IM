@@ -33,6 +33,12 @@ self.addEventListener('activate', (event) => {
   })());
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'quiet-room-release-query') {
+    event.source?.postMessage({ type: 'quiet-room-release-ready', releaseId: RELEASE_ID });
+  }
+});
+
 self.addEventListener('fetch', (event) => {
   const requestUrl = new URL(event.request.url);
   if (event.request.method !== 'GET' || requestUrl.pathname.startsWith('/api/') || requestUrl.pathname === '/ws') {

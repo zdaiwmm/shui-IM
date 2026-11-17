@@ -17,6 +17,14 @@ let releaseNotesPending = false;
 let availableReleaseId: string | null = null;
 const updateListeners = new Set<(releaseId: string | null) => void>();
 
+function olderRelease(id: string, reference: string): boolean {
+  const parts = (value: string) => /^\d{4}\.\d{2}\.\d{2}\.\d+$/.test(value) ? value.split('.').map(Number) : null;
+  const left = parts(id), right = parts(reference);
+  if (!left || !right) return false;
+  for (let i = 0; i < left.length; i++) if (left[i] !== right[i]) return left[i]! < right[i]!;
+  return false;
+}
+
 function browserStorage(): Storage | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -92,8 +100,10 @@ export function acceptReleaseWorkerMessage(data: unknown): boolean {
   const message = data as { type?: unknown; releaseId?: unknown };
   if (message.type !== 'quiet-room-release-ready'
     || typeof message.releaseId !== 'string'
-    || message.releaseId.length === 0
+    || !/^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/.test(message.releaseId)
     || message.releaseId === currentRelease.id
+    || olderRelease(message.releaseId, currentRelease.id)
+    || availableReleaseId !== null && olderRelease(message.releaseId, availableReleaseId)
     || message.releaseId === availableReleaseId) return false;
   availableReleaseId = message.releaseId;
   for (const listener of updateListeners) listener(availableReleaseId);
@@ -101,31 +111,49 @@ export function acceptReleaseWorkerMessage(data: unknown): boolean {
 }
 
 export function startReleaseUpdateDetection(): void {
-  if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.addEventListener('message', event => acceptReleaseWorkerMessage(event.data));
+  const workers = 'serviceWorker' in navigator ? navigator.serviceWorker : null;
+  workers?.addEventListener('message', event => acceptReleaseWorkerMessage(event.data));
   let registration: ServiceWorkerRegistration | null = null;
   let checking = false;
-  const check = async () => {
-    if (!registration || checking || document.hidden || !navigator.onLine) return;
-    checking = true;
-    try { await registration.update(); } catch { /* A later visibility/online check retries. */ }
-    finally { checking = false; }
+  let updatingWorker = false;
+  const updateWorker = async () => {
+    if (!workers || updatingWorker) return;
+    updatingWorker = true;
+    try {
+      registration ??= await workers.register('/sw.js', { updateViaCache: 'none' });
+      await registration.update();
+      registration.active?.postMessage({ type: 'quiet-room-release-query' });
+    }
+    catch { /* Retry on the next foreground/online check. */ }
+    finally { updatingWorker = false; }
   };
-  const register = () => {
-    void navigator.serviceWorker.register('/sw.js', { updateViaCache: 'none' }).then(value => {
-      registration = value;
-      return check();
-    }).catch(() => {
-      // The application remains usable online when worker registration fails.
-    });
+  const check = async () => {
+    if (checking || document.hidden || !navigator.onLine) return;
+    checking = true;
+    // Worker maintenance can stay pending while a mobile browser is suspended.
+    // It must not hold the independent, bounded manifest check open.
+    void updateWorker();
+    try {
+      // A worker may activate while Safari has suspended this page, or before
+      // its listener exists. The uncached manifest also works without workers.
+      const response = await fetch('/release.json', { cache: 'no-store', signal: AbortSignal.timeout(10000) });
+      if (!response.ok || response.redirected) return;
+      const manifest = await response.json() as { id?: unknown };
+      acceptReleaseWorkerMessage({ type: 'quiet-room-release-ready', releaseId: manifest?.id });
+    }
+    catch { /* A later foreground/online check retries. */ }
+    finally { checking = false; }
   };
   // Language initialization can finish after load. An existing controller must
   // still be updated, including its imported transfer protocol.
-  if (document.readyState === 'complete') register();
-  else window.addEventListener('load', register, { once: true });
+  if (document.readyState === 'complete') void check();
+  else window.addEventListener('load', () => void check(), { once: true });
   document.addEventListener('visibilitychange', () => void check());
+  window.addEventListener('pageshow', () => void check());
+  window.addEventListener('focus', () => void check());
   window.addEventListener('online', () => void check());
-  window.setInterval(() => void check(), 15 * 60 * 1000);
+  workers?.addEventListener('controllerchange', () => void check());
+  window.setInterval(() => void check(), 60 * 1000);
 }
 import release from '../../release.json';
 import history from '../../release-history.json';
