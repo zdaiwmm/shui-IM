@@ -168,10 +168,17 @@ try {
     });
     assert.ok(retryRect.layoutWidth >= 44 && retryRect.layoutHeight >= 44
       && retryRect.width >= 44 - 0.001 && retryRect.height >= 44 - 0.001, `${variant}: ${JSON.stringify(retryRect)}`);
-    const statusGeometry = await draft.locator('.media-upload-status').evaluate(status=>({height:status.getBoundingClientRect().height,
-      corners:status.querySelectorAll('.media-upload-cancel').length,
-      retiring:status.querySelectorAll('.media-capsule-retiring').length}));
+    const statusGeometry = await draft.locator('.media-upload-status').evaluate(status=>{
+      const capsule=status.getBoundingClientRect(),retry=status.querySelector('.media-upload-retry');
+      const label=retry.querySelector('span').getBoundingClientRect(),icon=retry.querySelector('svg').getBoundingClientRect();
+      return {height:capsule.height,corners:status.querySelectorAll('.media-upload-cancel').length,
+        retiring:status.querySelectorAll('.media-capsule-retiring').length,
+        labelCenter:(label.top+label.bottom-capsule.top-capsule.bottom)/2,
+        iconCenter:(icon.top+icon.bottom-capsule.top-capsule.bottom)/2};
+    });
     assert.ok(Math.abs(statusGeometry.height-20)<.01,`${variant}: 20px process/error capsule`);
+    assert.ok(Math.abs(statusGeometry.labelCenter)<.1&&Math.abs(statusGeometry.iconCenter)<.1,
+      `${variant}: failed retry label and icon stay centered in the capsule: ${JSON.stringify(statusGeometry)}`);
     sameSize(uploadStatusBox, await geometry(draft.locator('.media-send-status')), `${variant} failed capsule stays compact`);
     assert.equal(statusGeometry.corners,0,'failure has no corner X');
     assert.equal(await draft.getAttribute('data-concealed'), String(!variant.includes('expression') || variant === 'hidden-expression'));
@@ -319,17 +326,24 @@ try {
         const box=status.getBoundingClientRect();
         stages.push({state,width:box.width,height:box.height});
       }
-      const meta=f.app.createMessageMeta({clientMsgId:crypto.randomUUID(),senderId:f.own.deviceId,status:'stored',
-        payload:{v:1,kind:'image',image:{},sentAt}});
-      status.replaceWith(meta);
+      const message={clientMsgId:crypto.randomUUID(),senderId:f.own.deviceId,status:'failed',
+        payload:{v:1,kind:'image',image:{},sentAt}};
+      const failed=f.app.createMessageMeta(message);status.replaceWith(failed);
+      const capsule=failed.getBoundingClientRect(),retry=failed.querySelector('.message-retry');
+      const label=retry.querySelector('span').getBoundingClientRect(),icon=retry.querySelector('svg').getBoundingClientRect();
+      const failedAlignment={labelCenter:(label.top+label.bottom-capsule.top-capsule.bottom)/2,
+        iconCenter:(icon.top+icon.bottom-capsule.top-capsule.bottom)/2};
+      const meta=f.app.createMessageMeta({...message,status:'stored'});failed.replaceWith(meta);
       const receipt=meta.querySelector('.media-receipt').getBoundingClientRect();
-      results.push({language:id,width:initial.width,height:initial.height,stages,receipt:{width:receipt.width,height:receipt.height}});
+      results.push({language:id,width:initial.width,height:initial.height,stages,failedAlignment,receipt:{width:receipt.width,height:receipt.height}});
       view.destroy();
     }
     await setLanguage('zh-Hans');
     return results;
   });
   for(const result of localeGeometry) {
+    assert.ok(Math.abs(result.failedAlignment.labelCenter)<.1&&Math.abs(result.failedAlignment.iconCenter)<.1,
+      `Localized failed metadata retry stays centered in the capsule: ${JSON.stringify(result)}`);
     for(const stage of [...result.stages,result.receipt]) {
       assert.ok(Math.abs(stage.width-result.width)<.1&&Math.abs(stage.height-result.height)<.1,
         `Localized capsule changed geometry: ${JSON.stringify(result)}`);
