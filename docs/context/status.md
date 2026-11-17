@@ -1,6 +1,14 @@
 # Quiet Room 当前状态
 
-## 当前生产：主站 2026.11.17.3 完整批次已回读（2026-11-17）
+## 当前生产：主站 2026.11.17.4 已切换并独立回读（2026-11-17）
+
+production／ai.shui.click 当前为用户精确确认的 `f51ff05b5f3e1998287bc391a0959a431b66c3af`／`2026.11.17.4`，来自 [PR #540](https://github.com/zdaiwmm/shui-IM/pull/540)。修复窄桌面多行发送回弹，支持将已发送的本机视频再次发送为新消息；重试保留当前 ID，私有锁历史事实不倒退。本地 1,359 项单测、98／98 浏览器及[精确 main full CI attempt 2](https://github.com/zdaiwmm/shui-IM/actions/runs/44083438208/attempts/2)通过。
+
+只读云预检通过。正式运行在部署命令提交后因云 API 结果查询失败而结束，外层没有 DEPLOY_VERIFIED；服务器继续完成切换，没有第二次部署。北京时间 **21:32:18** 同 SHA 独立 READBACK_OK：应用／备份 healthy、TURN running／探针 none、维护门 absent，镜像、HTTPS／存储、公开／容器资源及新 WebSocket 均匹配。公开版本文件为 200／no-cache、ID `2026.11.17.4`。[本批发布、回执缺口及回读证据](../../RELEASING.md#release-narrow-safari-resend-20261117)
+
+长视频黑屏与崩溃仍未确认修复；约 673 MB 真实 4K 视频及有效尾部 moov 变体通过自动化完整下载、保存、发送、聊天重开、播放、拖动和字节校验，但原生 Safari 因远程自动化未开启与锁屏而未测，USB iPhone 未连接。没有新增用户原视频、独立应用或长通话验收。家庭站本轮未操作。后续仅核对原云调用结果，不因外层回执缺失重发已回读成功的提交。
+
+## 此前生产：主站 2026.11.17.3 完整批次已回读（2026-11-17）
 
 production／ai.shui.click 已从 `2200684c7818f7e7c5f384a7140b16abb4b353b7` 升级为本批获准提交 `467e6957985f45f90bb3c862895a5a180583e7ff`／`2026.11.17.3`。补发 #535 的 Safari 大视频重建／发送偏移与 #536 的 24 小时本地媒体传输清理；#537 已实施的通话中继维护记录也包含在本批，当天没有遗漏待合并修复。[精确 main full CI](https://github.com/zdaiwmm/shui-IM/actions/runs/44055787979) attempt 1、只读云预检均成功，固定发布取得 DEPLOY_VERIFIED，北京时间 **18:00:53** 独立 READBACK_OK（3380ms）。应用／备份 healthy、TURN running／探针 none、维护门 absent，镜像、HTTPS／存储、公开／容器资源及新 WebSocket 均匹配；公开版本文件为 200／no-cache、ID `2026.11.17.3`。[本批发布证据](../../RELEASING.md#release-production-batch-20261117)
 
