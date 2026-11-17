@@ -8407,10 +8407,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   private showReleaseNotesIfNeeded(): void {
     const session = this.session;
     const epoch = this.runtimeEpoch;
-    if (!session || !hasPendingReleaseNotes() || this.root.querySelector('.release-notes-sheet')) return;
-    let prior:string|null=null;try{prior=sessionStorage.getItem('quiet-room:update-requested');}catch{return;}
-    if(!prior||prior===currentRelease.id)return;
-    try{sessionStorage.removeItem('quiet-room:update-requested');}catch{/* In-memory release latch remains authoritative. */}
+    if (!session || this.privacyCovered || this.activeSurface !== 'chat' || document.hidden
+      || !hasPendingReleaseNotes() || this.root.querySelector('.release-notes-sheet')) return;
     const sheet = document.createElement('section');
     sheet.className = 'release-notes-sheet';
     sheet.setAttribute('role', 'dialog');
@@ -8449,7 +8447,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       signal: this.runtimeAbort?.signal,
       initialFocus: panel,
     });
-    markReleaseNotesSeen();
+    // Count a notice only once it has reached the visible dialog frame. A lock
+    // or route change before that frame must leave the notice pending.
+    requestAnimationFrame(() => {
+      if (sheet.isConnected && sheet.classList.contains('is-visible') && !sheet.inert
+        && !document.hidden && !this.privacyCovered && this.isRuntimeActive(epoch, session)) markReleaseNotesSeen();
+    });
     button.addEventListener('click', () => dialog.close());
   }
 
@@ -11170,7 +11173,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
     const largeVideo = files.some(file => isSelectedVideo(file) && file.size > MAX_IMAGE_BYTES);
     if (largeVideo && !this.activeDevicesSupport(LARGE_VIDEO_CAPABILITY)) {
-      this.showNotice(uiLiteral('请先让所有已授权设备打开一次最新版，再发送大视频'), 'error');
+      this.showNotice(uiLiteral('有设备的旧版仅支持 256 MiB 以内的视频；发送此原件前需更新该设备'), 'error');
       return false;
     }
     if (files.some(file => !isSelectedVideo(file) && file.size > MAX_IMAGE_BYTES)) {
@@ -11565,7 +11568,9 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   }
 
   private activeDevicesSupport(capability: string): boolean {
-    const members = capabilityGateMembers(this.session?.vault.members ?? []);
+    const members = capabilityGateMembers(this.session?.vault.members ?? [], this.session ? {
+      deviceId: this.session.vault.identity.publicBundle.deviceId, capabilities: CLIENT_CAPABILITIES,
+    } : undefined);
     return members.length > 0 && members.every((member) => member.capabilities?.includes(capability));
   }
 
@@ -11575,7 +11580,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       : payload.kind === 'file' || payload.kind === 'gallery-file' ? [payload.file]
       : [];
     if (media.some(item => item.originalSize > MAX_IMAGE_BYTES) && !this.activeDevicesSupport(LARGE_VIDEO_CAPABILITY)) {
-      return uiLiteral('请先让所有已授权设备打开一次最新版，再发送大视频');
+      return uiLiteral('有设备的旧版仅支持 256 MiB 以内的视频；发送此原件前需更新该设备');
     }
     if (media.some(item => item.width !== undefined) && !this.activeDevicesSupport('media-dimensions-v1')) {
       return uiLiteral('请先让所有已授权设备打开一次最新版，再发送带稳定占位的媒体');
@@ -16924,17 +16929,30 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           element.dataset.clientMsgId = item.id;
           const bubble = document.createElement('div'); bubble.className = 'message-bubble image-bubble media-upload-tile';
           setChatMediaDimensions(bubble, { width: 288, height: 216 });
-          const label = document.createElement('span'); label.className = 'queued-link-video-state'; label.textContent = uiLiteral('等待下载');
+          const preview = document.createElement('div'); preview.className = 'media-upload-previews queued-link-video-preview';
+          const status = document.createElement('div'); status.className = 'media-load-capsule';
+          const content = document.createElement('span'); content.className = 'media-capsule-content';
+          const ring = document.createElement('span'); ring.className = 'media-load-progress'; ring.dataset.indeterminate = 'false'; ring.setAttribute('aria-hidden', 'true'); ring.append(document.createElement('i'));
+          const label = document.createElement('span'); label.className = 'media-load-status queued-link-video-state'; label.textContent = uiLiteral('等待下载'); label.setAttribute('role', 'status'); label.setAttribute('aria-live', 'polite');
+          content.append(ring, label); status.append(content);
           const duration = document.createElement('span'); duration.className = 'video-duration'; duration.textContent = videoDurationLabel(item.duration * 1000);
-          bubble.append(duration, label); element.append(bubble);
+          preview.append(duration); bubble.append(preview, status); element.append(bubble);
           this.linkVideoQueued.set(item.id, { sentAt: new Date().toISOString(), view: { element, geometryReady: true } });
         }
         this.renderMessages({ scroll: 'send' });
       },
       cancelQueued: async ids => { for (const id of ids) await this.cancelStagedVideoUpload(id); },
-      queuedState: (id, text) => {
+      queuedState: (id, text, phase, ratio) => {
         const label = this.linkVideoQueued.get(id)?.view.element.querySelector('.queued-link-video-state');
-        if (label) label.textContent = text;
+        if (label) {
+          label.textContent = text;
+          const capsule = label.closest('.media-load-capsule')!;
+          capsule.classList.toggle('is-error', phase === 'failed');
+          const ring = capsule.querySelector<HTMLElement>('.media-load-progress')!;
+          ring.hidden = phase === 'failed' || phase === 'done';
+          ring.dataset.indeterminate = String(ratio === undefined);
+          if (ratio !== undefined) ring.style.setProperty('--media-load-progress', `${Math.floor(Math.max(0, Math.min(1, ratio)) * 100)}%`);
+        }
       },
       onDispose: () => {
         for (const draft of this.linkVideoQueued.values()) draft.view.element.remove();

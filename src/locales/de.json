@@ -3145,7 +3145,7 @@
   "查看第一条未读消息": "Zur ersten ungelesenen Nachricht",
   "条新消息，查看第一条未读消息": "neue Nachrichten, zur ersten ungelesenen Nachricht",
   "单个视频不能超过 2 GiB": "Videos dürfen höchstens 2 GiB groß sein",
-  "请先让所有已授权设备打开一次最新版，再发送大视频": "Öffne vor dem Senden großer Videos auf allen autorisierten Geräten einmal die aktuelle Version",
+  "有设备的旧版仅支持 256 MiB 以内的视频；发送此原件前需更新该设备": "Ein älteres Gerät unterstützt nur Videos bis 256 MiB. Aktualisiere es, bevor du dieses Original sendest",
   "本机未能保留完整视频，下次播放可能需要下载": "Dieses Gerät konnte das Video nicht vollständig speichern. Beim nächsten Abspielen ist eventuell ein Download nötig.",
   "点按下载视频": "Zum Herunterladen des Videos tippen",
   "附件超过单文件限制": "Der Anhang überschreitet die maximale Dateigröße",

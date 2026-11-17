@@ -1626,7 +1626,7 @@ export async function startServer(options = {}) {
       applySecurityHeaders(request, response, target === path.join(staticDir, 'index.html') ? publicPixel?.collector : null, target === path.join(staticDir, 'index.html'), target === path.join(staticDir, 'sw.js'));
       response.writeHead(200, {
         'Content-Type': MIME_TYPES.get(path.extname(target)) ?? 'application/octet-stream',
-        'Cache-Control': ['index.html', 'sw.js', 'manifest.webmanifest'].includes(path.basename(target))
+        'Cache-Control': ['index.html', 'sw.js', 'manifest.webmanifest', 'release.json'].includes(path.basename(target))
           ? 'no-cache'
           : 'public, max-age=31536000, immutable',
       });

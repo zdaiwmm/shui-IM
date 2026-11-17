@@ -37,7 +37,7 @@ type Options = {
   prepareSend?: (ids:string[],signal:AbortSignal)=>Promise<void>;
   queue?: (items: { id: string; name: string; duration: number }[]) => void;
   cancelQueued?: (ids:string[])=>Promise<void>;
-  queuedState?: (id: string, text: string) => void;
+  queuedState?: (id: string, text: string, phase?: LinkVideoPhase, ratio?: number) => void;
   start?: SavedLinkVideo;
   resume?: boolean;
   onDispose: () => void;
@@ -153,6 +153,7 @@ export function openLinkVideoSheet(opts: Options) {
   let phase: LinkVideoPhase = 'download';
   let batch: HTMLElement | undefined;
   let currentRow: HTMLElement | undefined;
+  let currentTaskId: string | undefined;
   const banner = el('aside');
   banner.className = 'link-video-banner';
   banner.dataset.noticePriority = '55';
@@ -170,6 +171,7 @@ export function openLinkVideoSheet(opts: Options) {
   }
   function report(text: string, next = phase, ratio?: number) {
     phase = next;
+    if (currentTaskId) opts.queuedState?.(currentTaskId, text, next, ratio);
     status.textContent = text;
     if (currentRow) {
       currentRow.querySelector('small')!.textContent = text;
@@ -287,6 +289,7 @@ export function openLinkVideoSheet(opts: Options) {
     }
   };
   async function sendSaved(item: SavedLinkVideo, explicit=false):Promise<boolean> {
+    currentTaskId = item.id;
     if(explicit){queuedIds=[item.id];await opts.prepareSend?.(queuedIds,signal);signal.throwIfAborted();}
     phase = 'prepare';
     retry = () => sendSaved(item);
@@ -304,7 +307,7 @@ export function openLinkVideoSheet(opts: Options) {
       return false;
     }
     if (packed.size > MAX_IMAGE_BYTES && !opts.largeVideoReady()) {
-      saved(item, uiLiteral('请先让所有已授权设备打开一次最新版，再发送大视频'), true);
+      saved(item, uiLiteral('有设备的旧版仅支持 256 MiB 以内的视频；发送此原件前需更新该设备'), true);
       return false;
     }
     report(uiLiteral('正在加密发送'), 'upload');
@@ -333,9 +336,10 @@ export function openLinkVideoSheet(opts: Options) {
     }
     reset(uiLiteral('我的下载'));
     head.append(button(uiLiteral('链接视频'), form, 'link-video-text'));
-    const stateIcon = createElement(offerSend ? Film : Check);
-    stateIcon.classList.add('link-video-result-icon');
-    body.append(stateIcon, el('strong', item.name), el('p', item.shared ? uiLiteral('已发送至聊天') : uiLiteral('仅自己可见 · 本设备')));
+    const result = el('article'); result.className = 'link-video-result';
+    result.append(localVideoTile(item, () => void manage(() => view(item))),
+      el('strong', item.name), el('p', item.shared ? uiLiteral('已发送至聊天') : uiLiteral('仅自己可见 · 本设备')));
+    body.append(result);
     report(message, offerSend ? 'failed' : 'done');
     actions.append(button(uiLiteral('我的下载'), () => void manage(library)));
     if (offerSend) actions.append(button(uiLiteral('发送至聊天'), () => void manage(() => sendSaved(item,true)), 'primary-button'));
@@ -520,10 +524,10 @@ export function openLinkVideoSheet(opts: Options) {
       retry = run;
       while (next < entries.length) {
         const { clip, id } = entries[next]!;
-        currentRow = rows[next];
+        currentRow = rows[next]; currentTaskId = id;
         opts.queuedState?.(id, uiLiteral('正在下载'));
         try { await download(clip, share, id); }
-        catch (error) { opts.queuedState?.(id, uiLiteral('下载失败 · 在任务面板重试')); retry = run; throw error; }
+        catch (error) { opts.queuedState?.(id, uiLiteral('下载失败 · 在任务面板重试'), 'failed'); retry = run; throw error; }
         if (!active()) return;
         // Do not load another potentially large file while this upload failed.
         if (phase === 'failed') { retry = run; actions.replaceChildren(button(uiLiteral('取消'), () => void cancel()), button(uiLiteral('重试'), () => void manage(run), 'primary-button')); return; }
