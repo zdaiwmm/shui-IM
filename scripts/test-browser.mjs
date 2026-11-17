@@ -104,6 +104,7 @@ export const browserGroups = Object.freeze({
     'tests/video-flow.e2e.mjs',
     'tests/video-upload.e2e.mjs',
     'tests/link-video.e2e.mjs',
+    'tests/video-resend-quota.e2e.mjs',
     'tests/media-upload.e2e.mjs',
     'tests/voice-gestures.e2e.mjs',
     'tests/chat-tools.e2e.mjs',

@@ -29,7 +29,7 @@ function chunkAad(blobId: string, index: number, chunkCount: number, originalSiz
   }));
 }
 
-async function hashFile(file: File, signal?: AbortSignal): Promise<string> {
+export async function hashFile(file: File, signal?: AbortSignal): Promise<string> {
   const hash = await createSHA256();
   hash.init();
   for (let offset = 0; offset < file.size; offset += IMAGE_CHUNK_SIZE) {
