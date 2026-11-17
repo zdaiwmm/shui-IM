@@ -498,8 +498,9 @@ try {
         const legacy=await page.evaluate(async()=>{
           const {vault,session,source}=window.f,signal=new AbortController().signal;
           const id=crypto.randomUUID(),first=crypto.randomUUID();
+          const sendIds=[id,...Array.from({length:98},()=>crypto.randomUUID()),first];
           await vault.storeLinkVideo(session,{id,key:'legacy-resend',name:'legacy.mp4',size:source.size,
-            created:Date.now(),duration:2,shared:true,sendId:first,sendIds:[id,first],pendingSend:true},source,signal);
+            created:Date.now(),duration:2,shared:true,sendId:first,sendIds,pendingSend:true},source,signal);
           const before=(await vault.listPendingLinkSends(session,signal)).some(item=>item.id===id);
           const second=await vault.linkVideoSendId(session,id);
           await vault.cancelOutboxItem(session,second);
@@ -509,7 +510,8 @@ try {
           await vault.withVaultMutation(session,()=>vault.confirmLinkVideoShared(session,second));
           const item=(await vault.listLinkVideos(session,signal)).find(row=>row.id===id);
           return {before,rotated:second!==first,blocked,freshAfterCancel:third!==second,
-            shared:item.shared,pending:item.pendingSend,confirmed:item.confirmedSendId};
+            shared:item.shared,pending:item.pendingSend,confirmedOriginal:item.confirmedSendId===first,
+            bounded:item.sendIds.length===100&&item.sendIds.includes(third)};
         });
         assert.equal(legacy.before,false,'Legacy shared pending rows are already confirmed');
         assert.equal(legacy.rotated,true);
@@ -517,6 +519,8 @@ try {
         assert.equal(legacy.freshAfterCancel,true);
         assert.equal(legacy.shared,true);
         assert.equal(legacy.pending,true,'A cancelled older ACK does not retire the latest attempt');
+        assert.equal(legacy.confirmedOriginal,true);
+        assert.equal(legacy.bounded,true,'Repeated explicit sends keep bounded ACK lookup history');
       }
     }
     await page.evaluate(() => window.f.app.runtimeAbort.abort());

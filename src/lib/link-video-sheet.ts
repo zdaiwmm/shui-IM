@@ -7,7 +7,7 @@ import { uiLiteral } from './language';
 import { MAX_IMAGE_BYTES, MAX_VIDEO_BYTES } from './message-payload';
 import { mountLinkVideoCapsule, type LinkVideoPhase } from './link-video-capsule';
 import { downloadLinkSource, prepareLinkSourceDownload, finishLinkSourceDownload, cancelLinkSourceDownload } from './link-source-transfer';
-import { listPendingLinkDownloads, listPendingLinkSends, setLinkVideoPendingSend } from './vault';
+import { isLinkVideoSendConfirmed, listPendingLinkDownloads, listPendingLinkSends, setLinkVideoPendingSend } from './vault';
 import { withSavedLinkVideoSend } from './link-video-send';
 import { videoDurationLabel } from './video-download-policy';
 import {
@@ -294,7 +294,7 @@ export function openLinkVideoSheet(opts: Options) {
     phase = 'prepare';
     retry = () => sendSaved(item);
     taskScreen(item.name, uiLiteral('正在本地无损压缩'));
-    if (item.shared || (await listLinkVideos(session, signal)).some(row => row.id === item.id && row.shared)) {
+    if ((await listLinkVideos(session, signal)).some(row => row.id === item.id && isLinkVideoSendConfirmed(row))) {
       sent(uiLiteral('已发送至聊天'));
       return true;
     }
@@ -354,10 +354,9 @@ export function openLinkVideoSheet(opts: Options) {
       el('p', item.shared ? uiLiteral('已发送至聊天') : uiLiteral('仅自己可见 · 本设备')),
     );
     actions.append(button(uiLiteral('我的下载'), () => void manage(library)));
-    if (!item.shared)
-      actions.append(
-        button(uiLiteral('发送至聊天'), () => void manage(() => sendSaved(item,true)), 'primary-button'),
-      );
+    actions.append(
+      button(uiLiteral('发送至聊天'), () => void manage(() => sendSaved(item,true)), 'primary-button'),
+    );
   }
   async function view(item: SavedLinkVideo) {
     resumable = false;
@@ -399,11 +398,10 @@ export function openLinkVideoSheet(opts: Options) {
         grid.querySelector('.link-video-menu')?.remove();
         const tip = el('div');
         tip.className = 'link-video-menu';
-        const action = button(item.shared ? uiLiteral('已发送至聊天') : uiLiteral('发送至聊天'), () => {
+        const action = button(uiLiteral('发送至聊天'), () => {
           tip.remove();
           void manage(() => sendSaved(item,true));
         });
-        action.disabled = !!item.shared;
         tip.append(
           action,
           button(uiLiteral('取消'), () => {
@@ -412,7 +410,7 @@ export function openLinkVideoSheet(opts: Options) {
           }),
         );
         cell.append(tip);
-        (item.shared ? (tip.lastElementChild as HTMLButtonElement) : action).focus();
+        action.focus();
       };
       const more = button('', menu, 'link-video-more');
       more.setAttribute('aria-label', uiLiteral('更多操作'));

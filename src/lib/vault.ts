@@ -3704,7 +3704,10 @@ export async function loadPrivateMediaChunk(session:VaultSession,blobId:string,i
 }
 
 // This room/device-scoped store is deliberately outside history, galleries exchanged with peers, and recovery exports.
-export interface SavedLinkVideo {id:string; key:string; name:string; size:number; created:number; duration:number; poster?:string; shared?:boolean; sendId?:string; sendIds?:string[]; pendingSend?:boolean}
+export interface SavedLinkVideo {id:string; key:string; name:string; size:number; created:number; duration:number; poster?:string; shared?:boolean; sendId?:string; sendIds?:string[]; confirmedSendId?:string; pendingSend?:boolean}
+export function isLinkVideoSendConfirmed(item:SavedLinkVideo,sendId=item.sendId??item.id):boolean {
+  return sendId===(item.confirmedSendId??(item.shared?item.sendId??item.id:undefined));
+}
 export interface PendingLinkDownload {kind:'link-source-v1';id:string;taskId:string;clip:import('./link-video').LinkClip;share:boolean;key:string;ivPrefix:string;created:number}
 const linkChunk = 2 ** 20;
 const linkAAD = (id: string, index: number) => encoder.encode(`chamber-link-video-body-v1:${id}:${index}`);
@@ -3715,7 +3718,7 @@ export async function listLinkVideos(session: VaultSession, signal: AbortSignal)
 }
 
 export async function listPendingLinkSends(session:VaultSession,signal:AbortSignal):Promise<SavedLinkVideo[]> {
-  const items=(await listLinkVideos(session,signal)).filter(item=>item.pendingSend&&!item.shared);
+  const items=(await listLinkVideos(session,signal)).filter(item=>item.pendingSend&&!isLinkVideoSendConfirmed(item));
   signal.throwIfAborted();
   // Legacy history-owner repair may leave an invalid preference namespace.
   // With no authorized video sends there is no cancellation state to read.
@@ -3731,7 +3734,7 @@ export async function setLinkVideoPendingSend(session:VaultSession,id:string,pen
     if(!row)throw Error('Private video unavailable');
     const item=await decryptLocalRecord<SavedLinkVideo>(session,'linkVideos',row);
     if(pendingSend&&(await loadUiPreferences(session)).hiddenChatMessageIds?.includes(item.sendId??id))throw new DOMException('Send cancelled','AbortError');
-    await putLocalRecord(session,'linkVideos',id,{...item,pendingSend:pendingSend&&!item.shared},mutation);
+    await putLocalRecord(session,'linkVideos',id,{...item,pendingSend:pendingSend&&!isLinkVideoSendConfirmed(item)},mutation);
   });
 }
 
@@ -3840,7 +3843,7 @@ export async function readLinkVideo(session: VaultSession, id: string, signal: A
   signal.throwIfAborted();
   return new File(parts,meta.name,{type:'video/mp4',lastModified:meta.created});
 }
-/** A new explicit send after cancellation gets a fresh logical message ID. */
+/** A new explicit send after confirmation or cancellation owns a fresh message ID. */
 export async function linkVideoSendId(session:VaultSession,id:string):Promise<string> {
   return withVaultMutation(session,async mutation=>{
     const row=await transaction<StoredLocalRecord|undefined>('linkVideos','readonly',store=>store.get(localDataScope(session.vault)+':'+id));
@@ -3848,10 +3851,10 @@ export async function linkVideoSendId(session:VaultSession,id:string):Promise<st
     const item=await decryptLocalRecord<SavedLinkVideo>(session,'linkVideos',row);
     const preferences=await loadUiPreferences(session);
     let sendId=item.sendId??id;
-    if(preferences.hiddenChatMessageIds?.includes(sendId))sendId=crypto.randomUUID();
-    const sendIds=[...new Set([...(item.sendIds??[id]),sendId])];
-    if(sendIds.length>100)throw Error('Too many cancelled send attempts');
-    await putLocalRecord(session,'linkVideos',id,{...item,sendId,sendIds},mutation);
+    const confirmedSendId=item.confirmedSendId??(item.shared?sendId:undefined);
+    if(isLinkVideoSendConfirmed(item)||preferences.hiddenChatMessageIds?.includes(sendId))sendId=crypto.randomUUID();
+    const sendIds=[...new Set([...(item.sendIds??[id]),sendId])].slice(-100);
+    await putLocalRecord(session,'linkVideos',id,{...item,sendId,sendIds,confirmedSendId,pendingSend:true},mutation);
     return sendId;
   });
 }
@@ -3860,8 +3863,12 @@ async function prepareLinkVideoShared(session: VaultSession, id: string): Promis
   const row = await transaction<StoredLocalRecord|undefined>('linkVideos','readonly',store=>store.get(localDataScope(session.vault)+':'+id));
   const meta = row ? await decryptLocalRecord<SavedLinkVideo>(session,'linkVideos',row)
     : (await listLinkVideos(session,new AbortController().signal)).find(item=>item.sendIds?.includes(id));
-  if (!meta || meta.shared) return;
-  return encryptLocalRecord(session,'linkVideos',meta.id,{...meta,shared:true});
+  if (!meta) return;
+  const current=(meta.sendId??meta.id)===id;
+  const confirmedSendId=current?id:meta.confirmedSendId??(meta.shared?meta.sendId??meta.id:id);
+  if(meta.shared&&meta.confirmedSendId===confirmedSendId&&(!current||!meta.pendingSend))return;
+  return encryptLocalRecord(session,'linkVideos',meta.id,{...meta,shared:true,confirmedSendId,
+    pendingSend:current?false:meta.pendingSend});
 }
 
 export async function confirmLinkVideoShared(session: VaultSession, id: string): Promise<void> {
