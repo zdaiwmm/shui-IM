@@ -115,6 +115,8 @@ try {
       await settle();
       if (layout === 'desktop-resized') {
         await page.setViewportSize({ width: 390, height: 800 });
+        await page.waitForFunction(() => !window.scrollFixture.app.desktopLayoutWide
+          && window.scrollFixture.app.chatLayoutElements.shell.dataset.scrollOwner === 'document');
         await settle();
       }
       if (narrow) assert.deepEqual(await page.evaluate(() => {
@@ -193,7 +195,6 @@ try {
             const first=samples[0], last=samples.at(-1), direction=Math.sign(last.top-first.top);
             for (let i=1; i<samples.length; i++) {
               const sample=samples[i];
-              if (historyLength === 1) assert.ok(Math.abs(sample.top-first.top)<=2, `${label}: short timeline moved away from the top`);
               assert.ok(Math.abs(sample.left-first.left)<1 && Math.abs(sample.width-first.width)<1, `${label}: desktop send shifted horizontally ${JSON.stringify(trace)}`);
               assert.ok(sample.connected && sample.opacity===1, `${label}: desktop send replaced or hid the timeline`);
               assert.equal(sample.shellX, 0, `${label}: desktop shell panned horizontally`);

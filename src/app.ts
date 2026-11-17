@@ -8159,7 +8159,11 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         textarea.style.removeProperty('transition');
         // Commit to the already-painted endpoint, then remove translations in
         // the same task. Older-history readers keep their original anchor.
-        this.syncChatLayout();
+        // Native document clamping owns a cleared desktop draft's shrink.
+        // The queued viewport frame aligns its settled bottom geometry.
+        const clearedDocumentShrink = this.desktopBrowser && !this.usesListScrolling
+          && textarea.value === '' && targetHeight < currentHeight;
+        this.syncChatLayout(!clearedDocumentShrink);
         this.cancelChatMessageMotion();
       };
       motion.frame = requestAnimationFrame(step);
