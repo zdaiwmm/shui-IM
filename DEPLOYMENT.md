@@ -354,6 +354,14 @@ switch. The local development environment used for this change has no Docker,
 so the checked-in TURN image/configuration still needs this server-side check.
 See `CALLS.md` for application behavior and the call acceptance checklist.
 
+### 主站TURN本机别名保护（2026-11-17）
+
+主站`production`／ai.shui.click已按本次独立授权补齐TCP3478、UDP3478、UDP49160–49200云端入口，并修复自公网映回本机私网后被拒绝的中继路径。`/usr/local/sbin/quiet-room-turn-self-guard`、同名systemd服务及`docker.service.d/quiet-room-turn-guard.conf`先保护UID65534到本机172.18.1.136的出站访问：保留控制响应，媒体仅允许既有UDP中继端口互通。Docker启动依赖保护成功，地址不匹配或规则失败会阻止启动，不能直接删除依赖以绕过。
+
+现有持久TURN策略库仅在quiet-room realm允许该本机地址，其他私网／回环／元数据仍拒绝。新主机或离机恢复须先恢复并验证保护，再恢复这一白名单；应用备份不自动包含TURN策略库及上述主机配置。改镜像运行UID、本机地址或中继端口前，应同步审核策略、启动顺序及真实正反测试。普通应用发布须保留策略卷、userdb路径及主机保护；正常回滚也要核对这些运行条件。
+
+本批仅更新已批准的运行配置，应用、备份及TURN容器未重启；配置摘要、root私有备份、实际非中继访问拦截、UDP／TCP加密媒体及独立回读由[本次记录](docs/requirements/2026-11-17-call-relay-recovery/README.md)持有。未进行整机重启、物理双设备或30–60分钟通话验收。
+
 ## First deployment to an independent empty environment
 
 Use an explicit named environment with its own origin, SSH key, secrets,
