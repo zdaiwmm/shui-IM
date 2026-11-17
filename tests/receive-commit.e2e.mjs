@@ -181,6 +181,7 @@ async function storageCases(h, source) {
       // A local link video acknowledgement and outbox retirement share the receive transaction.
       const id = crypto.randomUUID(), bytes = new Blob(['synthetic local video bytes']), signal = new AbortController().signal;
       await v.storeLinkVideo(s, { id, key: id, name: 'synthetic.mp4', size: bytes.size, created: Date.now(), duration: 1 }, bytes, signal);
+      await v.linkVideoSendId(s,id);
       const payload = { v: 1, kind: 'file', sentAt: new Date().toISOString(), file: { v: 1, blobId: crypto.randomUUID(),
         key: 'A'.repeat(43), ivPrefix: 'A'.repeat(11), chunkSize: 2 * 1024 * 1024, chunkCount: 1, originalSize: bytes.size,
         originalName: 'synthetic.mp4', mimeType: 'video/mp4', lastModified: 0, sha256: 'a'.repeat(64) } };
@@ -197,12 +198,33 @@ async function storageCases(h, source) {
       finally { IDBObjectStore.prototype.put = put; }
       results.videoAbortAtomic = (await v.loadOutbox(s)).some(row => row.clientMsgId === id)
         && !(await v.listLinkVideos(s, signal)).find(row => row.id === id).shared
+        && (await v.listPendingLinkSends(s,signal)).some(row=>row.id===id)
         && !(await v.loadHistory(s)).some(row => row.clientMsgId === id);
       await v.withVaultMutation(s, lease => v.commitMlsReceive(s, fileMessage, s.vault.mls.groupState, undefined, lease));
       const reopened = await durable();
       results.videoCommitAtomic = !(await v.loadOutbox(reopened)).some(row => row.clientMsgId === id)
         && (await v.listLinkVideos(reopened, signal)).find(row => row.id === id).shared
+        && (await v.listLinkVideos(reopened,signal)).find(row=>row.id===id).confirmedSendId===id
+        && !(await v.listPendingLinkSends(reopened,signal)).some(row=>row.id===id)
         && (await v.loadHistory(reopened)).some(row => row.clientMsgId === id) && reopened.vault.lastSeq === fileMessage.seq;
+      const resendId=await v.linkVideoSendId(s,id);
+      await v.withVaultMutation(s,lease=>v.commitMlsSend(s,{clientMsgId:resendId,payload,createdAt:payload.sentAt},s.vault.mls.groupState,lease));
+      const resendMessage={...fileMessage,seq:fileMessage.seq+1,clientMsgId:resendId};
+      IDBObjectStore.prototype.put=function(...args){
+        const request=put.apply(this,args);
+        if(this.name==='linkVideos')request.addEventListener('success',()=>this.transaction.abort(),{once:true});
+        return request;
+      };
+      try{results.resendAbort=await rejectUnchanged(()=>v.withVaultMutation(s,lease=>v.commitMlsReceive(s,resendMessage,s.vault.mls.groupState,undefined,lease)));}
+      finally{IDBObjectStore.prototype.put=put;}
+      const interrupted=(await v.listLinkVideos(s,signal)).find(row=>row.id===id);
+      results.resendAbortAtomic=interrupted.shared&&interrupted.pendingSend&&interrupted.confirmedSendId===id
+        && (await v.loadOutbox(s)).some(row=>row.clientMsgId===resendId);
+      await v.withVaultMutation(s,lease=>v.commitMlsReceive(s,resendMessage,s.vault.mls.groupState,undefined,lease));
+      const confirmed=await durable(),resent=(await v.listLinkVideos(confirmed,signal)).find(row=>row.id===id);
+      results.resendCommitAtomic=resendId!==id&&resent.shared&&!resent.pendingSend&&resent.confirmedSendId===resendId
+        && !(await v.loadOutbox(confirmed)).some(row=>row.clientMsgId===resendId)
+        && (await v.loadHistory(confirmed)).some(row=>row.clientMsgId===resendId)&&confirmed.vault.lastSeq===resendMessage.seq;
       return results;
     } finally { db.close(); }
   }, fixture); } finally { await page.close(); }

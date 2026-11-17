@@ -1,5 +1,5 @@
 import { openLinkVideoSheet, localVideoTile } from './lib/link-video-sheet';
-import { listLinkVideos, confirmLinkVideoShared, type SavedLinkVideo } from './lib/vault';
+import { listLinkVideos, confirmLinkVideoShared, isLinkVideoSendConfirmed, type SavedLinkVideo } from './lib/vault';
 import { ComposerLinkPreview, renderPreviewCard, concealLinkPreviews, revealLinkPreviews } from './lib/link-preview-ui';
 import { LINK_PREVIEW_CAPABILITY } from './lib/link-preview-data';
 import { renderLinkedText } from './lib/web-links';
@@ -8159,7 +8159,11 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         textarea.style.removeProperty('transition');
         // Commit to the already-painted endpoint, then remove translations in
         // the same task. Older-history readers keep their original anchor.
-        this.syncChatLayout();
+        // Native document clamping owns a cleared desktop draft's shrink.
+        // The queued viewport frame aligns its settled bottom geometry.
+        const clearedDocumentShrink = this.desktopBrowser && !this.usesListScrolling
+          && textarea.value === '' && targetHeight < currentHeight;
+        this.syncChatLayout(!clearedDocumentShrink);
         this.cancelChatMessageMotion();
       };
       motion.frame = requestAnimationFrame(step);
@@ -16961,7 +16965,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         try {
           const item=(await listLinkVideos(session,op)).find(item=>item.id===id);
           const sendId=preparedSendIds.get(id)??item?.sendId??id;
-          if (await hasOutboxItem(session, sendId) || item?.shared) return true;
+          if (await hasOutboxItem(session, sendId) || (item&&isLinkVideoSendConfirmed(item,sendId))) return true;
           op.throwIfAborted();
           const retryId = this.mediaUploads.has(sendId) ? sendId : undefined;
           return await this.processImageBatch([file], 'chat', op, false, retryId, false, undefined, id, progress, sendId);

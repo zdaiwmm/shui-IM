@@ -413,6 +413,57 @@ try {
         return {pending:pending.length,blocked};
       });
       assert.deepEqual(cancelled,{pending:0,blocked:true},'Cancellation fences automatic preparation recovery');
+      await page.evaluate(async()=>{
+        const {vault,session}=window.f;
+        await vault.withVaultMutation(session,()=>vault.confirmLinkVideoShared(session,window.f.recoveredId));
+      });
+      await click('返回聊天');
+      await page.evaluate(()=>window.f.app.openVideoDownloads());
+      await click('我的下载');
+      await sheet.getByRole('button',{name:'更多操作'}).click();
+      const resend=sheet.locator('.link-video-menu').getByRole('button',{name:'发送至聊天',exact:true});
+      await expect(resend).toBeEnabled();
+      await page.evaluate(()=>{
+        delete window.f.preparationReached;
+        window.f.app.processImageBatch=async(_files,_destination,signal)=>{
+          window.f.preparationReached=true;
+          await new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));
+        };
+      });
+      await resend.click();
+      await page.waitForFunction(()=>window.f.preparationReached);
+      const prepared=await page.evaluate(async()=>{
+        const {vault,session,signal}=window.f;
+        const [item]=await vault.listLinkVideos(session,signal);
+        window.f.resendId=item.sendId;
+        await vault.withVaultMutation(session,()=>vault.confirmLinkVideoShared(session,window.f.recoveredId));
+        const reopened=await vault.resumeVaultSession(session);
+        const [stored]=await vault.listLinkVideos(reopened,signal);
+        return {newId:stored.sendId!==window.f.recoveredId,shared:stored.shared,
+          pending:(await vault.listPendingLinkSends(reopened,signal)).map(row=>row.sendId),
+          sameId:await vault.linkVideoSendId(reopened,stored.id)===stored.sendId};
+      });
+      assert.equal(prepared.newId,true,'An explicit send after confirmation owns a fresh message ID');
+      assert.equal(prepared.shared,true,'Preparing another send never restores the private lock');
+      assert.deepEqual(prepared.pending,[await page.evaluate(()=>window.f.resendId)],'A late old ACK cannot retire the new preparation');
+      assert.equal(prepared.sameId,true,'Interrupted preparation reuses its current message ID');
+      await page.evaluate(()=>{window.f.recreate();window.f.app.openVideoDownloads(undefined,true);});
+      await page.locator('.link-video-resume').filter({hasText:'已交给聊天发送'}).click();
+      await sheet.getByRole('status').filter({hasText:'已交给聊天发送'}).waitFor();
+      const resent=await page.evaluate(async()=>{
+        const {vault,session,signal}=window.f;
+        const before=(await vault.loadOutbox(session)).map(item=>item.clientMsgId);
+        await vault.withVaultMutation(session,()=>vault.confirmLinkVideoShared(session,window.f.resendId));
+        await vault.withVaultMutation(session,()=>vault.confirmLinkVideoShared(session,window.f.recoveredId));
+        await vault.withVaultMutation(session,()=>vault.confirmLinkVideoShared(session,window.f.resendId));
+        const [item]=await vault.listLinkVideos(session,signal);
+        return {before,expected:window.f.resendId,confirmed:item.confirmedSendId,
+          pending:(await vault.listPendingLinkSends(session,signal)).length,shared:item.shared};
+      });
+      assert.deepEqual(resent.before,[resent.expected],'The explicit resend persists a new chat message');
+      assert.equal(resent.confirmed,resent.expected,'Stale and duplicate ACKs preserve the latest confirmed attempt');
+      assert.equal(resent.pending,0);
+      assert.equal(resent.shared,true);
     }
     if(role==='joiner'&&!large)assert.equal(await page.evaluate(()=>window.f.queuedNodes.every(node=>node.isConnected&&document.querySelector(`[data-client-msg-id="${node.dataset.clientMsgId}"]`)===node)),true,'Sending retains the queued article nodes');
     if (role === 'creator') {
@@ -443,6 +494,34 @@ try {
       assert.equal(await page.locator('.link-video-banner').count(), 0);
       assert.equal(await page.evaluate(() => Boolean(window.f.app.videoDownloads)), false);
       assert.equal(await page.evaluate(async () => (await window.f.vault.listLinkVideos(window.f.session, window.f.signal)).length), 1);
+      if(!large){
+        const legacy=await page.evaluate(async()=>{
+          const {vault,session,source}=window.f,signal=new AbortController().signal;
+          const id=crypto.randomUUID(),first=crypto.randomUUID();
+          const sendIds=[id,...Array.from({length:98},()=>crypto.randomUUID()),first];
+          await vault.storeLinkVideo(session,{id,key:'legacy-resend',name:'legacy.mp4',size:source.size,
+            created:Date.now(),duration:2,shared:true,sendId:first,sendIds,pendingSend:true},source,signal);
+          const before=(await vault.listPendingLinkSends(session,signal)).some(item=>item.id===id);
+          const second=await vault.linkVideoSendId(session,id);
+          await vault.cancelOutboxItem(session,second);
+          let blocked=false;
+          try{await vault.setLinkVideoPendingSend(session,id,true);}catch(error){blocked=error.name==='AbortError';}
+          const third=await vault.linkVideoSendId(session,id);
+          await vault.withVaultMutation(session,()=>vault.confirmLinkVideoShared(session,second));
+          const item=(await vault.listLinkVideos(session,signal)).find(row=>row.id===id);
+          return {before,rotated:second!==first,blocked,freshAfterCancel:third!==second,
+            shared:item.shared,pending:item.pendingSend,confirmedOriginal:item.confirmedSendId===first,
+            bounded:item.sendIds.length===100&&item.sendIds.includes(third)};
+        });
+        assert.equal(legacy.before,false,'Legacy shared pending rows are already confirmed');
+        assert.equal(legacy.rotated,true);
+        assert.equal(legacy.blocked,true);
+        assert.equal(legacy.freshAfterCancel,true);
+        assert.equal(legacy.shared,true);
+        assert.equal(legacy.pending,true,'A cancelled older ACK does not retire the latest attempt');
+        assert.equal(legacy.confirmedOriginal,true);
+        assert.equal(legacy.bounded,true,'Repeated explicit sends keep bounded ACK lookup history');
+      }
     }
     await page.evaluate(() => window.f.app.runtimeAbort.abort());
     await sheet.waitFor({ state: 'detached' });
