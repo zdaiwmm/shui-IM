@@ -135,6 +135,7 @@
     if(type!=='quiet-room-cipher-transfer'){erase();return;}
     if(jobs.has(id)){erase();event.ports?.[0]?.postMessage({version:1});return;}
     const controller=new AbortController();jobs.set(id,controller);
+    let heartbeat;
     const operation=(async()=>{
       let source=receivedSource;
       if(receivedSource&&Object.hasOwn(receivedSource,'keyBytes')){
@@ -145,6 +146,7 @@
         }finally{erase();}
       }
       event.ports?.[0]?.postMessage({version:1});
+      heartbeat=setInterval(()=>{void update(id,{}).catch(()=>{});},60_000);
       return source
         ? (sourceChain=sourceChain.catch(()=>{}).then(()=>run(id,controller.signal,source)))
         : run(id,controller.signal);
@@ -152,6 +154,6 @@
       erase();event.ports?.[0]?.postMessage({version:1,error:'SOURCE_GRANT_INVALID'});
       await update(id,{state:'paused'}).catch(()=>{});
     });
-    event.waitUntil(operation.finally(()=>jobs.delete(id)));
+    event.waitUntil(operation.finally(()=>{clearInterval(heartbeat);jobs.delete(id);}));
   });
 })();

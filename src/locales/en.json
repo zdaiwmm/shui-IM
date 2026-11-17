@@ -3199,5 +3199,6 @@
   "等待处理": "Waiting",
   "粘贴链接，选择想分享的视频": "Paste a link to choose videos",
   "仅下载保存在本机，不会发送给对方。": "Download only saves on this device without sending to the other person.",
-  "已选": "Selected"
+  "已选": "Selected",
+  "传输临时文件已超过24小时，请重新选择文件上传或重新下载。": "Transfer temporary files are over 24 hours old. Select the file again to upload or download it again."
 }

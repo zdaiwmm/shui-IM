@@ -3192,5 +3192,6 @@
   "等待处理": "En espera",
   "粘贴链接，选择想分享的视频": "Pega un enlace para elegir vídeos",
   "仅下载保存在本机，不会发送给对方。": "La descarga se guarda solo en este dispositivo y no se envía a la otra persona.",
-  "已选": "Seleccionados"
+  "已选": "Seleccionados",
+  "传输临时文件已超过24小时，请重新选择文件上传或重新下载。": "Los archivos temporales tienen más de 24 horas. Selecciona el archivo para subirlo o descárgalo de nuevo."
 }

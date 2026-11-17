@@ -1,11 +1,15 @@
 import { authorizedFetch } from './api';
 import type { ImageManifest } from './types';
 import { uiLiteral } from './language';
+import { staleMediaActivity } from './media-retention';
 
 export type CipherTransfer = {
   id: string; roomId: string; blobId: string; deviceId: string; direction: 'upload' | 'download' | 'source';
   chunkCount: number; originalSize: number; chunkSize: number; token: string; expiresAt: number;
   acknowledgedChunks?:number;
+  clientMsgId?:string;
+  /** A durable terminal fence; distinct from user cancellation. */
+  expired?:boolean;
   receivedBytes?:number; etag?:string;
   state: 'preparing' | 'ready' | 'running' | 'done' | 'paused' | 'restart' | 'cancelled'; updated: number;
 };
@@ -44,12 +48,47 @@ export async function findCipherTransfer(roomId:string,deviceId:string,blobId:st
 }
 export async function discardCipherTransfer(id:string):Promise<void> {
   const task=await readCipherTransfer(id);
-  if(task&&task.direction!=='source'&&task.token)await fetch(`/api/rooms/${task.roomId}/blobs/${task.blobId}/transfer`,{method:'DELETE',credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(5000),headers:{Authorization:'Transfer '+task.token,'X-Transfer-Direction':task.direction}}).catch(()=>undefined);
   await transact<void>('readwrite',(tx,done)=>{
     tx.objectStore('tasks').delete(id);
     const cursor=tx.objectStore('parts').index('taskId').openCursor(IDBKeyRange.only(id));
     cursor.onsuccess=()=>{if(cursor.result){cursor.result.delete();cursor.result.continue();}else done();};
   });
+  if(task)await retireTransferGrant(task);
+}
+
+async function retireTransferGrant(task:CipherTransfer):Promise<void> {
+  if(task.direction!=='source'&&task.token)await fetch(`/api/rooms/${task.roomId}/blobs/${task.blobId}/transfer`,{method:'DELETE',credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(5000),headers:{Authorization:'Transfer '+task.token,'X-Transfer-Direction':task.direction}}).catch(()=>undefined);
+}
+
+/** One IDB transaction arbitrates expiry against worker writes and renewal.
+ * No vault, history, outbox, attachment key or source URL is accessed here. */
+export async function cleanupCipherTransfers(now=Date.now()):Promise<CipherTransfer[]> {
+  const expired=await transact<CipherTransfer[]>('readwrite',(tx,done)=>{
+    const tasks=tx.objectStore('tasks'),parts=tx.objectStore('parts');
+    const scan=tasks.openCursor(),retired:CipherTransfer[]=[];
+    scan.onsuccess=()=>{
+      const cursor=scan.result;
+      if(!cursor){done(retired);return;}
+      const task=cursor.value as CipherTransfer;
+      if(staleMediaActivity(task.updated,now)){
+        if(task.state==='cancelled')cursor.delete();
+        else {retired.push(task);cursor.update({...task,state:'cancelled',expired:true,token:'',updated:now});}
+      }
+      cursor.continue();
+    };
+    // Key cursors avoid materializing potentially gigabytes of ciphertext.
+    const chunks=parts.openKeyCursor();
+    chunks.onsuccess=()=>{
+      const cursor=chunks.result;if(!cursor)return;
+      const taskId=String(cursor.primaryKey).slice(0,String(cursor.primaryKey).lastIndexOf(':'));
+      const request=tasks.get(taskId);
+      request.onsuccess=()=>{if(!request.result||request.result.state==='cancelled'||staleMediaActivity(request.result.updated,now))parts.delete(cursor.primaryKey);cursor.continue();};
+    };
+  });
+  // Commit the local fence before notifying workers or awaiting the network.
+  for(const task of expired)navigator.serviceWorker?.controller?.postMessage({type:'quiet-room-cipher-transfer-cancel',id:task.id});
+  await Promise.all(expired.map(retireTransferGrant));
+  return expired;
 }
 export function readCipherTransfer(id: string): Promise<CipherTransfer | undefined> {
   return transact('readonly',(tx,done) => {const request=tx.objectStore('tasks').get(id);request.onsuccess=()=>done(request.result);});
@@ -71,10 +110,12 @@ export function readCipherPart(id: string,index: number): Promise<ArrayBuffer | 
 export async function prepareCipherTransfer(options: {
   roomId:string;deviceId:string;accessToken:string;manifest:Pick<ImageManifest,'blobId'|'chunkCount'|'originalSize'|'chunkSize'>;
   direction:'upload'|'download';signal:AbortSignal;
+  clientMsgId?:string;
   /** Automatic recovery cannot allocate a replacement for a cancelled task. */
   expectedTaskId?:string;
 }): Promise<CipherTransfer | undefined> {
   if (!navigator.serviceWorker?.controller) return;
+  await cleanupCipherTransfers();
   const {manifest:m,roomId,deviceId,direction,signal}=options;
   signal.throwIfAborted();
   const id=cipherTransferId(roomId,deviceId,m.blobId,direction);
@@ -91,10 +132,10 @@ export async function prepareCipherTransfer(options: {
   if (!/^[A-Za-z0-9_-]{43}$/.test(grant.token) || !Number.isSafeInteger(grant.expiresAt) || grant.expiresAt<=Date.now()) throw Error('Invalid transfer grant');
   signal.throwIfAborted();
   const task:CipherTransfer={id:prior?.id ?? id,roomId,deviceId,blobId:m.blobId,direction,chunkCount:m.chunkCount,originalSize:m.originalSize,chunkSize:m.chunkSize,
-    token:grant.token,expiresAt:grant.expiresAt,state:direction==='upload'?'preparing':'ready',updated:Date.now()};
+    token:grant.token,expiresAt:grant.expiresAt,state:direction==='upload'?'preparing':'ready',updated:Date.now(),...(options.clientMsgId?{clientMsgId:options.clientMsgId}:{})};
   await transact<void>('readwrite',(tx,done)=>{
     const store=tx.objectStore('tasks'),read=store.get(task.id);
-    read.onsuccess=()=>{if(read.result?.state==='cancelled'||options.expectedTaskId&&!read.result){tx.abort();return;}store.put(task);done();};
+    read.onsuccess=()=>{if(read.result?.state==='cancelled'||prior&&!read.result){tx.abort();return;}store.put(task);done();};
   });
   return task;
 }
@@ -106,6 +147,7 @@ export async function stageCipherPart(task:CipherTransfer,index:number,bytes:Arr
   await transact<void>('readwrite',(tx,done)=>{
     const request=tx.objectStore('tasks').get(task.id);
     request.onsuccess=()=>{if(!request.result||request.result.state==='cancelled'){tx.abort();return;}
+      tx.objectStore('tasks').put({...request.result,updated:Date.now()});
       tx.objectStore('parts').put({id:task.id+':'+index,taskId:task.id,index,bytes});done();};
   });
 }
@@ -193,14 +235,16 @@ export async function runCipherTransfer(task:CipherTransfer,signal:AbortSignal,p
   } finally {if(source?.keyBytes.byteLength)source.keyBytes.fill(0);}
 }
 export async function cancelCipherTransfer(id:string):Promise<void> {
-  const task=await readCipherTransfer(id);if(!task)return;
-  await transact<void>('readwrite',(tx,done)=>{
-    tx.objectStore('tasks').put({...task,state:'cancelled',token:'',updated:Date.now()});
-    const cursor=tx.objectStore('parts').index('taskId').openCursor(IDBKeyRange.only(id));
-    cursor.onsuccess=()=>{if(cursor.result){cursor.result.delete();cursor.result.continue();}else done();};
+  const task=await transact<CipherTransfer|undefined>('readwrite',(tx,done)=>{
+    const store=tx.objectStore('tasks'),read=store.get(id);
+    read.onsuccess=()=>{
+      const current=read.result as CipherTransfer|undefined;if(!current){done(undefined);return;}
+      store.put({...current,state:'cancelled',token:'',updated:Date.now()});
+      const cursor=tx.objectStore('parts').index('taskId').openCursor(IDBKeyRange.only(id));
+      cursor.onsuccess=()=>{if(cursor.result){cursor.result.delete();cursor.result.continue();}else done(current);};
+    };
   });
+  if(!task)return;
   navigator.serviceWorker?.controller?.postMessage({type:'quiet-room-cipher-transfer-cancel',id});
-  if(task.direction==='source')return;
-  await fetch(`/api/rooms/${task.roomId}/blobs/${task.blobId}/transfer`,{method:'DELETE',credentials:'omit',cache:'no-store',signal:AbortSignal.timeout(5000),
-    headers:{Authorization:'Transfer '+task.token,'X-Transfer-Direction':task.direction}}).catch(()=>undefined);
+  await retireTransferGrant(task);
 }
