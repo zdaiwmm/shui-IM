@@ -4,6 +4,21 @@
 
 跨设备操作见[GitHub 双站发布与独立回读](docs/requirements/2026-11-09-cross-device-release/README.md)。
 
+## 11 月 17 日完整批次：主站已发布并独立回读（2026-11-17）
+<a id="release-production-batch-20261117"></a>
+
+用户要求发布最新分支并排查当天漏发，随后确认完整提交 `467e6957985f45f90bb3c862895a5a180583e7ff`／`2026.11.17.3` 发布至 production／ai.shui.click。本批从已运行的 `2200684c7818f7e7c5f384a7140b16abb4b353b7` 升级，补发 [PR #535](https://github.com/zdaiwmm/shui-IM/pull/535) 的 Safari 大视频重建与发送偏移修复，以及 [PR #536](https://github.com/zdaiwmm/shui-IM/pull/536) 的 24 小时本地媒体传输清理。[PR #537](https://github.com/zdaiwmm/shui-IM/pull/537) 的通话中继配置此前已在主站生效，其维护记录也包含在本批；#532 已在前版运行，没有重复合并。当天没有仍待合并的修复 PR，旧无关 PR 不纳入。
+
+[发布准备 PR #538](https://github.com/zdaiwmm/shui-IM/pull/538) 补齐更新说明，冻结源 `8ef041f386355a6b0807664735db6654d9570324` 与应用 main 同树。PR 首轮既有邀请页 WebKit 请求异常及原断言复验由该 PR 留证；最终 [精确 main full CI 44055787979](https://github.com/zdaiwmm/shui-IM/actions/runs/44055787979) attempt 1 全部成功，含全部浏览器分片、通话／TURN、依赖审计及双架构镜像。没有新增依赖、数据库迁移、Compose 或 root helper 变更。
+
+[固定云端只读预检 44057785220](https://github.com/zdaiwmm/shui-IM/actions/runs/44057785220) 返回 PREFLIGHT_OK。确认后仅执行一次[固定云端发布 44059786962](https://github.com/zdaiwmm/shui-IM/actions/runs/44059786962)，取得 DEPLOY_VERIFIED，批次 `20261117T095527Z`；北京时间 **18:00:53** 独立取得 READBACK_OK（3380ms）。应用与备份均 running／healthy，TURN running／探针 none，维护门 absent，提交／镜像、HTTPS、数据库／存储、六个公开与容器资源摘要及新建 WebSocket 均匹配。公开 `/release.json` 另核对为 HTTP 200／no-cache、ID `2026.11.17.3`。固定发布耗时 414297ms，自动接续独立回读后合计 417768ms。
+
+主站使用同轮 linux/amd64 产物 `14315642719`，运行镜像为 `sha256:c12e64361935a5439c3105ef354751066a3689cfbe792a0f4079a9b6158ef910`，传输归档 SHA-256 为 `5e5427778d1929c1d74158a9127cd8c547d45dbcc70f2edc0ee05a3aade0829f`。发布后只读核对 #537 的保护服务 active、三份安装文件摘要与获批值一致，Docker Requires／After 依赖保留；没有重装保护或修改防火墙。
+
+本轮仅发布主站，没有操作家庭站；家庭站沿用下方此前网络阻塞记录，本轮未重新核验。没有新增物理 iPhone、系统 Safari、用户原视频或长通话验收。更新后的接收端仍是超过 256 MiB 视频原件的兼容前提。
+
+授权、盘点、CI／镜像、脱敏发布及独立回读、公开版本和保护配置证据保存在公共 Git 目录 `quiet-room-deliveries/evidence/production-batch-20261117/`。对账使用第二个不含部署配置的工作树，文档提交不替换线上应用 SHA，不再次部署。任务依赖、构建缓存与 Git 回执按保留规则处理，其他任务资源不纳入清理。
+
 ## 视频发送与版本更新体验：主站已回读，家庭站切换前受阻（2026-11-17）
 <a id="release-video-update-20261117"></a>
 

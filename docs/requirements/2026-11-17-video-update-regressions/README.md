@@ -1,6 +1,6 @@
 # 视频发送、占位与版本更新回归
 
-状态：PR #532 已合并，精确应用 main full CI 通过；应用 2200684c7818f7e7c5f384a7140b16abb4b353b7／2026.11.17.1 已在主站发布并独立回读，家庭站镜像已导入，公网健康预检因 502 在维护／切换前停止，仍运行旧版，尚无本批成功回执或独立回读。
+状态：PR #532、#535 已合并；主站已在后续完整批次升级至 467e6957985f45f90bb3c862895a5a180583e7ff／2026.11.17.3，并通过独立回读。此前 2200684c／2026.11.17.1 的发布与家庭站切换前阻塞保留在下文；本轮未操作家庭站。
 
 基线及规则来源：GitHub main 与本机 origin/main 均为 `92b977d7af7776f6af24f4fce465b03acf0dec1f`，读取该版 AGENTS.md、docs/context/workflow.md 和发布效率规程。独占克隆 `chat-video-update-fixes-20261117`，分支 `codex/chat-video-update-fixes-20261117`；Git 元数据在任务目录自身，不写其他任务。
 
@@ -44,3 +44,7 @@
 物理限制：USB 未检测到 iPhone；系统 Safari 与用户版本一致，但 WebDriver 返回未启用远程自动化，未更改设置。上述 WebKit 为隔离浏览器自动化，不能写成 iPhone、系统 Safari 原生合成器、用户原视频或独立应用已经验收。
 
 首轮候选 `21381c25` 的本地 check:full 构建通过，1354／1357 单测通过，三个既有 Git 夹具超出 5 秒；两组 54 项在 `--maxWorkers=1 --testTimeout=15000` 下原断言全部通过。PR #535 首轮 CI 的完整单测通过，浏览器分片检出授权等待页也复用 chat-shell，通用 clip 使「重新申请」无法点击；选择器进一步收窄到具有 `data-scroll-owner=list` 的真实聊天。保留原失败及未完成记录，按修正候选重新冻结验证。整件加解密实现与此前 701 MiB／2 GiB 字节及播放验证相同。
+
+## 完整批次补发与独立回读（2026-11-17）
+
+[PR #535](https://github.com/zdaiwmm/shui-IM/pull/535) 最终源 `cb89ce4c60c46443147e01c40a81bcfbf21e8996` 已合并，随后与 #536 的本地媒体清理、#537 的通话维护记录共同纳入 `467e6957985f45f90bb3c862895a5a180583e7ff`／`2026.11.17.3`。[精确 main full CI 44055787979](https://github.com/zdaiwmm/shui-IM/actions/runs/44055787979) attempt 1 全部成功。用户确认该完整提交后，主站固定发布取得 DEPLOY_VERIFIED，北京时间18:00:53独立 READBACK_OK；公开版本文件另核对为200／no-cache。批次、镜像、实际回读与保留边界由[本批发布记录](../../../RELEASING.md#release-production-batch-20261117)持有。没有新增物理 iPhone、系统 Safari、用户原视频或独立应用验收；此前环境与测试失败记录保留。
