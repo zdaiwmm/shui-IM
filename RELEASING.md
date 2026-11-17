@@ -4,6 +4,21 @@
 
 跨设备操作见[GitHub 双站发布与独立回读](docs/requirements/2026-11-09-cross-device-release/README.md)。
 
+## 视频发送与版本更新体验：主站已回读，家庭站切换前受阻（2026-11-17）
+<a id="release-video-update-20261117"></a>
+
+用户在本聊天要求「发布至两个环境」，本批固定应用 `2200684c7818f7e7c5f384a7140b16abb4b353b7`／`2026.11.17.1`，目标为 production／ai.shui.click 与 home-frp／mijiu.cloud，按主站发布及独立回读通过后再发布家庭站的顺序执行。[PR #532](https://github.com/zdaiwmm/shui-IM/pull/532) 修复视频占位与结果大卡、多行回复发送回弹、移动前台版本发现及更新说明；[精确 main full CI 44019654136](https://github.com/zdaiwmm/shui-IM/actions/runs/44019654136) attempt 1 成功，复用同轮 linux/amd64 镜像。
+
+主站从 `52686c2399be01f98e22b543d0c688ea56330e1b` 经[固定云端发布 44021533811](https://github.com/zdaiwmm/shui-IM/actions/runs/44021533811)取得 DEPLOY_VERIFIED，批次 `20261117T050646Z`。北京时间 **13:11:08** 独立取得 READBACK_OK（3431ms），应用与备份 healthy、维护门 absent，提交／镜像、HTTPS、数据库／存储、公开与容器资源及新建 WebSocket 均匹配。另核对公开 `/release.json` 为 HTTP 200、`Cache-Control: no-cache`，版本 ID 为 `2026.11.17.1`。主站已成功切换，不因家庭站或文档收尾重发。
+
+家庭站固定入口已导入本批镜像，但公网 HTTPS 健康预检返回 HTTP 502，发布在进入维护／切换前停止。只读核验仍运行 `a591e8fa163aa4b104614811c548d5586cf90920`，应用与备份 healthy，本机网关健康正常；没有本批 DEPLOY_VERIFIED 或独立 READBACK_OK，不记为两站新版完成。家庭站采用同一已校验 CI 镜像：产物 `14301110577`，归档 195126769 字节，配置镜像 ID `sha256:9c7b599c4723972b2bb06bf3d31586dccd6c18b6d33367bfd41e529b77a18dbf`，归档 SHA-256 `fb9d2b70fc1e717965715c9590035c928e88222a8cafa29533ae5c96846eacd7`。服务器传输、切换与独立回读各自留证，不能由主站成功代替。
+
+家庭公网出口与东京 `27445/TCP` 的单一 `/32` 来源许可不再匹配，FRP 链路受阻。本次尚未改动 UFW 或 Lightsail 网络规则；本机 Mac 锁屏限制控制台操作，CLI 无可用云凭据，云端当前来源规则尚未独立回读。后续待本次单一 `/32` 来源替换授权与可用控制台，再核实实际状态并续接固定发布流程，不盲目重发。
+
+累计范围无新增数据库迁移、依赖、Compose 或 root helper 变更；家庭站发布完成后将同时获得此前已在主站运行的源密钥缓冲区交接修复。本批 1356 项本地单测、相关双引擎及完整 CI 证据由[需求记录](docs/requirements/2026-11-17-video-update-regressions/README.md)持有。超过 256 MiB 的原件仍需旧接收端更新；没有绕过接收验证或更改视频原件。未新增物理 iPhone 验收。
+
+脱敏授权、镜像、发布与独立回读证据保存在应用任务 Git 公共目录 `quiet-room-deliveries/evidence/video-update-release-20261117/`。对账使用第二个不含部署配置的工作树；文档提交不替换线上应用 SHA。家庭站尚未完成本批发布／回读，资源清理门禁未通过，任务资源保留。
+
 ## 视频两站发布与 iPhone 验收接续（2026-11-16）
 <a id="release-video-transfer-20261116"></a>
 
