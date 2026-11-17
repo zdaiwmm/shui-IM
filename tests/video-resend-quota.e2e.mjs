@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -21,7 +21,8 @@ async function until(page, predicate) {
 }
 try {
   await mkdir(path.join(directory, 'static'));
-  await writeFile(path.join(directory, 'static/sw.js'), "const RELEASE_ID = '2026.11.17.4';\n");
+  const release = JSON.parse(await readFile(new URL('../release.json', import.meta.url), 'utf8'));
+  await writeFile(path.join(directory, 'static/sw.js'), `const RELEASE_ID = '${release.id}';\n`);
   service = await startServer({ port: 0, host: '127.0.0.1', dataDir: path.join(directory, 'data'),
     staticDir: path.join(directory, 'static'), maxRoomStorageBytes: roomLimit,
     maxTotalStorageBytes: 32 * 1024 ** 2, quiet: true });
@@ -101,6 +102,14 @@ try {
     auditApp.openVideoDownloads(item);
     return { size: file.size, width: poster.width, height: poster.height, roomId: resendProbe.roomId, deviceId: resendProbe.deviceId };
   });
+  await sender.evaluate(async () => {
+    const oldReplyId = crypto.randomUUID(), currentReplyId = crypto.randomUUID();
+    resendProbe.oldReplyId = oldReplyId; resendProbe.currentReplyId = currentReplyId;
+    await auditApp.enqueuePayload({ v: 1, kind: 'text', text: 'old reply', sentAt: new Date().toISOString() }, oldReplyId);
+    await auditApp.enqueuePayload({ v: 1, kind: 'text', text: 'current reply', sentAt: new Date().toISOString() }, currentReplyId);
+  });
+  await until(sender, () => [...auditApp.messages.values()].some(row => row.clientMsgId === resendProbe.currentReplyId));
+  await sender.evaluate(() => { auditApp.replyTarget = [...auditApp.messages.values()].find(row => row.clientMsgId === resendProbe.oldReplyId); });
   const sheet = sender.locator('.link-video-sheet');
   await sheet.getByRole('button', { name: '更多操作', exact: true }).click();
   await sheet.getByRole('button', { name: '发送至聊天', exact: true }).click();
@@ -114,6 +123,7 @@ try {
     const message = [...auditApp.messages.values()].find(row => row.clientMsgId === id);
     if (!message || message.payload.kind !== 'file') throw Error('First send must be authenticated own history');
     resendProbe.message = message; resendProbe.manifest = message.payload.file;
+    if (!message.payload.videoPreview) throw Error('Initial send must exercise shared video preview');
     return { messageId: id, blobId: message.payload.file.blobId, seq: message.seq,
       outbox: (await vault.loadOutbox(session)).length, plans: (await vault.loadUploadPlans(session)).length,
       shared: (await vault.listLinkVideos(session, auditApp.runtimeAbort.signal)).find(row => row.id === id).shared };
@@ -132,6 +142,11 @@ try {
     const item = (await resendProbe.vault.listLinkVideos(auditApp.session, auditApp.runtimeAbort.signal)).find(row => row.id === resendProbe.id);
     auditApp.openVideoDownloads(item);
   });
+  await sender.evaluate(() => {
+    auditApp.replyTarget = [...auditApp.messages.values()].find(row => row.clientMsgId === resendProbe.currentReplyId);
+    resendProbe.supports = auditApp.activeDevicesSupport.bind(auditApp);
+    auditApp.activeDevicesSupport = capability => capability !== 'video-preview-v1' && resendProbe.supports(capability);
+  });
   const requestsBeforeResend = evidence.requests.length;
   await sheet.getByRole('button', { name: '更多操作', exact: true }).click();
   await sheet.getByRole('button', { name: '发送至聊天', exact: true }).click();
@@ -145,15 +160,173 @@ try {
     const { vault, id } = resendProbe, session = auditApp.session;
     const item = (await vault.listLinkVideos(session, auditApp.runtimeAbort.signal)).find(row => row.id === id);
     const message = [...auditApp.messages.values()].find(row => row.clientMsgId === item.sendId);
-    return { id: item.sendId, confirmed: item.confirmedSendId, manifest: message?.payload.file,
+    return { id: item.sendId, confirmed: item.confirmedSendId, manifest: message?.payload.file, payload: message?.payload,
       plans: (await vault.loadUploadPlans(session)).length };
   });
   assert.notEqual(resent.id, evidence.first.messageId);
   assert.equal(resent.confirmed, resent.id, 'Explicit resend must confirm at a full room without a new reservation');
   assert.deepEqual(resent.manifest, await sender.evaluate(() => resendProbe.manifest));
+  assert.equal(resent.payload.replyTo.clientMsgId, await sender.evaluate(() => resendProbe.currentReplyId));
+  assert.notEqual(resent.payload.sentAt, await sender.evaluate(() => resendProbe.message.payload.sentAt));
+  assert.equal(resent.payload.videoPreview, undefined, 'Resend respects current preview capability');
   assert.equal(resent.plans, 0);
   assert.equal(evidence.requests.slice(requestsBeforeResend).filter(row => row.method === 'POST').length, 0);
   await peer.waitForFunction(id => [...auditApp.messages.values()].some(row => row.clientMsgId === id), resent.id);
+  const failed = await sender.evaluate(async () => {
+    resendProbe.makeQuotaFailure = async () => {
+      const { vault, id } = resendProbe, api = await import('/src/lib/api.ts');
+      const { encryptFileAttachment } = await import('/src/lib/file-crypto.ts');
+      const { compactMp4 } = await import('/src/lib/link-video.ts');
+      const session = auditApp.session, signal = auditApp.runtimeAbort.signal;
+      const pendingId = await vault.linkVideoSendId(session, id);
+      const file = await compactMp4(await vault.readLinkVideo(session, id, signal), signal);
+      let plan;
+      try {
+        await encryptFileAttachment(file, {
+          reserve: (blob, count, bytes) => api.reserveBlob(session.vault.roomId, session.vault.accessToken, blob, count, bytes, signal),
+          status: blob => api.getBlobStatus(session.vault.roomId, session.vault.accessToken, blob, signal),
+          upload: async () => { throw Error('Quota must reject before chunks'); }, complete: async () => {},
+          savePlan: async value => { plan = { ...value, clientMsgId: pendingId }; await vault.saveUploadPlan(session, plan); }, signal,
+        });
+        throw Error('Quota failure fixture must fail');
+      } catch (error) { if (error.status !== 507) throw error; }
+      return { id: pendingId, blob: plan.blobId, plans: (await vault.loadUploadPlans(session)).length,
+        outbox: (await vault.loadOutbox(session)).length };
+    };
+    return resendProbe.makeQuotaFailure();
+  });
+  assert.notEqual(failed.id, resent.id);
+  assert.equal(failed.plans, 1); assert.equal(failed.outbox, 0);
+  assert.throws(() => service.store.blobStatus(evidence.fixture.roomId, failed.blob), /INVALID_BLOB/);
+  const requestsBeforeRestart = evidence.requests.length;
+  await sender.evaluate(async () => {
+    const session = await resendProbe.vault.resumeVaultSession(auditApp.session);
+    auditApp.session = session;
+    await auditApp.openSession();
+  });
+  await until(sender, async () => {
+    const item = (await resendProbe.vault.listLinkVideos(auditApp.session, auditApp.runtimeAbort.signal)).find(row => row.id === resendProbe.id);
+    return item.confirmedSendId === item.sendId && !item.pendingSend;
+  });
+  const recovered = await sender.evaluate(async () => {
+    const { vault, id } = resendProbe, session = auditApp.session;
+    const item = (await vault.listLinkVideos(session, auditApp.runtimeAbort.signal)).find(row => row.id === id);
+    const message = [...auditApp.messages.values()].find(row => row.clientMsgId === item.sendId);
+    return { id: item.sendId, payload: message.payload, plans: (await vault.loadUploadPlans(session)).length };
+  });
+  assert.equal(recovered.id, failed.id, 'Restart keeps the already-authorized failed message ID');
+  assert.deepEqual(recovered.payload.file, resent.manifest);
+  assert.equal(recovered.payload.replyTo, undefined, 'No old reply leaks into a restart send');
+  assert.equal(recovered.plans, 0, 'Abandoned current-ID plan retires after enqueue');
+  assert.equal(evidence.requests.slice(requestsBeforeRestart).filter(row => row.method === 'POST').length, 0);
+  await peer.waitForFunction(id => [...auditApp.messages.values()].some(row => row.clientMsgId === id), failed.id);
+  const bytes = await peer.evaluate(async id => {
+    const message = [...auditApp.messages.values()].find(row => row.clientMsgId === id);
+    const { decryptFileAttachment } = await import('/src/lib/file-crypto.ts'), api = await import('/src/lib/api.ts');
+    const session = auditApp.session;
+    return (await decryptFileAttachment(message.payload.file, (blob, index) => api.fetchBlobChunk(session.vault.roomId, session.vault.accessToken, blob, index))).size;
+  }, failed.id);
+  assert.equal(bytes, evidence.fixture.size);
+  const cases = await sender.evaluate(async () => {
+    const { vault, id, manifest } = resendProbe, session = auditApp.session;
+    const signal = auditApp.runtimeAbort.signal;
+    const file = await (await import('/src/lib/link-video.ts')).compactMp4(await vault.readLinkVideo(session, id, signal), signal);
+    const realFetch = window.fetch.bind(window), supports = auditApp.activeDevicesSupport.bind(auditApp);
+    const results = [];
+    for (const mode of ['changed', 'missing-source', 'missing-blob', 'incomplete', 'wrong-count', 'wrong-bytes', 'unauthorized', 'network', 'file-gate', 'dimensions', 'abort']) {
+      let localId = id;
+      if (mode === 'missing-source') {
+        localId = crypto.randomUUID();
+        await vault.storeLinkVideo(session, { id: localId, key: 'no-history-source', name: file.name,
+          size: file.size, created: file.lastModified, duration: 1, shared: true }, file, signal);
+      }
+      const current = await vault.linkVideoSendId(session, localId), controller = new AbortController();
+      let reservations = 0;
+      window.fetch = async (input, init = {}) => {
+        const pathname = new URL(typeof input === 'string' ? input : input.url, location.href).pathname;
+        if (pathname.endsWith('/blobs') && init.method === 'POST') reservations++;
+        if (pathname.endsWith('/blobs/' + manifest.blobId) && !init.method) {
+          if (mode === 'missing-blob') return Response.json({ error: 'INVALID_BLOB' }, { status: 404 });
+          if (mode === 'incomplete') return Response.json({ uploadedIndexes: [], completed: false,
+            chunkCount: manifest.chunkCount, expectedBytes: manifest.originalSize + 16 * manifest.chunkCount });
+          if (mode === 'wrong-count' || mode === 'wrong-bytes') return Response.json({ uploadedIndexes: [0], completed: true,
+            chunkCount: manifest.chunkCount + Number(mode === 'wrong-count'),
+            expectedBytes: manifest.originalSize + 16 * manifest.chunkCount + Number(mode === 'wrong-bytes') });
+          if (mode === 'unauthorized') return Response.json({ error: 'UNAUTHORIZED' }, { status: 401 });
+          if (mode === 'network') throw new TypeError('Synthetic connection loss');
+          if (mode === 'abort') { controller.abort(); init.signal.throwIfAborted(); }
+        }
+        return realFetch(input, init);
+      };
+      auditApp.activeDevicesSupport = capability => !(mode === 'file-gate' && capability === 'file-message-v1')
+        && !(mode === 'dimensions' && capability === 'media-dimensions-v1') && supports(capability);
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (mode === 'changed') bytes[bytes.length - 1] ^= 1;
+      const selected = new File([bytes], file.name, { type: file.type, lastModified: file.lastModified + 1 });
+      const accepted = await auditApp.processImageBatch([selected], 'chat', controller.signal, false, undefined, false, undefined, localId, undefined, current);
+      const plans = await vault.loadUploadPlans(session);
+      results.push({ mode, accepted, reservations, plans: plans.filter(plan => plan.clientMsgId === current).length,
+        queued: (await vault.loadOutbox(session)).some(row => row.clientMsgId === current) });
+      window.fetch = realFetch; auditApp.activeDevicesSupport = supports;
+      await auditApp.cancelStagedVideoUpload(current);
+      auditApp.mediaUploads.get(current)?.view.destroy(); auditApp.mediaUploads.delete(current);
+    }
+    const current = await vault.linkVideoSendId(session, id), other = crypto.randomUUID();
+    const plan = { v: 2, blobId: manifest.blobId, key: manifest.key, ivPrefix: manifest.ivPrefix,
+      chunkCount: manifest.chunkCount, encryptedSize: manifest.originalSize + 16 * manifest.chunkCount,
+      originalSize: manifest.originalSize, originalName: manifest.originalName, mimeType: manifest.mimeType,
+      lastModified: file.lastModified, plaintextSha256: manifest.sha256, clientMsgId: other };
+    await vault.saveUploadPlan(session, plan); auditApp.uploadPlans.push(plan);
+    const accepted = await auditApp.processImageBatch([new File([file], file.name, { type: file.type,
+      lastModified: file.lastModified + 100 })], 'chat', signal, false, undefined, false, undefined, id, undefined, current);
+    if (!accepted || !(await vault.loadUploadPlans(session)).some(row => row.clientMsgId === other)) throw Error('Reuse deleted another attempt plan or required an identical timestamp');
+    await vault.deleteUploadPlan(session, plan.blobId); auditApp.uploadPlans = [];
+    const loaded = new Map(auditApp.messages);
+    auditApp.messages.clear();
+    const paged = await auditApp.reusableLinkVideoManifest(file, current, id, signal);
+    auditApp.messages = loaded;
+    if (JSON.stringify(paged?.manifest) !== JSON.stringify(manifest)) throw Error('Encrypted paged source history was not reused');
+    for (const committed of [false, true]) {
+      const currentPlan = { ...plan, clientMsgId: current, ...(committed ? { transferIntent: {
+        clientMsgId: current, transferId: crypto.randomUUID(), payload: { v: 1, kind: 'file', file: manifest, sentAt: new Date().toISOString() }, linkVideoId: id,
+      } } : {}) };
+      await vault.saveUploadPlan(session, currentPlan); auditApp.uploadPlans = [currentPlan];
+      if (await auditApp.reusableLinkVideoManifest(file, current, id, signal)) throw Error('A committed current plan was replaced');
+      if (JSON.stringify((await vault.loadUploadPlans(session))[0]) !== JSON.stringify(currentPlan)) throw Error('Committed intent was changed');
+      await vault.deleteUploadPlan(session, currentPlan.blobId); auditApp.uploadPlans = [];
+    }
+    return results;
+  });
+  for (const result of cases) {
+    assert.equal(result.accepted, false, result.mode);
+    assert.equal(result.queued, false, result.mode);
+    const fallback = ['changed', 'missing-source', 'missing-blob', 'incomplete', 'wrong-count', 'wrong-bytes', 'dimensions'].includes(result.mode);
+    assert.equal(result.reservations > 0, fallback, result.mode + ': only an absent usable source falls back');
+    assert.equal(result.plans, fallback ? 1 : 0, result.mode);
+  }
+  const commitRetry = await sender.evaluate(async () => {
+    const failed = await resendProbe.makeQuotaFailure(), { vault, id } = resendProbe;
+    const session = auditApp.session, signal = auditApp.runtimeAbort.signal;
+    auditApp.uploadPlans = await vault.loadUploadPlans(session);
+    const file = await (await import('/src/lib/link-video.ts')).compactMp4(await vault.readLinkVideo(session, id, signal), signal);
+    const enqueue = auditApp.enqueuePayload.bind(auditApp);
+    auditApp.enqueuePayload = async () => { throw Error('Synthetic durable enqueue failure'); };
+    const accepted = await auditApp.processImageBatch([file], 'chat', signal, false, undefined, false, undefined, id, undefined, failed.id);
+    auditApp.enqueuePayload = enqueue;
+    const prepared = auditApp.mediaUploads.get(failed.id).prepared;
+    if (accepted || prepared.manifests[0].blobId !== resendProbe.manifest.blobId
+      || !(await vault.loadUploadPlans(session)).some(row => row.blobId === failed.blob)) throw Error('Failed enqueue retired the plan early');
+    const find = auditApp.reusableLinkVideoManifest;
+    auditApp.reusableLinkVideoManifest = async () => { throw Error('Prepared retry changed manifest'); };
+    const retried = await auditApp.processImageBatch([file], 'chat', signal, false, failed.id);
+    auditApp.reusableLinkVideoManifest = find;
+    if (!retried || (await vault.loadUploadPlans(session)).length) throw Error('Prepared retry did not retire the abandoned plan after enqueue');
+    return { id: failed.id, payload: prepared.payload };
+  });
+  await until(sender, () => !auditApp.outbox.size && !auditApp.serverQueue.size);
+  const confirmedRetry = await sender.evaluate(id => [...auditApp.messages.values()].find(row => row.clientMsgId === id).payload, commitRetry.id);
+  assert.deepEqual(confirmedRetry, commitRetry.payload, 'Prepared retry preserves the exact pending payload');
+  console.log('Resend safeguards passed', cases.map(row => row.mode));
   console.log('Real quota resend passed', { first: evidence.first.messageId, resend: resent.id, blob: resent.manifest.blobId });
 } finally {
   await browser?.close(); await vite?.close(); await service?.close();

@@ -357,7 +357,7 @@ export async function getBlobStatus(
   accessToken: string,
   blobId: string,
   signal?: AbortSignal,
-): Promise<{ uploadedIndexes: number[]; completed: boolean }> {
+): Promise<{ uploadedIndexes: number[]; completed: boolean; chunkCount: number; expectedBytes: number }> {
   const response = await authorizedFetch(`/api/rooms/${roomId}/blobs/${blobId}`, accessToken, { signal: boundedSignal(signal, 15_000) });
   return response.json();
 }

@@ -170,7 +170,7 @@ import {
   verifyDeliveryReceipt,
   verifyJoinProof,
 } from './lib/crypto';
-import { VideoBufferUnavailable, decryptAudioFile, encryptAudioFile, decryptImageFile, encryptImageFile, encryptFileAttachment, decryptFileAttachment, MAX_IMAGE_BYTES } from './lib/file-crypto';
+import { VideoBufferUnavailable, decryptAudioFile, encryptAudioFile, decryptImageFile, encryptImageFile, encryptFileAttachment, decryptFileAttachment, hashFile, MAX_IMAGE_BYTES } from './lib/file-crypto';
 import { VoiceRecorder } from './lib/voice-recorder';
 import { bindVoiceRecordGesture } from './lib/voice-gesture';
 import { bindImageViewerGestures } from './lib/image-viewer-gestures';
@@ -565,7 +565,7 @@ export class QuietRoomApp {
   private videoDownloadOperations = new WeakMap<HTMLElement,{controller:AbortController;task?:CipherTransfer;cancelled:boolean;cancelPromise?:Promise<void>}>();
   private videoCardPreviews = new WeakMap<HTMLElement, VideoMessagePreview>();
   private linkVideoQueued = new Map<string, { sentAt: string; view: { element: HTMLElement; geometryReady: boolean } }>();
-  private mediaUploads = new Map<string, { view: MediaUploadView; files: File[]; expression: boolean; autoHide: boolean; expressionKind?: 'gifs' | 'stickers'; reply: DecryptedMessage | null; sentAt: string; busy: boolean; prepared?: { payload: MessagePayload; manifests: ImageManifest[] } }>();
+  private mediaUploads = new Map<string, { view: MediaUploadView; files: File[]; expression: boolean; autoHide: boolean; expressionKind?: 'gifs' | 'stickers'; reply: DecryptedMessage | null; sentAt: string; busy: boolean; prepared?: { payload: MessagePayload; manifests: ImageManifest[]; abandonedPlanIds?: string[] } }>();
   private selectedMessageId: string | null = null;
   private privacyCurtain: HTMLElement;
   private unreadCounter: UnreadCounter;
@@ -11153,6 +11153,63 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
   }
 
+  private async reusableLinkVideoManifest(file: File, clientMsgId: string, linkVideoId: string | undefined, signal?: AbortSignal): Promise<{ manifest: FileManifest; abandonedPlanIds: string[] } | undefined> {
+    const session = this.session;
+    if (!session || !signal) return;
+    const saved = (await listLinkVideos(session, signal)).find(item =>
+      linkVideoId ? item.id === linkVideoId : (item.sendId ?? item.id) === clientMsgId);
+    signal?.throwIfAborted();
+    if (!saved) return;
+    const sourceIds = new Set([saved.id, ...(saved.sendIds ?? []), ...(saved.confirmedSendId ? [saved.confirmedSendId] : [])]);
+    sourceIds.delete(clientMsgId);
+    if (!sourceIds.size) return;
+    const currentPlans = this.uploadPlans.filter(plan => plan.clientMsgId === clientMsgId || plan.v === 2 && plan.transferIntent?.clientMsgId === clientMsgId);
+    if (currentPlans.some(plan => plan.v === 2 && plan.transferIntent)) return;
+    const deleted = this.messageDeletions();
+    let digest: string | undefined;
+    const findComplete = async (messages: Iterable<DecryptedMessage>): Promise<FileManifest | undefined> => {
+      for (const message of messages) {
+        if (message.senderId !== session.vault.identity.publicBundle.deviceId || !sourceIds.has(message.clientMsgId)
+          || deleted.has(message.clientMsgId) || message.payload.kind !== 'file') continue;
+        const manifest = message.payload.file;
+        if (manifest.originalName !== file.name || manifest.mimeType !== file.type || manifest.originalSize !== file.size
+          || this.payloadCapabilityError({ v: 1, kind: 'file', file: manifest, sentAt: message.payload.sentAt })) continue;
+        digest ??= await hashFile(file, signal);
+        if (manifest.sha256 !== digest) continue;
+        try {
+          const status = await getBlobStatus(session.vault.roomId, session.vault.accessToken, manifest.blobId, signal);
+          signal?.throwIfAborted();
+          if (status.completed && status.chunkCount === manifest.chunkCount
+            && status.expectedBytes === manifest.originalSize + 16 * manifest.chunkCount) return manifest;
+        } catch (cause) {
+          if (!(cause instanceof ApiError && cause.status === 404)) throw cause;
+        }
+      }
+    };
+    let manifest = await findComplete(this.messages.values());
+    let beforeSeq: number | undefined;
+    while (!manifest) {
+      const page = await loadMediaHistoryPage(session, { beforeSeq, limit: 200, signal });
+      manifest = await findComplete(page.messages);
+      if (manifest || !page.hasMore || page.beforeSeq === null) break;
+      beforeSeq = page.beforeSeq;
+      await this.abortableDelay(0, signal);
+    }
+    if (!manifest) return;
+    const abandonedPlanIds: string[] = [];
+    for (const plan of currentPlans) {
+      try {
+        await getBlobStatus(session.vault.roomId, session.vault.accessToken, plan.blobId, signal);
+        return;
+      } catch (cause) {
+        if (!(cause instanceof ApiError && cause.status === 404)) throw cause;
+        abandonedPlanIds.push(plan.blobId);
+      }
+    }
+    signal?.throwIfAborted();
+    return { manifest, abandonedPlanIds };
+  }
+
   private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal, expression = false, mediaRetryId?: string, expressionAutoHide = false, expressionKind?: 'gifs' | 'stickers', linkVideoId?: string, transferProgress?: (ratio:number)=>void, newSendId?:string): Promise<boolean> {
     const session = this.session;
     if (!session || this.privacyCovered || files.length === 0) return false;
@@ -11268,6 +11325,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const manifests: ImageManifest[] = mediaUpload?.prepared?.manifests ?? [];
     let payload = mediaUpload?.prepared?.payload;
     const usedUploadPlanIds = new Set<string>();
+    const abandonedPlanIds = mediaUpload?.prepared?.abandonedPlanIds ?? [];
     const stagedUploadIds = new Set<string>();
     const encryptFile = isFile ? encryptFileAttachment : encryptImageFile;
     try {
@@ -11299,6 +11357,16 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           if (destination === 'chat' && isSelectedVideo(file) && this.activeDevicesSupport(VIDEO_PREVIEW_CAPABILITY)) {
             outgoingVideoPreview = await createVideoMessagePreview(file, signal);
             if (!this.isRuntimeActive(epoch, session)) return false;
+          }
+          const reused = destination === 'chat' && (linkVideoId || mediaRetryId) && isSelectedVideo(file)
+            ? await this.reusableLinkVideoManifest(file, clientMsgId, linkVideoId, signal) : undefined;
+          if (!this.isRuntimeActive(epoch, session)) return false;
+          if (reused) {
+            manifests.push(reused.manifest);
+            abandonedPlanIds.push(...reused.abandonedPlanIds);
+            this.cacheLocalImage(reused.manifest, file);
+            completedBytes += Math.max(file.size, 1);
+            continue;
           }
           const matchingPlans = this.uploadPlans.filter((plan) =>
             plan.originalSize === file.size &&
@@ -11418,7 +11486,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           payload.expressionAutoHide = Boolean(expressionAutoHide);
           if (expressionKind) payload.expressionKind = expressionKind;
         }
-        if (mediaUpload) mediaUpload.prepared = { payload, manifests: [...manifests] };
+        if (mediaUpload) mediaUpload.prepared = { payload, manifests: [...manifests], abandonedPlanIds };
       }
       signal?.throwIfAborted();
       mediaUpload?.view.update('finishing');
@@ -11432,10 +11500,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         this.replyTarget = null;
         this.renderReplyDraft();
       }
-      for (const manifest of manifests) {
-        await deleteUploadPlan(session, manifest.blobId);
+      const completedPlanIds = manifests.filter(manifest => this.uploadPlans.some(plan =>
+        plan.blobId === manifest.blobId && plan.clientMsgId === clientMsgId)).map(manifest => manifest.blobId);
+      for (const blobId of new Set([...completedPlanIds, ...abandonedPlanIds])) {
+        await deleteUploadPlan(session, blobId);
         if (!this.isRuntimeActive(epoch, session)) return false;
-        this.uploadPlans = this.uploadPlans.filter((plan) => plan.blobId !== manifest.blobId);
+        this.uploadPlans = this.uploadPlans.filter(plan => plan.blobId !== blobId);
       }
       for (const id of stagedUploadIds) await discardCipherTransfer(id).catch(()=>undefined);
       if (destination === 'gallery' && this.root.querySelector('.gallery-shell')) this.renderGallery(isFile && !isVideoFile(manifests[0]!) ? 'files' : 'images');
