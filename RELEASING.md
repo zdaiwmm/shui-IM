@@ -4,6 +4,19 @@
 
 跨设备操作见[GitHub 双站发布与独立回读](docs/requirements/2026-11-09-cross-device-release/README.md)。
 
+## 窄窗发送与视频重发：主站已切换并独立回读（2026-11-17）
+<a id="release-narrow-safari-resend-20261117"></a>
+
+用户在本聊天看到完整提交、版本、目标、CI 与未验证项后回复「确认」，授权 `f51ff05b5f3e1998287bc391a0959a431b66c3af`／`2026.11.17.4` 发布至 production／ai.shui.click，并批准本次预检及同提交发布的既有 GitHub production 审核。本批从 `467e6957985f45f90bb3c862895a5a180583e7ff` 升级，纳入 [PR #540](https://github.com/zdaiwmm/shui-IM/pull/540) 的窄桌面多行发送回弹与已发送本机视频再次发送。长视频原生 Safari 崩溃没有宣称修复；家庭站不在本次范围。
+
+风险 full，源 `87e822174af0293df2f28a1c3910eccc321f403e` 与应用 main 同树，本地构建、1,359 项单测及 98／98 浏览器入口通过。[精确 main CI 44083438208](https://github.com/zdaiwmm/shui-IM/actions/runs/44083438208/attempts/2) attempt 2 完整通过。首轮在既有 frontend-lifecycle 回应 FLIP 动画断言失败，同树本地与 PR 已通过，保留失败后整轮原样重跑，没有修改代码或断言。无新增依赖、服务端数据库迁移、Compose 或 helper 变更。
+
+[云端只读预检 44088721197](https://github.com/zdaiwmm/shui-IM/actions/runs/44088721197) 取得 PREFLIGHT_OK。[正式云端运行 44092109333](https://github.com/zdaiwmm/shui-IM/actions/runs/44092109333) 只提交一次部署命令，随后 aliyun 结果查询返回 `CLOUD_COMMAND_FAILED`／`serviceCode=unavailable`，工作流失败，外层没有取得 DEPLOY_VERIFIED。失败回执仍为命令已提交，不能据此判定服务器命令已停止。首次独立回读捕获维护中的旧元数据；确认原发布进程结束后，仅重跑同 SHA 的只读回读，于北京时间 **21:32:18** 取得 READBACK_OK（3270ms），确认服务器已完成切换。没有派发第二次部署，也没有恢复旧数据。
+
+线上批次为 `20261117T132422Z`。应用与备份 running／healthy，TURN running／探针 none，维护门 absent；精确 SHA、镜像、HTTPS／数据库／存储、公开及容器资源摘要与新 WebSocket 均通过。公开 `/release.json` 另核对为 HTTP 200／no-cache、ID `2026.11.17.4`。主站采用同轮 linux/amd64 产物 `14330570447`，镜像为 `sha256:bdf082bb67256b91fbc867a2f0fddfa52190af23adcdccf233bcbb7a13f61baa`，归档 195133433 字节、SHA-256 `24cda43b44cccd355958152a12799c1822b54e8c04bf9997355d82098a71e192`。
+
+生产状态已由独立回读确认，云端原调用结果与外层发布回执仍未恢复；后续只核对原调用或维护轮询，不能为补回执重发本提交。授权、预检、首轮失败、同轮镜像与独立回读的脱敏证据保存在公共 Git 目录 `quiet-room-deliveries/evidence/narrow-safari-resend-production-20261117/`。本次没有新增物理 iPhone、原生 Safari 或用户原视频验收。对账在第二个不含部署配置的工作树完成，文档提交不触发再次发布。
+
 ## 11 月 17 日完整批次：主站已发布并独立回读（2026-11-17）
 <a id="release-production-batch-20261117"></a>
 
