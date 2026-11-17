@@ -22,7 +22,7 @@
   #app[data-desktop-workspace='true'] > .desktop-sidebar { position: absolute; inset: 0 auto 0 0; width: 280px; z-index: 80; border-right: 1px solid var(--line); background: var(--surface); }
   /* Safari can pan an overflow:hidden shell to reveal the focused composer.
      Only the message list owns scrolling; chrome must stay at its fixed edge. */
-  #app[data-desktop-workspace='true'] > .chat-shell { overflow: clip; }
+  #app[data-desktop-workspace='true'] > .chat-shell[data-scroll-owner='list'] { overflow: clip; }
   .desktop-sidebar .space-drawer { padding: 0 18px 16px; background: var(--surface); }
   .desktop-sidebar .space-drawer-header { min-height: 76px; }
   .space-embedded .space-drawer-header .icon-button { width: 44px; min-width: 44px; }
