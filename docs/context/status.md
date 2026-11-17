@@ -2,7 +2,7 @@
 
 ## 当前生产：主站 2026.11.17.1 已回读，家庭站切换前受阻（2026-11-17）
 
-本批获准应用为 `2200684c7818f7e7c5f384a7140b16abb4b353b7`／`2026.11.17.1`。production／ai.shui.click 固定云端发布取得 DEPLOY_VERIFIED，北京时间 13:11:08 独立 READBACK_OK；应用／备份、维护门、HTTPS、存储、公开与容器资源及 WebSocket 均通过，公开版本文件返回 200／no-cache。home-frp／mijiu.cloud 已导入本批镜像，公网健康预检因 HTTP 502 在进入维护／切换前停止，仍为 a591e8fa；应用、备份与本机网关健康，尚无本批成功回执与独立回读，不记为两站完成。家庭公网出口与东京 27445/TCP 单一 /32 来源许可不匹配，网络规则尚未更改，待本次来源替换授权及解锁可用控制台；云端当前规则尚未独立回读。[本批发布与独立回读](../../RELEASING.md#release-video-update-20261117)
+本批获准应用为 `2200684c7818f7e7c5f384a7140b16abb4b353b7`／`2026.11.17.1`。production／ai.shui.click 固定云端发布取得 DEPLOY_VERIFIED，北京时间 13:11:08 独立 READBACK_OK；应用／备份、维护门、HTTPS、存储、公开与容器资源及 WebSocket 均通过，公开版本文件返回 200／no-cache。home-frp／mijiu.cloud 已导入本批镜像，公网健康预检因 HTTP 502 在进入维护／切换前停止，仍为 a591e8fa；应用、备份与本机网关健康，尚无本批成功回执与独立回读，不记为两站完成。用户已另行授权东京 27445/TCP 单一 /32 来源精确替换；实测出口复核后，UFW 对应规则已替换，其余规则不变。公网仍为 502，Lightsail 当前规则尚未独立回读或修改；CLI 无云凭据，原生连接仍报告锁定，内置浏览器等待现有 AWS 账号登录后继续。[本批发布与独立回读](../../RELEASING.md#release-video-update-20261117)
 
 视频占位及结果大卡、PC 多行回复回弹、移动前台版本发现与更新说明来自 PR #532；精确 main full CI 44019654136 attempt 1 通过，两个站点采用同轮 amd64 镜像。没有新增迁移或 helper 安装，超过 256 MiB 的原件仍需旧接收端更新。物理 iPhone 尚未新增验收。[需求及验证边界](../requirements/2026-11-17-video-update-regressions/README.md)
 
