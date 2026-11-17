@@ -1,13 +1,17 @@
-// Opt-in local boundary check. Uses an isolated, regular Chrome profile and temporary disk.
+// Opt-in local boundary check. Uses an isolated browser profile and temporary disk.
 // Run from the repository root after npm ci.
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
 import { createStore } from '../../../server/storage.mjs';
 
+const engine = process.env.VIDEO_ENGINE ?? 'chromium';
+const originalSize = Number(process.env.VIDEO_BYTES ?? 2 * 1024 ** 3);
+assert.ok(['chromium', 'webkit'].includes(engine));
+assert.ok(Number.isSafeInteger(originalSize) && originalSize > 128 * 1024 ** 2 && originalSize <= 2 * 1024 ** 3);
 const directory = await mkdtemp(join(tmpdir(), 'quiet-room-large-video-'));
 const store = await createStore({ dataDir: directory });
 const deviceId = crypto.randomUUID();
@@ -41,14 +45,13 @@ try {
     }
   });
   await server.listen();
-  context = await chromium.launchPersistentContext(join(directory, 'profile'), {
-    channel: 'chrome', args: ['--autoplay-policy=no-user-gesture-required'],
-  });
+  context = await (engine === 'webkit' ? webkit : chromium).launchPersistentContext(join(directory, 'profile'),
+    engine === 'webkit' ? {} : { channel: 'chrome', args: ['--autoplay-policy=no-user-gesture-required'] });
   const page = await context.newPage();
   await page.exposeFunction('reserve', (id, count, bytes) => { store.createBlob(roomId, id, count, bytes, deviceId); });
   await page.exposeFunction('finish', id => store.completeBlob(roomId, id, deviceId));
   await page.goto('http://127.0.0.1:' + server.httpServer.address().port + '/sample');
-  const result = await page.evaluate(async () => {
+  const result = await page.evaluate(async originalSize => {
     const { encryptFileAttachment, decryptFileAttachment } = await import('/src/lib/file-crypto.ts');
     const canvas = document.createElement('canvas');
     canvas.width = 96;
@@ -77,7 +80,7 @@ try {
       return new Blob([header, new Uint8Array(size - 8)]);
     }
     const movie = new Blob(parts);
-    const padding = 2 * 1024 ** 3 - movie.size;
+    const padding = originalSize - movie.size;
     const box = freeBox(1024 ** 2);
     const file = new File([movie, ...Array(Math.floor(padding / box.size)).fill(box), freeBox(padding % box.size)],
       'boundary.mp4', { type: 'video/mp4' });
@@ -94,6 +97,11 @@ try {
       if (!response.ok) throw Error('Failed to read test chunk');
       return response.arrayBuffer();
     });
+    for (let offset = 0; offset < originalSize; offset += 2 * 1024 ** 2) {
+      const expected = new Uint8Array(await file.slice(offset, offset + 2 * 1024 ** 2).arrayBuffer());
+      const actual = new Uint8Array(await original.slice(offset, offset + 2 * 1024 ** 2).arrayBuffer());
+      if (actual.length !== expected.length || actual.some((byte, index) => byte !== expected[index])) throw Error('Original bytes changed');
+    }
     const player = document.createElement('video');
     player.muted = true;
     player.src = URL.createObjectURL(original);
@@ -104,9 +112,9 @@ try {
       player.pause();
       URL.revokeObjectURL(player.src);
     }
-  });
-  assert.deepEqual(result, { bytes: 2 * 1024 ** 3, chunks: 1024, width: 96, height: 64 });
-  console.log('LARGE_VIDEO_VERIFIED', result);
+  }, originalSize);
+  assert.deepEqual(result, { bytes: originalSize, chunks: Math.ceil(originalSize / (2 * 1024 ** 2)), width: 96, height: 64 });
+  console.log('LARGE_VIDEO_VERIFIED', engine, result);
 } finally {
   await context?.close();
   await server.close();

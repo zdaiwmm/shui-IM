@@ -26,3 +26,5 @@ Chromium（390px，浅色）和桌面 WebKit（1100px，深色）已实际走过
 专项验证包括真实渲染器、发送者本机原件、收件端刷新后零分块请求、分块中断续取、旧播放副本兼容、限额边界、锁定与两个浏览器的配额压力。完整本地检查首次因三项交付工具测试在五秒内未完成而中止，冻结后降低本地并发重验。合成大文件与物理 iPhone 证据分开，生产状态以发布回读为准。
 
 2 GiB 原件专项见 [verify-large-video.mjs](verify-large-video.mjs)，在仓库根目录运行 `node docs/requirements/2026-11-04-video-cache-playback/verify-large-video.mjs`。使用普通 Chromium 临时配置、真实可解码的合成 MP4、临时原件存储与 1024 个真实加密分块。第一版整件摘要通过但浏览器组装的大 Blob 不可读；停止旧提交的本地浏览器全量运行并改为具有背压的单一字节流，整件认证后才发布播放来源。受限浏览模式可能无法暂存完整可播放文件，此时提示释放空间或使用普通窗口，保留健康密文以便重试。
+
+2026-11-17：该单流路径仅能依赖 Chromium 的暂存实现。WebKit 的 `Response.blob()` 会汇集完整数据，因此大视频改为逐个认证分块构造 Blob，再组合引用，保留完整长度／摘要及可读性检查，不写应用明文持久文件。专项新增 `VIDEO_ENGINE=webkit VIDEO_BYTES=735261491` 参数，并逐段比较全部原始字节；默认仍验证 Chromium 精确 2 GiB。此次结果及真机缺口见[回归接续](../2026-11-17-video-update-regressions/README.md#701-mib-播放与-safari-发送偏移接续2026-11-17)。
