@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 待发布：重发视频空间与失败标签修复（2026-11-17）
+
+[PR #542](https://github.com/zdaiwmm/shui-IM/pull/542) 已合并为 `e8d4136215ec92aa155e0cfd697d1b22716cfd56`／`2026.11.17.5`。故障诊断为上传空间预留被配额拒绝；已确认的本机视频重发可在认证历史、原件全文件摘要及当前授权完成状态一致时复用原附件，经正常 MLS／outbox 发送新消息，已有配额失败保留当前 ID 恢复。失败状态标签文字偏移归零。没有提高配额、删除服务端附件或新增持久化格式。
+
+源 `20e5c800` 的本地构建、1,359 项单测、99／99 浏览器入口与 PR full CI attempt 2 通过，独立 WebKit 配额重发及四配置真实失败 UI 通过；[精确 main full CI](https://github.com/zdaiwmm/shui-IM/actions/runs/44113680099) attempt 1 全部通过。本轮未发布，也未获得本批精确生产授权；上次已回读的生产版本仍记在下方。原生 Safari／物理 iPhone 与用户原视频播放崩溃仍未验证。[需求与失败记录](../requirements/2026-11-17-video-update-regressions/README.md#重发空间故障与失败标签接续2026-11-17)
+
 ## 当前生产：主站 2026.11.17.4 已切换并独立回读（2026-11-17）
 
 production／ai.shui.click 当前为用户精确确认的 `f51ff05b5f3e1998287bc391a0959a431b66c3af`／`2026.11.17.4`，来自 [PR #540](https://github.com/zdaiwmm/shui-IM/pull/540)。修复窄桌面多行发送回弹，支持将已发送的本机视频再次发送为新消息；重试保留当前 ID，私有锁历史事实不倒退。本地 1,359 项单测、98／98 浏览器及[精确 main full CI attempt 2](https://github.com/zdaiwmm/shui-IM/actions/runs/44083438208/attempts/2)通过。
