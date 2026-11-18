@@ -4,6 +4,17 @@
 
 跨设备操作见[GitHub 双站发布与独立回读](docs/requirements/2026-11-09-cross-device-release/README.md)。
 
+## Safari 大视频查看器已发布到主站（2026-11-18）
+<a id="release-safari-large-video-viewer-20261118"></a>
+
+用户确认将 `b4d9d08884c1c3d486b1af35c1bbc7ca1eb7fd70`（`2026.11.18.1`）发布到 production 的 `ai.shui.click`。本批从 `e8d4136215ec92aa155e0cfd697d1b22716cfd56` 升级，纳入大视频查看器的读取取消与原件释放。[修复 PR #545](https://github.com/zdaiwmm/shui-IM/pull/545)
+
+精确 main full CI 第 1 次运行通过。发布使用同轮 `linux/amd64` 产物 `14396082287`。镜像 ID 为 `sha256:14305b5a57546008bdf917db31d7033b1a2f89a3ceff29a3047f268d426bfd51`。归档为 `195131065` 字节，SHA-256 为 `c271240c010cf1aea3aefdd4312ba4024b38694d1f3276242e28fb8abb96f41d`。[CI 运行 44233339073](https://github.com/zdaiwmm/shui-IM/actions/runs/44233339073/attempts/1)
+
+主站预检通过。本机固定入口 `node scripts/publish.mjs --environment production --sha <SHA>` 执行一次切换，批次 `20261118T061835Z`，取得 `DEPLOY_VERIFIED`。北京时间 **14:25:08**，独立回读取得同一 SHA 的 `READBACK_OK`，耗时 25890 ms。应用和备份均在运行且健康，TURN 在运行，维护模式已解除。线上镜像、HTTPS、数据库、存储、六个公开资源与容器内文件摘要、新建 WebSocket 均通过。公开 `/release.json` 返回 HTTP 200、`Cache-Control: no-cache` 和版本 `2026.11.18.1`。
+
+本次发布范围为主站。桌面原生 Safari 已通过 701.2 MiB 测试视频的播放、跳转、关闭和重开验证。用户原视频及物理 iPhone Safari 待复测。[验证范围与结果](docs/requirements/2026-11-17-video-update-regressions/README.md#safari-大视频播放续查2026-11-18)
+
 ## 视频重发空间与失败标签：主站已发布并独立回读（2026-11-18）
 <a id="release-video-resend-quota-20261118"></a>
 
