@@ -112,6 +112,13 @@ try {
 
     const requests = { reads: 0 };
     const readGate = { blobId: null, waiting: false, release: null };
+    const makeLargeVideo = async () => {
+      const pad = new Blob([new Uint8Array(1024 ** 2)]);
+      const count = 96;
+      const voidHeader = new Uint8Array([0xec, 0x01, 0, 0, 0, 0, 0, 0, 0]);
+      new DataView(voidHeader.buffer).setUint32(5, pad.size * count);
+      return encrypt(new File([videoBlob, voidHeader, ...Array(count).fill(pad)], '大视频.webm', { type: 'video/webm' }));
+    };
     const realFetch = window.fetch.bind(window);
     window.fetch = async (input, init = {}) => {
       const url = new URL(typeof input === 'string' ? input : input.url, location.href);
@@ -141,7 +148,7 @@ try {
       app.uiPreferences = {}; app.restoreChatAnchorOnNextRender = false;
       if (destination === 'gallery') app.renderGallery(); else app.renderChat();
     };
-    window.videoFlow = { app, root, session, vault, originals, records, restored, delayed, requests, readGate, createdUrls, revokedUrls, reopen, manifests: { photo, chatVideo, chatDocument, galleryVideo, galleryDocument, restoredVideo, delayedVideo, invalidVideo } };
+    window.videoFlow = { app, root, session, vault, originals, records, restored, delayed, requests, readGate, createdUrls, revokedUrls, reopen, makeLargeVideo, manifests: { photo, chatVideo, chatDocument, galleryVideo, galleryDocument, restoredVideo, delayedVideo, invalidVideo } };
     readGate.blobId = chatVideo.blobId;
     await reopen();
     return Object.fromEntries(Object.entries(window.videoFlow.manifests).map(([name, manifest]) => [name, manifest.blobId]));
@@ -877,6 +884,75 @@ try {
   await page.locator('.image-viewer[data-video-state="needs-activation"] .viewer-video-feedback button').click();
   await awaitPlayingVideo();
   assert.equal(await page.locator('.viewer-video-feedback').isVisible(),false,'Successful explicit playback did not clear its activation prompt');
+  await closePlayer();
+
+  await page.evaluate(async () => {
+    const f = window.videoFlow;
+    const manifest = f.large = await f.makeLargeVideo();
+    const poster = await f.vault.loadMediaPreview(f.session, f.manifests.chatVideo);
+    await f.vault.saveMediaPreview(f.session, manifest, poster);
+    f.app.cacheLocalImage(manifest, poster, true);
+    f.readGate.blobId = manifest.blobId;
+    f.readGate.waiting = false;
+    f.readsBeforeLarge = f.requests.reads;
+    f.app.openImageViewer([manifest]);
+  });
+  await page.waitForFunction(() => window.videoFlow.readGate.waiting);
+  await page.locator('[data-viewer-close]').click();
+  await page.evaluate(() => {
+    const f = window.videoFlow;
+    f.readGate.blobId = null;
+    f.readGate.release();
+  });
+  await page.waitForFunction(() => window.videoFlow.app.imageLoadPromises.size === 0);
+  assert.equal(await page.evaluate(() => window.videoFlow.requests.reads - window.videoFlow.readsBeforeLarge), 1,
+    'Closing a large video viewer must cancel reconstruction after the held request');
+
+  await page.evaluate(() => {
+    const f = window.videoFlow;
+    f.readGate.blobId = f.large.blobId;
+    f.readGate.waiting = false;
+    f.app.openImageViewer([f.large]);
+  });
+  await page.waitForFunction(() => window.videoFlow.readGate.waiting);
+  await page.evaluate(() => {
+    const f = window.videoFlow;
+    document.querySelector('[data-viewer-close]').click();
+    f.app.openImageViewer([f.large]);
+    f.readGate.blobId = null;
+    f.readGate.release();
+  });
+  const largePlayer = await awaitPlayingVideo();
+  const originalUrl = await largePlayer.getAttribute('src');
+  const posterUrl = await largePlayer.getAttribute('poster');
+  assert.ok(posterUrl && originalUrl && originalUrl !== posterUrl);
+  await closePlayer();
+  await page.waitForFunction(url => window.videoFlow.revokedUrls.has(url), originalUrl);
+  assert.equal(await page.evaluate(url => window.videoFlow.revokedUrls.has(url), posterUrl), false);
+  assert.equal(await page.evaluate(() => {
+    const f = window.videoFlow;
+    return f.vault.hasCompleteMediaChunks(f.session, f.large);
+  }), true);
+  assert.equal(await page.evaluate(() => window.videoFlow.requests.reads - window.videoFlow.readsBeforeLarge),
+    await page.evaluate(() => window.videoFlow.large.chunkCount + 2), 'Rapid reopen must stop the abandoned load and only fetch one complete original');
+  const readsAfterLarge = await page.evaluate(() => {
+    const f = window.videoFlow;
+    f.app.openImageViewer([f.large]);
+    return f.requests.reads;
+  });
+  const reopenedLargePlayer = await awaitPlayingVideo();
+  assert.notEqual(await reopenedLargePlayer.getAttribute('src'), originalUrl);
+  assert.equal(await reopenedLargePlayer.getAttribute('poster'), posterUrl);
+  assert.equal(await page.evaluate(() => window.videoFlow.requests.reads), readsAfterLarge, 'Reopening uses complete encrypted chunks without another download');
+  const lastOriginal = await reopenedLargePlayer.getAttribute('src');
+  await page.evaluate(() => {
+    const f = window.videoFlow;
+    return f.vault.deleteCachedMediaBlob(f.session, f.large.blobId);
+  });
+  await closePlayer();
+  await page.evaluate(() => window.videoFlow.app.openImageViewer([window.videoFlow.large]));
+  assert.equal(await (await awaitPlayingVideo()).getAttribute('src'), lastOriginal,
+    'Closing cannot discard the only complete original when local ciphertext is missing');
   await closePlayer();
 
 
