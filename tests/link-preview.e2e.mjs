@@ -8,9 +8,24 @@ import { startServer } from '../server/index.mjs';
 
 const dataDir=await mkdtemp(path.join(tmpdir(),'link-preview-browser-'));
 let backend,vite;
+const xRequests = [];
+let xCover;
+const postUrl = 'https://x.com/public_author/status/123456';
+const fullPost = '这个公开帖子有两段视频。' + '这是展开之后呈现的正文段落。\n'.repeat(12);
+const ticket = 'https://aix.shui.click/v1/x/media/' + 't'.repeat(43);
 try{
-  backend=await startServer({host:'127.0.0.1',port:0,dataDir,quiet:true});
-  vite=await createServer({root:process.cwd(),configFile:false,logLevel:'error',plugins:[{name:'preview-test-app',transform(code,id){if(id.endsWith('/src/main.ts'))return code.replace('void app.start();','window.app=app;void app.start();');}}],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${backend.port}`,'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});
+  backend=await startServer({host:'127.0.0.1',port:0,dataDir,quiet:true,xPostGatewayToken:'t'.repeat(43),
+    xPostGatewayFetch:async (_url, request) => {
+      const packet = JSON.parse(request.body);
+      xRequests.push(packet);
+      if (packet.postId !== '123456') return Response.json({}, { status: 404 });
+      if (packet.action === 'text') return Response.json({ text: fullPost });
+      if (packet.action === 'playback') return Response.json({ url: ticket });
+      return Response.json({ title: '@public_author', description: '这个公开帖子有两段视频。', canRead: true,
+        videos: [{ id: '7_001', cover: xCover }, { id: '7_002', cover: xCover }] });
+    },
+  });
+  vite=await createServer({root:process.cwd(),configFile:false,logLevel:'error',plugins:[{name:'preview-test-app',transform(code,id){if(id.endsWith('/src/main.ts'))return code.replace('void app.start();','window.app=app;void app.start();');}}],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':{target:`http://127.0.0.1:${backend.port}`,changeOrigin:false},'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});
   await vite.listen();const origin=`http://127.0.0.1:${vite.httpServer.address().port}`;
   for(const [name,engine] of Object.entries({chromium,webkit})){
     const browser=await engine.launch(name==='chromium'&&!process.env.CI?{channel:'chrome'}:{});
@@ -57,6 +72,51 @@ try{
       assert.equal(peerRequests,0,'Receiving a card must not fetch metadata');
       const snapshot=await peer.evaluate(()=>[...window.app.messages.values()].find(m=>m.payload.kind==='text'&&m.payload.preview)?.payload);
       assert.equal(snapshot.v,3);assert.ok(snapshot.preview.image.data.length<22000);
+      xCover = { mimeType: 'image/png', data: Buffer.from(image, 'base64').toString('base64url') };
+      const beforeX = xRequests.length;
+      let mediaRequests = 0;
+      await contexts[1].route(ticket, async route => {
+        mediaRequests++;
+        await route.abort();
+      });
+      await input.fill(postUrl);
+      await row.filter({ hasText: '@public_author' }).waitFor();
+      await source.locator('#send-text').click();
+      const xCard = peer.locator('.x-post-card');
+      await xCard.waitFor();
+      await peer.waitForFunction(() => document.querySelector('.x-post-poster')?.naturalWidth > 0);
+      assert.deepEqual(xRequests.slice(beforeX), [{ action: 'preview', postId: '123456' }]);
+      assert.equal(mediaRequests, 0, 'Receiving a card only loads its encrypted snapshot');
+      assert.equal(await xCard.locator('video').count(), 0);
+      assert.equal(await xCard.locator('.x-post-page').innerText(), '1 / 2');
+      assert.ok(await xCard.locator('.x-post-page').evaluate(node => {
+        const style = getComputedStyle(node);
+        return style.position === 'absolute' && style.backgroundColor === 'rgba(0, 0, 0, 0)';
+      }), 'Pagination is a bare overlay inside the cover');
+      await xCard.getByRole('button', { name: '查看全文' }).click();
+      await xCard.getByText('这是展开之后呈现的正文段落。', { exact: false }).waitFor();
+      assert.equal(await peer.getByRole('dialog').count(), 0, 'Full text stays within the bubble');
+      await xCard.getByRole('button', { name: '收起全文' }).click();
+      assert.equal(await xCard.getByText('这是展开之后呈现的正文段落。', { exact: false }).count(), 0);
+      await xCard.getByRole('button', { name: '下一个视频' }).click();
+      await peer.waitForFunction(() => document.querySelector('.x-post-page')?.textContent === '2 / 2');
+      assert.equal(mediaRequests, 0, 'Switching covers does not preload videos');
+      if (process.env.QUIET_ROOM_PREVIEW_QA) {
+        await xCard.screenshot({ path: path.join(process.env.QUIET_ROOM_PREVIEW_QA, `${name}-x-post-card.png`) });
+      }
+      await xCard.locator('.x-post-stage:not([inert])').getByRole('button', { name: '播放视频' }).click();
+      await xCard.getByText('媒体载入失败，请重试').waitFor();
+      assert.ok(mediaRequests > 0);
+      assert.deepEqual(xRequests.slice(beforeX), [
+        { action: 'preview', postId: '123456' }, { action: 'text', postId: '123456' },
+        { action: 'playback', postId: '123456', mediaId: '7_002' },
+      ]);
+      assert.equal(await xCard.locator('video').count(), 0, 'The failed stream is released');
+      await input.fill('https://x.com/public_author/status/123457');
+      await row.filter({ hasText: '暂时无法' }).waitFor();
+      await source.locator('#send-text').click();
+      await peer.locator('.message-web-link[href$="/123457"]').waitFor();
+      assert.equal(await peer.locator('.x-post-card').count(), 1, 'An unavailable post sends a regular link');
       await input.fill('https://preview.example/slow-send');await row.filter({hasText:'正在获取'}).waitFor();await source.locator('#send-text').click();
       await peer.locator('.message-web-link').filter({hasText:'slow-send'}).waitFor();await source.waitForTimeout(1500);
       assert.equal(await peer.locator('.message-link-preview').count(),1,'Sending while loading stays plain');
@@ -88,7 +148,7 @@ try{
       await source.waitForTimeout(1500);assert.equal(await source.locator('.link-preview-draft:visible').count(),0,'A new empty composer shell may mount, but a late preview must remain hidden');
       assert.equal(await source.locator('.link-preview-draft').allTextContents().then(values=>values.join('')),'');
       assert.equal(requests,afterLockRequests,'Restored drafts must not trigger fresh requests after lock');
-      console.log(`${name}: input preview, dismiss, stale result, encrypted large/compact cards, old-client fallback, reload, new tab and privacy cleanup passed`);
+      console.log(`${name}: input preview, dismiss, stale result, encrypted large/compact cards, old-client fallback, inline X text and scoped video, reload, new tab and privacy cleanup passed`);
       if(process.env.QUIET_ROOM_PREVIEW_QA){await mkdir(process.env.QUIET_ROOM_PREVIEW_QA,{recursive:true});}
     }finally{await Promise.all(contexts.map(c=>c.close()));await browser.close();}
   }

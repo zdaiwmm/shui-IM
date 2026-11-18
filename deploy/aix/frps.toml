@@ -1,0 +1,12 @@
+bindPort = 17447
+proxyBindAddr = "127.0.0.1"
+allowPorts = [{ single = 18087 }]
+
+auth.method = "token"
+auth.additionalScopes = ["HeartBeats", "NewWorkConns"]
+auth.tokenSource.type = "file"
+auth.tokenSource.file.path = "/etc/aix-frp/token"
+
+transport.tls.force = true
+transport.tls.certFile = "/etc/aix-frp/server.crt"
+transport.tls.keyFile = "/etc/aix-frp/server.key"

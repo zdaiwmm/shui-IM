@@ -1,8 +1,10 @@
 import { openLinkVideoSheet, localVideoTile } from './lib/link-video-sheet';
 import { listLinkVideos, confirmLinkVideoShared, isLinkVideoSendConfirmed, type SavedLinkVideo } from './lib/vault';
 import { ComposerLinkPreview, renderPreviewCard, concealLinkPreviews, revealLinkPreviews } from './lib/link-preview-ui';
-import { LINK_PREVIEW_CAPABILITY } from './lib/link-preview-data';
-import { renderLinkedText } from './lib/web-links';
+import { LINK_PREVIEW_CAPABILITY, X_POST_PREVIEW_CAPABILITY } from './lib/link-preview-data';
+import { concealXPostCards, renderXPostCard, revealXPostCards } from './lib/x-post-card';
+import { openXPostVideo, readXPostText } from './lib/x-post-api';
+import { findWebLinks, renderLinkedText } from './lib/web-links';
 import { uiLiteral, uiTemplate, t, currentLanguage, matchesSourceText } from './lib/language';
 import { atFaultStage, makeFault, showFaultPanel, type FaultReport, type FaultStage } from './lib/fault-report';
 import { renderLanguagePage, renderFeedbackPage } from './lib/language-feedback-ui';
@@ -340,7 +342,7 @@ import { recoverFromCloud, syncCloudBackup, fetchRecoveryBundle, cloudBackupPref
 import './backup.css';
 import './motion.css';
 
-const CLIENT_CAPABILITIES = [VIDEO_PREVIEW_CAPABILITY, LARGE_VIDEO_CAPABILITY, LINK_PREVIEW_CAPABILITY, MESSAGE_WINDOW_CAPABILITY, 'joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'expression-kind-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
+const CLIENT_CAPABILITIES = [VIDEO_PREVIEW_CAPABILITY, LARGE_VIDEO_CAPABILITY, LINK_PREVIEW_CAPABILITY, X_POST_PREVIEW_CAPABILITY, MESSAGE_WINDOW_CAPABILITY, 'joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'expression-kind-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
 const NEW_ROOM_CAPABILITIES = [...CLIENT_CAPABILITIES, 'room-archive-v2'];
 const PASSKEY_UNAVAILABLE_NOTICE = uiLiteral('当前浏览器无法获取到本设备的通行密钥信息，建议使用系统浏览器');
 const SPACE_DEVICE_LIMIT_NOTICE = uiLiteral('该密室接入设备已达上限。');
@@ -1500,6 +1502,7 @@ export class QuietRoomApp {
     this.root.querySelectorAll('.notice-ghost').forEach(node => node.remove());
     concealLinkPreviews();
     document.documentElement.classList.add('privacy-obscured');
+    concealXPostCards();
     this.root.setAttribute('aria-hidden', 'true');
   }
 
@@ -1519,6 +1522,7 @@ export class QuietRoomApp {
     document.documentElement.classList.remove('privacy-obscured');
     this.root.removeAttribute('aria-hidden');
     revealLinkPreviews();
+    if (this.activeSurface === 'chat') revealXPostCards();
   }
 
   private renderCover(preserveFilePicker = false): void {
@@ -8203,6 +8207,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     this.composerLinkPreview = new ComposerLinkPreview({input:textarea,host:this.root.querySelector<HTMLElement>('.composer-field')!,
       roomId:this.session!.vault.roomId,token:this.session!.vault.accessToken,signal:this.runtimeAbort!.signal,
       active:()=>ownsActiveChat()&&!this.privacyCovered,
+      supportsXPost: () => this.activeDevicesSupport(LINK_PREVIEW_CAPABILITY) && this.activeDevicesSupport(X_POST_PREVIEW_CAPABILITY),
       changed:()=>{if(ownsActiveChat())this.syncChatLayout();}});
     textarea.value = this.uiPreferences.composerDraft ?? '';
     resizeTextarea(false);
@@ -9292,7 +9297,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const leavingSettings=Boolean(outgoing?.matches('.is-settings-page,.desktop-settings-page'));
     if (outgoing && (source || outgoing.classList.contains('space-drawer-overlay'))) {
       const clone = outgoing.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll('.local-page-outgoing').forEach(node=>node.remove());
+      clone.querySelectorAll('.local-page-outgoing, .x-post-card').forEach(node=>node.remove());
       clone.removeAttribute('id'); clone.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
       const scroll = clone.querySelector('.space-drawer-scroll');
       if (scroll) scroll.scrollTop = outgoing.querySelector('.space-drawer-scroll')?.scrollTop ?? 0;
@@ -9535,7 +9540,11 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   }
 
   private setActiveSurface(surface: 'away' | 'chat', preservePresence = false): boolean {
-    if (surface === 'away') { this.videoDownloads?.dispose(); this.composerLinkPreview?.clear(); }
+    if (surface === 'away') {
+      this.videoDownloads?.dispose();
+      this.composerLinkPreview?.clear();
+      concealXPostCards();
+    }
     if (surface === 'away' && this.activeSurface === 'chat') this.captureChatAnchor(true);
     if (surface !== this.activeSurface) this.chatScrollRevision += 1;
     if (surface === 'away') { this.privateHistory?.pauseMedia();this.privateArchiveRows.clear();this.closeMemePicker(); this.memeCache.view = undefined; }
@@ -9556,6 +9565,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       if (this.activeSurface !== 'chat') this.rolePresence = null;
     }
     this.activeSurface = surface;
+    if (surface === 'chat' && !this.privacyCovered) revealXPostCards();
     this.socket?.setChatPresence(surface === 'chat' && !this.root.classList.contains('portrait-blocked'));
     this.syncViewport();
     this.updateChatBottomControl();
@@ -10400,7 +10410,10 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       : { v: 1, kind: 'text', text, sentAt: new Date().toISOString() };
     if (payload.kind === 'text' && this.activeDevicesSupport(LINK_PREVIEW_CAPABILITY)) {
       const preview = this.composerLinkPreview?.snapshot(text);
-      if (preview) { payload.v=3;payload.preview=preview; }
+      if (preview && (!preview.xPost || this.activeDevicesSupport(X_POST_PREVIEW_CAPABILITY))) {
+        payload.v = 3;
+        payload.preview = preview;
+      }
     }
     this.sendingTextDrafts.add(draftVersion);
     try {
@@ -11680,7 +11693,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       return uiLiteral('请先让所有已授权设备打开一次最新版，再发送带稳定占位的媒体');
     }
     if (payload.kind === 'file' && payload.videoPreview && !this.activeDevicesSupport(VIDEO_PREVIEW_CAPABILITY)) return uiLiteral('视频预览等待设备更新');
-    if(payload.kind==='text' && payload.preview && !this.activeDevicesSupport(LINK_PREVIEW_CAPABILITY)) return uiLiteral('链接预览等待设备更新');
+    if (payload.kind === 'text' && payload.preview && (!this.activeDevicesSupport(LINK_PREVIEW_CAPABILITY)
+      || payload.preview.xPost && !this.activeDevicesSupport(X_POST_PREVIEW_CAPABILITY))) return uiLiteral('链接预览等待设备更新');
     if (payload.kind === 'message-read' && !this.activeDevicesSupport('message-read-v1')) return uiLiteral('已读同步等待设备更新');
     if (payload.kind === 'media-read' && !this.activeDevicesSupport('media-read-v1')) return uiLiteral('已读同步等待设备更新');
     if (payload.kind === 'reaction' && !this.activeDevicesSupport('message-reactions-v1')) {
@@ -11834,7 +11848,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   private mountMessageActions(article: HTMLElement, message: DecryptedMessage): void {
     article.addEventListener('selectstart', event => { if (!matchMedia('(any-pointer: fine)').matches && !article.classList.contains('is-selecting-text')) event.preventDefault(); });
     article.addEventListener('dragstart', event => { if (!article.classList.contains('is-selecting-text')) event.preventDefault(); });
-    article.addEventListener('contextmenu', event => { if (!(event.target instanceof Element && event.target.closest('a')) && !article.classList.contains('is-selecting-text')) event.preventDefault(); });
+    article.addEventListener('contextmenu', event => { if (!(event.target instanceof Element && event.target.closest('a, .x-post-media')) && !article.classList.contains('is-selecting-text')) event.preventDefault(); });
     article.addEventListener('click', event => {
       // A completed hold on the voice play control may be followed by a
       // synthesized click. Consume only that click so opening Delete never
@@ -11865,7 +11879,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       const excludedButton = target?.closest(insideVoicePlayer
         ? 'button:not(.voice-control)'
         : 'a, input, button:not(.image-preview):not(.album-cell):not(.file-attachment):not(.voice-control)');
-      if (event.button !== 0 || event.pointerType === 'mouse' || excludedButton) return;
+      if (event.button !== 0 || event.pointerType === 'mouse' || excludedButton || target?.closest('.x-post-media')) return;
       this.cancelMessageHold();
       this.messageHoldStart = { x: event.clientX, y: event.clientY };
       // Match the usual native touch-and-hold cadence without letting Safari
@@ -11885,7 +11899,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       article.addEventListener(eventName, () => this.cancelMessageHold());
     }
     article.addEventListener('contextmenu', (event) => {
-      if(event.target instanceof Element && event.target.closest('a'))return;
+      if (event.target instanceof Element && event.target.closest('a, .x-post-media')) return;
       selectImage(event.target);
       if (article.classList.contains('is-selecting-text')) return;
       event.preventDefault();
@@ -11925,7 +11939,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           && Number.isSafeInteger(current.seq) && current.seq > 0 && current.seq < Number.MAX_SAFE_INTEGER;
       },
       exclude: target => target instanceof Element && Boolean(target.closest(
-        'a, input, textarea, audio, video, .message-reactions, .message-reply-quote, button:not(.image-preview):not(.album-cell):not(.file-attachment)',
+        'a, input, textarea, audio, video, .x-post-media, .message-reactions, .message-reply-quote, button:not(.image-preview):not(.album-cell):not(.file-attachment)',
       )),
       maxOffset: () => replySwipeMaxOffset(layoutViewport()?.width ?? window.innerWidth),
       currentOffset: () => swipeOffset,
@@ -12069,6 +12083,16 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       preview.inert = true;
       preview.style.cssText = `left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px`;
       const clone = sourceBubble.cloneNode(true) as HTMLElement;
+      const xPostCard = clone.querySelector('.x-post-card');
+      if (xPostCard && message.payload.kind === 'text') {
+        if (clone.querySelector('.message-text')) xPostCard.remove();
+        else {
+          const text = document.createElement('p');
+          text.className = 'message-text';
+          text.textContent = message.payload.text;
+          xPostCard.replaceWith(text);
+        }
+      }
       // Short viewports clip the inert wrapper, keeping the cloned content's
       // painted geometry and concealment independent of the available space.
       clone.style.height = `${rect.height}px`;
@@ -13290,13 +13314,41 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
     if (message.payload.kind === 'text') {
       bubble.classList.add('text-bubble');
-      const text = document.createElement('p');
-      text.className = 'message-text';
-      renderLinkedText(text, message.payload.text);
-      bubble.append(text);
-      if(message.payload.preview) {
+      const { text, preview } = message.payload;
+      const [link] = preview?.xPost ? findWebLinks(text) : [];
+      if (!link || link.text !== text.trim() || link.url !== preview?.url) {
+        const paragraph = document.createElement('p');
+        paragraph.className = 'message-text';
+        renderLinkedText(paragraph, text);
+        bubble.append(paragraph);
+      }
+      if (preview) {
         bubble.classList.add('link-preview-bubble');
-        bubble.append(renderPreviewCard(message.payload.preview,this.runtimeAbort?.signal ?? AbortSignal.abort()));
+        const signal = this.runtimeAbort?.signal ?? AbortSignal.abort();
+        const session = this.session;
+        if (preview.xPost && session) {
+          const { id } = preview.xPost;
+          const { roomId, accessToken } = session.vault;
+          let anchor: ChatScrollAnchor | null = null;
+          bubble.append(renderXPostCard({ ...preview, xPost: preview.xPost }, {
+            signal,
+            readText: signal => readXPostText(roomId, accessToken, id, signal),
+            loadVideo: (mediaId, signal) => openXPostVideo(roomId, accessToken, id, mediaId, signal),
+            beforeLayoutChange: () => {
+              if (article.isConnected && this.activeSurface === 'chat' && !this.privacyCovered) anchor = this.captureChatAnchor(false, true);
+            },
+            onLayoutChange: () => {
+              const list = this.chatLayoutElements?.list;
+              if (anchor && list && article.isConnected && this.activeSurface === 'chat' && !this.privacyCovered) {
+                this.restoreChatAnchor(list, anchor);
+                this.updateChatBottomControl();
+              }
+              anchor = null;
+            },
+          }));
+        } else {
+          bubble.append(renderPreviewCard(preview, signal));
+        }
       }
     } else if (message.payload.kind === 'audio') {
       bubble.classList.add('voice-bubble');
@@ -18471,7 +18523,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const tracks = [...(call?.localStream?.getTracks() ?? []), ...(call?.remoteStream?.getTracks() ?? [])];
     return Boolean(call?.phase === 'connected' && tracks.some(track => track.readyState === 'live' && track.enabled)
       || this.voiceRecorder?.persistentUse || this.voicePlayback.playing
-      || [...this.root.querySelectorAll<HTMLVideoElement>('.image-viewer video[data-user-playback="true"]')]
+      || [...this.root.querySelectorAll<HTMLVideoElement>('.image-viewer video[data-user-playback="true"], .x-post-video[data-user-playback="true"]')]
         .some(video => video.isConnected && video.dataset.actualPlayback === 'true' && !video.paused && !video.ended
           && !video.loop && Number.isFinite(video.duration) && video.duration > 0));
   }
