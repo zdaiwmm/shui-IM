@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { Readable } from 'node:stream';
 import { publicAddress, previewTarget, parsePreviewHtml, createLinkPreviewService, fetchPreviewResource, rasterSize } from '../server/link-preview.mjs';
 import { findWebLinks, firstPreviewUrl, webUrl } from '../src/lib/web-links';
-import { isLinkPreview, previewLayout } from '../src/lib/link-preview-data';
+import { isLinkPreview, PREVIEW_IMAGE_BYTES, previewLayout, xPostId } from '../src/lib/link-preview-data';
 import { isMessagePayload } from '../src/lib/message-payload';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -16,6 +16,7 @@ const preview={url,siteName:'Example',title:'Example title',description:'A descr
 const payload={v:3,kind:'text',text:url,sentAt:new Date().toISOString(),preview};
 const answer=[{address:'93.184.216.34',family:4}];
 const html=Buffer.from('<meta property="og:title" content="A &amp; B"><meta name="description" content="Plain &lt;script&gt; text">');
+const jpeg=Buffer.from([255,216,255,192,0,11,8,1,64,2,128,1,1,17,0,255,218,0,8,1,1,0,0,63,0,0,255,217]);
 
 describe('web links and encrypted preview contract',()=>{
   it('identifies mixed Chinese text, www, queries, fragments and balanced parentheses without consuming punctuation',()=>{
@@ -42,7 +43,6 @@ describe('web links and encrypted preview contract',()=>{
     expect(isMessagePayload({...payload,kind:'image'})).toBe(false);
   });
   it('rejects remote image URLs, unbounded data and shape mismatches',()=>{
-    const jpeg=Buffer.from([255,216,255,192,0,11,8,1,64,2,128,1,1,17,0,255,218,0,8,1,1,0,0,63,0,0,255,217]);
     const image={mimeType:'image/jpeg',data:jpeg.toString('base64url'),width:640,height:320};
     expect(isLinkPreview({...preview,layout:'large',image})).toBe(true);
     expect(isLinkPreview({...preview,image})).toBe(false);
@@ -58,6 +58,58 @@ describe('web links and encrypted preview contract',()=>{
     expect(previewLayout('content',640,320)).toBe('large');
     expect(previewLayout('icon',640,320)).toBe('compact');
     expect(previewLayout('content',96,96)).toBe('compact');
+  });
+});
+
+describe('X post link and encrypted snapshot', () => {
+  const id = '12345678901234567890';
+  const url = `https://x.com/mjora/status/${id}?s=20&t=example`;
+  const videos = [{ id: '7_2', durationMs: 2000 }, { id: '7_1' }];
+  const xPost = { id, canRead: true, videos };
+  const xPreview = { ...preview, url, siteName: 'X', xPost };
+  const xPayload = { ...payload, text: `看这个 ${url}`, preview: xPreview };
+
+  it('recognizes exact X and Twitter status routes with sharing parameters', () => {
+    for (const value of [url, `https://twitter.com/i/web/status/${id}/`, `https://mobile.twitter.com/i/status/${id}`, `https://www.x.com/status/${id}`]) {
+      expect(xPostId(value)).toBe(id);
+    }
+    for (const value of [url.replace('x.com', 'x.com.example.org'), url.replace('x.com', 'x.com:1234'),
+      url.replace('x.com', 'user:pw@x.com'), `${url}#recovery`, `${url}&token=secret`,
+      `https://x.com/status/${id}1`, `https://x.com/status/${id}/analytics`, 'https://x.com/mjora']) {
+      expect(xPostId(value)).toBeUndefined();
+    }
+  });
+
+  it('accepts X snapshots with ordered videos or text alone, bound to the original message URL', () => {
+    expect(isMessagePayload(xPayload)).toBe(true);
+    expect(isLinkPreview({ ...xPreview, xPost: { ...xPost, canRead: false, videos: [] } })).toBe(true);
+    expect(isMessagePayload({ ...xPayload, text: 'https://example.org/other' })).toBe(false);
+    expect(isLinkPreview({ ...xPreview, url: 'https://example.org/status/123' })).toBe(false);
+    expect(isLinkPreview({ ...xPreview, xPost: { ...xPost, id: '123' } })).toBe(false);
+    expect(isMessagePayload(payload)).toBe(true);
+  });
+
+  it('rejects duplicate or malformed videos and stored remote URLs or tickets', () => {
+    for (const invalid of [{ ...xPost, canRead: 'yes' }, { ...xPost, textUrl: 'https://example.org/post' },
+      { ...xPost, videos: [videos[0], videos[0]] }, { ...xPost, videos: Array.from({ length: 5 }, (_, index) => ({ id: `7_${index}` })) },
+      { ...xPost, videos: [{ id: 'bad/url' }] }, { ...xPost, videos: [{ id: 'a'.repeat(65) }] },
+      { ...xPost, videos: [{ id: '7_1', durationMs: 1.5 }] }, { ...xPost, videos: [{ id: '7_1', durationMs: Infinity }] },
+      { ...xPost, videos: [{ id: '7_1', url: 'https://example.org/video.mp4' }] },
+      { ...xPost, videos: [{ id: '7_1', poster: { url: 'https://example.org/image.jpg' } }] }]) {
+      expect(isLinkPreview({ ...xPreview, xPost: invalid })).toBe(false);
+    }
+  });
+
+  it('shares the existing JPEG byte budget across the link and video covers', () => {
+    function imageOfSize(length: number) {
+      const bytes = Buffer.concat([jpeg.subarray(0, -2), Buffer.alloc(length - jpeg.length), jpeg.subarray(-2)]);
+      return { mimeType: 'image/jpeg', data: bytes.toString('base64url'), width: 640, height: 320 };
+    }
+    const poster = imageOfSize(PREVIEW_IMAGE_BYTES / 2);
+    const withPosters = { ...xPreview, xPost: { ...xPost, videos: videos.map(video => ({ ...video, poster })) } };
+    expect(isLinkPreview(withPosters)).toBe(true);
+    expect(isLinkPreview({ ...withPosters, layout: 'large', image: imageOfSize(jpeg.length) })).toBe(false);
+    expect(isLinkPreview({ ...withPosters, xPost: { ...xPost, videos: [{ ...videos[0], poster: imageOfSize(PREVIEW_IMAGE_BYTES + 1) }] } })).toBe(false);
   });
 });
 

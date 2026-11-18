@@ -1,0 +1,20 @@
+serverAddr = "aix.shui.click"
+serverPort = 17447
+
+auth.method = "token"
+auth.additionalScopes = ["HeartBeats", "NewWorkConns"]
+auth.tokenSource.type = "file"
+auth.tokenSource.file.path = "/etc/aix-frp/token"
+
+transport.tls.enable = true
+transport.tls.trustedCaFile = "/etc/aix-frp/ca.crt"
+transport.tls.serverName = "aix.shui.click"
+
+[[proxies]]
+name = "aix-x-post"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 18087
+remotePort = 18087
+transport.bandwidthLimit = "2MB"
+transport.bandwidthLimitMode = "server"

@@ -4,6 +4,7 @@ import { clientVersion, openFaultStore } from './faults.mjs';
 import { createSocketBudget, SOCKET_LIMITS } from './socket-budget.mjs';
 import { createServer as createHttpServer } from 'node:http';
 import { createLinkPreviewService } from './link-preview.mjs';
+import { createXPostGateway, xPostRequest, X_POST_MEDIA_ORIGIN } from './x-post-gateway.mjs';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -49,7 +50,7 @@ const MIME_TYPES = new Map([
   ['.woff2', 'font/woff2'],
 ]);
 
-function applySecurityHeaders(request, response, leadCollector = null, videoClient = false, videoWorker = false) {
+function applySecurityHeaders(request, response, leadCollector = null, videoClient = false, videoWorker = false, xPostMedia = false) {
   const hostHeader = typeof request.headers.host === 'string' && /^[A-Za-z0-9.:[\]-]+$/.test(request.headers.host)
     ? request.headers.host
     : null;
@@ -65,7 +66,7 @@ function applySecurityHeaders(request, response, leadCollector = null, videoClie
     `script-src 'self' 'wasm-unsafe-eval'${leadCollector ? ' https://shui.click/lead.js' : ''}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' blob: data:",
-    "media-src 'self' blob:",
+    `media-src 'self' blob:${xPostMedia ? ` ${X_POST_MEDIA_ORIGIN}` : ''}`,
     `connect-src 'self'${socketSources}${leadConnections}${videoClient ? ' https://api.fxtwitter.com https://video.twimg.com https://pbs.twimg.com' : videoWorker ? ' https://video.twimg.com' : ''}`,
     "worker-src 'self'",
     "manifest-src 'self'",
@@ -102,6 +103,15 @@ async function readJson(request) {
   } catch {
     throw new Error('INVALID_JSON');
   }
+}
+
+function isSameOriginPreviewRequest(request) {
+  try {
+    const source = new URL(request.headers.origin);
+    return ['https:', 'http:'].includes(source.protocol) && source.host === request.headers.host
+      && request.headers['sec-fetch-site'] !== 'cross-site'
+      && /^application\/json(?:;|$)/i.test(request.headers['content-type'] ?? '');
+  } catch { return false; }
 }
 
 function bearerToken(request) {
@@ -435,6 +445,10 @@ export async function startServer(options = {}) {
   await store.cleanupDeletedRooms();
 
   const linkPreview = createLinkPreviewService();
+  const lookupXPost = createXPostGateway({
+    token: options.xPostGatewayToken ?? process.env.AIX_GATEWAY_TOKEN,
+    fetchImpl: options.xPostGatewayFetch,
+  });
   const httpServer = createHttpServer(async (request, response) => {
     let faultStage;
     try {
@@ -488,13 +502,41 @@ export async function startServer(options = {}) {
         return;
       }
 
+      const xPostMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/x-post$`));
+      if (xPostMatch) {
+        if (request.method !== 'POST') { json(request, response, 405, { code: 'METHOD_NOT_ALLOWED' }); return; }
+        const roomId = xPostMatch[1];
+        const device = requireActiveDevice(request, roomId);
+        if (!isSameOriginPreviewRequest(request)) { json(request, response, 403, { code: 'INVALID_ORIGIN' }); return; }
+        if (!lookupXPost) { json(request, response, 503, { code: 'X_POST_UNAVAILABLE' }); return; }
+        if (!allowRequest(request, 'x-post', 60)
+          || !rateLimits.take(JSON.stringify(['x-post-device', roomId, device.deviceId]), 30).allowed) {
+          json(request, response, 429, { code: 'RATE_LIMITED' }); return;
+        }
+        const controller = new AbortController();
+        response.once('close', () => controller.abort());
+        try {
+          const packet = xPostRequest(JSON.parse((await readBody(request, 1024)).toString('utf8')));
+          if (!packet) throw new Error('X_POST_TARGET');
+          requireActiveDevice(request, roomId, device.deviceId);
+          const result = await lookupXPost(packet, controller.signal);
+          requireActiveDevice(request, roomId, device.deviceId);
+          json(request, response, 200, result);
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          const code = error instanceof Error ? error.message : '';
+          const status = code === 'UNAUTHORIZED' ? 401 : code === 'X_POST_NOT_FOUND' ? 404
+            : code === 'X_POST_TARGET' || code === 'BODY_TOO_LARGE' || error instanceof SyntaxError ? 400 : 502;
+          json(request, response, status, { code: 'X_POST_UNAVAILABLE' });
+        }
+        return;
+      }
+
       const previewMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/link-preview$`));
       if (previewMatch) {
         if (request.method !== 'POST') { json(request,response,405,{code:'METHOD_NOT_ALLOWED'});return; }
         const device = requireActiveDevice(request,previewMatch[1]);
-        let sameOrigin=false;
-        try {const source=new URL(request.headers.origin);sameOrigin=['https:','http:'].includes(source.protocol)&&source.host===request.headers.host;}catch {/* Fail closed. */}
-        if(!sameOrigin || request.headers['sec-fetch-site']==='cross-site' || !/^application\/json(?:;|$)/i.test(request.headers['content-type']??'')) {
+        if (!isSameOriginPreviewRequest(request)) {
           json(request,response,403,{code:'INVALID_ORIGIN'});return;
         }
         if(!allowRequest(request,'link-preview',30) || !rateLimits.take(JSON.stringify(['preview-device',previewMatch[1],device.deviceId]),20).allowed) {
@@ -1623,7 +1665,9 @@ export async function startServer(options = {}) {
         target = path.join(staticDir, 'index.html');
       }
       const bytes = await readFile(target);
-      applySecurityHeaders(request, response, target === path.join(staticDir, 'index.html') ? publicPixel?.collector : null, target === path.join(staticDir, 'index.html'), target === path.join(staticDir, 'sw.js'));
+      const isApp = target === path.join(staticDir, 'index.html');
+      applySecurityHeaders(request, response, isApp ? publicPixel?.collector : null, isApp,
+        target === path.join(staticDir, 'sw.js'), isApp && Boolean(lookupXPost));
       response.writeHead(200, {
         'Content-Type': MIME_TYPES.get(path.extname(target)) ?? 'application/octet-stream',
         'Cache-Control': ['index.html', 'sw.js', 'manifest.webmanifest', 'release.json'].includes(path.basename(target))

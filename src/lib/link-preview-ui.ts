@@ -2,7 +2,11 @@ import { fromBase64Url, toBase64Url } from './base64';
 import { authorizedFetch } from './api';
 import { uiLiteral } from './language';
 import { firstPreviewUrl, newTabLink } from './web-links';
-import { isLinkPreview, PREVIEW_IMAGE_BYTES, previewLayout, type LinkPreview } from './link-preview-data';
+import {
+  isLinkPreview, isXPostMediaId, isXPostVideoDuration, MAX_X_POST_VIDEOS, PREVIEW_IMAGE_BYTES,
+  previewLayout, xPostId, type LinkPreview, type PreviewImage, type XPostVideoPreview,
+} from './link-preview-data';
+import { requestXPost } from './x-post-api';
 
 async function preparePreview(raw: unknown, url: string, signal: AbortSignal): Promise<LinkPreview> {
   const packet = raw as Record<string, unknown>;
@@ -16,30 +20,72 @@ async function preparePreview(raw: unknown, url: string, signal: AbortSignal): P
     || !Number.isInteger(image.width) || !Number.isInteger(image.height)
     || image.width! < 1 || image.height! < 1 || image.width! > 4096 || image.height! > 4096
     || image.width! * image.height! > 12_000_000) return result;
+  const snapshot = await prepareJpeg(image, PREVIEW_IMAGE_BYTES, signal);
+  if (snapshot) {
+    result.image = snapshot;
+    result.layout = previewLayout(image.source as 'content'|'icon', snapshot.width, snapshot.height);
+  }
+  return result;
+}
+
+async function prepareJpeg(raw: unknown, budget: number, signal: AbortSignal): Promise<PreviewImage | undefined> {
+  const image = raw as { mimeType?: string; data?: string } | null;
+  if (!image || !['image/jpeg', 'image/png', 'image/webp'].includes(image.mimeType ?? '')
+    || typeof image.data !== 'string' || image.data.length > Math.ceil(1024 * 1024 * 4 / 3)
+    || !/^[A-Za-z0-9_-]+$/.test(image.data)) return undefined;
   let bitmap: ImageBitmap | undefined;
+  const canvas = document.createElement('canvas');
   try {
     signal.throwIfAborted();
-    bitmap = await createImageBitmap(new Blob([fromBase64Url(image.data)],{type:image.mimeType}));
+    bitmap = await createImageBitmap(new Blob([fromBase64Url(image.data)], { type: image.mimeType }));
     signal.throwIfAborted();
-    if (bitmap.width > 4096 || bitmap.height > 4096 || bitmap.width * bitmap.height > 12_000_000) return result;
-    const canvas = document.createElement('canvas');
-    let scale = Math.min(1,640 / Math.max(bitmap.width,bitmap.height));
-    for (let attempt=0;attempt<5;attempt++,scale*=.75) {
-      canvas.width=Math.max(1,Math.round(bitmap.width*scale)); canvas.height=Math.max(1,Math.round(bitmap.height*scale));
-      const context=canvas.getContext('2d'); if (!context) return result;
-      context.fillStyle='#ffffff';context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(bitmap,0,0,canvas.width,canvas.height);
-      const blob=await new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,'image/jpeg',.72));
+    if (bitmap.width > 4096 || bitmap.height > 4096 || bitmap.width * bitmap.height > 12_000_000) return undefined;
+    let scale = Math.min(1, 640 / Math.max(bitmap.width, bitmap.height));
+    for (let attempt = 0; attempt < 5; attempt++, scale *= .75) {
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const context = canvas.getContext('2d');
+      if (!context) return undefined;
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', .72));
       signal.throwIfAborted();
-      if (blob && blob.size <= PREVIEW_IMAGE_BYTES) {
-        result.image={mimeType:'image/jpeg',data:toBase64Url(await blob.arrayBuffer()),width:canvas.width,height:canvas.height};
-        result.layout=previewLayout(image.source as 'content'|'icon',canvas.width,canvas.height);
-        break;
+      if (blob && blob.size <= budget) {
+        const data = toBase64Url(await blob.arrayBuffer());
+        signal.throwIfAborted();
+        return { mimeType: 'image/jpeg', data, width: canvas.width, height: canvas.height };
       }
     }
-    canvas.width=canvas.height=0;
   } catch { signal.throwIfAborted(); }
-  finally { bitmap?.close(); }
-  return result;
+  finally {
+    canvas.width = canvas.height = 0;
+    bitmap?.close();
+  }
+  return undefined;
+}
+
+async function prepareXPostPreview(raw: unknown, url: string, id: string, signal: AbortSignal): Promise<LinkPreview> {
+  const packet = raw as { title: string; description: string; canRead: boolean;
+    videos: Array<{ id: unknown; durationMs?: unknown; cover?: unknown }> };
+  if (!packet || typeof packet.canRead !== 'boolean' || !Array.isArray(packet.videos)
+    || packet.videos.length > MAX_X_POST_VIDEOS) throw new Error('Invalid X post preview');
+  const videos: XPostVideoPreview[] = [];
+  const coverBudget = Math.floor(PREVIEW_IMAGE_BYTES / Math.max(1, packet.videos.length));
+  for (const video of packet.videos) {
+    if (!isXPostMediaId(video?.id)) throw new Error('Invalid X post video');
+    const item: XPostVideoPreview = { id: video.id };
+    if (isXPostVideoDuration(video.durationMs)) item.durationMs = video.durationMs;
+    const poster = await prepareJpeg(video.cover, coverBudget, signal);
+    if (poster) item.poster = poster;
+    videos.push(item);
+  }
+  const preview: LinkPreview = {
+    url, siteName: 'X', title: packet.title, description: packet.description, layout: 'text',
+    xPost: { id, canRead: packet.canRead, videos },
+  };
+  if (!isLinkPreview(preview)) throw new Error('Invalid X post preview');
+  return preview;
 }
 
 export class ComposerLinkPreview {
@@ -52,7 +98,7 @@ export class ComposerLinkPreview {
   private composing = false;
   private readonly row = document.createElement('div');
   constructor(private readonly options: {input: HTMLTextAreaElement; host: HTMLElement; roomId: string; token: string;
-    signal: AbortSignal; active: () => boolean; changed: () => void}) {
+    signal: AbortSignal; active: () => boolean; supportsXPost: () => boolean; changed: () => void}) {
     this.row.className='link-preview-draft'; this.row.hidden=true;
     options.host.before(this.row);
     this.row.addEventListener('pointerdown',event=>{
@@ -79,7 +125,7 @@ export class ComposerLinkPreview {
     const url=firstPreviewUrl(this.options.input.value);
     if(url===this.url)return;
     this.clear();this.url=url;
-    if(url)this.timer=setTimeout(()=>void this.load(),500);
+    if (url && (!xPostId(url) || this.options.supportsXPost())) this.timer=setTimeout(()=>void this.load(),500);
   }
   private paint(state:'loading'|'ready'|'failed'): void {
     this.row.replaceChildren();this.row.hidden=false;this.row.dataset.state=state;
@@ -104,8 +150,13 @@ export class ComposerLinkPreview {
     const current=()=>revision===this.version&&!signal.aborted&&!this.dismissed&&this.options.active()&&this.options.input.isConnected;
     this.paint('loading');
     try {
-      const response=await authorizedFetch(`/api/rooms/${this.options.roomId}/link-preview`,this.options.token,{method:'POST',signal,cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});
-      const preview=await preparePreview(await response.json(),url,signal);
+      const { roomId, token } = this.options;
+      const postId = xPostId(url);
+      if (postId && !this.options.supportsXPost()) { this.clear(); return; }
+      const preview = postId
+        ? await prepareXPostPreview(await requestXPost(roomId, token, { action: 'preview', postId }, signal), url, postId, signal)
+        : await preparePreview(await (await authorizedFetch(`/api/rooms/${roomId}/link-preview`, token,
+            { method: 'POST', signal, cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) })).json(), url, signal);
       if(!current())return;this.preview=preview;this.paint('ready');
     }catch {
       if(revision===this.version&&!controller.signal.aborted&&!this.options.signal.aborted&&this.options.active())this.paint('failed');

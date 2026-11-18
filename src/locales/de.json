@@ -3193,5 +3193,12 @@
   "粘贴链接，选择想分享的视频": "Link einfügen und Videos auswählen",
   "仅下载保存在本机，不会发送给对方。": "Nur herunterladen speichert auf diesem Gerät und sendet nichts an die andere Person.",
   "已选": "Ausgewählt",
-  "传输临时文件已超过24小时，请重新选择文件上传或重新下载。": "Die temporären Dateien sind älter als 24 Stunden. Wähle die Datei erneut zum Hochladen oder lade sie erneut herunter."
+  "传输临时文件已超过24小时，请重新选择文件上传或重新下载。": "Die temporären Dateien sind älter als 24 Stunden. Wähle die Datei erneut zum Hochladen oder lade sie erneut herunter.",
+  "查看全文": "Ganzen Beitrag lesen",
+  "收起全文": "Beitrag einklappen",
+  "查看原帖": "Originalbeitrag öffnen",
+  "上一个视频": "Vorheriges Video",
+  "下一个视频": "Nächstes Video",
+  "暂时无法读取全文": "Der vollständige Beitrag ist vorübergehend nicht verfügbar",
+  "暂时无法进入全屏": "Vollbild ist vorübergehend nicht verfügbar"
 }

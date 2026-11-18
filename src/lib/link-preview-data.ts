@@ -1,13 +1,36 @@
 import { fromBase64Url } from './base64';
-import { firstPreviewUrl, webUrl } from './web-links';
+import { firstPreviewUrl, previewableUrl, webUrl } from './web-links';
 
 export const LINK_PREVIEW_CAPABILITY = 'link-preview-v1';
+export const X_POST_PREVIEW_CAPABILITY = 'x-post-preview-v1';
 export const PREVIEW_IMAGE_BYTES = 16 * 1024;
+export const MAX_X_POST_VIDEOS = 4;
 export type PreviewImage = { mimeType: 'image/jpeg'; data: string; width: number; height: number };
+export type XPostVideoPreview = { id: string; durationMs?: number; poster?: PreviewImage };
+export type XPostPreview = { id: string; canRead: boolean; videos: XPostVideoPreview[] };
 export type LinkPreview = {
   url: string; siteName: string; title: string; description: string;
-  layout: 'large' | 'compact' | 'text'; image?: PreviewImage;
+  layout: 'large' | 'compact' | 'text'; image?: PreviewImage; xPost?: XPostPreview;
 };
+
+const X_POST_HOSTS = new Set(['x.com', 'www.x.com', 'm.x.com', 'mobile.x.com', 'twitter.com', 'www.twitter.com', 'm.twitter.com', 'mobile.twitter.com']);
+const X_POST_PATH = /^\/(?:[A-Za-z0-9_]{1,15}\/|i\/web\/)?status\/(\d{1,20})(?:\/(?:video|photo)\/\d+)?\/?$/;
+
+export function xPostId(value: string): string | undefined {
+  const normalized = previewableUrl(value);
+  if (!normalized) return undefined;
+  const url = new URL(normalized);
+  if (!X_POST_HOSTS.has(url.hostname) || url.port) return undefined;
+  return X_POST_PATH.exec(url.pathname)?.[1];
+}
+
+export function isXPostMediaId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_]{1,64}$/.test(value);
+}
+
+export function isXPostVideoDuration(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= 24 * 60 * 60 * 1000;
+}
 
 function cleanText(value: unknown, maximum: number): value is string {
   return typeof value === 'string' && value.length <= maximum && !/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/.test(value);
@@ -39,16 +62,49 @@ function matchesJpegFrame(bytes: Uint8Array, width: number, height: number): boo
   return false;
 }
 
+function previewImageSize(image: PreviewImage): number {
+  return Math.floor(image.data.length * 3 / 4);
+}
+
+function isXPostPreview(value: unknown, url: string, imageBytes: number): value is XPostPreview {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const post = value as Record<string, unknown>;
+  if (Object.keys(post).some(key => !['id','canRead','videos'].includes(key))
+    || typeof post.id !== 'string' || xPostId(url) !== post.id || typeof post.canRead !== 'boolean'
+    || !Array.isArray(post.videos) || post.videos.length > MAX_X_POST_VIDEOS) return false;
+  const mediaIds = new Set<string>();
+  for (const value of post.videos) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const video = value as Record<string, unknown>;
+    if (Object.keys(video).some(key => !['id','durationMs','poster'].includes(key))
+      || !isXPostMediaId(video.id) || mediaIds.has(video.id)
+      || (video.durationMs !== undefined && !isXPostVideoDuration(video.durationMs))) return false;
+    mediaIds.add(video.id);
+    if (video.poster !== undefined) {
+      if (!isPreviewImage(video.poster)) return false;
+      imageBytes += previewImageSize(video.poster);
+      if (imageBytes > PREVIEW_IMAGE_BYTES) return false;
+    }
+  }
+  return true;
+}
+
 export function isLinkPreview(value: unknown, messageText?: string): value is LinkPreview {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const p = value as Record<string, unknown>;
-  if (Object.keys(p).some(key => !['url','siteName','title','description','layout','image'].includes(key))
+  if (Object.keys(p).some(key => !['url','siteName','title','description','layout','image','xPost'].includes(key))
     || typeof p.url !== 'string' || webUrl(p.url) !== p.url
     || (messageText !== undefined && firstPreviewUrl(messageText) !== p.url)
     || !cleanText(p.siteName, 100) || !p.siteName.trim() || !cleanText(p.title, 300) || !p.title.trim()
     || !cleanText(p.description, 600) || typeof p.layout !== 'string' || !['large','compact','text'].includes(p.layout)) return false;
-  if (p.image === undefined) return p.layout === 'text';
-  return p.layout !== 'text' && isPreviewImage(p.image);
+  let imageBytes = 0;
+  if (p.image === undefined) {
+    if (p.layout !== 'text') return false;
+  } else {
+    if (p.layout === 'text' || !isPreviewImage(p.image)) return false;
+    imageBytes = previewImageSize(p.image);
+  }
+  return p.xPost === undefined || isXPostPreview(p.xPost, p.url, imageBytes);
 }
 
 export function isPreviewImage(value: unknown): value is PreviewImage {

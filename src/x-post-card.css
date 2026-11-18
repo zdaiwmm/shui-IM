@@ -1,0 +1,117 @@
+#app .x-post-card {
+  width: min(20rem, 100%);
+  margin-top: 7px;
+  overflow-wrap: anywhere;
+}
+
+#app .x-post-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+#app .x-post-source { min-width: 0; font-size: .875rem; line-height: 1.4; }
+#app .x-post-original, #app .x-post-text-toggle {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--accent);
+  font-size: .8125rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+#app .x-post-original { flex: 0 0 auto; max-width: 50%; }
+#app .outgoing .x-post-original, #app .outgoing .x-post-text-toggle { color: inherit; }
+#app .x-post-copy { margin: 0; white-space: pre-wrap; font-size: .9375rem; line-height: 1.5; }
+#app .x-post-copy[data-truncated]:not([hidden]) {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+}
+#app .x-post-text-toggle { width: fit-content; padding: 0; border: 0; background: transparent; box-shadow: none; }
+#app .x-post-media { position: relative; margin-top: 6px; }
+#app .x-post-track {
+  display: flex;
+  overflow: auto hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  border-radius: 10px;
+}
+#app .x-post-track::-webkit-scrollbar { display: none; }
+#app .x-post-stage {
+  position: relative;
+  flex: 0 0 100%;
+  min-width: 0;
+  aspect-ratio: 2.04;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  overflow: hidden;
+  background: #242124;
+}
+#app .x-post-poster, #app .x-post-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+#app .x-post-poster { object-fit: cover; pointer-events: none; }
+#app .x-post-video { object-fit: contain; background: #242124; }
+#app .x-post-play, #app .x-post-fullscreen, #app .x-post-edge {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  color: #fff;
+  background: transparent;
+  box-shadow: none;
+}
+#app .x-post-play[hidden], #app .x-post-fullscreen[hidden], #app .x-post-feedback[hidden] { display: none; }
+#app .x-post-play {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: rgb(23 20 25 / 80%);
+}
+#app .x-post-play svg { width: 18px; height: 18px; fill: currentColor; }
+#app .x-post-play[data-state=loading] svg { display: none; }
+#app .x-post-play[data-state=loading]::after {
+  content: '';
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgb(255 255 255 / 45%);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: x-post-loading .8s linear infinite;
+}
+@keyframes x-post-loading { to { transform: rotate(1turn); } }
+@media (prefers-reduced-motion: reduce) {
+  #app .x-post-play[data-state=loading]::after { animation: none; }
+}
+#app .x-post-fullscreen { top: 0; right: 0; }
+#app .x-post-fullscreen svg { width: 17px; height: 17px; filter: drop-shadow(0 1px 2px #000) drop-shadow(0 0 2px #000); }
+#app .x-post-page, #app .x-post-duration {
+  position: absolute;
+  z-index: 1;
+  color: #fff;
+  font-size: .6875rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  text-shadow: 0 1px 2px #000, 0 0 2px #000, 0 0 4px #000;
+  pointer-events: none;
+}
+#app .x-post-page { top: 7px; left: 8px; }
+#app .x-post-duration { right: 8px; bottom: 7px; }
+#app .x-post-edge { top: calc(50% - 22px); }
+#app .x-post-edge-previous { left: 0; }
+#app .x-post-edge-next { right: 0; }
+#app .x-post-edge svg { width: 14px; height: 14px; opacity: .85; filter: drop-shadow(0 1px 2px #000) drop-shadow(0 0 2px #000); }
+#app .x-post-edge[aria-disabled=true] { visibility: hidden; }
+#app .x-post-feedback { margin: 4px 0 0; font-size: .8125rem; line-height: 1.4; }
+#app .x-post-card :is(a, button, video, .x-post-track):focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+
+@media (forced-colors: active) {
+  #app .x-post-page, #app .x-post-duration { background: Canvas; color: CanvasText; }
+  #app .x-post-play, #app .x-post-fullscreen, #app .x-post-edge { background: ButtonFace; color: ButtonText; }
+}

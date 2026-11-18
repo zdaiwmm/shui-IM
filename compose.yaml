@@ -27,6 +27,7 @@ services:
       HOST: 0.0.0.0
       PORT: 8080
       LEAD_PIXEL_CONNECTION: ${LEAD_PIXEL_CONNECTION:-}
+      AIX_GATEWAY_TOKEN: ${AIX_GATEWAY_TOKEN:-}
       LEAD_PIXEL_KEY: ${LEAD_PIXEL_KEY:-}
       DATA_DIR: /app/data
       ADMIN_BACKUP_STATUS_FILE: /app/admin-status/backup.json
