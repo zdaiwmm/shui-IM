@@ -1,6 +1,6 @@
 # 视频发送、占位与版本更新回归
 
-状态：PR #532、#535、#540、#542 已合并；主站当前为 #542 的 e8d4136215ec92aa155e0cfd697d1b22716cfd56／2026.11.17.5，已取得精确 DEPLOY_VERIFIED 与北京时间 2026-11-18 01:20:00 独立 READBACK_OK。此前版本的云端回执缺口与家庭站切换前阻塞保留在下文，不为补回执重发旧提交。长视频原生 Safari 崩溃仍未确认修复；本轮未操作家庭站。
+PR #532、#535、#540、#542 和 #545 已合并。主站当前运行 #545 的 `b4d9d08884c1c3d486b1af35c1bbc7ca1eb7fd70`（`2026.11.18.1`），已取得 `DEPLOY_VERIFIED` 和北京时间 2026-11-18 **14:25:08** 的独立 `READBACK_OK`。待用户用 PC 和 iPhone Safari 复测原视频。[主站发布记录](../../../RELEASING.md#release-safari-large-video-viewer-20261118)
 
 基线及规则来源：GitHub main 与本机 origin/main 均为 `92b977d7af7776f6af24f4fce465b03acf0dec1f`，读取该版 AGENTS.md、docs/context/workflow.md 和发布效率规程。独占克隆 `chat-video-update-fixes-20261117`，分支 `codex/chat-video-update-fixes-20261117`；Git 元数据在任务目录自身，不写其他任务。
 
@@ -95,3 +95,5 @@
 桌面原生 Safari 27.0.1 的 701.2 MiB 对照在首块挂起时关闭查看器，旧版读完 351 块并创建原件，修复版只发出首块且没有创建原件，随后仍可正常打开和跳转。充足额度下连续打开三份同尺寸视频并重开第一份，四次均成功，关闭均撤销原件地址且不改变封面，重开未发出网络分块请求。低额度对照测的是原件读取已开始后的缓存预算，不模拟物理磁盘写满，也不等同于显式下载的容量预留。原生 iPhone 未连接，用户原视频与已观察的间歇性 Safari 进程崩溃仍待定位。
 
 验证范围为查看器前台生命周期、原件／缩略图缓存与显式下载的邻接链路。本地采用 `ensure check` 及对应浏览器专项。变更经过共享 `app.ts`，远端走 full CI。候选版本为 `2026.11.18.1`。
+
+用户随后确认将 `b4d9d08884c1c3d486b1af35c1bbc7ca1eb7fd70`（`2026.11.18.1`）发布到主站。精确 main full CI 通过后，本机固定发布入口完成一次切换并返回 `DEPLOY_VERIFIED`。北京时间 **14:25:08** 独立 `READBACK_OK`，公开版本为 `2026.11.18.1`。回读通过后已通知用户在 PC 和 iPhone Safari 复测原视频。[镜像、CI 与生产回读证据](../../../RELEASING.md#release-safari-large-video-viewer-20261118)
