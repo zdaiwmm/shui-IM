@@ -32,7 +32,7 @@ try{
       const message={seq:1,clientMsgId:crypto.randomUUID(),senderId:peer.deviceId,status:'delivered',acceptedAt:payload.sentAt,payload};
       let downloads=0,viewers=0;const state={pause:false};
       app.openImageViewer=()=>{viewers++;};
-      app.loadImage=async(_manifest,_preview,_original,_network,signal)=>{
+      app.loadImage=async(_manifest,_preview,_original,_network,{signal})=>{
         downloads++;
         if(state.pause)await new Promise((_resolve,reject)=>{signal.addEventListener('abort',()=>reject(signal.reason),{once:true});});
         signal?.throwIfAborted();app.cacheLocalImage(manifest,new Blob(['verified-fixture'],{type:'video/mp4'}));
