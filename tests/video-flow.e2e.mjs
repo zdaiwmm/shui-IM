@@ -926,6 +926,13 @@ try {
   const originalUrl = await largePlayer.getAttribute('src');
   const posterUrl = await largePlayer.getAttribute('poster');
   assert.ok(posterUrl && originalUrl && originalUrl !== posterUrl);
+  await page.evaluate(() => {
+    const f = window.videoFlow;
+    document.querySelector('[data-viewer-close]').click();
+    f.app.openImageViewer([f.large]);
+  });
+  assert.equal(await (await awaitPlayingVideo()).getAttribute('src'), originalUrl,
+    'Closing the old viewer cannot revoke an original the new viewer is playing');
   await closePlayer();
   await page.waitForFunction(url => window.videoFlow.revokedUrls.has(url), originalUrl);
   assert.equal(await page.evaluate(url => window.videoFlow.revokedUrls.has(url), posterUrl), false);
