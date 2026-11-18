@@ -357,7 +357,8 @@ const CHAT_COMPOSER_MOTION_MS = 280;
 const CHAT_KEYBOARD_DISMISS_MS = 420;
 const CHAT_COMPOSER_VIEWPORT_SETTLE_MS = 500;
 
-type CachedImage = { previewOnly?: boolean; displayCopy?: boolean; blob: Blob; url: string; bytes: number; lastUsedAt: number; width?: number; height?: number; posterUrl?: string; durationMs?: number; durationUnavailable?:boolean; posterPromise?: Promise<void>; posterUnavailable?: boolean; concealedUrl?: string; concealedPromise?: Promise<void> };
+type CachedImage = { previewOnly?: boolean; displayCopy?: boolean; blob: Blob; url: string; bytes: number; lastUsedAt: number; width?: number; height?: number; posterUrl?: string; posterBlob?: Blob; durationMs?: number; durationUnavailable?:boolean; posterPromise?: Promise<void>; posterUnavailable?: boolean; concealedUrl?: string; concealedPromise?: Promise<void> };
+type ImageLoadScope = { kind: 'download' | 'viewer'; signal: AbortSignal };
 const MAX_IMAGE_CACHE_BYTES = 96 * 1024 * 1024;
 
 const encoder = new TextEncoder();
@@ -581,7 +582,7 @@ export class QuietRoomApp {
   private imageCache = new Map<string, CachedImage>();
   private memeCache = createMemePickerCache();
   private memePicker: MemePicker | null = null;
-  private imageLoadPromises = new Map<string, Promise<CachedImage>>();
+  private imageLoadPromises = new Map<string, { promise: Promise<CachedImage>; viewerSignal?: AbortSignal }>();
   private imageLoadStatus = new Map<string, { stage: 'queued' | 'download' | 'decrypt' | 'decode'; ratio?: number }>();
   private imageManifestSignatures = new Map<string, string>();
   private activeImageLoads = 0;
@@ -11561,7 +11562,10 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
     this.evictUnusedImages(blob.size);
     const cached: CachedImage = { blob, url: URL.createObjectURL(displayBlob), bytes: blob.size, lastUsedAt: Date.now(), previewOnly, displayCopy };
-    if (previewOnly && isVideoFile(manifest)) cached.posterUrl = cached.url;
+    if (previewOnly && isVideoFile(manifest)) {
+      cached.posterUrl = cached.url;
+      cached.posterBlob = blob;
+    }
     this.imageCache.set(manifest.blobId, cached);
     this.imageCacheBytes += cached.bytes;
   }
@@ -15086,6 +15090,38 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     return badge;
   }
 
+  private cacheVideoPoster(cached: CachedImage, poster: Blob): void {
+    if (cached.posterUrl) return;
+    cached.posterUrl = URL.createObjectURL(poster);
+    cached.posterBlob = poster;
+    cached.bytes += poster.size;
+    this.imageCacheBytes += poster.size;
+  }
+
+  private async releaseOversizedVideoOriginal(manifest: ImageManifest, cached: CachedImage, url: string): Promise<void> {
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered || cached.previewOnly || cached.displayCopy
+      || cached.blob.size <= MAX_IMAGE_CACHE_BYTES || cached.url !== url) return;
+    if (cached.posterPromise) await cached.posterPromise.catch(() => undefined);
+    if (!await hasCompleteMediaChunks(session, manifest).catch(() => false)
+      || !this.isRuntimeActive(epoch, session) || this.imageCache.get(manifest.blobId) !== cached
+      || cached.url !== url || cached.posterPromise
+      || [...this.root.querySelectorAll<HTMLVideoElement>('video[src]')].some(video => video.src === url)) return;
+    if (cached.posterUrl && cached.posterBlob) {
+      cached.bytes -= cached.blob.size;
+      this.imageCacheBytes -= cached.blob.size;
+      cached.blob = cached.posterBlob;
+      cached.url = cached.posterUrl;
+      cached.previewOnly = true;
+    } else {
+      if (cached.concealedUrl) URL.revokeObjectURL(cached.concealedUrl);
+      this.imageCacheBytes -= cached.bytes;
+      this.imageCache.delete(manifest.blobId);
+    }
+    URL.revokeObjectURL(url);
+  }
+
   private async ensureVideoPoster(manifest: ImageManifest, cached: CachedImage): Promise<void> {
     if (cached.durationMs===undefined && !cached.durationUnavailable && this.session) {
       const session=this.session,epoch=this.runtimeEpoch,signal=this.runtimeAbort?.signal;
@@ -15110,9 +15146,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         const saved = await loadMediaPreview(session, manifest, signal).catch(() => null);
         if (!this.isRuntimeActive(epoch, session) || this.imageCache.get(manifest.blobId) !== cached) return;
         if (saved) {
-          cached.posterUrl = URL.createObjectURL(saved);
-          cached.bytes += saved.size;
-          this.imageCacheBytes += saved.size;
+          this.cacheVideoPoster(cached, saved);
           return;
         }
         this.updateChatImageLoadFeedback(manifest, 'decode');
@@ -15120,13 +15154,11 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         if (!this.isRuntimeActive(epoch, session) || this.imageCache.get(manifest.blobId) !== cached) return;
         await saveMediaPreview(session, manifest, poster.blob, signal).catch(() => undefined);
         if (!this.isRuntimeActive(epoch, session)) return;
-        cached.posterUrl = URL.createObjectURL(poster.blob);
+        this.cacheVideoPoster(cached, poster.blob);
         cached.durationMs = poster.durationMs;
         if(poster.durationMs)await saveVideoDuration(session,manifest,poster.durationMs,signal).catch(()=>undefined);
         cached.width = poster.width;
         cached.height = poster.height;
-        cached.bytes += poster.blob.size;
-        this.imageCacheBytes += poster.blob.size;
       } catch (cause) {
         if (cause instanceof DOMException && cause.name === 'AbortError') throw cause;
         // Decoding support varies by codec. Keep a playable/downloadable video
@@ -15153,6 +15185,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     { autoplay, requestNative, onDelete }: { autoplay: boolean; requestNative: boolean; onDelete?: () => void | Promise<void> },
   ): { video: HTMLVideoElement; cleanup: () => void } {
     const video = document.createElement('video');
+    const sourceUrl = cached.url;
     const nativeVideo = video as HTMLVideoElement & {
       webkitEnterFullscreen?: () => void;
       webkitExitFullscreen?: () => void;
@@ -15447,11 +15480,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       video.removeAttribute('poster');
       video.load();
       releaseSystemMediaSession();
+      void this.releaseOversizedVideoOriginal(manifest, cached, sourceUrl);
     };
     updateControls();
     updateSpeed();
     stage.replaceChildren(video, controls, feedback);
-    video.src = cached.url;
+    video.src = sourceUrl;
     if (requestNative) {
       requestNativePlayer();
     }
@@ -15762,7 +15796,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         signal?.throwIfAborted();
         if (task) await runCipherTransfer(task,signal!,ratio=>this.updateChatImageLoadFeedback(manifest,'download',ratio));
       }
-      const cached = await this.loadImage(manifest, true, requireOriginal, allowNetwork, signal);
+      const cached = await this.loadImage(manifest, true, requireOriginal, allowNetwork, signal && { kind: 'download', signal });
       signal?.throwIfAborted();
       delete button.dataset.manualDownload;
       if (!button.isConnected || this.privacyCovered) return;
@@ -15836,9 +15870,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       // Render the already verified cover only; never call loadImage here.
       const local = this.imageCache.get(manifest.blobId);
       if (local) {
-        if(!local.posterUrl&&preview){
-          local.posterUrl=URL.createObjectURL(preview);local.bytes+=preview.size;this.imageCacheBytes+=preview.size;
-        }
+        if (preview) this.cacheVideoPoster(local, preview);
         if(!local.posterUrl)return;
         const image = document.createElement('img'); image.src = local.posterUrl; image.alt = manifest.originalName;
         button.append(image);
@@ -15929,26 +15961,35 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     pending.forEach((button) => this.chatImageObserver?.observe(button));
   }
 
-  private async loadImage(manifest: ImageManifest, previewOnly = false, requireOriginal = false, allowNetwork = true, operationSignal?:AbortSignal): Promise<CachedImage> {
-    operationSignal?.throwIfAborted();
+  private async loadImage(manifest: ImageManifest, previewOnly = false, requireOriginal = false, allowNetwork = true, scope?: ImageLoadScope): Promise<CachedImage> {
+    scope?.signal.throwIfAborted();
     this.assertImageManifestIdentity(manifest);
     const existing = this.imageCache.get(manifest.blobId);
     if (existing && !(requireOriginal && existing.displayCopy) && (!existing.previewOnly || (!requireOriginal && (!isVideoFile(manifest) || previewOnly)))) {
       existing.lastUsedAt = Date.now();
       return existing;
     }
-    const inFlight = this.imageLoadPromises.get(manifest.blobId);
-    if (inFlight) { await inFlight; return this.loadImage(manifest, previewOnly, requireOriginal, allowNetwork, operationSignal); }
     const session = this.session;
     if (!session || this.privacyCovered) throw new Error(uiLiteral('会话已锁定'));
     const epoch = this.runtimeEpoch;
-    const signal = operationSignal&&this.runtimeAbort?AbortSignal.any([this.runtimeAbort.signal,operationSignal]):this.runtimeAbort?.signal;
+    const inFlight = this.imageLoadPromises.get(manifest.blobId);
+    if (inFlight) {
+      try { await inFlight.promise; }
+      catch (cause) {
+        if (!inFlight.viewerSignal?.aborted || !this.isRuntimeActive(epoch, session)) throw cause;
+      }
+      return this.loadImage(manifest, previewOnly, requireOriginal, allowNetwork, scope);
+    }
+    const runtimeSignal = this.runtimeAbort?.signal;
+    const signal = scope && runtimeSignal ? AbortSignal.any([runtimeSignal, scope.signal]) : scope?.signal ?? runtimeSignal;
+    const viewerSignal = scope?.kind === 'viewer' ? scope.signal : undefined;
     const { roomId, accessToken } = session.vault;
     const operation = this.withImageLoadSlot(async () => {
       signal?.throwIfAborted();
       if (!requireOriginal && isVideoFile(manifest) && !previewOnly) {
         const complete = await hasCompleteMediaChunks(session, manifest).catch(() => false);
         const playback = complete ? null : await loadMediaPlayback(session, manifest, signal).catch(() => null);
+        signal?.throwIfAborted();
         if (playback && this.isRuntimeActive(epoch, session)) { this.cacheLocalImage(manifest, playback, false, true); return this.imageCache.get(manifest.blobId)!; }
       }
       if (!requireOriginal && (previewOnly || !isVideoFile(manifest))) {
@@ -16021,8 +16062,9 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           throw retryCause;
         }
       }
+      signal?.throwIfAborted();
       if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
-      this.cacheLocalImage(manifest, blob);
+      if (!viewerSignal) this.cacheLocalImage(manifest, blob);
       if (stagedDownload && await hasCompleteMediaChunks(session,manifest).catch(()=>false)) await discardCipherTransfer(stagedDownload.id).catch(()=>undefined);
       if (!isVideoFile(manifest)) {
         const preview = await createMediaPreview(blob, signal).catch(() => null)
@@ -16031,14 +16073,16 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       } else if (networkDownload && !await hasCompleteMediaChunks(session, manifest).catch(() => false) && this.isRuntimeActive(epoch, session)) {
         this.showNotice(uiLiteral('本机未能保留完整视频，下次播放可能需要下载'));
       }
+      signal?.throwIfAborted();
       if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
+      if (viewerSignal) this.cacheLocalImage(manifest, blob);
       const cached = this.imageCache.get(manifest.blobId);
       if (!cached) throw new Error(uiLiteral('媒体缓存失败'));
       return cached;
     }).finally(() => {
-      if (this.imageLoadPromises.get(manifest.blobId) === operation) this.imageLoadPromises.delete(manifest.blobId);
+      if (this.imageLoadPromises.get(manifest.blobId)?.promise === operation) this.imageLoadPromises.delete(manifest.blobId);
     });
-    this.imageLoadPromises.set(manifest.blobId, operation);
+    this.imageLoadPromises.set(manifest.blobId, { promise: operation, viewerSignal });
     return operation;
   }
 
@@ -16350,6 +16394,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         outgoingCleanup = this.viewerMediaCleanup;
         this.assertImageManifestIdentity(manifest);
         const cached = this.imageCache.get(manifest.blobId);
+        const ready = cached && (!video || !cached.previewOnly);
+        const oversizedVideo = video && manifest.originalSize > MAX_IMAGE_CACHE_BYTES;
         // Accepting a page change pauses the current page immediately. A slow
         // download/decrypt/decode must never leave the previous video's audio
         // playing behind a stationary transition frame.
@@ -16358,7 +16404,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           outgoingLayer.setAttribute('aria-hidden', 'true');
           outgoingLayer.querySelectorAll('video').forEach(item => item.pause());
         }
-        if (!cached && !activeLayer) {
+        if (!ready && !activeLayer) {
           updateMetadata(target);
           const loading = document.createElement('p');
           loading.className = 'viewer-loading';
@@ -16366,8 +16412,10 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           loading.innerHTML = uiTemplate`${video ? icons.video : icons.image}<span class="sr-only">正在加载${video ? uiLiteral('视频') : uiLiteral('图片')}</span>`;
           stage.replaceChildren(loading);
         }
-        const loaded = cached && (!isVideoFile(manifest) || !cached.previewOnly) ? cached : await this.loadImage(manifest);
-        if (!viewer.isConnected || viewer.classList.contains('is-closing') || token !== renderToken) {
+        const loaded = ready ? cached : await this.loadImage(manifest, false, false, true,
+          oversizedVideo ? { kind: 'viewer', signal: workAbort.signal } : undefined);
+        if (!viewer.isConnected || workAbort.signal.aborted || viewer.classList.contains('is-closing') || token !== renderToken) {
+          if (oversizedVideo) void this.releaseOversizedVideoOriginal(manifest, loaded, loaded.url);
           finishTransitionState();
           return;
         }
