@@ -10,6 +10,7 @@ const dataDir=await mkdtemp(path.join(tmpdir(),'link-preview-browser-'));
 let backend,vite;
 const xRequests = [];
 let xCover, xPortraitCover, articleImage, sentPreviewGate;
+let articleBodyGate, articleImageGate, legacyArticleOnly;
 let playbackWait;
 const articleTitle = '雨后的旧书店';
 const articleAuthor = '林照 · @public_author';
@@ -26,18 +27,24 @@ try{
       const packet = JSON.parse(request.body);
       xRequests.push(packet);
       if (['223456', '223457', '223458'].includes(packet.postId)) {
-        if (packet.action === 'article') return Response.json({ title: articleTitle, author: articleAuthor, blocks: [
-          { kind: 'paragraph', runs: [{ text: articleDescription, bold: true }] },
-          { kind: 'image', alt: '桥下的旧书店', caption: '雨天的书店', image: articleImage },
-          { kind: 'heading', level: 2, runs: [{ text: '桥下的散步' }] },
-          { kind: 'quote', runs: [{ text: '雨停就开。', italic: true }] },
-          { kind: 'list-item', ordered: true, depth: 0, runs: [{ text: '第一条路' }] },
-          { kind: 'list-item', ordered: true, depth: 1, runs: [{ text: '从桥下经过' }] },
-          ...Array.from({ length: 18 }, () => ({ kind: 'paragraph', runs: [{ text: articleDescription.repeat(3) }] })),
-        ] });
+        if (['article-body', 'article'].includes(packet.action)) {
+          const bodyOnly = packet.action === 'article-body';
+          if (bodyOnly && legacyArticleOnly) return Response.json({}, { status: 404 });
+          await (bodyOnly ? articleBodyGate.promise : articleImageGate.promise);
+          return Response.json({ title: articleTitle, author: articleAuthor, blocks: [
+            { kind: 'paragraph', runs: [{ text: articleDescription, bold: true }] },
+            bodyOnly ? { kind: 'link', href: articleUrl, label: 'Image on X' }
+              : { kind: 'image', alt: '桥下的旧书店', caption: '雨天的书店', image: articleImage },
+            { kind: 'heading', level: 2, runs: [{ text: '桥下的散步' }] },
+            { kind: 'quote', runs: [{ text: '雨停就开。', italic: true }] },
+            { kind: 'list-item', ordered: true, depth: 0, runs: [{ text: '第一条路' }] },
+            { kind: 'list-item', ordered: true, depth: 1, runs: [{ text: '从桥下经过' }] },
+            ...Array.from({ length: 18 }, () => ({ kind: 'paragraph', runs: [{ text: articleDescription.repeat(3) }] })),
+          ] });
+        }
         if (packet.postId === '223457') await sentPreviewGate.promise;
         return Response.json({ title: articleAuthor, description: articleDescription, canRead: true, videos: [],
-          article: { title: articleTitle, author: articleAuthor } });
+          cover: articleImage, article: { title: articleTitle, author: articleAuthor } });
       }
       if (packet.postId !== '123456') return Response.json({}, { status: 404 });
       if (packet.action === 'text') return Response.json({ text: fullPost });
@@ -57,6 +64,9 @@ try{
     const engineStart = xRequests.length;
     const lookupsFor = id => xRequests.slice(engineStart).filter(request => request.postId === id);
     sentPreviewGate = Promise.withResolvers();
+    articleBodyGate = Promise.withResolvers();
+    articleImageGate = Promise.withResolvers();
+    legacyArticleOnly = false;
     try{
       for(let i=0;i<2;i++){
         const context=await browser.newContext({locale:'zh-CN',viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3});
@@ -204,13 +214,24 @@ try{
       await source.locator('#send-text').click();
       const articleCard = peer.locator('.x-post-card').filter({ hasText: articleTitle });
       await articleCard.waitFor();
+      await peer.waitForFunction(() => document.querySelector('.x-post-article-cover')?.naturalWidth === 360);
+      assert.match(await articleCard.locator('.x-post-article-cover').getAttribute('src'), /^blob:/);
       const articleButton = articleCard.getByRole('button', { name: '查看全文' });
       assert.equal(await articleButton.getAttribute('aria-haspopup'), 'dialog');
       assert.equal(lookupsFor('223456').length, 1, 'No lookup merely on receipt');
       await articleButton.click();
       const reader = peer.getByRole('dialog', { name: 'X Article' });
       await reader.locator('h1').filter({ hasText: articleTitle }).waitFor();
-      await peer.waitForFunction(() => document.querySelector('.x-article-reader figure img')?.naturalWidth === 360);
+      await reader.locator('.x-article-reader-feedback').getByText(articleDescription, { exact: true }).waitFor();
+      await reader.locator('.x-article-reader-feedback figure img').waitFor();
+      articleBodyGate.resolve();
+      const firstParagraph = reader.locator('article p strong').filter({ hasText: articleDescription });
+      await firstParagraph.waitFor();
+      const firstParagraphHandle = await firstParagraph.elementHandle();
+      assert.equal(await reader.getByRole('img', { name: '桥下的旧书店' }).count(), 0);
+      articleImageGate.resolve();
+      await reader.getByRole('img', { name: '桥下的旧书店' }).waitFor();
+      assert.ok(await firstParagraphHandle.evaluate(node => node.isConnected), 'Images fill their slots without replacing the text');
       assert.equal(await reader.getByRole('img', { name: '桥下的旧书店' }).getAttribute('src').then(url => url.startsWith('blob:')), true);
       assert.equal(await reader.locator('figure figcaption').textContent(), '雨天的书店');
       assert.equal(await reader.locator('blockquote em').textContent(), '雨停就开。');
@@ -226,8 +247,9 @@ try{
       await reader.waitFor({ state: 'detached' });
       assert.equal(await articleButton.evaluate(node => node === document.activeElement), true);
       assert.equal(await peer.evaluate(url => window.previewUrls.has(url), articleImageUrl), false);
+      legacyArticleOnly = true;
       await articleButton.click();
-      await reader.locator('h1').waitFor();
+      await reader.getByRole('img', { name: '桥下的旧书店' }).waitFor();
       await peer.evaluate(() => window.app.obscurePrivacySurface());
       await reader.waitFor({ state: 'detached' });
       assert.equal(await peer.evaluate(() => window.previewUrls.size), 0);

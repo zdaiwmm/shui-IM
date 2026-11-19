@@ -82,7 +82,13 @@ it('accepts bounded article blocks and rejects unsafe rich content before return
     packet, controller.signal,
   );
   await expect(reply(article)).resolves.toEqual(article);
+  const body = xPostRequest({ action: 'article-body', postId: '111' });
+  expect(body).toEqual({ action: 'article-body', postId: '111' });
+  await expect(createXPostGateway({ token, fetchImpl: vi.fn(async () => Response.json(article)) })!(
+    body, controller.signal,
+  )).resolves.toEqual(article);
   expect(xPostRequest({ action: 'article', postId: '111', href: 'https://example.com' })).toBeUndefined();
+  expect(xPostRequest({ action: 'article-body', postId: '111', href: 'https://example.com' })).toBeUndefined();
   const invalidBlocks = [
     { kind: 'paragraph', runs: [{ text: 'Unsafe', href: 'javascript:alert(1)' }] },
     { kind: 'paragraph', runs: [{ text: 'Unsafe', href: 'https://secret@example.com' }] },

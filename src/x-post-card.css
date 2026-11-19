@@ -18,6 +18,15 @@
 #app .x-post-original { flex: 0 0 auto; max-width: 50%; }
 #app .outgoing .x-post-original, #app .outgoing .x-post-text-toggle { color: inherit; }
 #app .x-post-article-title { display: block; margin-block: 0 5px; font-size: 1rem; line-height: 1.375; }
+#app .x-post-article-cover {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  max-block-size: 200px;
+  object-fit: cover;
+  margin-block-end: 8px;
+  border-radius: 10px;
+}
 #app .message-bubble > .x-post-after-send { margin: 4px 0 0; color: var(--ink-muted); font-size: .8125rem; }
 #app .outgoing .x-post-after-send { color: inherit; }
 #app .x-post-copy { margin: 0; white-space: pre-wrap; font-size: .9375rem; line-height: 1.5; }

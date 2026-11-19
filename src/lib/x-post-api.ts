@@ -1,7 +1,7 @@
 import { authorizedFetch } from './api';
 import { parseXArticle, type XArticle } from './x-article-data.mjs';
 
-type XPostRequest = { action: 'preview' | 'text' | 'article'; postId: string }
+type XPostRequest = { action: 'preview' | 'text' | 'article' | 'article-body'; postId: string }
   | { action: 'playback'; postId: string; mediaId: string };
 
 export async function requestXPost(roomId: string, token: string, request: XPostRequest, signal: AbortSignal): Promise<unknown> {
@@ -36,8 +36,8 @@ export async function openXPostVideo(roomId: string, token: string, postId: stri
   return result.url;
 }
 
-export async function readXArticle(roomId: string, token: string, postId: string, signal: AbortSignal): Promise<XArticle> {
-  const article = parseXArticle(await requestXPost(roomId, token, { action: 'article', postId }, signal));
+export async function readXArticle(roomId: string, token: string, postId: string, signal: AbortSignal, action: 'article' | 'article-body' = 'article'): Promise<XArticle> {
+  const article = parseXArticle(await requestXPost(roomId, token, { action, postId }, signal));
   if (!article) throw new Error('Invalid X article');
   return article;
 }

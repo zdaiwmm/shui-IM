@@ -2,16 +2,18 @@ import { createElement, X } from 'lucide';
 import { fromBase64Url } from './base64';
 import { mountDialog } from './dialog';
 import { uiLiteral } from './language';
+import type { PreviewImage } from './link-preview-data';
 import { newTabLink, webUrl } from './web-links';
-import type { XArticle, XArticleRun } from './x-article-data.mjs';
+import type { XArticle, XArticleBlock, XArticleRun } from './x-article-data.mjs';
 import '../x-article-reader.css';
 
 type ReaderOptions = {
   root: HTMLElement;
   origin: HTMLElement;
-  title: string;
+  preview: { title: string; author: string; description: string; image?: PreviewImage };
   sourceUrl: string;
   load: (signal: AbortSignal) => Promise<XArticle>;
+  loadBody: (signal: AbortSignal) => Promise<XArticle>;
   signal: AbortSignal;
   active: () => boolean;
 };
@@ -48,7 +50,32 @@ function appendRuns(parent: HTMLElement, runs: readonly XArticleRun[]): void {
   }
 }
 
-function renderArticle(article: XArticle, imageUrls: Map<HTMLImageElement, string>): HTMLElement {
+function renderImage(block: Extract<XArticleBlock, { kind: 'image' }>, imageUrls: Map<HTMLImageElement, string>): HTMLElement {
+  const figure = document.createElement('figure');
+  const image = document.createElement('img');
+  image.alt = block.alt;
+  image.width = block.image.width;
+  image.height = block.image.height;
+  image.loading = 'lazy';
+  image.decoding = 'async';
+  const url = URL.createObjectURL(new Blob([fromBase64Url(block.image.data)], { type: block.image.mimeType }));
+  imageUrls.set(image, url);
+  image.src = url;
+  figure.append(image);
+  if (block.caption) {
+    const caption = document.createElement('figcaption');
+    caption.dir = 'auto';
+    caption.textContent = block.caption;
+    figure.append(caption);
+  }
+  return figure;
+}
+
+function isImageLink(block: XArticleBlock): block is Extract<XArticleBlock, { kind: 'link' }> {
+  return block.kind === 'link' && block.label === 'Image on X';
+}
+
+function renderArticle(article: XArticle, imageUrls: Map<HTMLImageElement, string>) {
   const content = document.createElement('article');
   content.className = 'x-article-reader-content';
   content.dir = 'auto';
@@ -60,10 +87,11 @@ function renderArticle(article: XArticle, imageUrls: Map<HTMLImageElement, strin
   const body = document.createElement('div');
   body.className = 'x-article-reader-body';
   content.append(heading, author, body);
+  const imageSlots = new Map<number, HTMLAnchorElement>();
 
   type ListLevel = { list: HTMLOListElement | HTMLUListElement; depth: number; ordered: boolean; item: HTMLLIElement };
   const levels: ListLevel[] = [];
-  for (const block of article.blocks) {
+  for (const [index, block] of article.blocks.entries()) {
     if (block.kind === 'list-item') {
       while ((levels.at(-1)?.depth ?? -1) > block.depth) levels.pop();
       const previous = levels.at(-1);
@@ -85,24 +113,7 @@ function renderArticle(article: XArticle, imageUrls: Map<HTMLImageElement, strin
     }
     levels.length = 0;
     if (block.kind === 'image') {
-      const figure = document.createElement('figure');
-      const image = document.createElement('img');
-      image.alt = block.alt;
-      image.width = block.image.width;
-      image.height = block.image.height;
-      image.loading = 'lazy';
-      image.decoding = 'async';
-      const url = URL.createObjectURL(new Blob([fromBase64Url(block.image.data)], { type: block.image.mimeType }));
-      imageUrls.set(image, url);
-      image.src = url;
-      figure.append(image);
-      if (block.caption) {
-        const caption = document.createElement('figcaption');
-        caption.dir = 'auto';
-        caption.textContent = block.caption;
-        figure.append(caption);
-      }
-      body.append(figure);
+      body.append(renderImage(block, imageUrls));
     } else if (block.kind === 'divider') {
       body.append(document.createElement('hr'));
     } else if (block.kind === 'link') {
@@ -112,6 +123,11 @@ function renderArticle(article: XArticle, imageUrls: Map<HTMLImageElement, strin
       link.className = 'x-article-embed-link';
       link.dir = 'auto';
       link.textContent = block.label;
+      if (isImageLink(block)) {
+        const previous = article.blocks[index - 1];
+        link.hidden = previous?.kind === 'link' && previous.label === 'Post on X' && previous.href === block.href;
+        imageSlots.set(index, link);
+      }
       body.append(link);
     } else {
       const tag = block.kind === 'heading' ? headingTags[block.level]
@@ -122,7 +138,14 @@ function renderArticle(article: XArticle, imageUrls: Map<HTMLImageElement, strin
       body.append(paragraph);
     }
   }
-  return content;
+  return { content, imageSlots };
+}
+
+function sameArticleLayout(body: XArticle, withImages: XArticle): boolean {
+  return body.title === withImages.title && body.author === withImages.author
+    && body.blocks.length === withImages.blocks.length
+    && body.blocks.every((block, index) => isImageLink(block) && withImages.blocks[index]?.kind === 'image'
+      || JSON.stringify(block) === JSON.stringify(withImages.blocks[index]));
 }
 
 export function openXArticleReader(options: ReaderOptions): (restoreFocus?: boolean) => void {
@@ -170,12 +193,12 @@ export function openXArticleReader(options: ReaderOptions): (restoreFocus?: bool
   function showFeedback(state: 'loading' | 'error' | 'empty'): void {
     const feedback = document.createElement('div');
     feedback.className = 'x-article-reader-feedback';
-    if (options.title) {
-      const title = document.createElement('h1');
-      title.textContent = options.title;
-      title.dir = 'auto';
-      feedback.append(title);
-    }
+    const { title, author, description, image } = options.preview;
+    const blocks: XArticleBlock[] = [];
+    if (image) blocks.push({ kind: 'image', alt: '', image });
+    if (description) blocks.push({ kind: 'paragraph', runs: [{ text: description }] });
+    const { content } = renderArticle({ title, author, blocks }, imageUrls);
+    feedback.append(content);
     const status = document.createElement('p');
     status.setAttribute('role', 'status');
     status.textContent = state === 'loading' ? uiLiteral('正在载入文章…')
@@ -206,15 +229,32 @@ export function openXArticleReader(options: ReaderOptions): (restoreFocus?: bool
 
   async function load(): Promise<void> {
     if (!live() || scroll.getAttribute('aria-busy') === 'true') return;
+    releaseImages();
     showFeedback('loading');
     scroll.setAttribute('aria-busy', 'true');
+    const body = options.loadBody(signal).catch(() => undefined);
+    const complete = options.load(signal).catch(() => undefined);
     try {
-      const article = await options.load(signal);
+      const article = await Promise.race([body, complete]) ?? await body ?? await complete;
       if (!live()) return;
+      if (!article) throw new Error('Article unavailable');
+      releaseImages();
       if (!article.blocks.length) {
         showFeedback('empty');
       } else {
-        scroll.replaceChildren(renderArticle(article, imageUrls));
+        const { content, imageSlots } = renderArticle(article, imageUrls);
+        scroll.replaceChildren(content);
+        scroll.removeAttribute('aria-busy');
+        if (imageSlots.size) {
+          const withImages = await complete;
+          if (!live() || !withImages || withImages === article || !sameArticleLayout(article, withImages)) return;
+          for (const [index, slot] of imageSlots) {
+            const block = withImages.blocks[index];
+            if (block?.kind !== 'image') continue;
+            if (slot === document.activeElement) scroll.focus({ preventScroll: true });
+            slot.replaceWith(renderImage(block, imageUrls));
+          }
+        }
       }
     } catch {
       if (!live()) return;

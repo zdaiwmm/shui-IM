@@ -14,7 +14,7 @@ export function xPostRequest(value) {
   if (action === 'playback' && Object.keys(value).length === 3 && typeof mediaId === 'string' && MEDIA_ID.test(mediaId)) {
     return { action, postId, mediaId };
   }
-  if (['preview', 'text', 'article'].includes(action) && Object.keys(value).length === 2) return { action, postId };
+  if (['preview', 'text', 'article', 'article-body'].includes(action) && Object.keys(value).length === 2) return { action, postId };
 }
 
 async function boundedJson(response, limit) {
@@ -37,6 +37,12 @@ function cleanPreviewText(value, limit) {
   return typeof value === 'string' && value.length <= limit && !/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/.test(value);
 }
 
+function previewCover(value) {
+  if (['image/jpeg', 'image/png', 'image/webp'].includes(value?.mimeType)
+    && typeof value.data === 'string' && value.data.length <= Math.ceil(256 * 1024 * 4 / 3)
+    && /^[A-Za-z0-9_-]+$/.test(value.data)) return { mimeType: value.mimeType, data: value.data };
+}
+
 function previewResult(value) {
   if (!value || !cleanPreviewText(value.title, 300) || !value.title.trim()
     || !cleanPreviewText(value.description, 600) || typeof value.canRead !== 'boolean'
@@ -47,14 +53,15 @@ function previewResult(value) {
     ids.add(item.id);
     const video = { id: item.id };
     if (Number.isInteger(item.durationMs) && item.durationMs > 0 && item.durationMs <= 86_400_000) video.durationMs = item.durationMs;
-    if (['image/jpeg', 'image/png', 'image/webp'].includes(item.cover?.mimeType)
-      && typeof item.cover.data === 'string' && item.cover.data.length <= Math.ceil(256 * 1024 * 4 / 3)
-      && /^[A-Za-z0-9_-]+$/.test(item.cover.data)) video.cover = { mimeType: item.cover.mimeType, data: item.cover.data };
+    const cover = previewCover(item.cover);
+    if (cover) video.cover = cover;
     return video;
   });
   const article = value.article === undefined ? undefined : xArticleMetadata(value.article);
   if (value.article !== undefined && !article) throw new Error('X_POST_UNAVAILABLE');
-  return { title: value.title, description: value.description, canRead: value.canRead, videos, ...(article ? { article } : {}) };
+  const cover = article && previewCover(value.cover);
+  return { title: value.title, description: value.description, canRead: value.canRead, videos,
+    ...(article ? { article } : {}), ...(cover ? { cover } : {}) };
 }
 
 function createLookup({ token, fetchImpl = fetch, path, timeout, notFound, unavailable, limit }) {
@@ -88,9 +95,9 @@ export function createXPostGateway(options = {}) {
   return async (packet, signal) => {
     const value = await lookup(packet, signal);
     if (packet.action === 'preview') return previewResult(value);
-    if (packet.action === 'article') {
+    if (packet.action === 'article' || packet.action === 'article-body') {
       const article = parseXArticle(value);
-      if (article) return article;
+      if (article && (packet.action === 'article' || article.blocks.every(block => block.kind !== 'image'))) return article;
     }
     if (packet.action === 'text' && typeof value?.text === 'string' && value.text.length > 0 && value.text.length <= 50_000) return { text: value.text };
     if (packet.action === 'playback') {
