@@ -4,9 +4,11 @@
 
 `ai.shui.click` 运行 `6ae5ac5faae4cc8bda11c773f3d3584e3bdc82b8`（`2026.11.18.2`）。主线全量 CI 通过。本机固定入口一次切换取得 `DEPLOY_VERIFIED`，北京时间 **09:58:32** 独立 `READBACK_OK`。应用和备份健康，TURN 运行，维护门已解除。镜像、HTTPS、数据库、存储、资源摘要和新 WebSocket 已核对，公开版本返回 `2026.11.18.2`。[本批发布记录](../../RELEASING.md#release-x-post-card-20261119)
 
-X 卡片代码已随应用发布。2026-11-19，`aix.shui.click` 的公网 DNS 与独立 Let's Encrypt HTTPS 证书已生效。公网验证通过证书校验和 HTTP 跳转，`/healthz` 返回 HTTP 503（`AIX_UPSTREAM_NOT_CONFIGURED`）。公网入口到家庭机的独立连接尚未接通。
+2026-11-19，`aix.shui.click` 的阿里云 HTTPS 入口已接通独立的东京入口。阿里云仅转发 AIX 的健康、查帖与播放路径。东京通过独立 WSS 隧道连接家庭机，隧道两端及家庭机的媒体专用 Xray 已配置开机启动。两端证书模拟续期均通过。
 
-同日，家庭机通过现有东京节点临时验证了两个 X 媒体 CDN 的 TLS 连通性，并直连 FxTwitter 取得公开帖子的正文和视频列表。新版 AIX 改用 FxTwitter，无需 X API Bearer Token。本地聊天中，同一公开帖子的两段视频通过 AIX 实际播放并取得字节范围响应。家庭机 AIX 服务部署、专用 Xray 入口、公网链路和物理 iPhone 原生全屏待验证。生产 X 卡片关闭。
+FxTwitter 版已合入主线 `a893d3d7a1c8ffed3f1a7922b2813cee2ef5f32d`（`2026.11.19.1`）。短时运行该候选进行公网验收。桌面 Chromium 的移动尺寸测试实际播放同一公开帖子的两段视频，每段均取得 206 响应。切换时释放上一段，点击前没有视频请求。物理 iPhone 原生全屏待验证。[实现 PR #551](https://github.com/zdaiwmm/shui-IM/pull/551)
+
+公网临时验收服务已退出。正式 AIX 应用和聊天开关待生产确认，`/healthz` 当前返回 HTTP 503（`AIX_UPSTREAM_NOT_CONFIGURED`）。
 
 ## 此前生产：主站 2026.11.18.1 已回读（2026-11-18）
 
