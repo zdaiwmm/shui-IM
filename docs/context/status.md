@@ -4,7 +4,7 @@
 
 `ai.shui.click` 运行 `2b207fd714230c68159695e403d1558623e9cca1`（`2026.11.19.3`）。精确 main 全量 CI 通过，固定云端入口完成一次切换并返回 `DEPLOY_VERIFIED`。北京时间 **18:52:24** 独立取得 `READBACK_OK`，核对线上状态、镜像、HTTPS、公开和容器资源及新建 WebSocket。[本批发布记录](../../RELEASING.md#release-link-cards-20261119-3)
 
-家庭站 `mijiu.cloud` 停在 SSH 预检。mijiu-server 的 AIX 尚待更新，两站 YouTube 点播启用和真实源播放仍待验证。
+家庭站 `mijiu.cloud` 停在 SSH 预检。mijiu-server 的独立 AIX 服务已切换到与主站相同的提交。主站隔离聊天已通过 X 长文及原有双视频点播验收。接收端禁止直连 YouTube 时，主站同源预览返回 503，公网 AIX 查询入口返回 404，两站 YouTube 点播启用仍待完成。
 
 ## 此前生产：主站 2026.11.19.1 已回读（2026-11-19）
 
