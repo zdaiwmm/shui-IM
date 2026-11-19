@@ -53,20 +53,24 @@
 }
 #app .x-post-poster { object-fit: cover; pointer-events: none; }
 #app .x-post-video { object-fit: contain; background: #242124; }
-#app .x-post-play, #app .x-post-fullscreen, #app .x-post-edge {
-  position: absolute;
-  z-index: 1;
+#app .x-post-play, #app .x-post-fullscreen, #app .x-post-edge, #app .x-post-control {
   display: grid;
   place-items: center;
   width: 44px;
   height: 44px;
   padding: 0;
   border: 0;
+  appearance: none;
   color: #fff;
   background: transparent;
   box-shadow: none;
+  -webkit-tap-highlight-color: transparent;
 }
-#app .x-post-play[hidden], #app .x-post-fullscreen[hidden], #app .x-post-feedback[hidden] { display: none; }
+#app .x-post-play, #app .x-post-fullscreen, #app .x-post-edge {
+  position: absolute;
+  z-index: 1;
+}
+#app :is(.x-post-play, .x-post-fullscreen, .x-post-feedback, .x-post-controls)[hidden] { display: none; }
 #app .x-post-play {
   top: 50%;
   left: 50%;
@@ -91,6 +95,30 @@
 }
 #app .x-post-fullscreen { top: 0; right: 0; }
 #app .x-post-fullscreen svg { width: 17px; height: 17px; filter: drop-shadow(0 1px 2px #000) drop-shadow(0 0 2px #000); }
+#app .x-post-controls {
+  position: absolute;
+  z-index: 1;
+  inset: auto 0 0;
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  background: linear-gradient(transparent, rgb(0 0 0 / 72%));
+  pointer-events: none;
+}
+#app .x-post-controls :is(button, input) { pointer-events: auto; }
+#app .x-post-control svg { width: 17px; height: 17px; filter: drop-shadow(0 1px 2px #000); }
+#app .x-post-toggle svg { fill: currentColor; }
+#app .x-post-seek {
+  width: 100%;
+  height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  accent-color: #fff;
+  touch-action: pan-y;
+}
 #app .x-post-page, #app .x-post-duration {
   position: absolute;
   z-index: 1;
@@ -109,9 +137,9 @@
 #app .x-post-edge svg { width: 14px; height: 14px; opacity: .85; filter: drop-shadow(0 1px 2px #000) drop-shadow(0 0 2px #000); }
 #app .x-post-edge[aria-disabled=true] { visibility: hidden; }
 #app .x-post-feedback { margin: 4px 0 0; font-size: .8125rem; line-height: 1.4; }
-#app .x-post-card :is(a, button, video, .x-post-track):focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+#app .x-post-card :is(a, button, input, video, .x-post-track):focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 
 @media (forced-colors: active) {
   #app .x-post-page, #app .x-post-duration { background: Canvas; color: CanvasText; }
-  #app .x-post-play, #app .x-post-fullscreen, #app .x-post-edge { background: ButtonFace; color: ButtonText; }
+  #app .x-post-play, #app .x-post-fullscreen, #app .x-post-edge, #app .x-post-control { background: ButtonFace; color: ButtonText; }
 }

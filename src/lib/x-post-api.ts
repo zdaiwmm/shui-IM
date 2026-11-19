@@ -21,7 +21,14 @@ export async function readXPostText(roomId: string, token: string, postId: strin
 }
 
 export async function openXPostVideo(roomId: string, token: string, postId: string, mediaId: string, signal: AbortSignal): Promise<string> {
-  const result = await requestXPost(roomId, token, { action: 'playback', postId, mediaId }, signal) as { url?: unknown };
+  signal.throwIfAborted();
+  const connection = document.createElement('link');
+  connection.rel = 'preconnect';
+  connection.href = 'https://aix.shui.click';
+  connection.crossOrigin = 'anonymous';
+  document.head.append(connection);
+  const result = await requestXPost(roomId, token, { action: 'playback', postId, mediaId }, signal)
+    .finally(() => connection.remove()) as { url?: unknown };
   if (typeof result?.url !== 'string' || !/^https:\/\/aix\.shui\.click\/v1\/x\/media\/[A-Za-z0-9_-]{43}$/.test(result.url)) {
     throw new Error('Invalid X video playback URL');
   }

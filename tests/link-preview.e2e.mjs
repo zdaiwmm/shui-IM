@@ -10,6 +10,7 @@ const dataDir=await mkdtemp(path.join(tmpdir(),'link-preview-browser-'));
 let backend,vite;
 const xRequests = [];
 let xCover;
+let playbackWait;
 const postUrl = 'https://x.com/public_author/status/123456';
 const fullPost = '这个公开帖子有两段视频。' + '这是展开之后呈现的正文段落。\n'.repeat(12);
 const ticket = 'https://aix.shui.click/v1/x/media/' + 't'.repeat(43);
@@ -20,7 +21,10 @@ try{
       xRequests.push(packet);
       if (packet.postId !== '123456') return Response.json({}, { status: 404 });
       if (packet.action === 'text') return Response.json({ text: fullPost });
-      if (packet.action === 'playback') return Response.json({ url: ticket });
+      if (packet.action === 'playback') {
+        await playbackWait;
+        return Response.json({ url: ticket });
+      }
       return Response.json({ title: '@public_author', description: '这个公开帖子有两段视频。', canRead: true,
         videos: [{ id: '7_001', cover: xCover }, { id: '7_002', cover: xCover }] });
     },
@@ -101,11 +105,23 @@ try{
       await xCard.getByRole('button', { name: '下一个视频' }).click();
       await peer.waitForFunction(() => document.querySelector('.x-post-page')?.textContent === '2 / 2');
       assert.equal(mediaRequests, 0, 'Switching covers does not preload videos');
+      const videoConnection = peer.locator('head link[rel="preconnect"][crossorigin="anonymous"][href="https://aix.shui.click"]');
+      assert.equal(await videoConnection.count(), 0, 'Displaying and switching clips do not contact the media origin');
       if (process.env.QUIET_ROOM_PREVIEW_QA) {
         await xCard.screenshot({ path: path.join(process.env.QUIET_ROOM_PREVIEW_QA, `${name}-x-post-card.png`) });
       }
-      await xCard.locator('.x-post-stage:not([inert])').getByRole('button', { name: '播放视频' }).click();
+      let releasePlayback;
+      playbackWait = new Promise(resolve => { releasePlayback = resolve; });
+      try {
+        await xCard.locator('.x-post-stage:not([inert])').getByRole('button', { name: '播放视频' }).click();
+        await videoConnection.waitFor({ state: 'attached' });
+        assert.equal(mediaRequests, 0, 'The play gesture can warm the connection while waiting for a ticket');
+      } finally {
+        releasePlayback();
+        playbackWait = undefined;
+      }
       await xCard.getByText('媒体载入失败，请重试').waitFor();
+      assert.equal(await videoConnection.count(), 0, 'The connection hint is removed when the ticket returns');
       assert.ok(mediaRequests > 0);
       assert.deepEqual(xRequests.slice(beforeX), [
         { action: 'preview', postId: '123456' }, { action: 'text', postId: '123456' },
