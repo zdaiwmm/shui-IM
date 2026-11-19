@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, createElement, Maximize, Play, Volume2, VolumeX } from 'lucide';
+import { ChevronLeft, ChevronRight, createElement, Maximize, Pause, Play, Volume2, VolumeX } from 'lucide';
 import { fromBase64Url } from './base64';
 import { uiLiteral } from './language';
 import { xArticleAuthor, type LinkPreview, type XPostPreview } from './link-preview-data';
@@ -52,6 +52,58 @@ function icon(symbol: Parameters<typeof createElement>[0]): SVGElement {
   const graphic = createElement(symbol);
   graphic.setAttribute('aria-hidden', 'true');
   return graphic;
+}
+
+function inlineVideoControls(video: HTMLVideoElement, signal: AbortSignal, play: () => void) {
+  const controls = element('div', 'x-post-controls');
+  controls.setAttribute('role', 'group');
+  controls.setAttribute('aria-label', uiLiteral('视频播放控制'));
+  controls.hidden = true;
+  const toggle = button('x-post-control x-post-toggle', uiLiteral('暂停视频'));
+  const seek = element('input', 'x-post-seek');
+  seek.type = 'range';
+  seek.min = '0';
+  seek.step = '0.1';
+  seek.setAttribute('aria-label', uiLiteral('视频进度'));
+  const mute = button('x-post-control', uiLiteral('静音'));
+  controls.append(toggle, seek, mute);
+
+  const events = { signal };
+  const updateToggle = () => {
+    const paused = video.paused || video.ended;
+    toggle.setAttribute('aria-label', paused ? uiLiteral('播放视频') : uiLiteral('暂停视频'));
+    toggle.replaceChildren(icon(paused ? Play : Pause));
+  };
+  const updateMute = () => {
+    const muted = video.muted || video.volume === 0;
+    mute.setAttribute('aria-label', muted ? uiLiteral('开启声音') : uiLiteral('静音'));
+    mute.replaceChildren(icon(muted ? VolumeX : Volume2));
+  };
+  const updateProgress = () => {
+    seek.disabled = !Number.isFinite(video.duration) || video.duration <= 0;
+    seek.max = String(seek.disabled ? 0 : video.duration);
+    if (seek.matches(':active')) return;
+    seek.value = String(video.currentTime);
+    const elapsed = video.currentTime >= 1 ? videoDurationLabel(video.currentTime * 1_000) : '0:00';
+    seek.setAttribute('aria-valuetext', `${elapsed} / ${videoDurationLabel(video.duration * 1_000)}`);
+  };
+  toggle.addEventListener('click', () => {
+    if (video.paused || video.ended) play();
+    else video.pause();
+  }, events);
+  seek.addEventListener('change', () => { video.currentTime = seek.valueAsNumber; }, events);
+  mute.addEventListener('click', () => {
+    const muted = video.muted || video.volume === 0;
+    video.muted = !muted;
+    if (muted && video.volume === 0) video.volume = 1;
+  }, events);
+  for (const type of ['play', 'pause', 'ended']) video.addEventListener(type, updateToggle, events);
+  for (const type of ['durationchange', 'timeupdate', 'seeked']) video.addEventListener(type, updateProgress, events);
+  video.addEventListener('volumechange', updateMute, events);
+  updateToggle();
+  updateMute();
+  updateProgress();
+  return { controls, toggle };
 }
 
 export function renderXPostCard(preview: LinkPreview & { xPost: XPostPreview }, options: CardOptions): HTMLElement {
@@ -227,8 +279,6 @@ function mountPostMedia(
       stage.append(duration);
     }
     const full = button('x-post-fullscreen', uiLiteral('全屏播放'));
-    const mute = button('x-post-mute', uiLiteral('开启声音'));
-    mute.hidden = true;
     play.append(icon(Play));
     full.append(icon(Maximize));
     full.hidden = true;
@@ -252,13 +302,12 @@ function mountPostMedia(
       video.playsInline = true;
       video.defaultMuted = video.muted = true;
       video.dataset.userPlayback = 'true';
-      video.controls = true;
       video.preload = 'none';
       video.crossOrigin = 'anonymous';
       video.disablePictureInPicture = true;
       video.disableRemotePlayback = true;
       if (posterUrl) video.poster = posterUrl;
-      video.setAttribute('controlslist', 'nodownload nofullscreen noremoteplayback');
+      video.setAttribute('controlslist', 'nodownload noremoteplayback');
       video.setAttribute('aria-label', uiLiteral('视频'));
       video.hidden = true;
       stage.insertBefore(video, play);
@@ -275,9 +324,10 @@ function mountPostMedia(
         video.removeAttribute('src');
         video.load();
         const restoreFocus = document.activeElement === video || document.activeElement === full
-          || document.activeElement === mute;
+          || controls.contains(document.activeElement);
         video.remove();
-        full.hidden = mute.hidden = true;
+        controls.remove();
+        full.hidden = true;
         retryPlayback = undefined;
         setPlayState('idle');
         if (restoreFocus && live()) play.focus({ preventScroll: true });
@@ -292,29 +342,18 @@ function mountPostMedia(
       };
       const playVideo = () => {
         setNote();
-        setPlayState('loading');
+        if (!play.hidden) setPlayState('loading');
         void video.play().catch(error => {
           if (!current()) return;
+          if (play.hidden && video.paused && error instanceof DOMException && error.name === 'AbortError') return;
           if (error instanceof DOMException && error.name === 'NotAllowedError') {
-            setPlayState('retry');
+            if (!play.hidden) setPlayState('retry');
             setNote(uiLiteral('点按播放视频'));
           } else fail();
         });
       };
-      const updateMute = () => {
-        const silent = video.muted || video.volume === 0;
-        mute.setAttribute('aria-label', silent ? uiLiteral('开启声音') : uiLiteral('静音'));
-        mute.replaceChildren(icon(silent ? VolumeX : Volume2));
-      };
-      updateMute();
-      mute.addEventListener('click', () => {
-        if (!current()) return;
-        const silent = video.muted || video.volume === 0;
-        if (silent && video.volume === 0) video.volume = 1;
-        video.muted = !silent;
-        updateMute();
-      }, { signal: controller.signal });
-      video.addEventListener('volumechange', updateMute, { signal: controller.signal });
+      const { controls, toggle } = inlineVideoControls(video, controller.signal, playVideo);
+      stage.append(controls);
       const updateVideoAspect = () => {
         if (!current() || !video.videoWidth || !video.videoHeight) return;
         aspectRatio = video.videoWidth / video.videoHeight;
@@ -325,21 +364,31 @@ function mountPostMedia(
         if (!current()) return;
         updateVideoAspect();
         if (resumeAt > 0 && resumeAt < video.duration) video.currentTime = resumeAt;
-        full.hidden = mute.hidden = false;
+        full.hidden = false;
       }, { signal: controller.signal });
       video.addEventListener('playing', () => {
         video.dataset.actualPlayback = 'true';
+        const restoreFocus = document.activeElement === play && play.matches(':focus-visible');
         setPlayState('playing');
-        if (document.activeElement === play) video.focus({ preventScroll: true });
+        controls.hidden = false;
+        if (restoreFocus) toggle.focus({ preventScroll: true });
       }, { signal: controller.signal });
       for (const type of ['pause', 'waiting', 'stalled', 'ended', 'emptied']) {
         video.addEventListener(type, () => { delete video.dataset.actualPlayback; }, { signal: controller.signal });
       }
       video.addEventListener('error', fail, { signal: controller.signal });
+      video.addEventListener('webkitendfullscreen', () => { video.controls = false; }, { signal: controller.signal });
+      document.addEventListener('fullscreenchange', () => {
+        if (document.fullscreenElement !== video && !video.webkitDisplayingFullscreen) video.controls = false;
+      }, { signal: controller.signal });
       full.addEventListener('click', () => {
         if (!current()) return;
-        const unavailable = () => { if (current()) setNote(uiLiteral('暂时无法进入全屏')); };
+        const unavailable = () => {
+          video.controls = false;
+          if (current()) setNote(uiLiteral('暂时无法进入全屏'));
+        };
         setNote();
+        video.controls = true;
         if (video.webkitEnterFullscreen) {
           try { video.webkitEnterFullscreen(); return; } catch { /* Desktop WebKit can use element fullscreen. */ }
         }
@@ -362,7 +411,7 @@ function mountPostMedia(
         playVideo();
       } catch { fail(); }
     });
-    stage.append(play, full, mute);
+    stage.append(play, full);
     track.append(stage);
     return {
       stage,
@@ -423,7 +472,8 @@ function mountPostMedia(
     previous.addEventListener('click', () => go(-1));
     next.addEventListener('click', () => go(1));
     media.addEventListener('keydown', event => {
-      if ((event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') || event.target instanceof HTMLVideoElement) return;
+      if ((event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')
+        || event.target instanceof HTMLVideoElement || event.target instanceof HTMLInputElement) return;
       event.preventDefault();
       go(event.key === 'ArrowLeft' ? -1 : 1);
     });
