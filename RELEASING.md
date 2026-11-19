@@ -4,6 +4,17 @@
 
 跨设备操作见[GitHub 双站发布与独立回读](docs/requirements/2026-11-09-cross-device-release/README.md)。
 
+## X 帖子卡片代码已发布到主站（2026-11-19）
+<a id="release-x-post-card-20261119"></a>
+
+用户确认将 `6ae5ac5faae4cc8bda11c773f3d3584e3bdc82b8`（`2026.11.18.2`）发布到 production 的 `ai.shui.click`。本批从 `b4d9d08884c1c3d486b1af35c1bbc7ca1eb7fd70` 升级，包含 X 卡片的气泡内全文、内嵌点播、原生全屏入口及多视频弱化分页。[实现 PR #547](https://github.com/zdaiwmm/shui-IM/pull/547)
+
+精确 main 全量 CI 第 1 次运行通过。使用同轮 `linux/amd64` 镜像产物 `14447380654`，运行镜像 ID 为 `sha256:3c135172954c83af015f08a18d3179548cbe75ef95234f8569661fc5b55dceb8`。云端只读预检等待审批时取消，本机固定方案只读预检通过后执行一次正式切换。[精确 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/44346510073/attempts/1)
+
+发布批次 `20261119T015308Z` 取得 `DEPLOY_VERIFIED`。北京时间 **09:58:32** 独立取得 `READBACK_OK`（2889 ms）。应用和备份运行且健康，TURN 在运行，维护门已解除。实际镜像、HTTPS、数据库、存储、公开和容器资源摘要及新建 WebSocket 均通过。公开 `/release.json` 返回 HTTP 200、`Cache-Control: no-cache` 和版本 `2026.11.18.2`。
+
+X 卡片生产开关仍关闭。`aix.shui.click` 尚无 DNS 解析。家庭机 SSH 已重新核实，独立 AIX 代码文件已按本批提交暂存并核对摘要。家庭机现有 Xray 入口要求认证，AIX 的出口和 X API 凭据尚未配置，公网链路和 iPhone 原生全屏仍待实测。[需求与接入边界](docs/requirements/2026-11-18-x-post-chat-card/README.md)
+
 ## Safari 大视频查看器已发布到主站（2026-11-18）
 <a id="release-safari-large-video-viewer-20261118"></a>
 
