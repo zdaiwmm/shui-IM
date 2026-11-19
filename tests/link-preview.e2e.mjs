@@ -67,6 +67,7 @@ try{
     articleBodyGate = Promise.withResolvers();
     articleImageGate = Promise.withResolvers();
     legacyArticleOnly = false;
+    const slowSendPreview = Promise.withResolvers();
     try{
       for(let i=0;i<2;i++){
         const context=await browser.newContext({locale:'zh-CN',viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3});
@@ -91,7 +92,8 @@ try{
       let requests=0,peerRequests=0;
       await contexts[0].route('**/api/rooms/*/link-preview',async route=>{
         requests++;const {url}=route.request().postDataJSON();
-        if(url.includes('/slow'))await new Promise(resolve=>setTimeout(resolve,1400));
+        if(url.endsWith('/slow-send'))await slowSendPreview.promise;
+        else if(url.includes('/slow'))await new Promise(resolve=>setTimeout(resolve,1400));
         if(url.includes('/fail')){await route.fulfill({status:502,contentType:'application/json',body:JSON.stringify({error:'Unavailable'})});return;}
         const packet={url,siteName:'Example',title:url.includes('/new')?'New title':'Preview title',description:'A safe static preview',image:{mimeType:'image/png',data:Buffer.from(image,'base64').toString('base64url'),source:url.includes('/icon')?'icon':'content',width:800,height:400}};
         try{await route.fulfill({contentType:'application/json',body:JSON.stringify(packet)});}catch{/* Superseded/aborted request. */}
@@ -296,8 +298,14 @@ try{
       await peer.locator('.message-web-link[href$="/223458"]').waitFor();
       assert.equal(lookupsFor('223458').length, 1, 'Send starts lookup when the draft timer never ran');
       assert.equal(peerXRequests.some(request => request.postId === '223458'), false);
-      await input.fill('https://preview.example/slow-send');await row.filter({hasText:'正在获取'}).waitFor();await source.locator('#send-text').click();
-      await peer.locator('.message-web-link').filter({hasText:'slow-send'}).waitFor();await source.waitForTimeout(1500);
+      const slowSendRequest = source.waitForRequest(request => request.url().endsWith('/link-preview')
+        && request.postDataJSON()?.url === 'https://preview.example/slow-send');
+      await input.fill('https://preview.example/slow-send');
+      await slowSendRequest;
+      await row.filter({hasText:'正在获取'}).waitFor();
+      await source.locator('#send-text').click();
+      await peer.locator('.message-web-link').filter({hasText:'slow-send'}).waitFor();
+      slowSendPreview.resolve();
       assert.equal(await peer.locator('.message-link-preview').count(),1,'Sending while loading stays plain');
       await input.fill('https://preview.example/fail');await row.filter({hasText:'暂时无法'}).waitFor();const failedCount=requests;
       await row.locator('.link-preview-retry').click();await source.waitForFunction(()=>document.querySelector('.link-preview-draft')?.dataset.state==='failed');
@@ -329,6 +337,6 @@ try{
       assert.equal(requests,afterLockRequests,'Restored drafts must not trigger fresh requests after lock');
       console.log(`${name}: input preview, dismiss, stale result, encrypted large/compact cards, old-client fallback, X Article, inline X text, scoped video, after-send enrichment, reload and privacy cleanup passed`);
       if(process.env.QUIET_ROOM_PREVIEW_QA){await mkdir(process.env.QUIET_ROOM_PREVIEW_QA,{recursive:true});}
-    }finally{sentPreviewGate.resolve();await Promise.all(contexts.map(c=>c.close()));await browser.close();}
+    }finally{sentPreviewGate.resolve();slowSendPreview.resolve();await Promise.all(contexts.map(c=>c.close()));await browser.close();}
   }
 }finally{await vite?.close();await backend?.close();await rm(dataDir,{recursive:true,force:true});}
