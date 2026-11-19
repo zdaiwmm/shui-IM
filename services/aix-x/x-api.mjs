@@ -1,4 +1,4 @@
-const API_ORIGIN = 'https://api.x.com';
+export const POST_LOOKUP_ORIGIN = 'https://api.fxtwitter.com';
 const MEDIA_ORIGIN = 'https://video.twimg.com';
 const COVER_ORIGIN = 'https://pbs.twimg.com';
 const API_LIMIT = 512 * 1024;
@@ -50,63 +50,66 @@ function plainText(value, maxLength, preserveLines = false) {
 }
 
 function playableVariant(media) {
-  if (!Array.isArray(media.variants)) return null;
-  const variants = media.variants.flatMap(variant => {
-    if (variant?.content_type !== 'video/mp4') return [];
+  const formats = Array.isArray(media.formats) ? media.formats : [];
+  const variants = formats.flatMap(variant => {
+    if (variant?.container !== 'mp4') return [];
     const url = cdnUrl(variant.url, MEDIA_ORIGIN);
     if (!url?.pathname.endsWith('.mp4')) return [];
-    const bitrate = Number.isSafeInteger(variant.bit_rate) && variant.bit_rate > 0 ? variant.bit_rate : 0;
+    const bitrate = Number.isSafeInteger(variant.bitrate) && variant.bitrate > 0 ? variant.bitrate : 0;
     return [{ url, bitrate }];
   }).sort((a, b) => a.bitrate - b.bitrate);
-  return (variants.findLast(variant => variant.bitrate <= 2_500_000) ?? variants[0])?.url ?? null;
+  const selected = variants.findLast(variant => variant.bitrate <= 2_500_000) ?? variants[0];
+  if (selected) return selected.url;
+  const fallback = media.format === 'video/mp4' ? cdnUrl(media.url, MEDIA_ORIGIN) : null;
+  return fallback?.pathname.endsWith('.mp4') ? fallback : null;
 }
 
-function postData(document, id, mediaEnabled) {
-  const post = document.data;
-  const author = Array.isArray(document.includes?.users)
-    ? document.includes.users.find(user => user?.id === post?.author_id)
-    : null;
-  if (post?.id !== id || author?.protected !== false || post.withheld || author.withheld || post.possibly_sensitive === true) {
+function postData(post, id, mediaEnabled) {
+  const author = post?.author;
+  if (post?.type !== 'status' || post.id !== id || author?.protected !== false
+    || post.withheld || author.withheld || post.possibly_sensitive !== false) {
     throw new AixError(404, 'POST_UNAVAILABLE');
   }
-  const username = typeof author.username === 'string' && /^\w{1,15}$/.test(author.username) ? `@${author.username}` : '';
+  const username = typeof author.screen_name === 'string' && /^\w{1,15}$/.test(author.screen_name)
+    ? `@${author.screen_name}` : '';
   if (!username) throw new AixError(502, 'UPSTREAM_RESPONSE');
   const name = plainText(author.name, 260);
   const title = name ? `${name} · ${username}` : username;
-  const text = plainText(post.note_tweet?.text ?? post.text, TEXT_LIMIT, true);
+  const text = plainText(post.text, TEXT_LIMIT, true);
   const videos = [];
-  if (mediaEnabled && Array.isArray(post.attachments?.media_keys) && Array.isArray(document.includes?.media)) {
-    for (const key of new Set(post.attachments.media_keys.slice(0, 4))) {
-      if (typeof key !== 'string' || !MEDIA_ID.test(key)) continue;
-      const media = document.includes.media.find(item => item?.media_key === key && item.type === 'video');
-      const url = media && playableVariant(media);
+  if (mediaEnabled && Array.isArray(post.media?.videos)) {
+    const seen = new Set();
+    for (const media of post.media.videos.slice(0, 4)) {
+      if (media?.type !== 'video' || typeof media.id !== 'string' || !MEDIA_ID.test(media.id) || seen.has(media.id)) continue;
+      const url = playableVariant(media);
       if (!url) continue;
-      const duration = media.duration_ms;
-      const durationMs = Number.isSafeInteger(duration) && duration >= 1 && duration <= 86_400_000 ? duration : undefined;
-      videos.push({ id: key, ...(durationMs === undefined ? {} : { durationMs }), url,
-        coverUrl: cdnUrl(media.preview_image_url, COVER_ORIGIN) });
+      seen.add(media.id);
+      const durationMs = typeof media.duration === 'number' ? Math.round(media.duration * 1_000) : NaN;
+      videos.push({ id: media.id, ...(durationMs >= 1 && durationMs <= 86_400_000 ? { durationMs } : {}), url,
+        coverUrl: cdnUrl(media.thumbnail_url, COVER_ORIGIN) });
     }
   }
   return { title, text, videos };
 }
 
-export function createXProvider({ apiToken, mediaEnabled, fetch: fetchResource }) {
+function lookupError(code) {
+  if (code === 429) return new AixError(503, 'UPSTREAM_BUSY');
+  if ([401, 403, 404, 451].includes(code)) return new AixError(404, 'POST_UNAVAILABLE');
+  return new AixError(502, 'UPSTREAM_RESPONSE');
+}
+
+export function createXProvider({ mediaEnabled, fetch: fetchResource }) {
   async function lookup(postId, signal) {
-    const url = new URL(`/2/tweets/${postId}`, API_ORIGIN);
-    url.search = new URLSearchParams({
-      'tweet.fields': 'author_id,attachments,note_tweet,possibly_sensitive,withheld',
-      expansions: 'author_id,attachments.media_keys',
-      'user.fields': 'name,username,protected,withheld',
-      'media.fields': 'type,duration_ms,preview_image_url,variants',
-    });
-    const response = await fetchResource(url, { headers: { Authorization: `Bearer ${apiToken}`, Accept: 'application/json' },
-      redirect: 'error', signal });
-    if ([403, 404, 451].includes(response.status) || response.status === 429) {
+    const url = new URL(`/2/status/${postId}`, POST_LOOKUP_ORIGIN);
+    const response = await fetchResource(url, { headers: { Accept: 'application/json' }, redirect: 'error', signal });
+    if (response.status !== 200) {
       await response.body?.cancel();
-      throw response.status === 429 ? new AixError(503, 'UPSTREAM_BUSY') : new AixError(404, 'POST_UNAVAILABLE');
+      throw lookupError(response.status);
     }
     const bytes = await boundedBody(response, API_LIMIT);
-    return postData(JSON.parse(bytes.toString('utf8')), postId, mediaEnabled);
+    const document = JSON.parse(bytes.toString('utf8'));
+    if (document?.code !== 200) throw lookupError(document?.code);
+    return postData(document.status, postId, mediaEnabled);
   }
 
   async function preview(post, signal) {

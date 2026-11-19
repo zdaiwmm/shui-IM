@@ -3,7 +3,7 @@ import http from 'node:http';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
-import { AixError, MEDIA_ID, POST_ID, createXProvider } from './x-api.mjs';
+import { AixError, MEDIA_ID, POST_ID, POST_LOOKUP_ORIGIN, createXProvider } from './x-api.mjs';
 
 const LOOKUP_PATH = '/v1/x/posts/lookup';
 const MEDIA_PATH = /^\/v1\/x\/media\/([A-Za-z0-9_-]{43})$/;
@@ -122,10 +122,10 @@ function createTickets(publicOrigin, now) {
   };
 }
 
-export function createAixServer({ gatewayToken, apiToken, publicOrigin, mediaEnabled = false,
+export function createAixServer({ gatewayToken, publicOrigin, mediaEnabled = false,
   fetch: fetchResource = globalThis.fetch, now = Date.now }) {
   const expectedAuthorization = digest(`Bearer ${gatewayToken}`);
-  const provider = createXProvider({ apiToken, mediaEnabled, fetch: fetchResource });
+  const provider = createXProvider({ mediaEnabled, fetch: fetchResource });
   const tickets = createTickets(publicOrigin, now);
   let lookups = 0;
   let streams = 0;
@@ -210,19 +210,22 @@ function validatedUrl(value, predicate, configName) {
 }
 
 function startService(env) {
-  const { AIX_GATEWAY_TOKEN: gatewayToken, X_API_BEARER_TOKEN: apiToken } = env;
+  const { AIX_GATEWAY_TOKEN: gatewayToken } = env;
   if (!gatewayToken || !/^[A-Za-z0-9_-]{32,256}$/.test(gatewayToken)) throw new Error('INVALID_AIX_GATEWAY_TOKEN');
-  if (!apiToken || !/^[!-~]{1,1024}$/.test(apiToken)) throw new Error('INVALID_X_API_BEARER_TOKEN');
   const port = Number(env.AIX_PORT ?? '18087');
   if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error('INVALID_AIX_PORT');
   const publicOrigin = validatedUrl(env.AIX_PUBLIC_ORIGIN, url => url.protocol === 'https:', 'AIX_PUBLIC_ORIGIN');
   if (env.AIX_XRAY_PROXY) {
-    const proxy = validatedUrl(env.AIX_XRAY_PROXY, url => url.protocol === 'http:' && url.hostname === '127.0.0.1' && !!url.port, 'AIX_XRAY_PROXY');
+    const proxy = URL.parse(env.AIX_XRAY_PROXY);
+    const validCredentials = proxy && ((!proxy.username && !proxy.password)
+      || (/^[A-Za-z0-9_-]+$/.test(proxy.username) && /^[A-Za-z0-9_-]+$/.test(proxy.password)));
+    if (!validCredentials || proxy.protocol !== 'http:' || proxy.hostname !== '127.0.0.1' || !proxy.port
+      || proxy.pathname !== '/' || proxy.search || proxy.hash) throw new Error('INVALID_AIX_XRAY_PROXY');
     if (typeof http.setGlobalProxyFromEnv !== 'function') throw new Error('AIX_XRAY_PROXY_REQUIRES_NODE_24_14');
-    http.setGlobalProxyFromEnv({ https_proxy: proxy, no_proxy: '127.0.0.1' });
+    http.setGlobalProxyFromEnv({ https_proxy: proxy.href, no_proxy: `127.0.0.1,${new URL(POST_LOOKUP_ORIGIN).hostname}` });
   }
   const mediaEnabled = env.AIX_MEDIA_ENABLED === 'true';
-  createAixServer({ gatewayToken, apiToken, publicOrigin, mediaEnabled }).listen(port, '127.0.0.1');
+  createAixServer({ gatewayToken, publicOrigin, mediaEnabled }).listen(port, '127.0.0.1');
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) startService(process.env);
