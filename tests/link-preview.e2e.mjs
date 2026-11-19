@@ -9,7 +9,12 @@ import { startServer } from '../server/index.mjs';
 const dataDir=await mkdtemp(path.join(tmpdir(),'link-preview-browser-'));
 let backend,vite;
 const xRequests = [];
-let xCover;
+let xCover, xPortraitCover, articleImage, sentPreviewGate;
+const articleTitle = '雨后的旧书店';
+const articleAuthor = '林照 · @public_author';
+const articleUrl = 'https://x.com/public_author/status/223456';
+const sendArticleUrl = 'https://x.com/public_author/status/223457';
+const articleDescription = '雨停以后，桥下的旧书店还开着。';
 const postUrl = 'https://x.com/public_author/status/123456';
 const fullPost = '这个公开帖子有两段视频。' + '这是展开之后呈现的正文段落。\n'.repeat(12);
 const ticket = 'https://aix.shui.click/v1/x/media/' + 't'.repeat(43);
@@ -18,11 +23,25 @@ try{
     xPostGatewayFetch:async (_url, request) => {
       const packet = JSON.parse(request.body);
       xRequests.push(packet);
+      if (packet.postId === '223456' || packet.postId === '223457') {
+        if (packet.action === 'article') return Response.json({ title: articleTitle, author: articleAuthor, blocks: [
+          { kind: 'paragraph', runs: [{ text: articleDescription, bold: true }] },
+          { kind: 'image', alt: '桥下的旧书店', caption: '雨天的书店', image: articleImage },
+          { kind: 'heading', level: 2, runs: [{ text: '桥下的散步' }] },
+          { kind: 'quote', runs: [{ text: '雨停就开。', italic: true }] },
+          { kind: 'list-item', ordered: true, depth: 0, runs: [{ text: '第一条路' }] },
+          { kind: 'list-item', ordered: true, depth: 1, runs: [{ text: '从桥下经过' }] },
+          ...Array.from({ length: 18 }, () => ({ kind: 'paragraph', runs: [{ text: articleDescription.repeat(3) }] })),
+        ] });
+        if (packet.postId === '223457') await sentPreviewGate.promise;
+        return Response.json({ title: articleAuthor, description: articleDescription, canRead: true, videos: [],
+          article: { title: articleTitle, author: articleAuthor } });
+      }
       if (packet.postId !== '123456') return Response.json({}, { status: 404 });
       if (packet.action === 'text') return Response.json({ text: fullPost });
       if (packet.action === 'playback') return Response.json({ url: ticket });
       return Response.json({ title: '@public_author', description: '这个公开帖子有两段视频。', canRead: true,
-        videos: [{ id: '7_001', cover: xCover }, { id: '7_002', cover: xCover }] });
+        videos: [{ id: '7_001', cover: xCover }, { id: '7_002', cover: xPortraitCover }] });
     },
   });
   vite=await createServer({root:process.cwd(),configFile:false,logLevel:'error',plugins:[{name:'preview-test-app',transform(code,id){if(id.endsWith('/src/main.ts'))return code.replace('void app.start();','window.app=app;void app.start();');}}],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':{target:`http://127.0.0.1:${backend.port}`,changeOrigin:false},'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});
@@ -30,6 +49,9 @@ try{
   for(const [name,engine] of Object.entries({chromium,webkit})){
     const browser=await engine.launch(name==='chromium'&&!process.env.CI?{channel:'chrome'}:{});
     const contexts=[];
+    const engineStart = xRequests.length;
+    const lookupsFor = id => xRequests.slice(engineStart).filter(request => request.postId === id);
+    sentPreviewGate = Promise.withResolvers();
     try{
       for(let i=0;i<2;i++){
         const context=await browser.newContext({locale:'zh-CN',viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3});
@@ -73,6 +95,16 @@ try{
       const snapshot=await peer.evaluate(()=>[...window.app.messages.values()].find(m=>m.payload.kind==='text'&&m.payload.preview)?.payload);
       assert.equal(snapshot.v,3);assert.ok(snapshot.preview.image.data.length<22000);
       xCover = { mimeType: 'image/png', data: Buffer.from(image, 'base64').toString('base64url') };
+      const testJpeg = async (width, height) => Buffer.from(await source.evaluate(([width, height]) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#347b58';
+        context.fillRect(0, 0, width, height);
+        return canvas.toDataURL('image/jpeg').split(',')[1];
+      }, [width, height]), 'base64').toString('base64url');
+      xPortraitCover = { mimeType: 'image/jpeg', data: await testJpeg(300, 400) };
+      articleImage = { mimeType: 'image/jpeg', data: await testJpeg(360, 240), width: 360, height: 240 };
       const beforeX = xRequests.length;
       let mediaRequests = 0;
       await contexts[1].route(ticket, async route => {
@@ -89,6 +121,9 @@ try{
       assert.equal(mediaRequests, 0, 'Receiving a card only loads its encrypted snapshot');
       assert.equal(await xCard.locator('video').count(), 0);
       assert.equal(await xCard.locator('.x-post-page').innerText(), '1 / 2');
+      const videoTrack = xCard.locator('.x-post-track');
+      const trackRatio = () => videoTrack.evaluate(node => node.clientWidth / node.clientHeight);
+      assert.ok(Math.abs(await trackRatio() - 2) < 0.02, 'The first cover sets the wide ratio');
       assert.ok(await xCard.locator('.x-post-page').evaluate(node => {
         const style = getComputedStyle(node);
         return style.position === 'absolute' && style.backgroundColor === 'rgba(0, 0, 0, 0)';
@@ -100,6 +135,7 @@ try{
       assert.equal(await xCard.getByText('这是展开之后呈现的正文段落。', { exact: false }).count(), 0);
       await xCard.getByRole('button', { name: '下一个视频' }).click();
       await peer.waitForFunction(() => document.querySelector('.x-post-page')?.textContent === '2 / 2');
+      assert.ok(Math.abs(await trackRatio() - 0.75) < 0.02, 'The second cover sets its own portrait ratio');
       assert.equal(mediaRequests, 0, 'Switching covers does not preload videos');
       if (process.env.QUIET_ROOM_PREVIEW_QA) {
         await xCard.screenshot({ path: path.join(process.env.QUIET_ROOM_PREVIEW_QA, `${name}-x-post-card.png`) });
@@ -117,6 +153,71 @@ try{
       await source.locator('#send-text').click();
       await peer.locator('.message-web-link[href$="/123457"]').waitFor();
       assert.equal(await peer.locator('.x-post-card').count(), 1, 'An unavailable post sends a regular link');
+      await source.locator('.x-post-after-send').filter({ hasText: '暂时无法生成卡片' }).waitFor();
+
+      await input.fill(articleUrl);
+      await row.filter({ hasText: articleTitle }).waitFor();
+      await source.locator('#send-text').click();
+      const articleCard = peer.locator('.x-post-card').filter({ hasText: articleTitle });
+      await articleCard.waitFor();
+      const articleButton = articleCard.getByRole('button', { name: '查看全文' });
+      assert.equal(await articleButton.getAttribute('aria-haspopup'), 'dialog');
+      assert.equal(lookupsFor('223456').length, 1, 'No lookup merely on receipt');
+      await articleButton.click();
+      const reader = peer.getByRole('dialog', { name: 'X Article' });
+      await reader.locator('h1').filter({ hasText: articleTitle }).waitFor();
+      await peer.waitForFunction(() => document.querySelector('.x-article-reader figure img')?.naturalWidth === 360);
+      assert.equal(await reader.getByRole('img', { name: '桥下的旧书店' }).getAttribute('src').then(url => url.startsWith('blob:')), true);
+      assert.equal(await reader.locator('figure figcaption').textContent(), '雨天的书店');
+      assert.equal(await reader.locator('blockquote em').textContent(), '雨停就开。');
+      assert.equal(await reader.locator('ol > li > ol > li').textContent(), '从桥下经过');
+      const scroll = reader.locator('.x-article-reader-scroll');
+      const beforeReading = await peer.evaluate(() => window.app.chatScrollTop);
+      await scroll.evaluate(node => { node.scrollTop = 480; });
+      assert.ok(await scroll.evaluate(node => node.scrollTop) > 300, 'Only the reader scrolls through the article');
+      assert.equal(await peer.evaluate(() => window.app.chatScrollTop), beforeReading);
+      if (process.env.QUIET_ROOM_PREVIEW_QA) await peer.screenshot({ path: path.join(process.env.QUIET_ROOM_PREVIEW_QA, `${name}-x-article-reader.png`) });
+      const articleImageUrl = await reader.locator('figure img').getAttribute('src');
+      await reader.getByRole('button', { name: '关闭阅读器' }).click();
+      await reader.waitFor({ state: 'detached' });
+      assert.equal(await articleButton.evaluate(node => node === document.activeElement), true);
+      assert.equal(await peer.evaluate(url => window.previewUrls.has(url), articleImageUrl), false);
+      await articleButton.click();
+      await reader.locator('h1').waitFor();
+      await peer.evaluate(() => window.app.obscurePrivacySurface());
+      await reader.waitFor({ state: 'detached' });
+      assert.equal(await peer.evaluate(() => window.previewUrls.size), 0);
+      await peer.evaluate(() => window.app.revealPrivacySurface());
+
+      await input.fill(sendArticleUrl);
+      await source.locator('#send-text').click();
+      const sent = source.locator('.message.outgoing').filter({ has: source.locator('.message-web-link[href$="/223457"]') });
+      await sent.locator('.x-post-after-send').filter({ hasText: '正在解析链接' }).waitFor();
+      const pendingRow = await sent.elementHandle();
+      const sentId = await pendingRow.getAttribute('data-client-msg-id');
+      await peer.locator('.message-web-link[href$="/223457"]').waitFor();
+      assert.equal(await peer.locator('.x-post-card').count(), 2);
+      sentPreviewGate.resolve();
+      const resolved = source.locator(`.message[data-client-msg-id="${sentId}"]`);
+      await resolved.locator('.x-post-card').filter({ hasText: articleTitle }).waitFor();
+      assert.equal(await resolved.evaluate((node, before) => node === before, pendingRow), true, 'Update the existing outgoing row');
+      assert.equal(await resolved.locator('.x-post-original').getAttribute('href'), sendArticleUrl);
+      assert.equal(lookupsFor('223457').length, 1, 'The recipient performs no automatic lookup');
+      await source.evaluate(async () => {
+        const { loadLocalXPreviews } = await import('/src/lib/vault.ts');
+        return new Promise((resolve, reject) => {
+          let attempts = 0;
+          const tick = async () => {
+            if ((await loadLocalXPreviews(window.app.session)).size) resolve();
+            else if (++attempts === 25) reject(new Error('Local preview was not sealed'));
+            else setTimeout(() => void tick(), 30);
+          };
+          void tick();
+        });
+      });
+      await source.reload();
+      await resolved.locator('.x-post-card').filter({ hasText: articleTitle }).waitFor();
+      assert.equal(lookupsFor('223457').length, 1, 'The sealed snapshot restores without a new disclosure');
       await input.fill('https://preview.example/slow-send');await row.filter({hasText:'正在获取'}).waitFor();await source.locator('#send-text').click();
       await peer.locator('.message-web-link').filter({hasText:'slow-send'}).waitFor();await source.waitForTimeout(1500);
       assert.equal(await peer.locator('.message-link-preview').count(),1,'Sending while loading stays plain');
@@ -148,8 +249,8 @@ try{
       await source.waitForTimeout(1500);assert.equal(await source.locator('.link-preview-draft:visible').count(),0,'A new empty composer shell may mount, but a late preview must remain hidden');
       assert.equal(await source.locator('.link-preview-draft').allTextContents().then(values=>values.join('')),'');
       assert.equal(requests,afterLockRequests,'Restored drafts must not trigger fresh requests after lock');
-      console.log(`${name}: input preview, dismiss, stale result, encrypted large/compact cards, old-client fallback, inline X text and scoped video, reload, new tab and privacy cleanup passed`);
+      console.log(`${name}: input preview, dismiss, stale result, encrypted large/compact cards, old-client fallback, X Article, inline X text, scoped video, after-send enrichment, reload and privacy cleanup passed`);
       if(process.env.QUIET_ROOM_PREVIEW_QA){await mkdir(process.env.QUIET_ROOM_PREVIEW_QA,{recursive:true});}
-    }finally{await Promise.all(contexts.map(c=>c.close()));await browser.close();}
+    }finally{sentPreviewGate.resolve();await Promise.all(contexts.map(c=>c.close()));await browser.close();}
   }
 }finally{await vite?.close();await backend?.close();await rm(dataDir,{recursive:true,force:true});}

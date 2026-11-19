@@ -1,10 +1,12 @@
 import { openLinkVideoSheet, localVideoTile } from './lib/link-video-sheet';
-import { listLinkVideos, confirmLinkVideoShared, isLinkVideoSendConfirmed, type SavedLinkVideo } from './lib/vault';
-import { ComposerLinkPreview, renderPreviewCard, concealLinkPreviews, revealLinkPreviews } from './lib/link-preview-ui';
-import { LINK_PREVIEW_CAPABILITY, X_POST_PREVIEW_CAPABILITY } from './lib/link-preview-data';
+import { listLinkVideos, confirmLinkVideoShared, isLinkVideoSendConfirmed, type SavedLinkVideo,
+  loadLocalXPreviews, saveLocalXPreview, LOCAL_X_PREVIEW_LIMIT } from './lib/vault';
+import { ComposerLinkPreview, renderPreviewCard, concealLinkPreviews, revealLinkPreviews, loadXPostPreview } from './lib/link-preview-ui';
+import { LINK_PREVIEW_CAPABILITY, X_POST_PREVIEW_CAPABILITY, type LinkPreview } from './lib/link-preview-data';
 import { concealXPostCards, renderXPostCard, revealXPostCards } from './lib/x-post-card';
-import { openXPostVideo, readXPostText } from './lib/x-post-api';
-import { findWebLinks, renderLinkedText } from './lib/web-links';
+import { openXPostVideo, readXArticle, readXPostText } from './lib/x-post-api';
+import { openXArticleReader } from './lib/x-article-reader';
+import { findWebLinks, firstPreviewUrl, renderLinkedText } from './lib/web-links';
 import { uiLiteral, uiTemplate, t, currentLanguage, matchesSourceText } from './lib/language';
 import { atFaultStage, makeFault, showFaultPanel, type FaultReport, type FaultStage } from './lib/fault-report';
 import { renderLanguagePage, renderFeedbackPage } from './lib/language-feedback-ui';
@@ -676,7 +678,11 @@ export class QuietRoomApp {
   private retryTimers = new Map<string, number>();
   private retryCounts = new Map<string, number>();
   private deferredCapabilityItems = new Set<string>();
-  private renderedMessages = new Map<string, { payload: MessagePayload; status: DecryptedMessage['status']; acceptedAt: string; element: HTMLElement }>();
+  private renderedMessages = new Map<string, { payload: MessagePayload; status: DecryptedMessage['status']; acceptedAt: string;
+    element: HTMLElement; sentPreview?: LinkPreview | 'loading' | 'failed' }>();
+  private sentXPreviews = new Map<string, LinkPreview>();
+  private sentXPreviewErrors = new Set<string>();
+  private sentXPreviewRequests = new Map<string, AbortController>();
   private renderedMessageOrder: HTMLElement[] = [];
   private renderedMessageDates = new Map<string, HTMLElement>();
   private renderedMessageSeq = new Map<string, number>();
@@ -1495,6 +1501,7 @@ export class QuietRoomApp {
   private showPrivacyCurtain(): void {
     this.videoDownloads?.dispose();
     this.composerLinkPreview?.clear();
+    this.cancelSentXPreviews();
     document.title = 'Chamber';
     cancelFormInput();
     this.queuedNotice = null;
@@ -5086,14 +5093,16 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       }
       return { cached: pages.flat(), historyHasMore };
     };
-    const [{ cached, historyHasMore }, messageEvents, outbox, pendingReceipts, uploadPlans] = await Promise.all([
+    const [{ cached, historyHasMore }, messageEvents, outbox, pendingReceipts, uploadPlans, sentXPreviews] = await Promise.all([
       atFaultStage('chat.history',loadVisibleHistory()),
       atFaultStage('chat.events',loadMessageEventHistory(session, { signal: runtime.signal, reuseVerifiedPages: true })),
       atFaultStage('chat.outbox',loadOutbox(session)),
       atFaultStage('chat.receipts',loadPendingReceipts(session)),
       atFaultStage('chat.plans',loadUploadPlans(session)),
+      loadLocalXPreviews(session).catch(() => new Map<string, LinkPreview>()),
     ]);
     if (!runtime.isCurrent()) return;
+    this.sentXPreviews = sentXPreviews;
     this.messages = new Map(cached.map((message) => [message.seq, {
       ...message,
       status: message.status === 'sent'
@@ -9543,6 +9552,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     if (surface === 'away') {
       this.videoDownloads?.dispose();
       this.composerLinkPreview?.clear();
+      this.cancelSentXPreviews();
       concealXPostCards();
     }
     if (surface === 'away' && this.activeSurface === 'chat') this.captureChatAnchor(true);
@@ -10415,11 +10425,14 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         payload.preview = preview;
       }
     }
+    const postUrl = !payload.preview ? this.composerLinkPreview?.postSendUrl(text) : undefined;
+    const clientMsgId = postUrl ? crypto.randomUUID() : undefined;
     this.sendingTextDrafts.add(draftVersion);
     try {
       this.composerCheckpoint?.write(originalDraft);
-      await this.enqueuePayload(payload, undefined, undefined, this.composerCheckpoint?.submission());
+      await this.enqueuePayload(payload, clientMsgId, undefined, this.composerCheckpoint?.submission());
       if (!this.isRuntimeActive(epoch, session)) return;
+      if (postUrl && clientMsgId && this.pending.has(clientMsgId)) void this.resolveSentXPreview(clientMsgId, postUrl, session);
       if (this.chatPinnedToBottom && this.chatScrollIntent !== 'up') this.trackChatViewport(!this.desktopBrowser);
       // Commit reply removal before resizing the cleared editor. Otherwise a
       // multiline shrink measures the reply's old height and jumps on its
@@ -10451,6 +10464,47 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       return;
     } finally {
       if (this.isRuntimeActive(epoch, session)) this.sendingTextDrafts.delete(draftVersion);
+    }
+  }
+
+  private cancelSentXPreviews(): void {
+    for (const [id, request] of this.sentXPreviewRequests) {
+      request.abort();
+      this.renderedMessages.get(id)?.element.querySelector('.x-post-after-send')?.remove();
+    }
+    this.sentXPreviewRequests.clear();
+  }
+
+  private async resolveSentXPreview(id: string, url: string, session: VaultSession): Promise<void> {
+    const runtime = this.runtimeAbort?.signal;
+    const epoch = this.runtimeEpoch;
+    if (!runtime || this.activeSurface !== 'chat' || document.hidden || this.privacyCovered
+      || document.documentElement.classList.contains('privacy-obscured') || this.sentXPreviewRequests.size >= 4) return;
+    const request = new AbortController();
+    const signal = AbortSignal.any([runtime, request.signal]);
+    this.sentXPreviewRequests.set(id, request);
+    this.renderMessages();
+    const current = () => !signal.aborted && this.isRuntimeActive(epoch, session)
+      && this.activeSurface === 'chat' && !this.privacyCovered && !document.hidden
+      && !document.documentElement.classList.contains('privacy-obscured') && !this.messageIsUnavailable(id);
+    try {
+      const preview = await loadXPostPreview(session.vault.roomId, session.vault.accessToken, url, signal);
+      if (!current()) return;
+      this.sentXPreviews.set(id, preview);
+      if (this.sentXPreviews.size > LOCAL_X_PREVIEW_LIMIT) {
+        const oldest = this.sentXPreviews.keys().next().value;
+        if (oldest) this.sentXPreviews.delete(oldest);
+      }
+      void saveLocalXPreview(session, id, preview, signal).catch(() => undefined);
+    } catch {
+      if (current()) {
+        this.sentXPreviewErrors.add(id);
+        const oldest = this.sentXPreviewErrors.values().next().value;
+        if (oldest && this.sentXPreviewErrors.size > LOCAL_X_PREVIEW_LIMIT) this.sentXPreviewErrors.delete(oldest);
+      }
+    } finally {
+      this.sentXPreviewRequests.delete(id);
+      if (!signal.aborted && this.isRuntimeActive(epoch, session)) this.renderMessages();
     }
   }
 
@@ -12083,6 +12137,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       preview.inert = true;
       preview.style.cssText = `left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px`;
       const clone = sourceBubble.cloneNode(true) as HTMLElement;
+      clone.querySelector('.x-post-after-send')?.remove();
       const xPostCard = clone.querySelector('.x-post-card');
       if (xPostCard && message.payload.kind === 'text') {
         if (clone.querySelector('.message-text')) xPostCard.remove();
@@ -12982,10 +13037,15 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
         // that changed object only; unchanged history retains the fast path.
         const samePayload = cached?.payload === message.payload || Boolean(cached && canonicalStringify(cached.payload) === canonicalStringify(message.payload));
         const keepContent = Boolean(cached && (selecting || samePayload));
+        const sentPreview = this.sentXPreviewState(message);
         const upload = this.mediaUploads.get(key)?.view;
         const uploadShell = upload?.element.querySelector('.image-bubble') ? upload.element : undefined;
         const element = keepContent ? cached!.element : this.createMessageElement(message, deletedForEveryone, uploadShell);
         if (!keepContent && this.runtimeAbort) this.mediaUploads.get(key)?.view.handoff(element, this.runtimeAbort.signal);
+        if (keepContent && !selecting && cached?.sentPreview !== sentPreview && message.payload.kind === 'text') {
+          const bubble = element.querySelector<HTMLElement>(':scope > .message-bubble');
+          if (bubble) this.renderMessageTextLinks(element, bubble, message.payload, sentPreview);
+        }
         if (keepContent && (!unchanged || message.status === 'pending' && (isChatMedia(message) || message.payload.kind === 'file'))) {
           // A delivery receipt updates decoration only. Preserve decoded media,
           // in-flight downloads, playback, focus and any send-motion layer.
@@ -13032,7 +13092,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           cached.element.replaceWith(element);
           if (hadFocus) element.focus({ preventScroll: true });
         }
-        this.renderedMessages.set(key, { payload: message.payload, status: message.status, acceptedAt: message.acceptedAt, element });
+        this.renderedMessages.set(key, { payload: message.payload, status: message.status, acceptedAt: message.acceptedAt,
+          element, sentPreview: selecting ? cached?.sentPreview : sentPreview });
         if (renderWindow.active) {
           element.setAttribute('aria-posinset', String(index + 1));
           element.setAttribute('aria-setsize', String(messages.length));
@@ -13294,6 +13355,72 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     return quote;
   }
 
+  private sentXPreviewState(message: DecryptedMessage): LinkPreview | 'loading' | 'failed' | undefined {
+    if (message.payload.kind !== 'text' || message.payload.preview
+      || message.senderId !== this.session?.vault.identity.publicBundle.deviceId) return;
+    const id = message.clientMsgId;
+    if (this.sentXPreviewRequests.has(id)) return 'loading';
+    if (this.sentXPreviewErrors.has(id)) return 'failed';
+    const preview = this.sentXPreviews.get(id);
+    return preview?.url === firstPreviewUrl(message.payload.text) ? preview : undefined;
+  }
+
+  private renderMessageTextLinks(article: HTMLElement, bubble: HTMLElement,
+    payload: Extract<MessagePayload, { kind: 'text' }>, sentPreview?: LinkPreview | 'loading' | 'failed'): void {
+    const focusInText = bubble.querySelector(':scope > .message-text')?.contains(document.activeElement);
+    bubble.querySelectorAll(':scope > .message-text, :scope > .message-link-preview, :scope > .x-post-card, :scope > .x-post-after-send')
+      .forEach(node => node.remove());
+    const contents = document.createDocumentFragment();
+    const { text } = payload;
+    const preview = payload.preview ?? (typeof sentPreview === 'object' ? sentPreview : undefined);
+    const [link] = preview?.xPost ? findWebLinks(text) : [];
+    if (!link || link.text !== text.trim() || link.url !== preview?.url) {
+      const paragraph = document.createElement('p');
+      paragraph.className = 'message-text';
+      renderLinkedText(paragraph, text);
+      contents.append(paragraph);
+    }
+    const session = this.session;
+    const signal = this.runtimeAbort?.signal ?? AbortSignal.abort();
+    bubble.classList.toggle('link-preview-bubble', Boolean(preview));
+    if (preview?.xPost && session) {
+      const { id } = preview.xPost;
+      const { roomId, accessToken } = session.vault;
+      const active = () => article.isConnected && this.activeSurface === 'chat' && !this.privacyCovered
+        && !signal.aborted && this.session === session && !document.hidden
+        && !document.documentElement.classList.contains('privacy-obscured');
+      let anchor: ChatScrollAnchor | null = null;
+      contents.append(renderXPostCard({ ...preview, xPost: preview.xPost }, {
+        signal,
+        readText: signal => readXPostText(roomId, accessToken, id, signal),
+        openArticle: origin => openXArticleReader({
+          root: this.root, origin, title: preview.title, sourceUrl: preview.url, signal, active,
+          load: signal => readXArticle(roomId, accessToken, id, signal),
+        }),
+        loadVideo: (mediaId, signal) => openXPostVideo(roomId, accessToken, id, mediaId, signal),
+        beforeLayoutChange: () => { if (active()) anchor = this.captureChatAnchor(false, true); },
+        onLayoutChange: () => {
+          const list = this.chatLayoutElements?.list;
+          if (anchor && list && active()) {
+            this.restoreChatAnchor(list, anchor);
+            this.updateChatBottomControl();
+          }
+          anchor = null;
+        },
+      }));
+    } else if (preview) {
+      contents.append(renderPreviewCard(preview, signal));
+    } else if (typeof sentPreview === 'string') {
+      const status = document.createElement('p');
+      status.className = 'x-post-after-send';
+      status.setAttribute('role', 'status');
+      status.textContent = sentPreview === 'loading' ? uiLiteral('正在解析链接…') : uiLiteral('暂时无法生成卡片，已保留链接。');
+      contents.append(status);
+    }
+    bubble.insertBefore(contents, bubble.querySelector(':scope > .message-meta'));
+    if (focusInText) bubble.querySelector<HTMLAnchorElement>('.message-web-link, .x-post-original')?.focus({ preventScroll: true });
+  }
+
   private createMessageElement(message: DecryptedMessage, deletedForEveryone = this.messageDeletions(), uploadShell?: HTMLElement): HTMLElement {
     const own = this.isOwnMessage(message);
     const article = uploadShell ?? document.createElement('article');
@@ -13314,42 +13441,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
     if (message.payload.kind === 'text') {
       bubble.classList.add('text-bubble');
-      const { text, preview } = message.payload;
-      const [link] = preview?.xPost ? findWebLinks(text) : [];
-      if (!link || link.text !== text.trim() || link.url !== preview?.url) {
-        const paragraph = document.createElement('p');
-        paragraph.className = 'message-text';
-        renderLinkedText(paragraph, text);
-        bubble.append(paragraph);
-      }
-      if (preview) {
-        bubble.classList.add('link-preview-bubble');
-        const signal = this.runtimeAbort?.signal ?? AbortSignal.abort();
-        const session = this.session;
-        if (preview.xPost && session) {
-          const { id } = preview.xPost;
-          const { roomId, accessToken } = session.vault;
-          let anchor: ChatScrollAnchor | null = null;
-          bubble.append(renderXPostCard({ ...preview, xPost: preview.xPost }, {
-            signal,
-            readText: signal => readXPostText(roomId, accessToken, id, signal),
-            loadVideo: (mediaId, signal) => openXPostVideo(roomId, accessToken, id, mediaId, signal),
-            beforeLayoutChange: () => {
-              if (article.isConnected && this.activeSurface === 'chat' && !this.privacyCovered) anchor = this.captureChatAnchor(false, true);
-            },
-            onLayoutChange: () => {
-              const list = this.chatLayoutElements?.list;
-              if (anchor && list && article.isConnected && this.activeSurface === 'chat' && !this.privacyCovered) {
-                this.restoreChatAnchor(list, anchor);
-                this.updateChatBottomControl();
-              }
-              anchor = null;
-            },
-          }));
-        } else {
-          bubble.append(renderPreviewCard(preview, signal));
-        }
-      }
+      this.renderMessageTextLinks(article, bubble, message.payload, this.sentXPreviewState(message));
     } else if (message.payload.kind === 'audio') {
       bubble.classList.add('voice-bubble');
       const payload = message.payload;
@@ -18384,6 +18476,9 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     this.readMessageIds.clear();
     this.chatExplicitlyConcealedAssets.clear();
     this.clearMessageTextSelection();
+    this.cancelSentXPreviews();
+    this.sentXPreviews.clear();
+    this.sentXPreviewErrors.clear();
     this.pending.clear();
     for (const draft of this.mediaUploads.values()) draft.view.destroy();
     this.mediaUploads.clear();

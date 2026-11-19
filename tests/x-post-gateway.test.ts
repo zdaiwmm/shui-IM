@@ -69,3 +69,30 @@ it('rejects unexpected media destinations, malformed responses and missing confi
   const fetchImpl = vi.fn(async () => Response.json({ url: capability }, { headers: { 'Content-Length': '1600000' } }));
   await expect(createXPostGateway({ token, fetchImpl })!(packet, controller.signal)).rejects.toThrow('X_POST_UNAVAILABLE');
 });
+
+it('accepts bounded article blocks and rejects unsafe rich content before returning it', async () => {
+  const packet = xPostRequest({ action: 'article', postId: '111' });
+  const controller = new AbortController();
+  const article = { title: 'A public article', author: '@author', blocks: [
+    { kind: 'heading', level: 2, runs: [{ text: 'Introduction', bold: true }] },
+    { kind: 'paragraph', runs: [{ text: 'Continue', href: 'https://example.com/' }] },
+    { kind: 'list-item', ordered: true, depth: 0, runs: [{ text: 'First' }] },
+  ] };
+  const reply = (value: unknown) => createXPostGateway({ token, fetchImpl: vi.fn(async () => Response.json(value)) })!(
+    packet, controller.signal,
+  );
+  await expect(reply(article)).resolves.toEqual(article);
+  expect(xPostRequest({ action: 'article', postId: '111', href: 'https://example.com' })).toBeUndefined();
+  const invalidBlocks = [
+    { kind: 'paragraph', runs: [{ text: 'Unsafe', href: 'javascript:alert(1)' }] },
+    { kind: 'paragraph', runs: [{ text: 'Unsafe', href: 'https://secret@example.com' }] },
+    { kind: 'heading', level: 1, runs: [{ text: 'Unexpected heading' }] },
+    { kind: 'paragraph', runs: [{ text: 'Too long'.repeat(10_000) }] },
+    { kind: 'image', alt: '', image: { mimeType: 'image/svg+xml', data: 'PHN2Zz4', width: 10, height: 10 } },
+    { kind: 'image', alt: '', image: { mimeType: 'image/jpeg', data: 'AA', width: 10, height: 10 } },
+    { kind: 'image', alt: '', image: { mimeType: 'image/jpeg', data: 'AA', width: 10, height: 10 }, src: 'https://example.com/' },
+  ];
+  for (const block of invalidBlocks) {
+    await expect(reply({ ...article, blocks: [block] })).rejects.toThrow('X_POST_UNAVAILABLE');
+  }
+});
