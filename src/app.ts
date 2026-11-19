@@ -1,10 +1,11 @@
 import { openLinkVideoSheet, localVideoTile } from './lib/link-video-sheet';
 import { listLinkVideos, confirmLinkVideoShared, isLinkVideoSendConfirmed, type SavedLinkVideo,
   loadLocalXPreviews, saveLocalXPreview, LOCAL_X_PREVIEW_LIMIT } from './lib/vault';
-import { ComposerLinkPreview, renderPreviewCard, concealLinkPreviews, revealLinkPreviews, loadXPostPreview } from './lib/link-preview-ui';
-import { LINK_PREVIEW_CAPABILITY, X_POST_PREVIEW_CAPABILITY, type LinkPreview } from './lib/link-preview-data';
-import { concealXPostCards, renderXPostCard, revealXPostCards } from './lib/x-post-card';
+import { ComposerLinkPreview, renderPreviewCard, concealLinkPreviews, revealLinkPreviews, loadXPostPreview, loadYouTubePreview } from './lib/link-preview-ui';
+import { LINK_PREVIEW_CAPABILITY, X_POST_PREVIEW_CAPABILITY, YOUTUBE_PREVIEW_CAPABILITY, youtubeVideoId, type LinkPreview } from './lib/link-preview-data';
+import { concealXPostCards, renderXPostCard, renderYouTubeCard, revealXPostCards } from './lib/x-post-card';
 import { openXPostVideo, readXArticle, readXPostText } from './lib/x-post-api';
+import { openYouTubeVideo } from './lib/youtube-api';
 import { openXArticleReader } from './lib/x-article-reader';
 import { findWebLinks, firstPreviewUrl, renderLinkedText } from './lib/web-links';
 import { uiLiteral, uiTemplate, t, currentLanguage, matchesSourceText } from './lib/language';
@@ -344,7 +345,7 @@ import { recoverFromCloud, syncCloudBackup, fetchRecoveryBundle, cloudBackupPref
 import './backup.css';
 import './motion.css';
 
-const CLIENT_CAPABILITIES = [VIDEO_PREVIEW_CAPABILITY, LARGE_VIDEO_CAPABILITY, LINK_PREVIEW_CAPABILITY, X_POST_PREVIEW_CAPABILITY, MESSAGE_WINDOW_CAPABILITY, 'joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'expression-kind-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
+const CLIENT_CAPABILITIES = [VIDEO_PREVIEW_CAPABILITY, LARGE_VIDEO_CAPABILITY, LINK_PREVIEW_CAPABILITY, X_POST_PREVIEW_CAPABILITY, YOUTUBE_PREVIEW_CAPABILITY, MESSAGE_WINDOW_CAPABILITY, 'joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'expression-kind-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
 const NEW_ROOM_CAPABILITIES = [...CLIENT_CAPABILITIES, 'room-archive-v2'];
 const PASSKEY_UNAVAILABLE_NOTICE = uiLiteral('当前浏览器无法获取到本设备的通行密钥信息，建议使用系统浏览器');
 const SPACE_DEVICE_LIMIT_NOTICE = uiLiteral('该密室接入设备已达上限。');
@@ -8217,6 +8218,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       roomId:this.session!.vault.roomId,token:this.session!.vault.accessToken,signal:this.runtimeAbort!.signal,
       active:()=>ownsActiveChat()&&!this.privacyCovered,
       supportsXPost: () => this.activeDevicesSupport(LINK_PREVIEW_CAPABILITY) && this.activeDevicesSupport(X_POST_PREVIEW_CAPABILITY),
+      supportsYouTube: () => this.activeDevicesSupport(LINK_PREVIEW_CAPABILITY) && this.activeDevicesSupport(YOUTUBE_PREVIEW_CAPABILITY),
       changed:()=>{if(ownsActiveChat())this.syncChatLayout();}});
     textarea.value = this.uiPreferences.composerDraft ?? '';
     resizeTextarea(false);
@@ -9306,7 +9308,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const leavingSettings=Boolean(outgoing?.matches('.is-settings-page,.desktop-settings-page'));
     if (outgoing && (source || outgoing.classList.contains('space-drawer-overlay'))) {
       const clone = outgoing.cloneNode(true) as HTMLElement;
-      clone.querySelectorAll('.local-page-outgoing, .x-post-card').forEach(node=>node.remove());
+      clone.querySelectorAll('.local-page-outgoing, .youtube-card, .x-post-card').forEach(node=>node.remove());
       clone.removeAttribute('id'); clone.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
       const scroll = clone.querySelector('.space-drawer-scroll');
       if (scroll) scroll.scrollTop = outgoing.querySelector('.space-drawer-scroll')?.scrollTop ?? 0;
@@ -11749,7 +11751,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     }
     if (payload.kind === 'file' && payload.videoPreview && !this.activeDevicesSupport(VIDEO_PREVIEW_CAPABILITY)) return uiLiteral('视频预览等待设备更新');
     if (payload.kind === 'text' && payload.preview && (!this.activeDevicesSupport(LINK_PREVIEW_CAPABILITY)
-      || payload.preview.xPost && !this.activeDevicesSupport(X_POST_PREVIEW_CAPABILITY))) return uiLiteral('链接预览等待设备更新');
+      || payload.preview.xPost && !this.activeDevicesSupport(X_POST_PREVIEW_CAPABILITY)
+      || payload.preview.youtube && !this.activeDevicesSupport(YOUTUBE_PREVIEW_CAPABILITY))) return uiLiteral('链接预览等待设备更新');
     if (payload.kind === 'message-read' && !this.activeDevicesSupport('message-read-v1')) return uiLiteral('已读同步等待设备更新');
     if (payload.kind === 'media-read' && !this.activeDevicesSupport('media-read-v1')) return uiLiteral('已读同步等待设备更新');
     if (payload.kind === 'reaction' && !this.activeDevicesSupport('message-reactions-v1')) {
@@ -12139,7 +12142,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       preview.style.cssText = `left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px`;
       const clone = sourceBubble.cloneNode(true) as HTMLElement;
       clone.querySelector('.x-post-after-send')?.remove();
-      const xPostCard = clone.querySelector('.x-post-card');
+      const xPostCard = clone.querySelector('.youtube-card, .x-post-card');
       if (xPostCard && message.payload.kind === 'text') {
         if (clone.querySelector('.message-text')) xPostCard.remove();
         else {
@@ -13369,12 +13372,12 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
   private renderMessageTextLinks(article: HTMLElement, bubble: HTMLElement,
     payload: Extract<MessagePayload, { kind: 'text' }>, sentPreview?: LinkPreview | 'loading' | 'failed'): void {
     const focusInText = bubble.querySelector(':scope > .message-text')?.contains(document.activeElement);
-    bubble.querySelectorAll(':scope > .message-text, :scope > .message-link-preview, :scope > .x-post-card, :scope > .x-post-after-send')
+    bubble.querySelectorAll(':scope > .message-text, :scope > .message-link-preview, :scope > .x-post-card, :scope > .youtube-card, :scope > .x-post-after-send')
       .forEach(node => node.remove());
     const contents = document.createDocumentFragment();
     const { text } = payload;
     const preview = payload.preview ?? (typeof sentPreview === 'object' ? sentPreview : undefined);
-    const [link] = preview?.xPost ? findWebLinks(text) : [];
+    const [link] = preview?.xPost || preview?.youtube ? findWebLinks(text) : [];
     if (!link || link.text !== text.trim() || link.url !== preview?.url) {
       const paragraph = document.createElement('p');
       paragraph.className = 'message-text';
@@ -13384,21 +13387,13 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const session = this.session;
     const signal = this.runtimeAbort?.signal ?? AbortSignal.abort();
     bubble.classList.toggle('link-preview-bubble', Boolean(preview));
-    if (preview?.xPost && session) {
-      const { id } = preview.xPost;
+    if (preview && (preview.xPost || preview.youtube) && session) {
       const { roomId, accessToken } = session.vault;
       const active = () => article.isConnected && this.activeSurface === 'chat' && !this.privacyCovered
         && !signal.aborted && this.session === session && !document.hidden
         && !document.documentElement.classList.contains('privacy-obscured');
       let anchor: ChatScrollAnchor | null = null;
-      contents.append(renderXPostCard({ ...preview, xPost: preview.xPost }, {
-        signal,
-        readText: signal => readXPostText(roomId, accessToken, id, signal),
-        openArticle: origin => openXArticleReader({
-          root: this.root, origin, title: preview.title, sourceUrl: preview.url, signal, active,
-          load: signal => readXArticle(roomId, accessToken, id, signal),
-        }),
-        loadVideo: (mediaId, signal) => openXPostVideo(roomId, accessToken, id, mediaId, signal),
+      const layout = {
         beforeLayoutChange: () => { if (active()) anchor = this.captureChatAnchor(false, true); },
         onLayoutChange: () => {
           const list = this.chatLayoutElements?.list;
@@ -13408,7 +13403,26 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           }
           anchor = null;
         },
-      }));
+      };
+      if (preview.xPost) {
+        const { id } = preview.xPost;
+        contents.append(renderXPostCard({ ...preview, xPost: preview.xPost }, {
+          ...layout, signal,
+          readText: signal => readXPostText(roomId, accessToken, id, signal),
+          openArticle: origin => openXArticleReader({
+            root: this.root, origin, title: preview.title, sourceUrl: preview.url, signal, active,
+            load: signal => readXArticle(roomId, accessToken, id, signal),
+          }),
+          loadVideo: (mediaId, signal) => openXPostVideo(roomId, accessToken, id, mediaId, signal),
+        }));
+      } else {
+        const id = youtubeVideoId(preview.url);
+        if (id) contents.append(renderYouTubeCard(preview.url, id, {
+          ...layout, signal,
+          loadPreview: signal => loadYouTubePreview(roomId, accessToken, id, signal),
+          loadVideo: (_, signal) => openYouTubeVideo(roomId, accessToken, id, signal),
+        }));
+      }
     } else if (preview) {
       contents.append(renderPreviewCard(preview, signal));
     } else if (typeof sentPreview === 'string') {

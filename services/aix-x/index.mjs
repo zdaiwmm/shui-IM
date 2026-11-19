@@ -4,9 +4,11 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { pathToFileURL } from 'node:url';
 import { AixError, MEDIA_ID, POST_ID, POST_LOOKUP_ORIGIN, createXProvider } from './x-api.mjs';
+import { createYouTubeExtractor, createYouTubeProvider, YOUTUBE_VIDEO_ID } from './youtube-api.mjs';
 
 const LOOKUP_PATH = '/v1/x/posts/lookup';
-const MEDIA_PATH = /^\/v1\/x\/media\/([A-Za-z0-9_-]{43})$/;
+const YOUTUBE_LOOKUP_PATH = '/v1/youtube/videos/lookup';
+const MEDIA_PATH = /^\/v1\/(x|youtube)\/media\/([A-Za-z0-9_-]{43})$/;
 const TICKET_TTL_MS = 15 * 60_000;
 const MAX_REQUEST_BYTES = 1_024;
 const MAX_VIDEO_BYTES = 768 * 1024 * 1024;
@@ -18,7 +20,7 @@ function sendJson(response, status, payload) {
   response.end(body);
 }
 
-async function readLookup(request) {
+async function readLookupBody(request) {
   if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') {
     throw new AixError(415, 'JSON_REQUIRED');
   }
@@ -30,18 +32,30 @@ async function readLookup(request) {
     if (size > MAX_REQUEST_BYTES) throw new AixError(413, 'REQUEST_SIZE');
     chunks.push(chunk);
   }
-  let body;
   try {
-    body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
   } catch {
     throw new AixError(400, 'INVALID_LOOKUP');
   }
+}
+
+async function readLookup(request) {
+  const body = await readLookupBody(request);
   const { action, postId, mediaId, ...extra } = body ?? {};
   if (!['preview', 'text', 'article', 'playback'].includes(action) || typeof postId !== 'string' || !POST_ID.test(postId)
     || Object.keys(extra).length || (action === 'playback' ? typeof mediaId !== 'string' || !MEDIA_ID.test(mediaId) : mediaId !== undefined)) {
     throw new AixError(400, 'INVALID_LOOKUP');
   }
   return { action, postId, mediaId };
+}
+
+async function readYouTubeLookup(request) {
+  const body = await readLookupBody(request);
+  if (!body || typeof body !== 'object' || Object.keys(body).length !== 2
+    || !['preview', 'playback'].includes(body.action) || typeof body.videoId !== 'string' || !YOUTUBE_VIDEO_ID.test(body.videoId)) {
+    throw new AixError(400, 'INVALID_LOOKUP');
+  }
+  return body;
 }
 
 function parseRange(value) {
@@ -76,18 +90,27 @@ function streamHeaders(upstream, range) {
   return { ...headers, 'Content-Range': contentRange };
 }
 
-async function streamVideo(request, response, { url }, signal, fetchResource) {
+async function streamVideo(request, response, ticket, signal, fetchResource) {
   const range = parseRange(request.headers.range);
-  const upstreamTimeout = new AbortController();
-  const timer = setTimeout(() => upstreamTimeout.abort(), 8_000);
-  const streamSignal = AbortSignal.any([signal, upstreamTimeout.signal, AbortSignal.timeout(30 * 60_000)]);
-  let upstream;
-  try {
-    upstream = await fetchResource(url, { redirect: 'error', signal: streamSignal, headers: {
-      Accept: 'video/mp4', 'Accept-Encoding': 'identity', ...(range ? { Range: request.headers.range } : {}),
-    } });
-  } finally {
-    clearTimeout(timer);
+  const lifetime = AbortSignal.any([signal, AbortSignal.timeout(30 * 60_000)]);
+  async function open({ url, headers }) {
+    const timeout = new AbortController();
+    const streamSignal = AbortSignal.any([lifetime, timeout.signal]);
+    const timer = setTimeout(() => timeout.abort(), 8_000);
+    try {
+      return await fetchResource(url, { redirect: 'error', signal: streamSignal, headers: {
+        ...headers, Accept: 'video/mp4', 'Accept-Encoding': 'identity', ...(range ? { Range: request.headers.range } : {}),
+      } });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  const media = ticket.media;
+  let upstream = await open(media);
+  if (ticket.refresh && [403, 410].includes(upstream.status)) {
+    await upstream.body?.cancel();
+    if (ticket.media === media) ticket.media = await ticket.refresh(media, lifetime);
+    upstream = await open(ticket.media);
   }
   try {
     if (range && upstream.status === 416) {
@@ -97,7 +120,7 @@ async function streamVideo(request, response, { url }, signal, fetchResource) {
     }
     const headers = streamHeaders(upstream, range);
     response.writeHead(upstream.status, headers);
-    await pipeline(Readable.fromWeb(upstream.body), response, { signal: streamSignal });
+    await pipeline(Readable.fromWeb(upstream.body), response, { signal: lifetime });
   } finally {
     if (!upstream.body?.locked) await upstream.body?.cancel().catch(() => {});
   }
@@ -106,29 +129,41 @@ async function streamVideo(request, response, { url }, signal, fetchResource) {
 function createTickets(publicOrigin, now) {
   const entries = new Map();
   return {
-    issue(url) {
+    issue(namespace, media, refresh) {
       const time = now();
       for (const [token, entry] of entries) if (entry.expires <= time) entries.delete(token);
       if (entries.size >= 256) throw new AixError(503, 'MEDIA_BUSY');
       const token = randomBytes(32).toString('base64url');
-      entries.set(token, { url, expires: time + TICKET_TTL_MS, active: 0 });
-      return new URL(`/v1/x/media/${token}`, publicOrigin).href;
+      entries.set(token, { namespace, media, refresh, expires: time + TICKET_TTL_MS, active: 0 });
+      return new URL(`/v1/${namespace}/media/${token}`, publicOrigin).href;
     },
-    get(token) {
+    get(namespace, token) {
       const entry = entries.get(token);
       if (entry && entry.expires <= now()) entries.delete(token);
-      return entries.get(token);
+      return entry?.namespace === namespace ? entries.get(token) : undefined;
     },
   };
 }
 
-export function createAixServer({ gatewayToken, publicOrigin, mediaEnabled = false,
+export function createAixServer({ gatewayToken, publicOrigin, mediaEnabled = false, youtubeExtract,
   fetch: fetchResource = globalThis.fetch, now = Date.now }) {
   const expectedAuthorization = digest(`Bearer ${gatewayToken}`);
   const provider = createXProvider({ mediaEnabled, fetch: fetchResource });
+  const youtube = youtubeExtract && createYouTubeProvider({ extract: youtubeExtract, fetch: fetchResource, now });
   const tickets = createTickets(publicOrigin, now);
   let lookups = 0;
+  let youtubeLookups = 0;
   let streams = 0;
+
+  async function runYouTubeLookup(signal, lookup) {
+    if (youtubeLookups >= 2) throw new AixError(503, 'LOOKUP_BUSY');
+    youtubeLookups++;
+    try {
+      return await lookup(AbortSignal.any([signal, AbortSignal.timeout(13_500)]));
+    } finally {
+      youtubeLookups--;
+    }
+  }
 
   async function handle(request, response, signal) {
     if (request.method === 'GET' && request.url === '/healthz') {
@@ -153,10 +188,22 @@ export function createAixServer({ gatewayToken, publicOrigin, mediaEnabled = fal
         } else {
           const video = post.videos.find(item => item.id === mediaId);
           if (!video) throw new AixError(404, 'MEDIA_UNAVAILABLE');
-          sendJson(response, 200, { url: tickets.issue(video.url) });
+          sendJson(response, 200, { url: tickets.issue('x', video) });
         }
       } finally {
         lookups--;
+      }
+      return;
+    }
+
+    if (request.method === 'POST' && request.url === YOUTUBE_LOOKUP_PATH && youtube) {
+      if (!timingSafeEqual(expectedAuthorization, digest(request.headers.authorization ?? ''))) throw new AixError(401, 'UNAUTHORIZED');
+      const { action, videoId } = await readYouTubeLookup(request);
+      if (action === 'preview') {
+        sendJson(response, 200, await runYouTubeLookup(signal, signal => youtube.preview(videoId, signal)));
+      } else {
+        const select = (previous, signal) => runYouTubeLookup(signal, signal => youtube.playback(videoId, signal, previous));
+        sendJson(response, 200, { url: tickets.issue('youtube', await select(undefined, signal), select) });
       }
       return;
     }
@@ -170,7 +217,7 @@ export function createAixServer({ gatewayToken, publicOrigin, mediaEnabled = fal
       return;
     }
     response.setHeader('Access-Control-Expose-Headers', 'Accept-Ranges, Content-Range');
-    const ticket = tickets.get(media[1]);
+    const ticket = tickets.get(media[1], media[2]);
     if (!ticket) throw new AixError(410, 'MEDIA_EXPIRED');
     if (streams >= 8 || ticket.active >= 4) throw new AixError(503, 'MEDIA_BUSY');
     streams++;
@@ -227,7 +274,10 @@ function startService(env) {
     http.setGlobalProxyFromEnv({ https_proxy: proxy.href, no_proxy: `127.0.0.1,${new URL(POST_LOOKUP_ORIGIN).hostname}` });
   }
   const mediaEnabled = env.AIX_MEDIA_ENABLED === 'true';
-  createAixServer({ gatewayToken, publicOrigin, mediaEnabled }).listen(port, '127.0.0.1');
+  const youtubeExtract = env.AIX_YOUTUBE_ENABLED === 'true'
+    ? createYouTubeExtractor({ binary: env.AIX_YTDLP_BIN, proxy: env.AIX_XRAY_PROXY })
+    : undefined;
+  createAixServer({ gatewayToken, publicOrigin, mediaEnabled, youtubeExtract }).listen(port, '127.0.0.1');
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) startService(process.env);

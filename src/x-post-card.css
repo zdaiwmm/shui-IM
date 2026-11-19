@@ -40,7 +40,7 @@
   scrollbar-width: none;
   border-radius: 10px;
 }
-#app .x-post-media:has(> .x-post-edge) .x-post-track { min-height: 132px; }
+#app .x-post-media:has(> .x-post-edge) .x-post-track { min-height: 136px; }
 #app .x-post-track::-webkit-scrollbar { display: none; }
 #app .x-post-stage {
   position: relative;
@@ -59,7 +59,7 @@
 }
 #app .x-post-poster { object-fit: contain; pointer-events: none; }
 #app .x-post-video { object-fit: contain; background: #242124; }
-#app .x-post-play, #app .x-post-fullscreen, #app .x-post-edge, #app .x-post-control {
+#app .x-post-play, #app .x-post-fullscreen, #app .x-post-edge, #app .x-post-control, #app .youtube-stop {
   display: grid;
   place-items: center;
   width: 44px;
@@ -72,11 +72,11 @@
   box-shadow: none;
   -webkit-tap-highlight-color: transparent;
 }
-#app .x-post-play, #app .x-post-fullscreen, #app .x-post-edge {
+#app .x-post-play, #app .x-post-fullscreen, #app .x-post-edge, #app .youtube-stop {
   position: absolute;
   z-index: 1;
 }
-#app :is(.x-post-play, .x-post-fullscreen, .x-post-feedback, .x-post-controls)[hidden] { display: none; }
+#app :is(.x-post-play, .x-post-fullscreen, .x-post-feedback, .x-post-controls, .youtube-stop, .x-post-text-toggle)[hidden] { display: none; }
 #app .x-post-play {
   top: 50%;
   left: 50%;
@@ -100,7 +100,8 @@
   #app .x-post-play[data-state=loading]::after { animation: none; }
 }
 #app .x-post-fullscreen { top: 0; right: 0; }
-#app .x-post-fullscreen svg { width: 17px; height: 17px; filter: drop-shadow(0 1px 2px #000) drop-shadow(0 0 2px #000); }
+#app .youtube-stop { top: 0; left: 0; }
+#app :is(.x-post-fullscreen, .youtube-stop) svg { width: 17px; height: 17px; filter: drop-shadow(0 1px 2px #000) drop-shadow(0 0 2px #000); }
 #app .x-post-controls {
   position: absolute;
   z-index: 1;
@@ -147,5 +148,5 @@
 
 @media (forced-colors: active) {
   #app .x-post-page, #app .x-post-duration { background: Canvas; color: CanvasText; }
-  #app .x-post-play, #app .x-post-fullscreen, #app .x-post-edge, #app .x-post-control { background: ButtonFace; color: ButtonText; }
+  #app .x-post-play, #app .x-post-fullscreen, #app .x-post-edge, #app .x-post-control, #app .youtube-stop { background: ButtonFace; color: ButtonText; }
 }

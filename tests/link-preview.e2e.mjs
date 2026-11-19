@@ -144,13 +144,16 @@ try{
           return {
             fitsCard: bounds.width <= media.clientWidth + 1,
             clearsControls: navigation.top >= bounds.top + 44 && navigation.bottom <= bounds.bottom - 44,
+            height: bounds.height,
+            gapAbove: navigation.top - bounds.top,
+            gapBelow: bounds.bottom - navigation.bottom,
           };
         } finally {
           track.style.setProperty('--x-post-ratio', ratio);
         }
       });
-      assert.deepEqual(wideClip, { fitsCard: true, clearsControls: true },
-        'An ultra-wide clip keeps navigation clear of both sets of playback controls');
+      assert.ok(wideClip.fitsCard && wideClip.clearsControls,
+        `An ultra-wide clip keeps navigation clear of both sets of playback controls: ${JSON.stringify(wideClip)}`);
       assert.ok(await xCard.locator('.x-post-page').evaluate(node => {
         const style = getComputedStyle(node);
         return style.position === 'absolute' && style.backgroundColor === 'rgba(0, 0, 0, 0)';

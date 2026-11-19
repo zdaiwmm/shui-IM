@@ -1,17 +1,23 @@
-import { ChevronLeft, ChevronRight, createElement, Maximize, Pause, Play, Volume2, VolumeX } from 'lucide';
+import { ChevronLeft, ChevronRight, createElement, Maximize, Pause, Play, Volume2, VolumeX, X } from 'lucide';
 import { fromBase64Url } from './base64';
 import { uiLiteral } from './language';
-import { xArticleAuthor, type LinkPreview, type XPostPreview } from './link-preview-data';
+import { xArticleAuthor, type LinkPreview, type XPostPreview, type XPostVideoPreview } from './link-preview-data';
+import type { YouTubePreview } from './link-preview-ui';
 import { videoDurationLabel } from './video-download-policy';
 import { newTabLink } from './web-links';
 
 type CardOptions = {
   signal: AbortSignal;
-  readText(signal: AbortSignal): Promise<string>;
-  openArticle(origin: HTMLElement): (restoreFocus?: boolean) => void;
+  readText?(signal: AbortSignal): Promise<string>;
+  openArticle?(origin: HTMLElement): (restoreFocus?: boolean) => void;
   loadVideo(id: string, signal: AbortSignal): Promise<string>;
   beforeLayoutChange?: () => void;
   onLayoutChange?: () => void;
+};
+
+type VideoCardData = {
+  url: string; source: string; title?: string; description: string; image?: LinkPreview['image'];
+  videos: XPostVideoPreview[]; originalLabel?: string; canCloseVideo?: boolean;
 };
 
 type NativeVideo = HTMLVideoElement & {
@@ -107,9 +113,112 @@ function inlineVideoControls(video: HTMLVideoElement, signal: AbortSignal, play:
 }
 
 export function renderXPostCard(preview: LinkPreview & { xPost: XPostPreview }, options: CardOptions): HTMLElement {
-  const card = element('div', 'x-post-card');
-  const live = () => card.isConnected && !options.signal.aborted && !concealed && !document.hidden
+  const author = xArticleAuthor(preview);
+  return renderVideoCard({
+    url: preview.url, source: author ? preview.siteName : `${preview.siteName} · ${preview.title}`,
+    ...(author ? { title: preview.title } : {}), description: preview.description, image: preview.image,
+    videos: preview.xPost.videos,
+  }, { ...options, openArticle: author ? options.openArticle : undefined,
+    readText: !author && preview.xPost.canRead ? options.readText : undefined });
+}
+
+function cardIsLive(card: HTMLElement, signal: AbortSignal): boolean {
+  return card.isConnected && !signal.aborted && !concealed && !document.hidden
     && !document.documentElement.classList.contains('privacy-obscured');
+}
+
+function watchCard(card: HTMLElement, signal: AbortSignal, view: CardView, dispose?: () => void): void {
+  const release = () => {
+    observer.disconnect();
+    views.delete(view);
+    signal.removeEventListener('abort', release);
+    view.conceal();
+    dispose?.();
+  };
+  const observer = new MutationObserver(() => { if (!card.isConnected) release(); });
+  queueMicrotask(() => {
+    if (signal.aborted || !card.isConnected) { release(); return; }
+    observer.observe(card.getRootNode(), { childList: true, subtree: true });
+    signal.addEventListener('abort', release, { once: true });
+    views.add(view);
+    view.reveal();
+  });
+}
+
+export function renderYouTubeCard(url: string, id: string, options: CardOptions & {
+  loadPreview(signal: AbortSignal): Promise<YouTubePreview>;
+}): HTMLElement {
+  const wrapper = element('div', 'youtube-card');
+  const fallback = renderVideoCard({ url, source: 'YouTube', originalLabel: 'YouTube', description: '', videos: [] }, options);
+  const status = element('p', 'x-post-feedback');
+  status.setAttribute('role', 'status');
+  const retry = button('x-post-text-toggle', uiLiteral('重试'));
+  retry.textContent = uiLiteral('重试');
+  retry.hidden = true;
+  fallback.append(status, retry);
+  wrapper.append(fallback);
+  let visible = false;
+  let complete = false;
+  let failed = false;
+  let request: AbortController | undefined;
+  const live = () => cardIsLive(wrapper, options.signal);
+  async function load() {
+    if (!visible || !live() || complete || failed || request) return;
+    const controller = new AbortController();
+    request = controller;
+    const current = () => !controller.signal.aborted && live();
+    retry.hidden = true;
+    status.textContent = uiLiteral('正在解析链接…');
+    try {
+      const video = await options.loadPreview(controller.signal);
+      if (!current()) return;
+      const description = video.description.replace(/\s+/g, ' ').trim().slice(0, 160).replace(/[\ud800-\udbff]$/u, '');
+      const card = renderVideoCard({
+        url, source: video.channel ? `YouTube · ${video.channel}` : 'YouTube', title: video.title, description,
+        videos: video.playable ? [{ id, durationMs: video.durationMs, poster: video.poster }] : [],
+        originalLabel: 'YouTube', canCloseVideo: true,
+      }, { ...options, readText: video.description !== description ? async () => video.description : undefined });
+      if (!video.playable) {
+        status.textContent = uiLiteral('媒体载入失败，请重试');
+        card.append(status);
+      }
+      options.beforeLayoutChange?.();
+      complete = true;
+      const restoreFocus = wrapper.contains(document.activeElement);
+      wrapper.replaceChildren(card);
+      if (restoreFocus) card.querySelector<HTMLElement>('.x-post-original')?.focus({ preventScroll: true });
+      options.onLayoutChange?.();
+      intersection.disconnect();
+    } catch {
+      if (current()) {
+        options.beforeLayoutChange?.();
+        failed = true;
+        status.textContent = uiLiteral('暂时无法生成卡片，已保留链接。');
+        retry.hidden = false;
+        options.onLayoutChange?.();
+      }
+    } finally {
+      if (request === controller) request = undefined;
+    }
+  }
+  function cancel() {
+    request?.abort();
+    request = undefined;
+  }
+  const intersection = new IntersectionObserver(entries => {
+    visible = Boolean(entries.at(-1)?.isIntersecting);
+    if (visible) void load();
+    else cancel();
+  }, { rootMargin: '150px' });
+  retry.addEventListener('click', () => { failed = false; void load(); });
+  intersection.observe(wrapper);
+  watchCard(wrapper, options.signal, { conceal: cancel, reveal: () => void load() }, () => intersection.disconnect());
+  return wrapper;
+}
+
+function renderVideoCard(preview: VideoCardData, options: CardOptions): HTMLElement {
+  const card = element('div', 'x-post-card');
+  const live = () => cardIsLive(card, options.signal);
   const changeLayout = (update: () => void) => {
     const connected = card.isConnected;
     if (connected) options.beforeLayoutChange?.();
@@ -118,15 +227,15 @@ export function renderXPostCard(preview: LinkPreview & { xPost: XPostPreview }, 
   };
   const head = element('div', 'x-post-head');
   const source = element('strong', 'x-post-source');
-  const author = xArticleAuthor(preview);
-  source.textContent = author ? preview.siteName : `${preview.siteName} · ${preview.title}`;
+  source.textContent = preview.source;
   const original = newTabLink(preview.url);
   original.className = 'x-post-original';
-  original.textContent = `${uiLiteral('查看原帖')} ↗`;
-  original.setAttribute('aria-label', `${uiLiteral('查看原帖')} · ${uiLiteral('在新标签页打开')}`);
+  const originalLabel = preview.originalLabel ?? uiLiteral('查看原帖');
+  original.textContent = `${originalLabel} ↗`;
+  original.setAttribute('aria-label', `${originalLabel} · ${uiLiteral('在新标签页打开')}`);
   head.append(source, original);
   card.append(head);
-  if (author) {
+  if (preview.title) {
     const title = element('strong', 'x-post-article-title');
     title.textContent = preview.title;
     card.append(title);
@@ -138,7 +247,8 @@ export function renderXPostCard(preview: LinkPreview & { xPost: XPostPreview }, 
   card.append(summary);
   let collapseText: (() => void) | undefined;
   let closeArticle: ((restoreFocus?: boolean) => void) | undefined;
-  if (author) {
+  const { openArticle, readText } = options;
+  if (openArticle) {
     const toggle = button('x-post-text-toggle', uiLiteral('查看全文'));
     toggle.textContent = uiLiteral('查看全文');
     toggle.setAttribute('aria-haspopup', 'dialog');
@@ -147,10 +257,10 @@ export function renderXPostCard(preview: LinkPreview & { xPost: XPostPreview }, 
       if (!live()) return;
       stopActiveVideo?.();
       closeArticle?.(false);
-      closeArticle = options.openArticle(toggle);
+      closeArticle = openArticle(toggle);
     });
     card.append(toggle);
-  } else if (preview.xPost.canRead) {
+  } else if (readText) {
     const toggle = button('x-post-text-toggle', uiLiteral('查看全文'));
     const full = element('p', 'x-post-copy');
     const feedback = element('p', 'x-post-feedback');
@@ -185,7 +295,7 @@ export function renderXPostCard(preview: LinkPreview & { xPost: XPostPreview }, 
         feedback.hidden = true;
       });
       try {
-        const text = await options.readText(controller.signal);
+        const text = await readText(controller.signal);
         if (!live() || controller.signal.aborted) return;
         changeLayout(() => { full.textContent = text; });
       } catch {
@@ -202,8 +312,8 @@ export function renderXPostCard(preview: LinkPreview & { xPost: XPostPreview }, 
     card.append(toggle, full, feedback);
   }
 
-  const media = preview.xPost.videos.length ? mountPostMedia(card, preview, options, live, changeLayout) : undefined;
-  if (author || collapseText || media) {
+  const media = preview.videos.length ? mountPostMedia(card, preview, options, live, changeLayout) : undefined;
+  if (openArticle || collapseText || media) {
     const view = {
       conceal: () => {
         closeArticle?.(false);
@@ -213,27 +323,13 @@ export function renderXPostCard(preview: LinkPreview & { xPost: XPostPreview }, 
       },
       reveal: () => { if (live()) media?.reveal(); },
     };
-    const release = () => {
-      observer.disconnect();
-      views.delete(view);
-      options.signal.removeEventListener('abort', release);
-      view.conceal();
-      media?.dispose();
-    };
-    const observer = new MutationObserver(() => { if (!card.isConnected) release(); });
-    queueMicrotask(() => {
-      if (options.signal.aborted || !card.isConnected) return;
-      observer.observe(card.getRootNode(), { childList: true, subtree: true });
-      options.signal.addEventListener('abort', release, { once: true });
-      views.add(view);
-      view.reveal();
-    });
+    watchCard(card, options.signal, view, media?.dispose);
   }
   return card;
 }
 
 function mountPostMedia(
-  card: HTMLElement, preview: LinkPreview & { xPost: XPostPreview }, options: CardOptions,
+  card: HTMLElement, preview: VideoCardData, options: CardOptions,
   live: () => boolean, changeLayout: (update: () => void) => void,
 ) {
   const media = element('div', 'x-post-media');
@@ -259,7 +355,7 @@ function mountPostMedia(
     if (track.style.getPropertyValue('--x-post-ratio') === aspectRatio) return;
     changeLayout(() => { track.style.setProperty('--x-post-ratio', aspectRatio); });
   };
-  const slides = preview.xPost.videos.map((clip, position) => {
+  const slides = preview.videos.map((clip, position) => {
     const stage = element('div', 'x-post-stage');
     stage.inert = position !== 0;
     if (stage.inert) stage.setAttribute('aria-hidden', 'true');
@@ -279,6 +375,8 @@ function mountPostMedia(
       stage.append(duration);
     }
     const full = button('x-post-fullscreen', uiLiteral('全屏播放'));
+    const close = preview.canCloseVideo ? button('youtube-stop', uiLiteral('关闭')) : undefined;
+    if (close) { close.append(icon(X)); close.hidden = true; }
     play.append(icon(Play));
     full.append(icon(Maximize));
     full.hidden = true;
@@ -324,10 +422,11 @@ function mountPostMedia(
         video.removeAttribute('src');
         video.load();
         const restoreFocus = document.activeElement === video || document.activeElement === full
-          || controls.contains(document.activeElement);
+          || document.activeElement === close || controls.contains(document.activeElement);
         video.remove();
         controls.remove();
         full.hidden = true;
+        if (close) close.hidden = true;
         retryPlayback = undefined;
         setPlayState('idle');
         if (restoreFocus && live()) play.focus({ preventScroll: true });
@@ -335,6 +434,10 @@ function mountPostMedia(
         if (stopActiveVideo === stop) stopActiveVideo = undefined;
       };
       stopActiveVideo = stopVideo = stop;
+      if (close) {
+        close.hidden = false;
+        close.addEventListener('click', stop, { signal: controller.signal });
+      }
       const fail = () => {
         if (!current()) return;
         stop();
@@ -412,6 +515,7 @@ function mountPostMedia(
       } catch { fail(); }
     });
     stage.append(play, full);
+    if (close) stage.append(close);
     track.append(stage);
     return {
       stage,
