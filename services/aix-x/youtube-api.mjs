@@ -12,11 +12,11 @@ export function createYouTubeExtractor({ binary = 'yt-dlp', proxy } = {}) {
     const args = [
       '--ignore-config', '--no-plugin-dirs', '--no-cache-dir', '--no-playlist', '--skip-download',
       '--no-check-formats', '--ignore-no-formats-error', '--socket-timeout', '5', '--extractor-retries', '0',
-      '--dump-single-json', '--proxy', proxy ?? '', '--', `https://www.youtube.com/watch?v=${id}`,
+      '--dump-single-json', ...(proxy ? [] : ['--proxy', '']), '--', `https://www.youtube.com/watch?v=${id}`,
     ];
     const { stdout } = await run(binary, args, {
       signal, timeout: 11_000, killSignal: 'SIGKILL', maxBuffer: 4 * 1024 * 1024,
-      env: { PATH: process.env.PATH, LANG: 'C.UTF-8' },
+      env: { PATH: process.env.PATH, LANG: 'C.UTF-8', ...(proxy ? { http_proxy: proxy, https_proxy: proxy } : {}) },
     });
     return JSON.parse(stdout);
   };

@@ -58,7 +58,8 @@ try {
       if (id.endsWith('/src/main.ts')) return code.replace('void app.start();', 'window.app=app;void app.start();');
     } }],
     server: { host: '127.0.0.1', port: 0, hmr: false, proxy: {
-      '/api': `http://127.0.0.1:${app.port}`, '/ws': { target: `ws://127.0.0.1:${app.port}`, ws: true },
+      '/api': { target: `http://127.0.0.1:${app.port}`, changeOrigin: false },
+      '/ws': { target: `ws://127.0.0.1:${app.port}`, ws: true, changeOrigin: false },
     } },
   });
   await vite.listen();
@@ -113,12 +114,15 @@ try {
   await sender.locator('#copy-invite').click();
   await sender.waitForFunction(() => !!window.inviteLink);
   await receiver.goto(await sender.evaluate(() => window.inviteLink));
+  await sender.locator('#message-input:not([disabled])').waitFor();
   await receiver.locator('#message-input:not([disabled])').waitFor();
   await sender.waitForFunction(() => {
     const members = window.app.session.vault.members.filter(member => member.status === 'active');
     return members.length === 2 && members.every(member => member.capabilities.includes('youtube-preview-v1'));
   });
+  const draftResponse = sender.waitForResponse(response => new URL(response.url()).pathname.endsWith('/youtube-video'));
   await sender.locator('#message-input').fill(url);
+  assert.equal((await draftResponse).status(), 200, 'The browser and Vite proxy must preserve the authorized chat origin');
   await sender.locator('.link-preview-draft').filter({ hasText: title }).waitFor();
   await sender.locator('#send-text').click();
   const card = receiver.locator('.youtube-card').filter({ hasText: title });

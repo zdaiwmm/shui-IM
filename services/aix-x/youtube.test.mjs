@@ -1,7 +1,10 @@
 import { once } from 'node:events';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
 import { createAixServer } from './index.mjs';
-import { createYouTubeProvider } from './youtube-api.mjs';
+import { createYouTubeExtractor, createYouTubeProvider } from './youtube-api.mjs';
 
 const videoId = 'TestVideo01';
 const token = 'test-youtube-gateway-token-0000000000000';
@@ -16,6 +19,25 @@ const metadata = {
   id: videoId, extractor_key: 'Youtube', availability: 'public', title: 'A fixture', channel: 'Example',
   description: 'First line\nSecond line', duration: 10, formats: [format],
 };
+
+it('passes the private proxy configuration through the extractor environment', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'aix-youtube-extractor-'));
+  try {
+    const binary = join(directory, 'fixture-extractor');
+    await writeFile(binary, '#!/usr/bin/env node\nprocess.stdout.write(JSON.stringify({ args: process.argv.slice(2), proxy: process.env.https_proxy }));\n',
+      { mode: 0o700 });
+    const proxy = 'http://test-user:test-pass@127.0.0.1:10809/';
+    const extract = createYouTubeExtractor({ binary, proxy });
+    const result = await extract(videoId, new AbortController().signal);
+    expect(result.proxy).toBe(proxy);
+    expect(result.args).not.toContain(proxy);
+    expect(result.args).not.toContain('--proxy');
+    expect(result.args).toContain('--skip-download');
+    expect(result.args.at(-1)).toBe(`https://www.youtube.com/watch?v=${videoId}`);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 it('caches only the preview and resolves a fresh constrained MP4 on playback', async () => {
   let now = 0;
