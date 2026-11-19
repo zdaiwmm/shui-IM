@@ -4,6 +4,17 @@
 
 跨设备操作见[GitHub 双站发布与独立回读](docs/requirements/2026-11-09-cross-device-release/README.md)。
 
+## X 长文阅读与封面已发布到主站（2026-11-19）
+<a id="release-x-article-reader-20261119-4"></a>
+
+用户确认将 `85de8c0bbee1cee0a97b7037f78f4ca6ceb47cea`（`2026.11.19.4`）发布到主站 `ai.shui.click`，并同步更新 mijiu-server 的独立 AIX 服务。阅读器先显示卡片已有的摘要与封面，正文独立返回，图片在原位置补齐。新生成的长文卡片显示封面。YouTube 上线按此前确认暂缓。[实现 #559](https://github.com/zdaiwmm/shui-IM/pull/559) · [测试 #560](https://github.com/zdaiwmm/shui-IM/pull/560)
+
+精确 main 全量 CI 第一次通过，发布使用同轮 `linux/amd64` 产物 `14538185084`。AIX 先切换到同一提交，独立核对运行容器的代码挂载、模块摘要及回环与公网 HTTP 204。主站随后通过固定本机入口完成批次 `20261119T143050Z` 的一次切换，校验冷备份并返回同一提交的 `DEPLOY_VERIFIED`。[精确 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/44538484111/attempts/1)
+
+北京时间 **22:36:46** 独立取得 `READBACK_OK`。应用和备份均健康，TURN 正常运行，维护门解除。实际镜像为 `sha256:95013183c95f6e97558f8cfa9a9e75d25fac20390aef80ca2b1322914cf53be8`，HTTPS、数据库、存储、公开与容器资源摘要以及新建 WebSocket 均通过。
+
+生产隔离聊天以桌面 Chrome 移动视口验收公开样本。首轮等待卡片封面超时，复验确认主站预览返回封面且接收端正常显示。纯正文和带图的完整文章请求分别返回 200，阅读器显示正文和公开嵌入帖照片，可独立滚动和关闭。原有双视频均实际起播，每段各收到三次 HTTP 206，切页释放上一段播放器。物理 iPhone 待验证。[X 长文需求与验证范围](docs/requirements/2026-11-18-x-post-chat-card/README.md)
+
 ## 11 月 19 日聊天卡片批次已发布到主站
 <a id="release-link-cards-20261119-3"></a>
 
