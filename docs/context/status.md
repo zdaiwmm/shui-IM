@@ -4,7 +4,7 @@
 
 `ai.shui.click` 运行 `6ae5ac5faae4cc8bda11c773f3d3584e3bdc82b8`（`2026.11.18.2`）。主线全量 CI 通过。本机固定入口一次切换取得 `DEPLOY_VERIFIED`，北京时间 **09:58:32** 独立 `READBACK_OK`。应用和备份健康，TURN 运行，维护门已解除。镜像、HTTPS、数据库、存储、资源摘要和新 WebSocket 已核对，公开版本返回 `2026.11.18.2`。[本批发布记录](../../RELEASING.md#release-x-post-card-20261119)
 
-X 卡片代码已随应用发布。公网 AIX 服务待接入，`aix.shui.click` 尚无解析，生产功能关闭。家庭机已恢复 SSH 并核对暂存代码，待配置可用的 Xray 出口和获授权的 X API 凭据。物理 iPhone 原生全屏尚未验证。
+X 卡片代码已随应用发布。2026-11-19，`aix.shui.click` 的公网 DNS 与独立 Let's Encrypt HTTPS 证书已生效。公网验证通过证书校验和 HTTP 跳转，`/healthz` 返回 HTTP 503（`AIX_UPSTREAM_NOT_CONFIGURED`）。家庭机的 AIX 服务尚未启动，待配置可用的 Xray 出口和获授权的 X API 凭据。生产 X 卡片关闭，物理 iPhone 原生全屏尚未验证。
 
 ## 此前生产：主站 2026.11.18.1 已回读（2026-11-18）
 
