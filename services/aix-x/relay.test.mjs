@@ -294,6 +294,34 @@ it('keeps the final text block when there is no room for an additional quoted ph
   });
 });
 
+it('continues loading later quoted photos after earlier quoted posts time out', async () => {
+  const quoteIds = ['700', '701', '702', '703', '704'];
+  const document = articleDocument({ cover_media: null, content: {
+    blocks: quoteIds.map((_, index) => embeddedBlock(index)),
+    entityMap: quoteIds.map((tweetId, index) => ({
+      key: String(index), value: { type: 'TWEET', data: { tweetId } },
+    })),
+  } });
+  const finalPost = postDocument();
+  finalPost.status.id = '704';
+  finalPost.status.media = { photos: [
+    { type: 'photo', url: 'https://pbs.twimg.com/media/last.jpg' },
+  ] };
+  await withRelay({ fetch: async (url, { signal }) => {
+    if (url.pathname === '/2/status/123') return Response.json(document);
+    if (url.pathname === '/2/status/704') return Response.json(finalPost);
+    if (url.hostname === 'pbs.twimg.com') return new Response(articleJpeg, { headers: { 'Content-Type': 'image/jpeg' } });
+    await once(signal, 'abort');
+    throw signal.reason;
+  } }, async ({ lookup }) => {
+    const full = await lookup('article');
+    expect(full.status).toBe(200);
+    const { blocks } = await full.json();
+    expect(blocks.at(-2)).toEqual({ kind: 'link', href: 'https://x.com/i/web/status/704', label: 'Post on X' });
+    expect(blocks.at(-1)).toMatchObject({ kind: 'image', image: { mimeType: 'image/jpeg' } });
+  });
+});
+
 it('leaves media fallback links in place when bytes exceed the Article budget or lack a JPEG scan', async () => {
   const padding = Buffer.alloc(55_000);
   padding.writeUInt16BE(0xffef, 0);

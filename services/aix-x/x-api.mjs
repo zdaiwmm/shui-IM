@@ -14,6 +14,8 @@ const ARTICLE_RESPONSE_LIMIT = 1536 * 1024;
 const ARTICLE_IMAGE_REQUESTS = 24;
 const ARTICLE_QUOTED_POSTS = 8;
 const ARTICLE_MEDIA_CONCURRENCY = 4;
+const ARTICLE_IMAGE_TIMEOUT_MS = 5_000;
+const ARTICLE_QUOTED_POST_TIMEOUT_MS = 1_500;
 const ARTICLE_STYLES = new Map([
   ['bold', 'bold'], ['italic', 'italic'], ['underline', 'underline'],
   ['strikethrough', 'strike'], ['code', 'code'],
@@ -355,7 +357,8 @@ export function createXProvider({ mediaEnabled, fetch: fetchResource }) {
     let { url } = target;
     let alt;
     if (target.postId) {
-      const quote = await lookupPublicPost(target.postId, signal);
+      const quoteSignal = AbortSignal.any([signal, AbortSignal.timeout(ARTICLE_QUOTED_POST_TIMEOUT_MS)]);
+      const quote = await lookupPublicPost(target.postId, quoteSignal);
       for (const photo of boundedArray(quote.media?.photos)) {
         url = photo?.type === 'photo' && articleImageUrl(photo.url);
         if (url) {
@@ -386,7 +389,7 @@ export function createXProvider({ mediaEnabled, fetch: fetchResource }) {
       else if (requests.size < ARTICLE_IMAGE_REQUESTS) requests.set(key, { target: block.target, indexes: [index] });
     }
     const images = [...requests.values()];
-    const imageSignal = AbortSignal.any([signal, AbortSignal.timeout(3_000)]);
+    const imageSignal = AbortSignal.any([signal, AbortSignal.timeout(ARTICLE_IMAGE_TIMEOUT_MS)]);
     let rawRemaining = ARTICLE_IMAGE_BUDGET;
     let encodedRemaining = ARTICLE_RESPONSE_LIMIT - Buffer.byteLength(JSON.stringify(result));
     for (let offset = 0; offset < images.length && rawRemaining && !imageSignal.aborted; offset += ARTICLE_MEDIA_CONCURRENCY) {
