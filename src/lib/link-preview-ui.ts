@@ -4,9 +4,10 @@ import { uiLiteral } from './language';
 import { firstPreviewUrl, newTabLink } from './web-links';
 import {
   isLinkPreview, isXPostMediaId, isXPostVideoDuration, MAX_X_POST_VIDEOS, PREVIEW_IMAGE_BYTES,
-  previewLayout, xPostId, type LinkPreview, type PreviewImage, type XPostVideoPreview,
+  previewLayout, xDirectArticleId, xPostId, X_ARTICLE_SOURCE, type LinkPreview, type PreviewImage, type XPostVideoPreview,
 } from './link-preview-data';
 import { requestXPost } from './x-post-api';
+import { xArticleMetadata } from './x-article-data.mjs';
 
 async function preparePreview(raw: unknown, url: string, signal: AbortSignal): Promise<LinkPreview> {
   const packet = raw as Record<string, unknown>;
@@ -66,7 +67,7 @@ async function prepareJpeg(raw: unknown, budget: number, signal: AbortSignal): P
 }
 
 async function prepareXPostPreview(raw: unknown, url: string, id: string, signal: AbortSignal): Promise<LinkPreview> {
-  const packet = raw as { title: string; description: string; canRead: boolean;
+  const packet = raw as { title: string; description: string; canRead: boolean; article?: unknown;
     videos: Array<{ id: unknown; durationMs?: unknown; cover?: unknown }> };
   if (!packet || typeof packet.canRead !== 'boolean' || !Array.isArray(packet.videos)
     || packet.videos.length > MAX_X_POST_VIDEOS) throw new Error('Invalid X post preview');
@@ -80,13 +81,24 @@ async function prepareXPostPreview(raw: unknown, url: string, id: string, signal
     if (poster) item.poster = poster;
     videos.push(item);
   }
+  const article = xArticleMetadata(packet.article);
+  const siteName = article ? (X_ARTICLE_SOURCE + article.author).slice(0, 100).replace(/[\ud800-\udbff]$/u, '').trimEnd() : 'X';
   const preview: LinkPreview = {
-    url, siteName: 'X', title: packet.title, description: packet.description, layout: 'text',
-    xPost: { id, canRead: packet.canRead, videos },
+    url, siteName, title: article?.title ?? packet.title, description: packet.description, layout: 'text',
+    xPost: { id, canRead: article ? true : packet.canRead, videos },
   };
   if (!isLinkPreview(preview)) throw new Error('Invalid X post preview');
   return preview;
 }
+
+export async function loadXPostPreview(roomId: string, token: string, url: string, signal: AbortSignal): Promise<LinkPreview> {
+  const postId = xPostId(url);
+  if (!postId) throw new Error('Invalid X post link');
+  const response = await requestXPost(roomId, token, { action: 'preview', postId }, signal);
+  return prepareXPostPreview(response, url, postId, signal);
+}
+
+type XPostLookup = { controller: AbortController; result: Promise<LinkPreview> };
 
 export class ComposerLinkPreview {
   private url: string | null = null;
@@ -94,6 +106,7 @@ export class ComposerLinkPreview {
   private preview: LinkPreview | undefined;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private request: AbortController | undefined;
+  private xPostLookup: XPostLookup | undefined;
   private version = 0;
   private composing = false;
   private readonly row = document.createElement('div');
@@ -114,8 +127,20 @@ export class ComposerLinkPreview {
   snapshot(text: string): LinkPreview | undefined {
     return !this.dismissed && this.preview && firstPreviewUrl(text)===this.url ? structuredClone(this.preview) : undefined;
   }
+  postSendUrl(text: string): string | undefined {
+    const url = firstPreviewUrl(text);
+    return url && xPostId(url) && !(this.dismissed && url === this.url) ? url : undefined;
+  }
+  takePostSendLookup(url: string): XPostLookup | undefined {
+    const lookup = this.xPostLookup;
+    if (!lookup || this.dismissed || this.url !== url || this.request !== lookup.controller) return;
+    this.request = undefined;
+    this.xPostLookup = undefined;
+    return lookup;
+  }
   clear(): void {
     this.version++;clearTimeout(this.timer);this.request?.abort();this.request=undefined;
+    this.xPostLookup = undefined;
     this.url=null;this.preview=undefined;this.dismissed=false;this.row.replaceChildren();this.row.hidden=true;
     this.options.changed();
   }
@@ -125,7 +150,7 @@ export class ComposerLinkPreview {
     const url=firstPreviewUrl(this.options.input.value);
     if(url===this.url)return;
     this.clear();this.url=url;
-    if (url && (!xPostId(url) || this.options.supportsXPost())) this.timer=setTimeout(()=>void this.load(),500);
+    if (url && !xDirectArticleId(url) && (!xPostId(url) || this.options.supportsXPost())) this.timer=setTimeout(()=>void this.load(),500);
   }
   private paint(state:'loading'|'ready'|'failed'): void {
     this.row.replaceChildren();this.row.hidden=false;this.row.dataset.state=state;
@@ -139,7 +164,7 @@ export class ComposerLinkPreview {
       retry.addEventListener('click',()=>{void this.load();if(this.options.active())this.options.input.focus({preventScroll:true});});this.row.append(retry);
     }
     const close=document.createElement('button');close.type='button';close.className='link-preview-close';close.textContent='×';close.setAttribute('aria-label',uiLiteral('移除链接预览'));
-    close.addEventListener('click',()=>{this.version++;clearTimeout(this.timer);this.request?.abort();this.dismissed=true;this.preview=undefined;this.row.hidden=true;this.row.replaceChildren();this.options.changed();if(this.options.active())this.options.input.focus({preventScroll:true});});
+    close.addEventListener('click',()=>{this.version++;clearTimeout(this.timer);this.request?.abort();this.xPostLookup=undefined;this.dismissed=true;this.preview=undefined;this.row.hidden=true;this.row.replaceChildren();this.options.changed();if(this.options.active())this.options.input.focus({preventScroll:true});});
     this.row.append(close);this.options.changed();
   }
   private async load():Promise<void> {
@@ -153,12 +178,20 @@ export class ComposerLinkPreview {
       const { roomId, token } = this.options;
       const postId = xPostId(url);
       if (postId && !this.options.supportsXPost()) { this.clear(); return; }
-      const preview = postId
-        ? await prepareXPostPreview(await requestXPost(roomId, token, { action: 'preview', postId }, signal), url, postId, signal)
-        : await preparePreview(await (await authorizedFetch(`/api/rooms/${roomId}/link-preview`, token,
-            { method: 'POST', signal, cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) })).json(), url, signal);
+      let preview: LinkPreview;
+      if (postId) {
+        const result = loadXPostPreview(roomId, token, url, signal);
+        this.xPostLookup = { controller, result };
+        preview = await result;
+      } else {
+        const response = await authorizedFetch(`/api/rooms/${roomId}/link-preview`, token, {
+          method: 'POST', signal, cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }),
+        });
+        preview = await preparePreview(await response.json(), url, signal);
+      }
       if(!current())return;this.preview=preview;this.paint('ready');
     }catch {
+      if (this.xPostLookup?.controller === controller) this.xPostLookup = undefined;
       if(revision===this.version&&!controller.signal.aborted&&!this.options.signal.aborted&&this.options.active())this.paint('failed');
     }
   }

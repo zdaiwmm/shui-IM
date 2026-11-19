@@ -17,6 +17,9 @@
 }
 #app .x-post-original { flex: 0 0 auto; max-width: 50%; }
 #app .outgoing .x-post-original, #app .outgoing .x-post-text-toggle { color: inherit; }
+#app .x-post-article-title { display: block; margin-block: 0 5px; font-size: 1rem; line-height: 1.375; }
+#app .message-bubble > .x-post-after-send { margin: 4px 0 0; color: var(--ink-muted); font-size: .8125rem; }
+#app .outgoing .x-post-after-send { color: inherit; }
 #app .x-post-copy { margin: 0; white-space: pre-wrap; font-size: .9375rem; line-height: 1.5; }
 #app .x-post-copy[data-truncated]:not([hidden]) {
   display: -webkit-box;
@@ -28,6 +31,8 @@
 #app .x-post-media { position: relative; margin-top: 6px; }
 #app .x-post-track {
   display: flex;
+  min-height: 88px;
+  aspect-ratio: var(--x-post-ratio, auto);
   overflow: auto hidden;
   overscroll-behavior-x: contain;
   scroll-snap-type: x mandatory;
@@ -39,7 +44,6 @@
   position: relative;
   flex: 0 0 100%;
   min-width: 0;
-  aspect-ratio: 2.04;
   scroll-snap-align: start;
   scroll-snap-stop: always;
   overflow: hidden;
@@ -51,9 +55,9 @@
   width: 100%;
   height: 100%;
 }
-#app .x-post-poster { object-fit: cover; pointer-events: none; }
+#app .x-post-poster { object-fit: contain; pointer-events: none; }
 #app .x-post-video { object-fit: contain; background: #242124; }
-#app .x-post-play, #app .x-post-fullscreen, #app .x-post-edge {
+#app .x-post-play, #app .x-post-fullscreen, #app .x-post-mute, #app .x-post-edge {
   position: absolute;
   z-index: 1;
   display: grid;
@@ -66,7 +70,7 @@
   background: transparent;
   box-shadow: none;
 }
-#app .x-post-play[hidden], #app .x-post-fullscreen[hidden], #app .x-post-feedback[hidden] { display: none; }
+#app :is(.x-post-play, .x-post-fullscreen, .x-post-mute, .x-post-feedback)[hidden] { display: none; }
 #app .x-post-play {
   top: 50%;
   left: 50%;
@@ -90,7 +94,8 @@
   #app .x-post-play[data-state=loading]::after { animation: none; }
 }
 #app .x-post-fullscreen { top: 0; right: 0; }
-#app .x-post-fullscreen svg { width: 17px; height: 17px; filter: drop-shadow(0 1px 2px #000) drop-shadow(0 0 2px #000); }
+#app .x-post-mute { top: 0; right: 44px; }
+#app :is(.x-post-fullscreen, .x-post-mute) svg { width: 17px; height: 17px; filter: drop-shadow(0 1px 2px #000) drop-shadow(0 0 2px #000); }
 #app .x-post-page, #app .x-post-duration {
   position: absolute;
   z-index: 1;
@@ -113,5 +118,5 @@
 
 @media (forced-colors: active) {
   #app .x-post-page, #app .x-post-duration { background: Canvas; color: CanvasText; }
-  #app .x-post-play, #app .x-post-fullscreen, #app .x-post-edge { background: ButtonFace; color: ButtonText; }
+  #app .x-post-play, #app .x-post-fullscreen, #app .x-post-mute, #app .x-post-edge { background: ButtonFace; color: ButtonText; }
 }

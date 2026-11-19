@@ -1,3 +1,4 @@
+import { isLinkPreview, type LinkPreview } from './link-preview-data';
 import { isArchiveCheckpointRef, type ArchiveCheckpoint } from './archive-checkpoint';
 import { archiveObjectHash, type ArchiveObject } from './room-archive-crypto';
 import type { RoomArchiveState } from './room-archive';
@@ -3114,6 +3115,35 @@ export function saveUiPreferences(session: VaultSession, preferences: UiPreferen
     for (const record of previous.galleryCuration ?? []) if (record.hidden) merged.set(galleryCurationKey(record), record);
     if (merged.size) next.galleryCuration = normalizeGalleryCurationRecords([...merged.values()]);
     await putLocalRecord(session, 'preferences', uiPreferenceId(session), next, mutation);
+  });
+}
+
+export const LOCAL_X_PREVIEW_LIMIT = 32;
+
+const localXPreviewId = (session: VaultSession) => `x-post-previews:${uiPreferenceId(session)}`;
+const localXPreviewMessageId = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export async function loadLocalXPreviews(session: VaultSession): Promise<Map<string, LinkPreview>> {
+  const id = localXPreviewId(session);
+  const record = await transaction<StoredLocalRecord | undefined>('preferences', 'readonly', store =>
+    store.get(`${localDataScope(session.vault)}:${id}`));
+  const entries = record ? await decryptLocalRecord<unknown>(session, 'preferences', record) : [];
+  const previews = new Map<string, LinkPreview>();
+  if (!Array.isArray(entries) || entries.length > LOCAL_X_PREVIEW_LIMIT) return previews;
+  for (const entry of entries) {
+    if (Array.isArray(entry) && entry.length === 2 && typeof entry[0] === 'string' && localXPreviewMessageId.test(entry[0])
+      && isLinkPreview(entry[1]) && entry[1].xPost) previews.set(entry[0], entry[1]);
+  }
+  return previews;
+}
+
+export function saveLocalXPreview(session: VaultSession, id: string, preview: LinkPreview, signal: AbortSignal): Promise<void> {
+  return withVaultMutation(session, async mutation => {
+    signal.throwIfAborted();
+    const previews = await loadLocalXPreviews(session);
+    previews.set(id, preview);
+    signal.throwIfAborted();
+    await putLocalRecord(session, 'preferences', localXPreviewId(session), [...previews].slice(-LOCAL_X_PREVIEW_LIMIT), mutation);
   });
 }
 

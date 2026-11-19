@@ -15,7 +15,7 @@
 
 网页链接与卡片：`web-links.ts` 负责正文链接／预览候选；`link-preview-data.ts` 定义有界加密快照，`link-preview-ui.ts` 负责输入状态与图片生命周期，`src/link-preview.css` 接入现有编辑和消息样式。服务端 `server/link-preview.mjs` 以受限DNS固定抓取公开元数据，经 `server/index.mjs` 的认证同源配额入口调用。新回归为 `tests/link-preview.test.ts`、`tests/link-preview.e2e.mjs` 及已有crypto／language套件；需求确认及交付见[记录](../requirements/2026-10-28-chat-link-preview/README.md)。
 
-X 帖子卡片沿用链接预览的加密快照。聊天内展开和视频播放由 `src/lib/x-post-card.ts` 管理，经设备认证的查询入口对接 `services/aix-x`。播放服务按选择的视频提供短期流地址，私有隧道的配置及边界由 [需求记录](../requirements/2026-11-18-x-post-chat-card/README.md) 持有。
+X 帖子卡片沿用链接预览的加密快照，发送后补出的卡片加密保存在发送设备。普通帖展开和视频播放由 `src/lib/x-post-card.ts` 管理。X Article 在 `src/lib/x-article-reader.ts` 单独阅读。两者经设备认证的查询入口对接 `services/aix-x`。播放服务按选择的视频提供短期流地址，私有隧道的配置及边界由 [需求记录](../requirements/2026-11-18-x-post-chat-card/README.md) 持有。
 
 媒体发送连续性V1.1：`media-upload-view.ts`复用上传行／外框／状态节点，`media-capsule.ts`为发送提供立即更新及仅透明度过渡，`app.ts`提前建立回复与日期、确认后显示时间，`room-polish.css`固定状态槽和表情底行，`meme-picker.ts`交接前清除面板过程提示。回归为`media-upload.e2e`（含整行／相邻消息逐帧采样）、`video-upload.e2e`、`meme-picker.e2e`及既有聊天滚动／隐私入口；规范V1.35与[本需求](../requirements/2026-10-28-media-send-continuity/README.md)拥有范围和分层证据。
 

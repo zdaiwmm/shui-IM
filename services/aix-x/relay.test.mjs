@@ -11,6 +11,7 @@ const publicOrigin = 'https://aix.shui.click';
 const clipA = '7123';
 const clipB = '7456';
 const jpeg = Buffer.from('ffd8ffc00008080002000300ffd9', 'hex');
+const articleJpeg = Buffer.from('_9j_wAARCAACAAMDASIAAhEBAxEB_8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL_8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4-Tl5ufo6erx8vP09fb3-Pn6_8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL_8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3-Pn6_9sAQwACAgICAgIDAgIDBQMDAwUGBQUFBQYIBgYGBgYICggICAgICAoKCgoKCgoKDAwMDAwMDg4ODg4PDw8PDw8PDw8P_9sAQwECAgIEBAQHBAQHEAsJCxAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQ_90ABAAB_9oADAMBAAIRAxEAPwD4t0a5uG0u2ZpXJKDksa0_Pm_56N-ZrG0X_kFW3-4K1K_qqGyP6Cnuz__Z', 'base64url');
 const pixels = Buffer.from('0123456789');
 
 function media(id, name, extra = {}) {
@@ -37,6 +38,63 @@ function postDocument() {
       ] },
     },
   };
+}
+
+function articleBlock(type, text, fields = {}) {
+  return { type, text, data: {}, inlineStyleRanges: [], entityRanges: [], ...fields };
+}
+
+function imageAsset(id, url = `https://pbs.twimg.com/media/${id}.jpg`) {
+  return { media_id: id, media_info: { __typename: 'ApiImage', original_img_url: url, ext_alt_text: '灯光照在书桌上' } };
+}
+
+function embeddedBlock(...keys) {
+  return articleBlock('atomic', ' '.repeat(keys.length), {
+    entityRanges: keys.map((key, offset) => ({ key, offset, length: 1 })),
+  });
+}
+
+function articleDocument(article = {}) {
+  const document = postDocument();
+  document.status.text = 'https://x.com/i/article/456';
+  document.status.media.videos = [];
+  const linked = '看灯光。请继续阅读';
+  document.status.article = {
+    title: '在灯下写字',
+    preview_text: '抬头就能看到灯光。',
+    cover_media: imageAsset('cover'),
+    media_entities: [imageAsset('lamp'), imageAsset('invalid', 'https://unapproved.example/image.jpg')],
+    content: {
+      blocks: [
+        articleBlock('header-one', '晚间'),
+        articleBlock('unstyled', linked, {
+          inlineStyleRanges: [
+            { style: 'Bold', offset: 1, length: 2 },
+            { style: 'Italic', offset: 2, length: 1 },
+            { style: 'Underline', offset: -1, length: 3 },
+          ],
+          data: { urls: [
+            { fromIndex: 5, toIndex: 9, text: 'https://example.com/reference' },
+            { fromIndex: 0, toIndex: 1, text: 'javascript:alert(1)' },
+          ] },
+        }),
+        articleBlock('ordered-list-item', '放好钢笔', { depth: 1 }),
+        articleBlock('unordered-list-item', '合上笔记', { depth: -1 }),
+        { ...embeddedBlock(0), data: { caption: '我的书桌' } },
+        articleBlock('blockquote', ' 第一行\r\n  第二行'),
+        embeddedBlock(1, 2, 3),
+        articleBlock('horizontal-rule', ''),
+      ],
+      entityMap: [
+        { key: '0', value: { type: 'MEDIA', data: { mediaItems: [{ mediaId: 'lamp' }] } } },
+        { key: '1', value: { type: 'MEDIA', data: { mediaItems: [{ mediaId: 'invalid' }] } } },
+        { key: '2', value: { type: 'TWEET', data: { tweetId: '789' } } },
+        { key: '3', value: { type: 'MARKDOWN', data: { markdown: '```sh\nprintf hi\n```' } } },
+      ],
+    },
+    ...article,
+  };
+  return document;
 }
 
 async function listen(server) {
@@ -93,6 +151,108 @@ it('looks up only the post ID at FxTwitter, preserves media order, and returns f
     });
     expect(await (await lookup('text')).json()).toEqual({ text: postDocument().status.text });
     expect(calls.map(url => new URL(url).host)).toEqual(['api.fxtwitter.com', 'pbs.twimg.com', 'api.fxtwitter.com']);
+  });
+});
+
+it('returns Article metadata without images and reads ordered rich content with verified JPEGs', async () => {
+  const images = [];
+  await withRelay({ fetch: async (url, options) => {
+    expect(options.redirect).toBe('error');
+    if (url.origin === 'https://api.fxtwitter.com') {
+      expect(url.href).toBe('https://api.fxtwitter.com/2/status/123');
+      return Response.json(articleDocument());
+    }
+    expect(options.headers).toEqual({ Accept: 'image/jpeg' });
+    images.push(url.href);
+    return new Response(articleJpeg, { headers: { 'Content-Type': 'image/jpeg' } });
+  } }, async ({ lookup }) => {
+    const author = '示例作者 · @fixture';
+    expect(await (await lookup('preview')).json()).toEqual({
+      title: author, description: '抬头就能看到灯光。', canRead: true, videos: [], article: { title: '在灯下写字', author },
+    });
+    expect(await (await lookup('text')).json()).toEqual({
+      text: '晚间\n\n看灯光。请继续阅读\n\n放好钢笔\n\n合上笔记\n\n我的书桌\n\n 第一行\n  第二行\n\nprintf hi',
+    });
+    expect(images).toEqual([]);
+    const full = await lookup('article');
+    expect(full.status).toBe(200);
+    expect(full.headers.get('cache-control')).toBe('no-store');
+    const image = { mimeType: 'image/jpeg', data: articleJpeg.toString('base64url'), width: 3, height: 2 };
+    expect(await full.json()).toEqual({
+      title: '在灯下写字', author,
+      blocks: [
+        { kind: 'image', alt: '灯光照在书桌上', image },
+        { kind: 'heading', level: 2, runs: [{ text: '晚间' }] },
+        { kind: 'paragraph', runs: [
+          { text: '看' }, { text: '灯', bold: true }, { text: '光', bold: true, italic: true }, { text: '。请' },
+          { text: '继续阅读', href: 'https://example.com/reference' },
+        ] },
+        { kind: 'list-item', ordered: true, depth: 1, runs: [{ text: '放好钢笔' }] },
+        { kind: 'list-item', ordered: false, depth: 0, runs: [{ text: '合上笔记' }] },
+        { kind: 'image', alt: '灯光照在书桌上', caption: '我的书桌', image },
+        { kind: 'quote', runs: [{ text: ' 第一行\n  第二行' }] },
+        { kind: 'link', href: 'https://x.com/i/web/status/123', label: 'Image on X' },
+        { kind: 'link', href: 'https://x.com/i/web/status/789', label: 'Post on X' },
+        { kind: 'code', runs: [{ text: 'printf hi' }] },
+        { kind: 'divider' },
+      ],
+    });
+    expect(images).toEqual([
+      'https://pbs.twimg.com/media/cover.jpg?format=jpg&name=medium',
+      'https://pbs.twimg.com/media/lamp.jpg?format=jpg&name=medium',
+    ]);
+  });
+});
+
+it('revalidates Article access and does not resolve media for unauthorized or unavailable articles', async () => {
+  let mode = 'public';
+  let requests = 0;
+  await withRelay({ fetch: async url => {
+    expect(url.origin).toBe('https://api.fxtwitter.com');
+    requests++;
+    if (mode === 'regular') return Response.json(postDocument());
+    const document = mode === 'no-body' ? articleDocument({ content: { blocks: [] } }) : articleDocument();
+    if (mode === 'protected') document.status.author.protected = true;
+    if (mode === 'sensitive') document.status.possibly_sensitive = true;
+    if (mode === 'withheld') document.status.withheld = { country_codes: ['XX'] };
+    return Response.json(document);
+  } }, async ({ lookup }) => {
+    expect((await lookup('article', {}, {})).status).toBe(401);
+    expect((await lookup('article', { url: 'https://example.com' })).status).toBe(400);
+    expect(requests).toBe(0);
+    expect((await lookup('preview')).status).toBe(200);
+    for (mode of ['protected', 'sensitive', 'withheld', 'regular', 'no-body']) {
+      expect((await lookup('article')).status).toBe(404);
+    }
+    expect(requests).toBe(6);
+  });
+});
+
+it('leaves media fallback links in place when bytes exceed the Article budget or lack a JPEG scan', async () => {
+  const padding = Buffer.alloc(55_000);
+  padding.writeUInt16BE(0xffef, 0);
+  padding.writeUInt16BE(padding.length - 2, 2);
+  const largeJpeg = Buffer.concat([articleJpeg.subarray(0, 2), ...Array(4).fill(padding), articleJpeg.subarray(2)]);
+  const contents = articleDocument({
+    cover_media: null, media_entities: Array.from({ length: 5 }, (_, id) => imageAsset(String(id))),
+    content: {
+      blocks: Array.from({ length: 5 }, (_, id) => embeddedBlock(id)),
+      entityMap: Array.from({ length: 5 }, (_, id) => ({
+        key: String(id), value: { type: 'MEDIA', data: { mediaItems: [{ mediaId: String(id) }] } },
+      })),
+    },
+  });
+  await withRelay({ fetch: async url => {
+    if (url.origin === 'https://api.fxtwitter.com') return Response.json(contents);
+    return new Response(url.pathname === '/media/0.jpg' ? jpeg : largeJpeg, { headers: { 'Content-Type': 'image/jpeg' } });
+  } }, async ({ lookup }) => {
+    const full = await lookup('article');
+    expect(full.status).toBe(200);
+    expect(Number(full.headers.get('content-length'))).toBeLessThan(1536 * 1024);
+    const { blocks } = await full.json();
+    expect(blocks.map(block => block.kind)).toEqual(['link', 'image', 'image', 'image', 'link']);
+    expect(blocks.filter(block => block.kind === 'image')
+      .reduce((size, block) => size + Buffer.from(block.image.data, 'base64url').length, 0)).toBe(3 * largeJpeg.length);
   });
 });
 
