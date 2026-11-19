@@ -1,10 +1,12 @@
 import { fromBase64Url } from './base64';
+import { matchesJpegFrame } from './x-article-data.mjs';
 import { firstPreviewUrl, previewableUrl, webUrl } from './web-links';
 
 export const LINK_PREVIEW_CAPABILITY = 'link-preview-v1';
 export const X_POST_PREVIEW_CAPABILITY = 'x-post-preview-v1';
 export const PREVIEW_IMAGE_BYTES = 16 * 1024;
 export const MAX_X_POST_VIDEOS = 4;
+export const X_ARTICLE_SOURCE = 'X Article · ';
 export type PreviewImage = { mimeType: 'image/jpeg'; data: string; width: number; height: number };
 export type XPostVideoPreview = { id: string; durationMs?: number; poster?: PreviewImage };
 export type XPostPreview = { id: string; canRead: boolean; videos: XPostVideoPreview[] };
@@ -16,12 +18,27 @@ export type LinkPreview = {
 const X_POST_HOSTS = new Set(['x.com', 'www.x.com', 'm.x.com', 'mobile.x.com', 'twitter.com', 'www.twitter.com', 'm.twitter.com', 'mobile.twitter.com']);
 const X_POST_PATH = /^\/(?:[A-Za-z0-9_]{1,15}\/|i\/web\/)?status\/(\d{1,20})(?:\/(?:video|photo)\/\d+)?\/?$/;
 
-export function xPostId(value: string): string | undefined {
+function xLinkPath(value: string): string | undefined {
   const normalized = previewableUrl(value);
   if (!normalized) return undefined;
   const url = new URL(normalized);
   if (!X_POST_HOSTS.has(url.hostname) || url.port) return undefined;
-  return X_POST_PATH.exec(url.pathname)?.[1];
+  return url.pathname;
+}
+
+export function xPostId(value: string): string | undefined {
+  const path = xLinkPath(value);
+  return path ? X_POST_PATH.exec(path)?.[1] : undefined;
+}
+
+export function xDirectArticleId(value: string): string | undefined {
+  const path = xLinkPath(value);
+  return path ? /^\/(?:i|[A-Za-z0-9_]{1,15})\/article\/(\d{1,20})\/?$/.exec(path)?.[1] : undefined;
+}
+
+export function xArticleAuthor(preview: LinkPreview): string | undefined {
+  return preview.xPost && preview.siteName.startsWith(X_ARTICLE_SOURCE)
+    ? preview.siteName.slice(X_ARTICLE_SOURCE.length) || undefined : undefined;
 }
 
 export function isXPostMediaId(value: unknown): value is string {
@@ -34,32 +51,6 @@ export function isXPostVideoDuration(value: unknown): value is number {
 
 function cleanText(value: unknown, maximum: number): value is string {
   return typeof value === 'string' && value.length <= maximum && !/[\u0000-\u001f\u007f\u200b-\u200f\u202a-\u202e\u2066-\u2069]/.test(value);
-}
-
-/** Check the encoded frame before a receiver hands untrusted bytes to an image decoder. */
-function matchesJpegFrame(bytes: Uint8Array, width: number, height: number): boolean {
-  if (bytes.length < 4 || bytes[0] !== 255 || bytes[1] !== 216
-    || bytes[bytes.length - 2] !== 255 || bytes[bytes.length - 1] !== 217) return false;
-  let offset = 2, frame = false;
-  while (offset + 4 <= bytes.length) {
-    if (bytes[offset++] !== 255) return false;
-    while (bytes[offset] === 255) offset++;
-    const marker = bytes[offset++];
-    if (marker === undefined || marker === 0 || marker === 216 || marker === 217 || marker === 220) return false;
-    const length = (bytes[offset]! << 8) | bytes[offset + 1]!;
-    if (length < 2 || offset + length > bytes.length) return false;
-    if (marker === 218) return frame && length >= 6;
-    if (marker >= 192 && marker <= 207 && ![196,200,204].includes(marker)) {
-      if (frame || ![192,193,194].includes(marker) || length < 8 || bytes[offset + 2] !== 8
-        || ((bytes[offset + 3]! << 8) | bytes[offset + 4]!) !== height
-        || ((bytes[offset + 5]! << 8) | bytes[offset + 6]!) !== width) return false;
-      const components = bytes[offset + 7]!;
-      if (![1,3].includes(components) || length !== 8 + 3 * components) return false;
-      frame = true;
-    }
-    offset += length;
-  }
-  return false;
 }
 
 function previewImageSize(image: PreviewImage): number {

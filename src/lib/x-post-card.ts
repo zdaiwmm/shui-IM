@@ -1,13 +1,14 @@
 import { ChevronLeft, ChevronRight, createElement, Maximize, Pause, Play, Volume2, VolumeX } from 'lucide';
 import { fromBase64Url } from './base64';
 import { uiLiteral } from './language';
-import type { LinkPreview, XPostPreview } from './link-preview-data';
+import { xArticleAuthor, type LinkPreview, type XPostPreview } from './link-preview-data';
 import { videoDurationLabel } from './video-download-policy';
 import { newTabLink } from './web-links';
 
 type CardOptions = {
   signal: AbortSignal;
   readText(signal: AbortSignal): Promise<string>;
+  openArticle(origin: HTMLElement): (restoreFocus?: boolean) => void;
   loadVideo(id: string, signal: AbortSignal): Promise<string>;
   beforeLayoutChange?: () => void;
   onLayoutChange?: () => void;
@@ -117,20 +118,39 @@ export function renderXPostCard(preview: LinkPreview & { xPost: XPostPreview }, 
   };
   const head = element('div', 'x-post-head');
   const source = element('strong', 'x-post-source');
-  source.textContent = `${preview.siteName} · ${preview.title}`;
+  const author = xArticleAuthor(preview);
+  source.textContent = author ? preview.siteName : `${preview.siteName} · ${preview.title}`;
   const original = newTabLink(preview.url);
   original.className = 'x-post-original';
   original.textContent = `${uiLiteral('查看原帖')} ↗`;
   original.setAttribute('aria-label', `${uiLiteral('查看原帖')} · ${uiLiteral('在新标签页打开')}`);
   head.append(source, original);
   card.append(head);
+  if (author) {
+    const title = element('strong', 'x-post-article-title');
+    title.textContent = preview.title;
+    card.append(title);
+  }
 
   const summary = element('p', 'x-post-copy');
   summary.textContent = preview.description;
   summary.hidden = !preview.description;
   card.append(summary);
   let collapseText: (() => void) | undefined;
-  if (preview.xPost.canRead) {
+  let closeArticle: ((restoreFocus?: boolean) => void) | undefined;
+  if (author) {
+    const toggle = button('x-post-text-toggle', uiLiteral('查看全文'));
+    toggle.textContent = uiLiteral('查看全文');
+    toggle.setAttribute('aria-haspopup', 'dialog');
+    summary.dataset.truncated = 'true';
+    toggle.addEventListener('click', () => {
+      if (!live()) return;
+      stopActiveVideo?.();
+      closeArticle?.(false);
+      closeArticle = options.openArticle(toggle);
+    });
+    card.append(toggle);
+  } else if (preview.xPost.canRead) {
     const toggle = button('x-post-text-toggle', uiLiteral('查看全文'));
     const full = element('p', 'x-post-copy');
     const feedback = element('p', 'x-post-feedback');
@@ -183,9 +203,14 @@ export function renderXPostCard(preview: LinkPreview & { xPost: XPostPreview }, 
   }
 
   const media = preview.xPost.videos.length ? mountPostMedia(card, preview, options, live, changeLayout) : undefined;
-  if (collapseText || media) {
+  if (author || collapseText || media) {
     const view = {
-      conceal: () => { collapseText?.(); media?.conceal(); },
+      conceal: () => {
+        closeArticle?.(false);
+        closeArticle = undefined;
+        collapseText?.();
+        media?.conceal();
+      },
       reveal: () => { if (live()) media?.reveal(); },
     };
     const release = () => {
@@ -229,6 +254,11 @@ function mountPostMedia(
   let index = 0;
   let stopVideo: (() => void) | undefined;
   let resize: ResizeObserver | undefined;
+  const updateAspectRatio = (ratio: number | undefined) => {
+    const aspectRatio = ratio === undefined ? '' : String(ratio);
+    if (track.style.getPropertyValue('--x-post-ratio') === aspectRatio) return;
+    changeLayout(() => { track.style.setProperty('--x-post-ratio', aspectRatio); });
+  };
   const slides = preview.xPost.videos.map((clip, position) => {
     const stage = element('div', 'x-post-stage');
     stage.inert = position !== 0;
@@ -238,6 +268,7 @@ function mountPostMedia(
     image.decoding = 'async';
     image.draggable = false;
     const poster = clip.poster ?? (position === 0 ? preview.image : undefined);
+    let aspectRatio = poster ? poster.width / poster.height : undefined;
     if (poster) stage.append(image);
     let posterUrl: string | undefined;
     let resumeAt = 0;
@@ -269,6 +300,7 @@ function mountPostMedia(
       const controller = new AbortController();
       const video: NativeVideo = element('video', 'x-post-video');
       video.playsInline = true;
+      video.defaultMuted = video.muted = true;
       video.dataset.userPlayback = 'true';
       video.preload = 'none';
       video.crossOrigin = 'anonymous';
@@ -322,7 +354,15 @@ function mountPostMedia(
       };
       const { controls, toggle } = inlineVideoControls(video, controller.signal, playVideo);
       stage.append(controls);
+      const updateVideoAspect = () => {
+        if (!current() || !video.videoWidth || !video.videoHeight) return;
+        aspectRatio = video.videoWidth / video.videoHeight;
+        updateAspectRatio(aspectRatio);
+      };
+      video.addEventListener('resize', updateVideoAspect, { signal: controller.signal });
       video.addEventListener('loadedmetadata', () => {
+        if (!current()) return;
+        updateVideoAspect();
         if (resumeAt > 0 && resumeAt < video.duration) video.currentTime = resumeAt;
         full.hidden = false;
       }, { signal: controller.signal });
@@ -375,6 +415,7 @@ function mountPostMedia(
     track.append(stage);
     return {
       stage,
+      get aspectRatio() { return aspectRatio; },
       reveal: () => {
         if (!poster || posterUrl) return;
         posterUrl = URL.createObjectURL(new Blob([fromBase64Url(poster.data)], { type: poster.mimeType }));
@@ -388,6 +429,7 @@ function mountPostMedia(
       },
     };
   });
+  updateAspectRatio(slides[0]?.aspectRatio);
   media.append(track);
   if (slides.length > 1) {
     track.tabIndex = 0;
@@ -413,6 +455,7 @@ function mountPostMedia(
       to.stage.inert = false;
       to.stage.removeAttribute('aria-hidden');
       index = target;
+      updateAspectRatio(to.aspectRatio);
       updatePage();
       setNote();
       if (shiftFocus || (document.activeElement === previous && target === 0)
@@ -434,7 +477,13 @@ function mountPostMedia(
       event.preventDefault();
       go(event.key === 'ArrowLeft' ? -1 : 1);
     });
-    resize = new ResizeObserver(snapToPage);
+    let trackWidth = 0;
+    resize = new ResizeObserver(() => {
+      const width = track.clientWidth;
+      if (width === trackWidth) return;
+      trackWidth = width;
+      snapToPage();
+    });
     resize.observe(track);
     updatePage();
     media.append(page, previous, next);

@@ -37,7 +37,7 @@ async function readLookup(request) {
     throw new AixError(400, 'INVALID_LOOKUP');
   }
   const { action, postId, mediaId, ...extra } = body ?? {};
-  if (!['preview', 'text', 'playback'].includes(action) || typeof postId !== 'string' || !POST_ID.test(postId)
+  if (!['preview', 'text', 'article', 'playback'].includes(action) || typeof postId !== 'string' || !POST_ID.test(postId)
     || Object.keys(extra).length || (action === 'playback' ? typeof mediaId !== 'string' || !MEDIA_ID.test(mediaId) : mediaId !== undefined)) {
     throw new AixError(400, 'INVALID_LOOKUP');
   }
@@ -147,7 +147,9 @@ export function createAixServer({ gatewayToken, publicOrigin, mediaEnabled = fal
         if (action === 'preview') {
           sendJson(response, 200, await provider.preview(post, upstreamSignal));
         } else if (action === 'text') {
-          sendJson(response, 200, { text: post.text });
+          sendJson(response, 200, { text: post.article?.text || post.text });
+        } else if (action === 'article') {
+          sendJson(response, 200, await provider.article(post, upstreamSignal));
         } else {
           const video = post.videos.find(item => item.id === mediaId);
           if (!video) throw new AixError(404, 'MEDIA_UNAVAILABLE');

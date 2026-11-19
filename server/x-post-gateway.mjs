@@ -1,3 +1,5 @@
+import { parseXArticle, xArticleMetadata } from '../src/lib/x-article-data.mjs';
+
 export const X_POST_MEDIA_ORIGIN = 'https://aix.shui.click';
 const POST_ID = /^\d{1,20}$/;
 const MEDIA_ID = /^\w{1,64}$/;
@@ -11,7 +13,7 @@ export function xPostRequest(value) {
   if (action === 'playback' && Object.keys(value).length === 3 && typeof mediaId === 'string' && MEDIA_ID.test(mediaId)) {
     return { action, postId, mediaId };
   }
-  if ((action === 'preview' || action === 'text') && Object.keys(value).length === 2) return { action, postId };
+  if (['preview', 'text', 'article'].includes(action) && Object.keys(value).length === 2) return { action, postId };
 }
 
 async function boundedJson(response, limit) {
@@ -49,7 +51,9 @@ function previewResult(value) {
       && /^[A-Za-z0-9_-]+$/.test(item.cover.data)) video.cover = { mimeType: item.cover.mimeType, data: item.cover.data };
     return video;
   });
-  return { title: value.title, description: value.description, canRead: value.canRead, videos };
+  const article = value.article === undefined ? undefined : xArticleMetadata(value.article);
+  if (value.article !== undefined && !article) throw new Error('X_POST_UNAVAILABLE');
+  return { title: value.title, description: value.description, canRead: value.canRead, videos, ...(article ? { article } : {}) };
 }
 
 export function createXPostGateway({ token, fetchImpl = fetch } = {}) {
@@ -69,6 +73,10 @@ export function createXPostGateway({ token, fetchImpl = fetch } = {}) {
     }
     const value = await boundedJson(response, MAX_RESPONSE_BYTES);
     if (packet.action === 'preview') return previewResult(value);
+    if (packet.action === 'article') {
+      const article = parseXArticle(value);
+      if (article) return article;
+    }
     if (packet.action === 'text' && typeof value?.text === 'string' && value.text.length > 0 && value.text.length <= 50_000) return { text: value.text };
     if (packet.action === 'playback' && typeof value?.url === 'string') {
       const url = new URL(value.url);
