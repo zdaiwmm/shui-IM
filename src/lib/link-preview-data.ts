@@ -4,6 +4,7 @@ import { firstPreviewUrl, previewableUrl, webUrl } from './web-links';
 
 export const LINK_PREVIEW_CAPABILITY = 'link-preview-v1';
 export const X_POST_PREVIEW_CAPABILITY = 'x-post-preview-v1';
+export const YOUTUBE_PREVIEW_CAPABILITY = 'youtube-preview-v1';
 export const PREVIEW_IMAGE_BYTES = 16 * 1024;
 export const MAX_X_POST_VIDEOS = 4;
 export const X_ARTICLE_SOURCE = 'X Article · ';
@@ -12,8 +13,24 @@ export type XPostVideoPreview = { id: string; durationMs?: number; poster?: Prev
 export type XPostPreview = { id: string; canRead: boolean; videos: XPostVideoPreview[] };
 export type LinkPreview = {
   url: string; siteName: string; title: string; description: string;
-  layout: 'large' | 'compact' | 'text'; image?: PreviewImage; xPost?: XPostPreview;
+  layout: 'large' | 'compact' | 'text'; image?: PreviewImage; xPost?: XPostPreview; youtube?: true;
 };
+
+export function youtubeVideoId(value: string): string | undefined {
+  const safe = previewableUrl(value);
+  if (!safe) return;
+  const url = new URL(safe);
+  if (url.port || url.protocol !== 'https:') return;
+  const youtube = ['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(url.hostname);
+  const id = url.hostname === 'youtu.be' ? /^\/([^/]+)\/?$/.exec(url.pathname)?.[1]
+    : youtube && url.pathname === '/watch' && url.searchParams.getAll('v').length === 1 ? url.searchParams.get('v')
+    : youtube ? /^\/shorts\/([^/]+)\/?$/.exec(url.pathname)?.[1] : undefined;
+  return id && /^[A-Za-z0-9_-]{11}$/.test(id) ? id : undefined;
+}
+
+export function youtubeLinkPreview(url: string): LinkPreview {
+  return { url, siteName: 'YouTube', title: 'YouTube', description: '', layout: 'text', youtube: true };
+}
 
 const X_POST_HOSTS = new Set(['x.com', 'www.x.com', 'm.x.com', 'mobile.x.com', 'twitter.com', 'www.twitter.com', 'm.twitter.com', 'mobile.twitter.com']);
 const X_POST_PATH = /^\/(?:[A-Za-z0-9_]{1,15}\/|i\/web\/)?status\/(\d{1,20})(?:\/(?:video|photo)\/\d+)?\/?$/;
@@ -83,11 +100,15 @@ function isXPostPreview(value: unknown, url: string, imageBytes: number): value 
 export function isLinkPreview(value: unknown, messageText?: string): value is LinkPreview {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const p = value as Record<string, unknown>;
-  if (Object.keys(p).some(key => !['url','siteName','title','description','layout','image','xPost'].includes(key))
+  if (Object.keys(p).some(key => !['url','siteName','title','description','layout','image','xPost','youtube'].includes(key))
     || typeof p.url !== 'string' || webUrl(p.url) !== p.url
     || (messageText !== undefined && firstPreviewUrl(messageText) !== p.url)
     || !cleanText(p.siteName, 100) || !p.siteName.trim() || !cleanText(p.title, 300) || !p.title.trim()
     || !cleanText(p.description, 600) || typeof p.layout !== 'string' || !['large','compact','text'].includes(p.layout)) return false;
+  if (p.youtube !== undefined) {
+    return p.youtube === true && Boolean(youtubeVideoId(p.url)) && p.siteName === 'YouTube' && p.title === 'YouTube'
+      && p.description === '' && p.layout === 'text' && p.image === undefined && p.xPost === undefined;
+  }
   let imageBytes = 0;
   if (p.image === undefined) {
     if (p.layout !== 'text') return false;

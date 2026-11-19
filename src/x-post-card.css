@@ -57,7 +57,7 @@
 }
 #app .x-post-poster { object-fit: contain; pointer-events: none; }
 #app .x-post-video { object-fit: contain; background: #242124; }
-#app .x-post-play, #app .x-post-fullscreen, #app .x-post-mute, #app .x-post-edge {
+#app .x-post-play, #app .x-post-fullscreen, #app .x-post-mute, #app .x-post-edge, #app .youtube-stop {
   position: absolute;
   z-index: 1;
   display: grid;
@@ -70,7 +70,7 @@
   background: transparent;
   box-shadow: none;
 }
-#app :is(.x-post-play, .x-post-fullscreen, .x-post-mute, .x-post-feedback)[hidden] { display: none; }
+#app :is(.x-post-play, .x-post-fullscreen, .x-post-mute, .x-post-feedback, .youtube-stop, .x-post-text-toggle)[hidden] { display: none; }
 #app .x-post-play {
   top: 50%;
   left: 50%;
@@ -95,7 +95,8 @@
 }
 #app .x-post-fullscreen { top: 0; right: 0; }
 #app .x-post-mute { top: 0; right: 44px; }
-#app :is(.x-post-fullscreen, .x-post-mute) svg { width: 17px; height: 17px; filter: drop-shadow(0 1px 2px #000) drop-shadow(0 0 2px #000); }
+#app .youtube-stop { top: 0; left: 0; }
+#app :is(.x-post-fullscreen, .x-post-mute, .youtube-stop) svg { width: 17px; height: 17px; filter: drop-shadow(0 1px 2px #000) drop-shadow(0 0 2px #000); }
 #app .x-post-page, #app .x-post-duration {
   position: absolute;
   z-index: 1;
@@ -118,5 +119,5 @@
 
 @media (forced-colors: active) {
   #app .x-post-page, #app .x-post-duration { background: Canvas; color: CanvasText; }
-  #app .x-post-play, #app .x-post-fullscreen, #app .x-post-mute, #app .x-post-edge { background: ButtonFace; color: ButtonText; }
+  #app .x-post-play, #app .x-post-fullscreen, #app .x-post-mute, #app .x-post-edge, #app .youtube-stop { background: ButtonFace; color: ButtonText; }
 }

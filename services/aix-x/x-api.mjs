@@ -38,7 +38,7 @@ function cdnUrl(value, origin) {
   }
 }
 
-async function boundedBody(response, maxBytes) {
+export async function boundedBody(response, maxBytes) {
   if (!response.ok || Number(response.headers.get('content-length')) > maxBytes || !response.body) {
     await response.body?.cancel();
     throw new AixError(502, 'UPSTREAM_RESPONSE');
@@ -53,7 +53,7 @@ async function boundedBody(response, maxBytes) {
   return Buffer.concat(chunks, bytes);
 }
 
-function plainText(value, maxLength, preserveLines = false) {
+export function plainText(value, maxLength, preserveLines = false) {
   if (typeof value !== 'string') return '';
   const clean = value.replace(/\r\n?/g, '\n')
     .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '');

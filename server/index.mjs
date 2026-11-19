@@ -4,7 +4,7 @@ import { clientVersion, openFaultStore } from './faults.mjs';
 import { createSocketBudget, SOCKET_LIMITS } from './socket-budget.mjs';
 import { createServer as createHttpServer } from 'node:http';
 import { createLinkPreviewService } from './link-preview.mjs';
-import { createXPostGateway, xPostRequest, X_POST_MEDIA_ORIGIN } from './x-post-gateway.mjs';
+import { createXPostGateway, createYouTubeGateway, xPostRequest, youtubeRequest, X_POST_MEDIA_ORIGIN } from './x-post-gateway.mjs';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -449,6 +449,14 @@ export async function startServer(options = {}) {
     token: options.xPostGatewayToken ?? process.env.AIX_GATEWAY_TOKEN,
     fetchImpl: options.xPostGatewayFetch,
   });
+  const lookupYouTube = (options.youtubeEnabled ?? process.env.AIX_YOUTUBE_ENABLED === 'true') && createYouTubeGateway({
+    token: options.xPostGatewayToken ?? process.env.AIX_GATEWAY_TOKEN,
+    fetchImpl: options.youtubeGatewayFetch,
+  });
+  const aixLookups = {
+    'x-post': { lookup: lookupXPost, parse: xPostRequest, notFound: 'X_POST_NOT_FOUND', unavailable: 'X_POST_UNAVAILABLE' },
+    'youtube-video': { lookup: lookupYouTube, parse: youtubeRequest, notFound: 'YOUTUBE_NOT_FOUND', unavailable: 'YOUTUBE_UNAVAILABLE' },
+  };
   const httpServer = createHttpServer(async (request, response) => {
     let faultStage;
     try {
@@ -502,32 +510,33 @@ export async function startServer(options = {}) {
         return;
       }
 
-      const xPostMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/x-post$`));
-      if (xPostMatch) {
+      const aixMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/(x-post|youtube-video)$`));
+      if (aixMatch) {
         if (request.method !== 'POST') { json(request, response, 405, { code: 'METHOD_NOT_ALLOWED' }); return; }
-        const roomId = xPostMatch[1];
+        const [, roomId, route] = aixMatch;
+        const { lookup, parse, notFound, unavailable } = aixLookups[route];
         const device = requireActiveDevice(request, roomId);
         if (!isSameOriginPreviewRequest(request)) { json(request, response, 403, { code: 'INVALID_ORIGIN' }); return; }
-        if (!lookupXPost) { json(request, response, 503, { code: 'X_POST_UNAVAILABLE' }); return; }
-        if (!allowRequest(request, 'x-post', 60)
-          || !rateLimits.take(JSON.stringify(['x-post-device', roomId, device.deviceId]), 30).allowed) {
+        if (!lookup) { json(request, response, 503, { code: unavailable }); return; }
+        if (!allowRequest(request, route, 60)
+          || !rateLimits.take(JSON.stringify([`${route}-device`, roomId, device.deviceId]), 30).allowed) {
           json(request, response, 429, { code: 'RATE_LIMITED' }); return;
         }
         const controller = new AbortController();
         response.once('close', () => controller.abort());
         try {
-          const packet = xPostRequest(JSON.parse((await readBody(request, 1024)).toString('utf8')));
-          if (!packet) throw new Error('X_POST_TARGET');
+          const packet = parse(JSON.parse((await readBody(request, 1024)).toString('utf8')));
+          if (!packet) throw new Error('AIX_TARGET');
           requireActiveDevice(request, roomId, device.deviceId);
-          const result = await lookupXPost(packet, controller.signal);
+          const result = await lookup(packet, controller.signal);
           requireActiveDevice(request, roomId, device.deviceId);
           json(request, response, 200, result);
         } catch (error) {
           if (controller.signal.aborted) return;
           const code = error instanceof Error ? error.message : '';
-          const status = code === 'UNAUTHORIZED' ? 401 : code === 'X_POST_NOT_FOUND' ? 404
-            : code === 'X_POST_TARGET' || code === 'BODY_TOO_LARGE' || error instanceof SyntaxError ? 400 : 502;
-          json(request, response, status, { code: 'X_POST_UNAVAILABLE' });
+          const status = code === 'UNAUTHORIZED' ? 401 : code === notFound ? 404
+            : code === 'AIX_TARGET' || code === 'BODY_TOO_LARGE' || error instanceof SyntaxError ? 400 : 502;
+          json(request, response, status, { code: unavailable });
         }
         return;
       }
@@ -1667,7 +1676,7 @@ export async function startServer(options = {}) {
       const bytes = await readFile(target);
       const isApp = target === path.join(staticDir, 'index.html');
       applySecurityHeaders(request, response, isApp ? publicPixel?.collector : null, isApp,
-        target === path.join(staticDir, 'sw.js'), isApp && Boolean(lookupXPost));
+        target === path.join(staticDir, 'sw.js'), isApp && Boolean(lookupXPost || lookupYouTube));
       response.writeHead(200, {
         'Content-Type': MIME_TYPES.get(path.extname(target)) ?? 'application/octet-stream',
         'Cache-Control': ['index.html', 'sw.js', 'manifest.webmanifest', 'release.json'].includes(path.basename(target))

@@ -4,9 +4,11 @@ import { uiLiteral } from './language';
 import { firstPreviewUrl, newTabLink } from './web-links';
 import {
   isLinkPreview, isXPostMediaId, isXPostVideoDuration, MAX_X_POST_VIDEOS, PREVIEW_IMAGE_BYTES,
-  previewLayout, xDirectArticleId, xPostId, X_ARTICLE_SOURCE, type LinkPreview, type PreviewImage, type XPostVideoPreview,
+  previewLayout, xDirectArticleId, xPostId, X_ARTICLE_SOURCE, youtubeLinkPreview, youtubeVideoId,
+  type LinkPreview, type PreviewImage, type XPostVideoPreview,
 } from './link-preview-data';
 import { requestXPost } from './x-post-api';
+import { requestYouTube } from './youtube-api';
 import { xArticleMetadata } from './x-article-data.mjs';
 
 async function preparePreview(raw: unknown, url: string, signal: AbortSignal): Promise<LinkPreview> {
@@ -98,6 +100,22 @@ export async function loadXPostPreview(roomId: string, token: string, url: strin
   return prepareXPostPreview(response, url, postId, signal);
 }
 
+export type YouTubePreview = {
+  title: string; channel: string; description: string; playable: boolean;
+  durationMs?: number; poster?: PreviewImage;
+};
+
+export async function loadYouTubePreview(roomId: string, token: string, videoId: string, signal: AbortSignal,
+  includeCover = true): Promise<YouTubePreview> {
+  const value = await requestYouTube(roomId, token, videoId, 'preview', signal) as YouTubePreview & { cover?: unknown };
+  if (!value || typeof value.title !== 'string' || !value.title.trim() || value.title.length > 300
+    || typeof value.channel !== 'string' || value.channel.length > 260 || typeof value.description !== 'string'
+    || value.description.length > 5000 || typeof value.playable !== 'boolean') throw new Error('Invalid YouTube preview');
+  const poster = includeCover ? await prepareJpeg(value.cover, PREVIEW_IMAGE_BYTES, signal) : undefined;
+  return { title: value.title, channel: value.channel, description: value.description, playable: value.playable, poster,
+    durationMs: isXPostVideoDuration(value.durationMs) ? value.durationMs : undefined };
+}
+
 type XPostLookup = { controller: AbortController; result: Promise<LinkPreview> };
 
 export class ComposerLinkPreview {
@@ -111,7 +129,7 @@ export class ComposerLinkPreview {
   private composing = false;
   private readonly row = document.createElement('div');
   constructor(private readonly options: {input: HTMLTextAreaElement; host: HTMLElement; roomId: string; token: string;
-    signal: AbortSignal; active: () => boolean; supportsXPost: () => boolean; changed: () => void}) {
+    signal: AbortSignal; active: () => boolean; supportsXPost: () => boolean; supportsYouTube: () => boolean; changed: () => void}) {
     this.row.className='link-preview-draft'; this.row.hidden=true;
     options.host.before(this.row);
     this.row.addEventListener('pointerdown',event=>{
@@ -125,7 +143,10 @@ export class ComposerLinkPreview {
     // A restored draft needs a fresh input event before any network request.
   }
   snapshot(text: string): LinkPreview | undefined {
-    return !this.dismissed && this.preview && firstPreviewUrl(text)===this.url ? structuredClone(this.preview) : undefined;
+    const url = firstPreviewUrl(text);
+    if (!url || this.dismissed && this.url === url) return;
+    if (youtubeVideoId(url)) return this.options.supportsYouTube() ? youtubeLinkPreview(url) : undefined;
+    return this.preview && url === this.url ? structuredClone(this.preview) : undefined;
   }
   postSendUrl(text: string): string | undefined {
     const url = firstPreviewUrl(text);
@@ -150,7 +171,8 @@ export class ComposerLinkPreview {
     const url=firstPreviewUrl(this.options.input.value);
     if(url===this.url)return;
     this.clear();this.url=url;
-    if (url && !xDirectArticleId(url) && (!xPostId(url) || this.options.supportsXPost())) this.timer=setTimeout(()=>void this.load(),500);
+    if (url && !xDirectArticleId(url) && (!xPostId(url) || this.options.supportsXPost())
+      && (!youtubeVideoId(url) || this.options.supportsYouTube())) this.timer=setTimeout(()=>void this.load(),500);
   }
   private paint(state:'loading'|'ready'|'failed'): void {
     this.row.replaceChildren();this.row.hidden=false;this.row.dataset.state=state;
@@ -169,20 +191,24 @@ export class ComposerLinkPreview {
   }
   private async load():Promise<void> {
     if(!this.url||this.dismissed||!this.options.active()||this.options.signal.aborted)return;
-    this.request?.abort();const controller=new AbortController();this.request=controller;
-    const signal=AbortSignal.any([controller.signal,this.options.signal,AbortSignal.timeout(12_000)]);
     const revision=++this.version,url=this.url;
+    this.request?.abort();const controller=new AbortController();this.request=controller;
+    const videoId = youtubeVideoId(url);
+    const signal=AbortSignal.any([controller.signal,this.options.signal,AbortSignal.timeout(videoId ? 16_000 : 12_000)]);
     const current=()=>revision===this.version&&!signal.aborted&&!this.dismissed&&this.options.active()&&this.options.input.isConnected;
     this.paint('loading');
     try {
       const { roomId, token } = this.options;
       const postId = xPostId(url);
-      if (postId && !this.options.supportsXPost()) { this.clear(); return; }
+      if (postId && !this.options.supportsXPost() || videoId && !this.options.supportsYouTube()) { this.clear(); return; }
       let preview: LinkPreview;
       if (postId) {
         const result = loadXPostPreview(roomId, token, url, signal);
         this.xPostLookup = { controller, result };
         preview = await result;
+      } else if (videoId) {
+        const video = await loadYouTubePreview(roomId, token, videoId, signal, false);
+        preview = { ...youtubeLinkPreview(url), title: video.title };
       } else {
         const response = await authorizedFetch(`/api/rooms/${roomId}/link-preview`, token, {
           method: 'POST', signal, cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url }),
