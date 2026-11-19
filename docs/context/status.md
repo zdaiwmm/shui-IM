@@ -1,8 +1,14 @@
 # Quiet Room 当前状态
 
-## 当前生产主站为 2026.11.19.1（2026-11-19）
+## 当前生产主站为 2026.11.19.3（2026-11-19）
 
-`ai.shui.click` 运行 `a893d3d7a1c8ffed3f1a7922b2813cee2ef5f32d`（`2026.11.19.1`）。精确 main 全量 CI 通过。本机固定入口一次切换取得 `DEPLOY_VERIFIED`，北京时间 **12:28:30** 独立取得 `READBACK_OK`。应用、备份、HTTPS、数据库、存储及新 WebSocket 已核对。[本批发布记录](../../RELEASING.md#release-aix-fxtwitter-20261119)
+`ai.shui.click` 运行 `2b207fd714230c68159695e403d1558623e9cca1`（`2026.11.19.3`）。精确 main 全量 CI 通过，固定云端入口完成一次切换并返回 `DEPLOY_VERIFIED`。北京时间 **18:52:24** 独立取得 `READBACK_OK`，核对线上状态、镜像、HTTPS、公开和容器资源及新建 WebSocket。[本批发布记录](../../RELEASING.md#release-link-cards-20261119-3)
+
+家庭站 `mijiu.cloud` 停在 SSH 预检。mijiu-server 的 AIX 尚待更新，两站 YouTube 点播启用和真实源播放仍待验证。
+
+## 此前生产：主站 2026.11.19.1 已回读（2026-11-19）
+
+`ai.shui.click` 此前运行 `a893d3d7a1c8ffed3f1a7922b2813cee2ef5f32d`（`2026.11.19.1`）。精确 main 全量 CI 通过。本机固定入口一次切换取得 `DEPLOY_VERIFIED`，北京时间 **12:28:30** 独立取得 `READBACK_OK`。应用、备份、HTTPS、数据库、存储及新 WebSocket 已核对。[本批发布记录](../../RELEASING.md#release-aix-fxtwitter-20261119)
 
 2026-11-19，`aix.shui.click` 的阿里云 HTTPS 入口已接通独立的东京入口。阿里云仅转发 AIX 的健康、查帖与播放路径。东京通过独立 WSS 隧道连接家庭机，隧道两端及家庭机的媒体专用 Xray 已配置开机启动。两端证书模拟续期均通过。
 

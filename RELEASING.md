@@ -4,6 +4,17 @@
 
 跨设备操作见[GitHub 双站发布与独立回读](docs/requirements/2026-11-09-cross-device-release/README.md)。
 
+## 11 月 19 日聊天卡片批次已发布到主站
+<a id="release-link-cards-20261119-3"></a>
+
+用户确认将 `2b207fd714230c68159695e403d1558623e9cca1`（`2026.11.19.3`）发布到主站 `production`（ai.shui.click）和家庭站 `home-frp`（mijiu.cloud），并部署 mijiu-server 上的 AIX。本批包含 X 长文阅读和发送后卡片预览、X 视频启动和气泡内控件、YouTube／Shorts 卡片及可选点播。[实现 #553](https://github.com/zdaiwmm/shui-IM/pull/553) · [实现 #554](https://github.com/zdaiwmm/shui-IM/pull/554) · [实现 #555](https://github.com/zdaiwmm/shui-IM/pull/555) · [发布准备 #556](https://github.com/zdaiwmm/shui-IM/pull/556)
+
+精确 main 全量 CI 第 1 次运行通过。发布使用同轮 `linux/amd64` 产物 `14519336766`。主站经既有 GitHub production 审核，云端只读预检返回 `PREFLIGHT_OK`。本批只发起一次正式切换，2026-11-19 北京时间 **18:49:06** 返回同一提交的 `DEPLOY_VERIFIED`。[精确 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/44504704394/attempts/1) · [只读预检](https://github.com/zdaiwmm/shui-IM/actions/runs/44507675511) · [正式发布](https://github.com/zdaiwmm/shui-IM/actions/runs/44508131385)
+
+北京时间 **18:52:24** 独立取得同一提交的 `READBACK_OK`，耗时 21932 ms。线上状态、镜像、HTTPS 健康、公开与容器资源摘要及新建 WebSocket 均通过。[独立回读](https://github.com/zdaiwmm/shui-IM/actions/runs/44509416953)
+
+家庭站的本机只读预检在 SSH 连接阶段返回 `Operation not permitted`，未进入切换。mijiu-server 的 AIX 更新、YouTube 解析和媒体入口，以及两站 YouTube 启用均待完成。禁止浏览器直连 YouTube 和媒体源的模拟播放验证已通过。实际 YouTube 出口和端到端播放待验证。[YouTube 接入说明](services/aix-x/README.md)
+
 ## FxTwitter 查帖与 X 卡片点播已发布到主站（2026-11-19）
 <a id="release-aix-fxtwitter-20261119"></a>
 
