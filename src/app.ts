@@ -10480,7 +10480,8 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
     const epoch = this.runtimeEpoch;
     if (!runtime || this.activeSurface !== 'chat' || document.hidden || this.privacyCovered
       || document.documentElement.classList.contains('privacy-obscured') || this.sentXPreviewRequests.size >= 4) return;
-    const request = new AbortController();
+    const lookup = this.composerLinkPreview?.takePostSendLookup(url);
+    const request = lookup?.controller ?? new AbortController();
     const signal = AbortSignal.any([runtime, request.signal]);
     this.sentXPreviewRequests.set(id, request);
     this.renderMessages();
@@ -10488,7 +10489,7 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
       && this.activeSurface === 'chat' && !this.privacyCovered && !document.hidden
       && !document.documentElement.classList.contains('privacy-obscured') && !this.messageIsUnavailable(id);
     try {
-      const preview = await loadXPostPreview(session.vault.roomId, session.vault.accessToken, url, signal);
+      const preview = await (lookup?.result ?? loadXPostPreview(session.vault.roomId, session.vault.accessToken, url, signal));
       if (!current()) return;
       this.sentXPreviews.set(id, preview);
       if (this.sentXPreviews.size > LOCAL_X_PREVIEW_LIMIT) {

@@ -14,6 +14,7 @@ const articleTitle = '雨后的旧书店';
 const articleAuthor = '林照 · @public_author';
 const articleUrl = 'https://x.com/public_author/status/223456';
 const sendArticleUrl = 'https://x.com/public_author/status/223457';
+const noDraftArticleUrl = 'https://x.com/public_author/status/223458';
 const articleDescription = '雨停以后，桥下的旧书店还开着。';
 const postUrl = 'https://x.com/public_author/status/123456';
 const fullPost = '这个公开帖子有两段视频。' + '这是展开之后呈现的正文段落。\n'.repeat(12);
@@ -23,7 +24,7 @@ try{
     xPostGatewayFetch:async (_url, request) => {
       const packet = JSON.parse(request.body);
       xRequests.push(packet);
-      if (packet.postId === '223456' || packet.postId === '223457') {
+      if (['223456', '223457', '223458'].includes(packet.postId)) {
         if (packet.action === 'article') return Response.json({ title: articleTitle, author: articleAuthor, blocks: [
           { kind: 'paragraph', runs: [{ text: articleDescription, bold: true }] },
           { kind: 'image', alt: '桥下的旧书店', caption: '雨天的书店', image: articleImage },
@@ -63,6 +64,11 @@ try{
         });contexts.push(context);
       }
       const source=await contexts[0].newPage(),peer=await contexts[1].newPage();
+      const peerXRequests = [];
+      await contexts[1].route('**/api/rooms/*/x-post', async route => {
+        peerXRequests.push(route.request().postDataJSON());
+        await route.continue();
+      });
       await source.goto(origin);await source.locator('#create-room').click();await source.locator('#copy-invite').click();
       await source.waitForFunction(()=>!!window.copiedLink);await peer.goto(await source.evaluate(()=>window.copiedLink));
       await source.locator('#message-input:not([disabled])').waitFor();await peer.locator('#message-input:not([disabled])').waitFor();
@@ -190,6 +196,7 @@ try{
       await peer.evaluate(() => window.app.revealPrivacySurface());
 
       await input.fill(sendArticleUrl);
+      await row.filter({ hasText: '正在获取链接预览' }).waitFor();
       await source.locator('#send-text').click();
       const sent = source.locator('.message.outgoing').filter({ has: source.locator('.message-web-link[href$="/223457"]') });
       await sent.locator('.x-post-after-send').filter({ hasText: '正在解析链接' }).waitFor();
@@ -202,7 +209,8 @@ try{
       await resolved.locator('.x-post-card').filter({ hasText: articleTitle }).waitFor();
       assert.equal(await resolved.evaluate((node, before) => node === before, pendingRow), true, 'Update the existing outgoing row');
       assert.equal(await resolved.locator('.x-post-original').getAttribute('href'), sendArticleUrl);
-      assert.equal(lookupsFor('223457').length, 1, 'The recipient performs no automatic lookup');
+      assert.equal(lookupsFor('223457').length, 1, 'The sent message takes over the in-flight draft lookup');
+      assert.equal(peerXRequests.some(request => request.postId === '223457'), false, 'The recipient performs no automatic lookup');
       await source.evaluate(async () => {
         const { loadLocalXPreviews } = await import('/src/lib/vault.ts');
         return new Promise((resolve, reject) => {
@@ -218,6 +226,16 @@ try{
       await source.reload();
       await resolved.locator('.x-post-card').filter({ hasText: articleTitle }).waitFor();
       assert.equal(lookupsFor('223457').length, 1, 'The sealed snapshot restores without a new disclosure');
+      await source.evaluate(url => {
+        const input = document.querySelector('#message-input');
+        input.value = url;
+        input.dispatchEvent(new Event('input'));
+        document.querySelector('#send-text').click();
+      }, noDraftArticleUrl);
+      await source.locator(`.x-post-original[href="${noDraftArticleUrl}"]`).waitFor();
+      await peer.locator('.message-web-link[href$="/223458"]').waitFor();
+      assert.equal(lookupsFor('223458').length, 1, 'Send starts lookup when the draft timer never ran');
+      assert.equal(peerXRequests.some(request => request.postId === '223458'), false);
       await input.fill('https://preview.example/slow-send');await row.filter({hasText:'正在获取'}).waitFor();await source.locator('#send-text').click();
       await peer.locator('.message-web-link').filter({hasText:'slow-send'}).waitFor();await source.waitForTimeout(1500);
       assert.equal(await peer.locator('.message-link-preview').count(),1,'Sending while loading stays plain');
