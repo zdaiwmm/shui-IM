@@ -4,6 +4,17 @@
 
 跨设备操作见[GitHub 双站发布与独立回读](docs/requirements/2026-11-09-cross-device-release/README.md)。
 
+## FxTwitter 查帖与 X 卡片点播已发布到主站（2026-11-19）
+<a id="release-aix-fxtwitter-20261119"></a>
+
+用户确认将 `a893d3d7a1c8ffed3f1a7922b2813cee2ef5f32d`（`2026.11.19.1`）发布到 `ai.shui.click`，并启用 `aix.shui.click` 的正式点播。主站此前运行 `6ae5ac5faae4cc8bda11c773f3d3584e3bdc82b8`。AIX 使用 FxTwitter 查询公开帖子，通过短期票据按需转发 X CDN 视频。无需 X API Bearer Token。[实现 PR #551](https://github.com/zdaiwmm/shui-IM/pull/551)
+
+精确 main 全量 CI 第一次通过。固定本机发布入口使用同轮 `linux/amd64` 产物 `14497064901`。运行镜像 ID 为 `sha256:659e9f33682975ad923c8d21a4c75f44199b0612e4c00edeebbe6c553928d37d`。批次 `20261119T042253Z` 校验冷备份后完成一次切换，返回 `DEPLOY_VERIFIED`。[精确 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/44455361888/attempts/1)
+
+北京时间 **12:28:30** 独立取得 `READBACK_OK`。应用和备份健康，维护门解除。镜像、HTTPS、数据库、存储、公开和容器资源摘要及新 WebSocket 已核对。主站页面的 `media-src` 包含 AIX 公网来源。
+
+正式 AIX 公网健康返回 204。上线后，桌面 Chrome 在手机尺寸下运行隔离聊天，使用生产容器中的真实网关及 `aix.shui.click`。双视频卡片可左右滑动，点击前未请求视频，两段视频均播放且各收到三次 206。切页释放前一段播放器。真实聊天未写入测试消息，物理 iPhone 原生全屏待验。发布与验证证据保存在公共 Git 目录下的 `quiet-room-deliveries/evidence/aix-fxtwitter-20261119/`。[需求与接入边界](docs/requirements/2026-11-18-x-post-chat-card/README.md)
+
 ## X 帖子卡片代码已发布到主站（2026-11-19）
 <a id="release-x-post-card-20261119"></a>
 
@@ -13,7 +24,7 @@
 
 发布批次 `20261119T015308Z` 取得 `DEPLOY_VERIFIED`。北京时间 **09:58:32** 独立取得 `READBACK_OK`（2889 ms）。应用和备份运行且健康，TURN 在运行，维护门已解除。实际镜像、HTTPS、数据库、存储、公开和容器资源摘要及新建 WebSocket 均通过。公开 `/release.json` 返回 HTTP 200、`Cache-Control: no-cache` 和版本 `2026.11.18.2`。
 
-X 卡片生产开关仍关闭。`aix.shui.click` 尚无 DNS 解析。家庭机 SSH 已重新核实，独立 AIX 代码文件已按本批提交暂存并核对摘要。家庭机现有 Xray 入口要求认证，AIX 的出口和 X API 凭据尚未配置，公网链路和 iPhone 原生全屏仍待实测。[需求与接入边界](docs/requirements/2026-11-18-x-post-chat-card/README.md)
+此批发布时 X 卡片开关关闭。家庭机已暂存该批独立 AIX 代码并核对摘要。正式 AIX 查帖和点播在下一批启用。[后续发布记录](#release-aix-fxtwitter-20261119)
 
 ## Safari 大视频查看器已发布到主站（2026-11-18）
 <a id="release-safari-large-video-viewer-20261118"></a>
