@@ -31,6 +31,7 @@
 #app .x-post-media { position: relative; margin-top: 6px; }
 #app .x-post-track {
   display: flex;
+  width: 100%;
   min-height: 88px;
   aspect-ratio: var(--x-post-ratio, auto);
   overflow: auto hidden;
@@ -39,6 +40,7 @@
   scrollbar-width: none;
   border-radius: 10px;
 }
+#app .x-post-media:has(> .x-post-edge) .x-post-track { min-height: 132px; }
 #app .x-post-track::-webkit-scrollbar { display: none; }
 #app .x-post-stage {
   position: relative;

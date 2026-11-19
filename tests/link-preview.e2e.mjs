@@ -134,6 +134,23 @@ try{
       const videoTrack = xCard.locator('.x-post-track');
       const trackRatio = () => videoTrack.evaluate(node => node.clientWidth / node.clientHeight);
       assert.ok(Math.abs(await trackRatio() - 2) < 0.02, 'The first cover sets the wide ratio');
+      const wideClip = await videoTrack.evaluate(track => {
+        const ratio = track.style.getPropertyValue('--x-post-ratio');
+        track.style.setProperty('--x-post-ratio', '5');
+        try {
+          const bounds = track.getBoundingClientRect();
+          const media = track.parentElement;
+          const navigation = media.querySelector('.x-post-edge-next').getBoundingClientRect();
+          return {
+            fitsCard: bounds.width <= media.clientWidth + 1,
+            clearsControls: navigation.top >= bounds.top + 44 && navigation.bottom <= bounds.bottom - 44,
+          };
+        } finally {
+          track.style.setProperty('--x-post-ratio', ratio);
+        }
+      });
+      assert.deepEqual(wideClip, { fitsCard: true, clearsControls: true },
+        'An ultra-wide clip keeps navigation clear of both sets of playback controls');
       assert.ok(await xCard.locator('.x-post-page').evaluate(node => {
         const style = getComputedStyle(node);
         return style.position === 'absolute' && style.backgroundColor === 'rgba(0, 0, 0, 0)';
