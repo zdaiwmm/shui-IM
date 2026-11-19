@@ -135,17 +135,17 @@ try {
   await card.getByRole('button', { name: '查看全文' }).click();
   await card.getByText(description, { exact: true }).waitFor();
   await card.getByRole('button', { name: '播放视频' }).click();
-  const player = card.locator('video[data-actual-playback="true"]');
-  await player.waitFor();
-  const target = await player.evaluate(media => {
-    const target = media.currentTime < .65 ? 1.2 : .2;
-    media.currentTime = target;
-    return target;
-  });
+  const player = card.locator('video');
+  await card.locator('video[data-actual-playback="true"]').waitFor();
+  await card.getByRole('button', { name: '暂停视频' }).click();
+  const target = await player.evaluate(media => media.currentTime < .65 ? 1.2 : .2);
+  await card.getByRole('slider', { name: '视频进度' }).fill(String(target));
   await receiver.waitForFunction(target => {
     const media = document.querySelector('.youtube-card video');
     return media && !media.seeking && Math.abs(media.currentTime - target) < .45;
   }, target);
+  await card.locator('.x-post-toggle').click();
+  await card.locator('video[data-actual-playback="true"]').waitFor();
   assert.ok(upstreamRanges.some(range => /^bytes=/.test(range ?? '')), 'The relay must serve browser range requests');
   await card.locator('.youtube-stop').click();
   await card.locator('video').waitFor({ state: 'detached' });

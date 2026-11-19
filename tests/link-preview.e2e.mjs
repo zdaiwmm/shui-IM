@@ -10,6 +10,7 @@ const dataDir=await mkdtemp(path.join(tmpdir(),'link-preview-browser-'));
 let backend,vite;
 const xRequests = [];
 let xCover, xPortraitCover, articleImage, sentPreviewGate;
+let playbackWait;
 const articleTitle = '雨后的旧书店';
 const articleAuthor = '林照 · @public_author';
 const articleUrl = 'https://x.com/public_author/status/223456';
@@ -40,7 +41,10 @@ try{
       }
       if (packet.postId !== '123456') return Response.json({}, { status: 404 });
       if (packet.action === 'text') return Response.json({ text: fullPost });
-      if (packet.action === 'playback') return Response.json({ url: ticket });
+      if (packet.action === 'playback') {
+        await playbackWait;
+        return Response.json({ url: ticket });
+      }
       return Response.json({ title: '@public_author', description: '这个公开帖子有两段视频。', canRead: true,
         videos: [{ id: '7_001', cover: xCover }, { id: '7_002', cover: xPortraitCover }] });
     },
@@ -130,6 +134,23 @@ try{
       const videoTrack = xCard.locator('.x-post-track');
       const trackRatio = () => videoTrack.evaluate(node => node.clientWidth / node.clientHeight);
       assert.ok(Math.abs(await trackRatio() - 2) < 0.02, 'The first cover sets the wide ratio');
+      const wideClip = await videoTrack.evaluate(track => {
+        const ratio = track.style.getPropertyValue('--x-post-ratio');
+        track.style.setProperty('--x-post-ratio', '5');
+        try {
+          const bounds = track.getBoundingClientRect();
+          const media = track.parentElement;
+          const navigation = media.querySelector('.x-post-edge-next').getBoundingClientRect();
+          return {
+            fitsCard: bounds.width <= media.clientWidth + 1,
+            clearsControls: navigation.top >= bounds.top + 44 && navigation.bottom <= bounds.bottom - 44,
+          };
+        } finally {
+          track.style.setProperty('--x-post-ratio', ratio);
+        }
+      });
+      assert.deepEqual(wideClip, { fitsCard: true, clearsControls: true },
+        'An ultra-wide clip keeps navigation clear of both sets of playback controls');
       assert.ok(await xCard.locator('.x-post-page').evaluate(node => {
         const style = getComputedStyle(node);
         return style.position === 'absolute' && style.backgroundColor === 'rgba(0, 0, 0, 0)';
@@ -143,11 +164,25 @@ try{
       await peer.waitForFunction(() => document.querySelector('.x-post-page')?.textContent === '2 / 2');
       assert.ok(Math.abs(await trackRatio() - 0.75) < 0.02, 'The second cover sets its own portrait ratio');
       assert.equal(mediaRequests, 0, 'Switching covers does not preload videos');
+      const videoConnection = peer.locator('head link[rel="preconnect"][crossorigin="anonymous"][href="https://aix.shui.click"]');
+      assert.equal(await videoConnection.count(), 0, 'Displaying and switching clips do not contact the media origin');
       if (process.env.QUIET_ROOM_PREVIEW_QA) {
         await xCard.screenshot({ path: path.join(process.env.QUIET_ROOM_PREVIEW_QA, `${name}-x-post-card.png`) });
       }
-      await xCard.locator('.x-post-stage:not([inert])').getByRole('button', { name: '播放视频' }).click();
+      const playback = Promise.withResolvers();
+      playbackWait = playback.promise;
+      try {
+        await xCard.locator('.x-post-stage:not([inert])').getByRole('button', { name: '播放视频' }).click();
+        await videoConnection.waitFor({ state: 'attached' });
+        assert.equal(mediaRequests, 0, 'The play gesture can warm the connection while waiting for a ticket');
+        assert.deepEqual(await xCard.locator('video').evaluate(video => [video.muted, video.controls]), [true, false],
+          'Card playback starts muted and uses inline card controls');
+      } finally {
+        playback.resolve();
+        playbackWait = undefined;
+      }
       await xCard.getByText('媒体载入失败，请重试').waitFor();
+      assert.equal(await videoConnection.count(), 0, 'The connection hint is removed when the ticket returns');
       assert.ok(mediaRequests > 0);
       assert.deepEqual(xRequests.slice(beforeX), [
         { action: 'preview', postId: '123456' }, { action: 'text', postId: '123456' },
