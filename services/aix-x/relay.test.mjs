@@ -154,11 +154,19 @@ it('looks up only the post ID at FxTwitter, preserves media order, and returns f
   });
 });
 
-it('returns Article metadata without images and reads ordered rich content with verified JPEGs', async () => {
+it('returns the Article cover, text-first body, and ordered rich content with verified JPEGs', async () => {
   const images = [];
+  const statusLookups = [];
   await withRelay({ fetch: async (url, options) => {
     expect(options.redirect).toBe('error');
     if (url.origin === 'https://api.fxtwitter.com') {
+      statusLookups.push(url.pathname);
+      if (url.pathname === '/2/status/789') {
+        const document = postDocument();
+        document.status.id = '789';
+        document.status.media.photos = [{ type: 'photo', url: 'https://pbs.twimg.com/media/quoted.png?name=orig', altText: '引用照片' }];
+        return Response.json(document);
+      }
       expect(url.href).toBe('https://api.fxtwitter.com/2/status/123');
       return Response.json(articleDocument());
     }
@@ -167,18 +175,24 @@ it('returns Article metadata without images and reads ordered rich content with 
     return new Response(articleJpeg, { headers: { 'Content-Type': 'image/jpeg' } });
   } }, async ({ lookup }) => {
     const author = '示例作者 · @fixture';
+    const image = { mimeType: 'image/jpeg', data: articleJpeg.toString('base64url'), width: 3, height: 2 };
     expect(await (await lookup('preview')).json()).toEqual({
       title: author, description: '抬头就能看到灯光。', canRead: true, videos: [], article: { title: '在灯下写字', author },
+      cover: { mimeType: image.mimeType, data: image.data },
     });
     expect(await (await lookup('text')).json()).toEqual({
       text: '晚间\n\n看灯光。请继续阅读\n\n放好钢笔\n\n合上笔记\n\n我的书桌\n\n 第一行\n  第二行\n\nprintf hi',
     });
-    expect(images).toEqual([]);
+    const body = await lookup('article-body');
+    expect(body.status).toBe(200);
+    const unhydrated = await body.json();
+    expect(images).toEqual(['https://pbs.twimg.com/media/cover.jpg?format=jpg&name=small']);
+    expect(statusLookups).toEqual(Array(3).fill('/2/status/123'));
     const full = await lookup('article');
     expect(full.status).toBe(200);
     expect(full.headers.get('cache-control')).toBe('no-store');
-    const image = { mimeType: 'image/jpeg', data: articleJpeg.toString('base64url'), width: 3, height: 2 };
-    expect(await full.json()).toEqual({
+    const hydrated = await full.json();
+    expect(hydrated).toEqual({
       title: '在灯下写字', author,
       blocks: [
         { kind: 'image', alt: '灯光照在书桌上', image },
@@ -193,13 +207,23 @@ it('returns Article metadata without images and reads ordered rich content with 
         { kind: 'quote', runs: [{ text: ' 第一行\n  第二行' }] },
         { kind: 'link', href: 'https://x.com/i/web/status/123', label: 'Image on X' },
         { kind: 'link', href: 'https://x.com/i/web/status/789', label: 'Post on X' },
+        { kind: 'image', alt: '引用照片', image },
         { kind: 'code', runs: [{ text: 'printf hi' }] },
         { kind: 'divider' },
       ],
     });
+    expect(unhydrated).toEqual({
+      ...hydrated,
+      blocks: hydrated.blocks.map((block, index) => {
+        if (block.kind !== 'image') return block;
+        return { kind: 'link', href: `https://x.com/i/web/status/${index === 9 ? '789' : '123'}`, label: 'Image on X' };
+      }),
+    });
     expect(images).toEqual([
+      'https://pbs.twimg.com/media/cover.jpg?format=jpg&name=small',
       'https://pbs.twimg.com/media/cover.jpg?format=jpg&name=medium',
       'https://pbs.twimg.com/media/lamp.jpg?format=jpg&name=medium',
+      'https://pbs.twimg.com/media/quoted?format=jpg&name=medium',
     ]);
   });
 });
@@ -207,7 +231,7 @@ it('returns Article metadata without images and reads ordered rich content with 
 it('revalidates Article access and does not resolve media for unauthorized or unavailable articles', async () => {
   let mode = 'public';
   let requests = 0;
-  await withRelay({ fetch: async url => {
+  await withRelay({ mediaEnabled: false, fetch: async url => {
     expect(url.origin).toBe('https://api.fxtwitter.com');
     requests++;
     if (mode === 'regular') return Response.json(postDocument());
@@ -219,12 +243,82 @@ it('revalidates Article access and does not resolve media for unauthorized or un
   } }, async ({ lookup }) => {
     expect((await lookup('article', {}, {})).status).toBe(401);
     expect((await lookup('article', { url: 'https://example.com' })).status).toBe(400);
+    expect((await lookup('article-body', {}, {})).status).toBe(401);
+    expect((await lookup('article-body', { mediaId: 'cover' })).status).toBe(400);
     expect(requests).toBe(0);
-    expect((await lookup('preview')).status).toBe(200);
+    const preview = await lookup('preview');
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).not.toHaveProperty('cover');
     for (mode of ['protected', 'sensitive', 'withheld', 'regular', 'no-body']) {
       expect((await lookup('article')).status).toBe(404);
+      expect((await lookup('article-body')).status).toBe(404);
     }
-    expect(requests).toBe(6);
+    expect(requests).toBe(11);
+  });
+});
+
+it('keeps a quoted post link when the post is unavailable and falls back to a smaller inline JPEG', async () => {
+  const images = [];
+  await withRelay({ fetch: async url => {
+    if (url.pathname === '/2/status/123') return Response.json(articleDocument());
+    if (url.pathname === '/2/status/789') return Response.json({ code: 404 });
+    images.push(url.href);
+    if (url.pathname === '/media/lamp.jpg' && url.searchParams.get('name') === 'medium') {
+      return new Response(null, { status: 404 });
+    }
+    return new Response(articleJpeg, { headers: { 'Content-Type': 'image/jpeg' } });
+  } }, async ({ lookup }) => {
+    const { blocks } = await (await lookup('article')).json();
+    expect(blocks[5]).toMatchObject({ kind: 'image', caption: '我的书桌' });
+    expect(blocks.slice(8, 10)).toEqual([
+      { kind: 'link', href: 'https://x.com/i/web/status/789', label: 'Post on X' },
+      { kind: 'link', href: 'https://x.com/i/web/status/789', label: 'Image on X' },
+    ]);
+    expect(images).toContain('https://pbs.twimg.com/media/lamp.jpg?format=jpg&name=small');
+  });
+});
+
+it('keeps the final text block when there is no room for an additional quoted photo', async () => {
+  const document = articleDocument({ cover_media: null, content: {
+    blocks: [embeddedBlock(0), ...Array.from({ length: 511 }, (_, index) => articleBlock('unstyled', `段落 ${index + 1}`))],
+    entityMap: [{ key: '0', value: { type: 'TWEET', data: { tweetId: '789' } } }],
+  } });
+  await withRelay({ fetch: async url => {
+    expect(url.pathname).toBe('/2/status/123');
+    return Response.json(document);
+  } }, async ({ lookup }) => {
+    const { blocks } = await (await lookup('article')).json();
+    expect(blocks).toHaveLength(512);
+    expect(blocks[0]).toEqual({ kind: 'link', href: 'https://x.com/i/web/status/789', label: 'Post on X' });
+    expect(blocks.at(-1)).toEqual({ kind: 'paragraph', runs: [{ text: '段落 511' }] });
+  });
+});
+
+it('continues loading later quoted photos after earlier quoted posts time out', async () => {
+  const quoteIds = ['700', '701', '702', '703', '704'];
+  const document = articleDocument({ cover_media: null, content: {
+    blocks: quoteIds.map((_, index) => embeddedBlock(index)),
+    entityMap: quoteIds.map((tweetId, index) => ({
+      key: String(index), value: { type: 'TWEET', data: { tweetId } },
+    })),
+  } });
+  const finalPost = postDocument();
+  finalPost.status.id = '704';
+  finalPost.status.media = { photos: [
+    { type: 'photo', url: 'https://pbs.twimg.com/media/last.jpg' },
+  ] };
+  await withRelay({ fetch: async (url, { signal }) => {
+    if (url.pathname === '/2/status/123') return Response.json(document);
+    if (url.pathname === '/2/status/704') return Response.json(finalPost);
+    if (url.hostname === 'pbs.twimg.com') return new Response(articleJpeg, { headers: { 'Content-Type': 'image/jpeg' } });
+    await once(signal, 'abort');
+    throw signal.reason;
+  } }, async ({ lookup }) => {
+    const full = await lookup('article');
+    expect(full.status).toBe(200);
+    const { blocks } = await full.json();
+    expect(blocks.at(-2)).toEqual({ kind: 'link', href: 'https://x.com/i/web/status/704', label: 'Post on X' });
+    expect(blocks.at(-1)).toMatchObject({ kind: 'image', image: { mimeType: 'image/jpeg' } });
   });
 });
 

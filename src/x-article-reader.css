@@ -99,7 +99,14 @@ html:not(.privacy-obscured):has(#app > .x-article-reader) {
 .x-article-reader-body hr { border: 0; border-top: 1px solid var(--line-subtle); margin-block: 1.35em; }
 
 .x-article-reader a { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
-.x-article-embed-link { display: inline-flex; align-items: center; min-block-size: 44px; margin-block-end: 1em; }
+.x-article-embed-link {
+  display: flex;
+  align-items: center;
+  inline-size: fit-content;
+  min-block-size: 44px;
+  margin-block-end: 1em;
+}
+.x-article-embed-link[hidden] { display: none; }
 .x-article-reader-feedback p { margin-block: 12px 0; color: var(--ink-muted); }
 .x-article-reader-actions { display: flex; flex-wrap: wrap; gap: 16px; margin-block-start: 8px; }
 .x-article-reader-actions :is(a, button) { display: inline-flex; align-items: center; min-block-size: 44px; padding: 0; }

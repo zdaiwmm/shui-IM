@@ -69,12 +69,14 @@ async function prepareJpeg(raw: unknown, budget: number, signal: AbortSignal): P
 }
 
 async function prepareXPostPreview(raw: unknown, url: string, id: string, signal: AbortSignal): Promise<LinkPreview> {
-  const packet = raw as { title: string; description: string; canRead: boolean; article?: unknown;
+  const packet = raw as { title: string; description: string; canRead: boolean; article?: unknown; cover?: unknown;
     videos: Array<{ id: unknown; durationMs?: unknown; cover?: unknown }> };
   if (!packet || typeof packet.canRead !== 'boolean' || !Array.isArray(packet.videos)
     || packet.videos.length > MAX_X_POST_VIDEOS) throw new Error('Invalid X post preview');
+  const article = xArticleMetadata(packet.article);
   const videos: XPostVideoPreview[] = [];
-  const coverBudget = Math.floor(PREVIEW_IMAGE_BYTES / Math.max(1, packet.videos.length));
+  const coverBudget = Math.floor(PREVIEW_IMAGE_BYTES / Math.max(1, packet.videos.length + Number(Boolean(article && packet.cover))));
+  const image = article ? await prepareJpeg(packet.cover, coverBudget, signal) : undefined;
   for (const video of packet.videos) {
     if (!isXPostMediaId(video?.id)) throw new Error('Invalid X post video');
     const item: XPostVideoPreview = { id: video.id };
@@ -83,10 +85,10 @@ async function prepareXPostPreview(raw: unknown, url: string, id: string, signal
     if (poster) item.poster = poster;
     videos.push(item);
   }
-  const article = xArticleMetadata(packet.article);
   const siteName = article ? (X_ARTICLE_SOURCE + article.author).slice(0, 100).replace(/[\ud800-\udbff]$/u, '').trimEnd() : 'X';
   const preview: LinkPreview = {
-    url, siteName, title: article?.title ?? packet.title, description: packet.description, layout: 'text',
+    url, siteName, title: article?.title ?? packet.title, description: packet.description, layout: image ? 'large' : 'text',
+    ...(image ? { image } : {}),
     xPost: { id, canRead: article ? true : packet.canRead, videos },
   };
   if (!isLinkPreview(preview)) throw new Error('Invalid X post preview');

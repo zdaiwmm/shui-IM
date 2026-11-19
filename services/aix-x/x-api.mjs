@@ -12,7 +12,10 @@ const ARTICLE_URL_BUDGET = 64 * 1024;
 const ARTICLE_IMAGE_BUDGET = 768 * 1024;
 const ARTICLE_RESPONSE_LIMIT = 1536 * 1024;
 const ARTICLE_IMAGE_REQUESTS = 24;
+const ARTICLE_QUOTED_POSTS = 8;
 const ARTICLE_MEDIA_CONCURRENCY = 4;
+const ARTICLE_IMAGE_TIMEOUT_MS = 5_000;
+const ARTICLE_QUOTED_POST_TIMEOUT_MS = 1_500;
 const ARTICLE_STYLES = new Map([
   ['bold', 'bold'], ['italic', 'italic'], ['underline', 'underline'],
   ['strikethrough', 'strike'], ['code', 'code'],
@@ -159,21 +162,30 @@ function articleBlockType(block) {
   }
 }
 
+function articleImageUrl(value) {
+  const url = cdnUrl(value, COVER_ORIGIN);
+  const match = /^\/media\/([a-z0-9_-]+)(?:\.(jpg|jpeg|png|webp))?(?::(?:orig|large|medium|small|thumb))?$/i.exec(url?.pathname ?? '');
+  if (!match) return;
+  const [, id, extension] = match;
+  url.pathname = `/media/${id}${extension?.toLowerCase() === 'jpg' ? '.jpg' : ''}`;
+  url.search = '';
+  return url;
+}
+
 function articlePhoto(item, block, source) {
   const info = item?.media_info;
   const href = canonicalPostUrl(source);
-  const url = info?.__typename === 'ApiImage' ? cdnUrl(info.original_img_url, COVER_ORIGIN) : null;
-  if (!url || !/^\/media\/[a-z0-9_-]+(?:\.[a-z0-9]+)?$/i.test(url.pathname)) {
+  const url = info?.__typename === 'ApiImage' && articleImageUrl(info.original_img_url);
+  if (!url) {
     const video = ['ApiVideo', 'ApiGif'].includes(info?.__typename);
     return { kind: 'link', href, label: video ? 'Video on X' : 'Image on X' };
   }
-  url.search = '';
   const alt = plainText(info.ext_alt_text ?? item.ext_alt_text ?? block?.data?.altText, 300);
   const caption = plainText(block?.data?.caption, 300, true);
-  return { kind: 'photo', url, alt, ...(caption ? { caption } : {}), fallback: { kind: 'link', href, label: 'Image on X' } };
+  return { kind: 'photo', target: { url }, alt, ...(caption ? { caption } : {}), fallback: { kind: 'link', href, label: 'Image on X' } };
 }
 
-function normalizeArticle(raw, author, source) {
+function normalizeArticle(raw, author, source, mediaEnabled) {
   const title = plainText(raw?.title, 300);
   if (!title) return undefined;
   const summary = plainText(raw.preview_text, EXCERPT_LIMIT);
@@ -185,6 +197,7 @@ function normalizeArticle(raw, author, source) {
   }
   const budget = { blocks: 0, runs: ARTICLE_RUN_LIMIT, text: TEXT_LIMIT, urls: ARTICLE_URL_BUDGET };
   const blocks = [];
+  const quotedPhotos = new Map();
   const append = value => {
     if (budget.blocks < ARTICLE_BLOCK_LIMIT) {
       blocks.push(value);
@@ -221,7 +234,13 @@ function normalizeArticle(raw, author, source) {
         for (const media of boundedArray(value.data?.mediaItems)) append(articlePhoto(assets.get(media?.mediaId), block, source));
       } else if (value.type === 'TWEET') {
         const tweet = value.data?.tweetId;
-        if (typeof tweet === 'string' && POST_ID.test(tweet)) append({ kind: 'link', href: canonicalPostUrl(tweet), label: 'Post on X' });
+        if (typeof tweet === 'string' && POST_ID.test(tweet)) {
+          const href = canonicalPostUrl(tweet);
+          append({ kind: 'link', href, label: 'Post on X' });
+          if (mediaEnabled && tweet !== source && quotedPhotos.size < ARTICLE_QUOTED_POSTS && !quotedPhotos.has(tweet)) {
+            quotedPhotos.set(tweet, { index: blocks.length, href });
+          }
+        }
       } else if (typeof value.data?.markdown === 'string' && budget.text > 0 && budget.blocks < ARTICLE_BLOCK_LIMIT) {
         const fence = /^```[^\n]*\n([\s\S]*?)\n```\s*$/u.exec(value.data.markdown);
         const raw = fence?.[1] ?? value.data.markdown;
@@ -236,10 +255,14 @@ function normalizeArticle(raw, author, source) {
     }
     if (start < text.length || !text.length && !placement.length) appendText(start, text.length);
   }
+  const photoSlots = [...quotedPhotos].slice(0, ARTICLE_BLOCK_LIMIT - blocks.length);
+  for (const [postId, { index, href }] of photoSlots.reverse()) {
+    blocks.splice(index, 0, { kind: 'photo', target: { postId }, alt: '', fallback: { kind: 'link', href, label: 'Image on X' } });
+  }
   const ordered = blocks.slice(contentStart);
   const text = ordered.map(block => block.runs?.map(run => run.text).join('') ?? block.caption ?? '').filter(Boolean)
     .join('\n\n').slice(0, TEXT_LIMIT).replace(/[\ud800-\udbff]$/u, '');
-  return { title, author, summary: summary || plainText(text, EXCERPT_LIMIT), text, blocks, hasBody: ordered.some(block =>
+  return { title, author, summary: summary || plainText(text, EXCERPT_LIMIT), text, blocks, coverUrl: cover?.target?.url, hasBody: ordered.some(block =>
     block.kind !== 'divider' && (block.kind === 'photo' || block.kind === 'link' || block.runs?.some(run => run.text.trim()))) };
 }
 
@@ -258,12 +281,16 @@ function playableVariant(media) {
   return fallback?.pathname.endsWith('.mp4') ? fallback : null;
 }
 
-function postData(post, id, mediaEnabled) {
-  const author = post?.author;
-  if (post?.type !== 'status' || post.id !== id || author?.protected !== false
-    || post.withheld || author.withheld || post.possibly_sensitive !== false) {
+function requirePublicPost(post, id) {
+  if (post?.type !== 'status' || post.id !== id || post.author?.protected !== false
+    || post.withheld || post.author.withheld || post.possibly_sensitive !== false) {
     throw new AixError(404, 'POST_UNAVAILABLE');
   }
+  return post;
+}
+
+function postData(post, id, mediaEnabled) {
+  const { author } = post;
   const username = typeof author.screen_name === 'string' && /^\w{1,15}$/.test(author.screen_name)
     ? `@${author.screen_name}` : '';
   if (!username) throw new AixError(502, 'UPSTREAM_RESPONSE');
@@ -283,7 +310,7 @@ function postData(post, id, mediaEnabled) {
         coverUrl: cdnUrl(media.thumbnail_url, COVER_ORIGIN) });
     }
   }
-  return { title, text, videos, article: normalizeArticle(post.article, title, id) };
+  return { title, text, videos, article: normalizeArticle(post.article, title, id, mediaEnabled) };
 }
 
 function lookupError(code) {
@@ -293,7 +320,7 @@ function lookupError(code) {
 }
 
 export function createXProvider({ mediaEnabled, fetch: fetchResource }) {
-  async function lookup(postId, signal) {
+  async function lookupPublicPost(postId, signal) {
     const url = new URL(`/2/status/${postId}`, POST_LOOKUP_ORIGIN);
     const response = await fetchResource(url, { headers: { Accept: 'application/json' }, redirect: 'error', signal });
     if (response.status !== 200) {
@@ -303,48 +330,78 @@ export function createXProvider({ mediaEnabled, fetch: fetchResource }) {
     const bytes = await boundedBody(response, API_LIMIT);
     const document = JSON.parse(bytes.toString('utf8'));
     if (document?.code !== 200) throw lookupError(document?.code);
-    return postData(document.status, postId, mediaEnabled);
+    return requirePublicPost(document.status, postId);
+  }
+
+  async function lookup(postId, signal) {
+    return postData(await lookupPublicPost(postId, signal), postId, mediaEnabled);
   }
 
   async function preview(post, signal) {
     const description = post.article?.summary || plainText(post.text, EXCERPT_LIMIT);
-    const videos = await Promise.all(post.videos.map(async ({ id, durationMs, coverUrl }) => {
-      const cover = coverUrl ? await fetchCover(coverUrl, signal, fetchResource).catch(() => undefined) : undefined;
-      return { id, ...(durationMs === undefined ? {} : { durationMs }), ...(cover ? { cover } : {}) };
-    }));
+    const previewCover = url => url ? fetchCover(url, signal, fetchResource).catch(() => undefined) : undefined;
+    const [videos, cover] = await Promise.all([
+      Promise.all(post.videos.map(async ({ id, durationMs, coverUrl }) => {
+        const cover = await previewCover(coverUrl);
+        return { id, ...(durationMs === undefined ? {} : { durationMs }), ...(cover ? { cover } : {}) };
+      })),
+      previewCover(mediaEnabled && post.article?.coverUrl),
+    ]);
     signal.throwIfAborted();
     const article = post.article && { title: post.article.title, author: post.article.author };
     return { title: post.title, description, canRead: Boolean(article) || post.text !== description, videos,
-      ...(article ? { article } : {}) };
+      ...(article ? { article } : {}), ...(cover ? { cover } : {}) };
   }
 
-  async function article(post, signal) {
+  async function fetchArticleImage(target, signal) {
+    let { url } = target;
+    let alt;
+    if (target.postId) {
+      const quoteSignal = AbortSignal.any([signal, AbortSignal.timeout(ARTICLE_QUOTED_POST_TIMEOUT_MS)]);
+      const quote = await lookupPublicPost(target.postId, quoteSignal);
+      for (const photo of boundedArray(quote.media?.photos)) {
+        url = photo?.type === 'photo' && articleImageUrl(photo.url);
+        if (url) {
+          alt = plainText(photo.altText ?? photo.alt_text, 300);
+          break;
+        }
+      }
+    }
+    if (!url) return;
+    for (const size of ['medium', 'small']) {
+      signal.throwIfAborted();
+      const result = await fetchJpeg(url, signal, fetchResource, size, true).catch(() => undefined);
+      if (result) return { ...result, alt };
+    }
+  }
+
+  async function article(post, signal, { includeImages }) {
     if (!post.article?.hasBody) throw new AixError(404, 'ARTICLE_UNAVAILABLE');
     signal.throwIfAborted();
     const { title, author, blocks } = post.article;
     const result = { title, author, blocks: blocks.map(block => block.kind === 'photo' ? block.fallback : block) };
-    if (!mediaEnabled) return result;
+    if (!mediaEnabled || !includeImages) return result;
     const requests = new Map();
     for (const [index, block] of blocks.entries()) {
       if (block.kind !== 'photo') continue;
-      const href = block.url.href;
-      if (requests.has(href)) requests.get(href).indexes.push(index);
-      else if (requests.size < ARTICLE_IMAGE_REQUESTS) requests.set(href, { url: block.url, indexes: [index] });
+      const key = block.target.url?.href ?? block.target.postId;
+      if (requests.has(key)) requests.get(key).indexes.push(index);
+      else if (requests.size < ARTICLE_IMAGE_REQUESTS) requests.set(key, { target: block.target, indexes: [index] });
     }
     const images = [...requests.values()];
-    const imageSignal = AbortSignal.any([signal, AbortSignal.timeout(3_000)]);
+    const imageSignal = AbortSignal.any([signal, AbortSignal.timeout(ARTICLE_IMAGE_TIMEOUT_MS)]);
     let rawRemaining = ARTICLE_IMAGE_BUDGET;
     let encodedRemaining = ARTICLE_RESPONSE_LIMIT - Buffer.byteLength(JSON.stringify(result));
     for (let offset = 0; offset < images.length && rawRemaining && !imageSignal.aborted; offset += ARTICLE_MEDIA_CONCURRENCY) {
       const batch = images.slice(offset, offset + ARTICLE_MEDIA_CONCURRENCY);
-      const fetched = await Promise.all(batch.map(({ url }) => fetchJpeg(url, imageSignal, fetchResource, 'medium').catch(() => undefined)));
+      const fetched = await Promise.all(batch.map(({ target }) => fetchArticleImage(target, imageSignal).catch(() => undefined)));
       for (const [position, item] of fetched.entries()) {
         if (!item) continue;
         const { image, bytes } = item;
         for (const index of batch[position].indexes) {
           if (bytes > rawRemaining) break;
           const { alt, caption } = blocks[index];
-          const replacement = { kind: 'image', alt, ...(caption ? { caption } : {}), image };
+          const replacement = { kind: 'image', alt: item.alt ?? alt, ...(caption ? { caption } : {}), image };
           const delta = Buffer.byteLength(JSON.stringify(replacement)) - Buffer.byteLength(JSON.stringify(result.blocks[index]));
           if (delta > encodedRemaining) continue;
           result.blocks[index] = replacement;
@@ -366,7 +423,7 @@ async function fetchCover(url, signal, fetchResource) {
   if (result) return { mimeType: result.image.mimeType, data: result.image.data };
 }
 
-async function fetchJpeg(url, signal, fetchResource, size) {
+async function fetchJpeg(url, signal, fetchResource, size, requireScan = false) {
   const target = new URL(url);
   target.searchParams.set('format', 'jpg');
   target.searchParams.set('name', size);
@@ -376,7 +433,7 @@ async function fetchJpeg(url, signal, fetchResource, size) {
     return undefined;
   }
   const bytes = await boundedBody(response, COVER_LIMIT);
-  const dimensions = jpegDimensions(bytes, size === 'medium');
+  const dimensions = jpegDimensions(bytes, requireScan);
   if (!dimensions) return undefined;
   return { image: { mimeType: 'image/jpeg', data: bytes.toString('base64url'), ...dimensions }, bytes: bytes.length };
 }

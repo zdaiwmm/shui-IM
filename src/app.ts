@@ -2,7 +2,7 @@ import { openLinkVideoSheet, localVideoTile } from './lib/link-video-sheet';
 import { listLinkVideos, confirmLinkVideoShared, isLinkVideoSendConfirmed, type SavedLinkVideo,
   loadLocalXPreviews, saveLocalXPreview, LOCAL_X_PREVIEW_LIMIT } from './lib/vault';
 import { ComposerLinkPreview, renderPreviewCard, concealLinkPreviews, revealLinkPreviews, loadXPostPreview, loadYouTubePreview } from './lib/link-preview-ui';
-import { LINK_PREVIEW_CAPABILITY, X_POST_PREVIEW_CAPABILITY, YOUTUBE_PREVIEW_CAPABILITY, youtubeVideoId, type LinkPreview } from './lib/link-preview-data';
+import { LINK_PREVIEW_CAPABILITY, X_POST_PREVIEW_CAPABILITY, YOUTUBE_PREVIEW_CAPABILITY, xArticleAuthor, youtubeVideoId, type LinkPreview } from './lib/link-preview-data';
 import { concealXPostCards, renderXPostCard, renderYouTubeCard, revealXPostCards } from './lib/x-post-card';
 import { openXPostVideo, readXArticle, readXPostText } from './lib/x-post-api';
 import { openYouTubeVideo } from './lib/youtube-api';
@@ -13410,8 +13410,9 @@ ${this.returnSpaceId ? uiLiteral('<button class="text-button" id="entry-return">
           ...layout, signal,
           readText: signal => readXPostText(roomId, accessToken, id, signal),
           openArticle: origin => openXArticleReader({
-            root: this.root, origin, title: preview.title, sourceUrl: preview.url, signal, active,
+            root: this.root, origin, preview: { ...preview, author: xArticleAuthor(preview) ?? '' }, sourceUrl: preview.url, signal, active,
             load: signal => readXArticle(roomId, accessToken, id, signal),
+            loadBody: signal => readXArticle(roomId, accessToken, id, signal, 'article-body'),
           }),
           loadVideo: (mediaId, signal) => openXPostVideo(roomId, accessToken, id, mediaId, signal),
         }));

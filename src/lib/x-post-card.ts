@@ -17,6 +17,7 @@ type CardOptions = {
 
 type VideoCardData = {
   url: string; source: string; title?: string; description: string; image?: LinkPreview['image'];
+  articleCover?: LinkPreview['image'];
   videos: XPostVideoPreview[]; originalLabel?: string; canCloseVideo?: boolean;
 };
 
@@ -116,7 +117,7 @@ export function renderXPostCard(preview: LinkPreview & { xPost: XPostPreview }, 
   const author = xArticleAuthor(preview);
   return renderVideoCard({
     url: preview.url, source: author ? preview.siteName : `${preview.siteName} · ${preview.title}`,
-    ...(author ? { title: preview.title } : {}), description: preview.description, image: preview.image,
+    ...(author ? { title: preview.title, articleCover: preview.image } : { image: preview.image }), description: preview.description,
     videos: preview.xPost.videos,
   }, { ...options, openArticle: author ? options.openArticle : undefined,
     readText: !author && preview.xPost.canRead ? options.readText : undefined });
@@ -241,6 +242,18 @@ function renderVideoCard(preview: VideoCardData, options: CardOptions): HTMLElem
     card.append(title);
   }
 
+  const cover = preview.articleCover;
+  const coverImage = cover && element('img', 'x-post-article-cover');
+  let coverUrl: string | undefined;
+  if (cover && coverImage) {
+    coverImage.alt = '';
+    coverImage.width = cover.width;
+    coverImage.height = cover.height;
+    coverImage.loading = 'lazy';
+    coverImage.decoding = 'async';
+    card.append(coverImage);
+  }
+
   const summary = element('p', 'x-post-copy');
   summary.textContent = preview.description;
   summary.hidden = !preview.description;
@@ -313,15 +326,27 @@ function renderVideoCard(preview: VideoCardData, options: CardOptions): HTMLElem
   }
 
   const media = preview.videos.length ? mountPostMedia(card, preview, options, live, changeLayout) : undefined;
-  if (openArticle || collapseText || media) {
+  if (openArticle || collapseText || media || coverImage) {
     const view = {
       conceal: () => {
         closeArticle?.(false);
         closeArticle = undefined;
         collapseText?.();
         media?.conceal();
+        if (coverUrl) {
+          coverImage?.removeAttribute('src');
+          URL.revokeObjectURL(coverUrl);
+          coverUrl = undefined;
+        }
       },
-      reveal: () => { if (live()) media?.reveal(); },
+      reveal: () => {
+        if (!live()) return;
+        media?.reveal();
+        if (cover && coverImage && !coverUrl) {
+          coverUrl = URL.createObjectURL(new Blob([fromBase64Url(cover.data)], { type: cover.mimeType }));
+          coverImage.src = coverUrl;
+        }
+      },
     };
     watchCard(card, options.signal, view, media?.dispose);
   }
