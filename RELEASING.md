@@ -13,7 +13,11 @@
 
 北京时间 **18:52:24** 独立取得同一提交的 `READBACK_OK`，耗时 21932 ms。线上状态、镜像、HTTPS 健康、公开与容器资源摘要及新建 WebSocket 均通过。[独立回读](https://github.com/zdaiwmm/shui-IM/actions/runs/44509416953)
 
-家庭站的本机只读预检在 SSH 连接阶段返回 `Operation not permitted`，未进入切换。mijiu-server 的 AIX 更新、YouTube 解析和媒体入口，以及两站 YouTube 启用均待完成。禁止浏览器直连 YouTube 和媒体源的模拟播放验证已通过。实际 YouTube 出口和端到端播放待验证。[YouTube 接入说明](services/aix-x/README.md)
+家庭站的本机只读预检在 SSH 连接阶段返回 `Operation not permitted`，未进入切换。
+
+mijiu-server 的独立 AIX 服务已切换到同一提交。切换前在独立回环端口验证公开 X 长文和双视频的真实上游响应。切换后独立核对运行容器的代码挂载，以及回环与公网健康均返回 204。主站隔离聊天的桌面 Chrome 移动尺寸验收中，接收端可展开、滚动和关闭 X 长文，正文图片加载成功。原有双视频点播均实际起播，各收到三次 HTTP 206，切页释放上一段播放器。
+
+接收端阻断 YouTube 及其媒体、封面域名后，主站的 YouTube 预览请求返回 `503 YOUTUBE_UNAVAILABLE`，公网 AIX 查询入口返回 404。此次线上验收未能播放 YouTube。两站 YouTube 点播启用仍待完成。禁止浏览器直连 YouTube 和媒体源的模拟播放验证已通过。[YouTube 验收与接入限制](docs/requirements/2026-11-19-youtube-chat-card/README.md)
 
 ## FxTwitter 查帖与 X 卡片点播已发布到主站（2026-11-19）
 <a id="release-aix-fxtwitter-20261119"></a>
