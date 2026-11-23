@@ -78,6 +78,29 @@ describe('persistent optional administrator deployment', () => {
     expect(config).toMatch(/location = \/admin-api\/expressions \{\s*client_max_body_size 70m;/);
     expect(config.indexOf('if (-f /var/lib/quiet-room-deploy/maintenance)')).toBeLessThan(config.indexOf('location = /admin-api/expressions'));
   });
+  it('routes the independent home administrator through Tokyo and gates traffic on the home host', async () => {
+    const ingress = await readFile(new URL('../deploy/nginx-ops.mijiu.cloud.conf', import.meta.url), 'utf8');
+    const gateway = await readFile(new URL('../deploy/home/gateway.conf', import.meta.url), 'utf8');
+    const homeAdmin = gateway.slice(gateway.indexOf('server_name ops.mijiu.cloud;'));
+    for (const config of [ingress, homeAdmin]) {
+      expect(config).toContain('server_name ops.mijiu.cloud;');
+      expect(config).toContain('proxy_set_header Host ops.mijiu.cloud;');
+      expect(config).toContain('client_max_body_size 64k;');
+      expect(config).toContain('location /ws { return 404; }');
+      expect(config).toMatch(/location = \/admin-api\/expressions \{\s*client_max_body_size 70m;/);
+    }
+    expect(ingress).toContain('proxy_pass http://127.0.0.1:18886;');
+    expect(ingress).toContain('/etc/letsencrypt/live/ops.mijiu.cloud/fullchain.pem');
+    expect(gateway).toContain('listen 127.0.0.1:18085 default_server;');
+    expect(gateway).toContain('if ($host != mijiu.cloud) { return 444; }');
+    expect(homeAdmin).toContain('proxy_pass http://127.0.0.1:8080;');
+    expect(homeAdmin.indexOf('if (-f /var/lib/quiet-room-deploy/maintenance) { return 503; }')).toBeGreaterThan(-1);
+    expect(homeAdmin.indexOf('if (-f /var/lib/quiet-room-deploy/maintenance) { return 503; }')).toBeLessThan(homeAdmin.indexOf('location = /admin-api/expressions'));
+    const result = await simulate('first-enable', 'https://ops.mijiu.cloud');
+    expect(result.status).toBe(0);
+    expect(result.probes).toContain('https://ops.mijiu.cloud/admin-api/rooms');
+  });
+
   it('keeps administration disabled without persistent settings', async () => {
     const result = await simulate('disabled');
     expect(result.status).toBe(0);

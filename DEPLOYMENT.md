@@ -665,6 +665,10 @@ V1 状态通道：基础 Compose 的 `quiet-room-admin-status` 为单独状态�
 
 2026-10-29 用户确认的目标为原生产 `admin.shui.click`、东京 `admin.mijiu.cloud`，仅准备，实际启用以精确发布记录为准。现有 `admin.mijiu.cloud` 曾属于原生产，不能提前改 DNS：先准备原生产新来源的证书与站点，在获批窗口切换其显式 `ADMIN_ORIGIN` 并验证，再把原域名迁到东京并首次启用。迁移不转发会话 Cookie；两个后台独立验证器。原生产保留原绑定，东京绑定须独立回验。首次启用回滚保持之前关闭状态；不得用 v2 配置回滚到只支持 v1 的旧应用。
 
+家庭运营站可独立使用 `https://ops.mijiu.cloud`。东京托管此域名的 TLS，并按 [东京后台配置](deploy/nginx-ops.mijiu.cloud.conf) 将请求转到现有 Tailscale FRP 回环入口。家庭端采用 [家庭网关配置](deploy/home/gateway.conf) 的独立虚拟主机，将精确 Host 转给本机应用，并在家庭维护标记存在时拦截整个后台。原 `admin.mijiu.cloud` 仍依赖它现有部署的来源和验证器。
+
+启用家庭站后台时，先验证新域名的东京 DNS、证书及续期。后台同现有站点共用 HTTPS 和 Tailscale 隧道。对东京 Nginx 和家庭网关分别测试配置，通过后才加载。后台配置以 `ADMIN_ORIGIN=https://ops.mijiu.cloud` 绑定家庭站，`ADMIN_ROOM_ANALYTICS=1` 开启运营看板。用新验证器在新后台完成登录，检查汇总属于家庭站。按固定发布流程在真实维护窗口验证后台请求返回 503。
+
 管理员 JSON 不随数据卷冷备份回滚；常规升级不会重新生成验证器。2026-10-29 代码改为仅验证 TOTP；原生产 v1 配置必须原样保留，旧 salt/hash 不再参与认证但仍属于持久化计数器身份。新绑定生成 v2 配置，两环境必须独立。更换管理员配置须通过受信任主机维护，重启进程使现有管理会话失效。先保管好独立的验证器应急副本；忘记管理员因素只能在主机上重新设置管理员，不构成用户聊天恢复途径。不要通过删除 `admin.env` 临时停用已启用的后台；有意停用需在独立维护中关闭 vhost、移除覆盖并同步状态，正常发布遇到文件意外丢失将失败关闭。
 
 ## Message-window deployment compatibility
