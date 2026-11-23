@@ -82,6 +82,7 @@ describe('isolated session administration', () => {
     expect((await send('/admin-api/login', 'POST', { code }, { Host: 'ai.shui.click' })).status).toBe(404);
     expect((await send('/admin-api/login', 'POST', { code }, { Origin: 'https://ai.shui.click' })).status).toBe(403);
     expect((await send('/admin-api/rooms')).status).toBe(401);
+    expect((await send('/admin-api/room-analytics')).status).toBe(401);
     expect((await send('/api/rooms')).status).toBe(404);
     const login = await send('/admin-api/login', 'POST', { code });
     expect(login.status).toBe(200);
@@ -90,6 +91,8 @@ describe('isolated session administration', () => {
     for (const attribute of ['Secure', 'HttpOnly', 'SameSite=Strict', 'Path=/']) expect(setCookie).toContain(attribute);
     expect(setCookie).not.toContain('Domain=');
     expect(login.headers.get('cache-control')).toBe('no-store');
+    expect((await login.clone().json()).roomAnalytics).toBeUndefined();
+    expect((await send('/admin-api/room-analytics', 'GET', undefined, { Cookie: setCookie.split(';')[0]! })).status).toBe(404);
     const cookie = setCookie.split(';')[0]!;
     const { csrf } = await login.json();
     expect((await send('/admin-api/login', 'POST', { code })).status).toBe(401);

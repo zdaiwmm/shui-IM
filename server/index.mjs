@@ -12,6 +12,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { createStore } from './storage.mjs';
 import { verifyPersonalDeviceBinding } from './personal-protocol.mjs';
 import { createAdminConsole } from './admin.mjs';
+import { createRoomAnalyticsReader } from './admin-room-analytics-reader.mjs';
 import { createClientAddress, createRequestLimiter, WRITE_LIMITS } from './request-limits.mjs';
 import { adminBackupStatus, adminReleaseId } from './admin-diagnostics.mjs';
 import { createExpressionCatalog } from './expression-catalog.mjs';
@@ -424,9 +425,11 @@ export async function startServer(options = {}) {
 
   const adminOrigin = options.adminOrigin ?? process.env.ADMIN_ORIGIN ?? 'https://admin.mijiu.cloud';
   const memes = createExpressionCatalog({ dataDir });
+  const analyticsEnabled = options.adminRoomAnalytics ?? (process.env.ADMIN_ROOM_ANALYTICS === '1');
   const admin = await createAdminConsole({ config: options.adminConfig, configFile: options.adminConfigFile ?? process.env.ADMIN_CONFIG_FILE,
     origin: adminOrigin, data: store.cloudBackups, expressions: memes, json, readJson, clientAddress,
     readModel: store.adminData, feedback: store.feedback,
+    roomAnalytics: analyticsEnabled ? createRoomAnalyticsReader(path.join(dataDir, 'quiet-room.sqlite')) : undefined,
     diagnostics: async () => {
       let calls={configured:false,relayConfigured:false,valid:false};
       try {const value=callIceConfiguration(options);calls={configured:true,relayConfigured:value.relayConfigured,valid:true};}catch { /* Never expose config values or credentials. */ }

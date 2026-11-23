@@ -13,7 +13,7 @@ const hash = value => createHash('sha256').update(value).digest('hex');
 
 export async function createAdminConsole({ config: suppliedConfig, configFile, origin = 'https://admin.mijiu.cloud',
   data, readModel, diagnostics, expressions, feedback, json, readJson, readExpressionJson = readJson,
-  clientAddress = createClientAddress(), headers, staticDir, onDelete }) {
+  clientAddress = createClientAddress(), headers, staticDir, onDelete, roomAnalytics }) {
   let config = suppliedConfig;
   if (!config && configFile) {
     const info = await stat(configFile);
@@ -24,6 +24,7 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
   const adminOrigin = new URL(origin);
   if (adminOrigin.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(adminOrigin.hostname)) throw new Error('ADMIN_REQUIRES_HTTPS');
   const configId = config ? adminConfigId(config) : '';
+  const sessionFeatures = roomAnalytics ? { roomAnalytics: true } : {};
   const sessions = new Map();
   let authBusy = false;
   const attempts = createRequestLimiter({ maxEntries: 1_024 });
@@ -97,7 +98,7 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
       while (sessions.size >= 20) sessions.delete(sessions.keys().next().value);
       sessions.set(hash(token), { csrf, expires: now + sessionIdleMs, absolute: now + sessionAbsoluteMs });
       setCookie(response, token, now + sessionIdleMs, now);
-      json(request, response, 200, { csrf }); return true;
+      json(request, response, 200, { csrf, ...sessionFeatures }); return true;
     }
     const cookies = String(request.headers.cookie ?? '').split(';').map(value => value.trim());
     const token = cookies.find(value => value.startsWith(`${cookieName}=`))?.slice(cookieName.length + 1) ?? '';
@@ -111,7 +112,7 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
     session.expires = Math.min(now + sessionIdleMs, session.absolute);
     setCookie(response, token, session.expires, now);
     if (['GET', 'POST'].includes(request.method) && pathname === '/admin-api/session') {
-      json(request, response, 200, { csrf: session.csrf, expiresAt: new Date(session.absolute).toISOString() }); return true;
+      json(request, response, 200, { csrf: session.csrf, expiresAt: new Date(session.absolute).toISOString(), ...sessionFeatures }); return true;
     }
     if (request.method === 'POST' && pathname === '/admin-api/logout') {
       sessions.delete(hash(token)); clearCookie(response); json(request, response, 200, { loggedOut: true }); return true;
@@ -131,6 +132,16 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
     if (request.method === 'GET' && readModel) {
       try {
         const offset = Number(url.searchParams.get('offset') ?? 0);
+        if (pathname === '/admin-api/room-analytics') {
+          if (!roomAnalytics) { json(request, response, 404, { error: 'NOT_FOUND' }); return true; }
+          const periods = url.searchParams.getAll('period');
+          const period = periods[0] ?? '30';
+          if (periods.length > 1 || !['7', '30', '90'].includes(period)) throw new Error('INVALID_ADMIN_FILTER');
+          const report = await roomAnalytics(Number(period)).catch(() => null);
+          if (!report) { json(request, response, 503, { error: '统计暂不可用，请重试' }); return true; }
+          json(request, response, 200, report);
+          return true;
+        }
         if (pathname === '/admin-api/overview') {
           const jobs=expressions?.jobs()??[];
           json(request,response,200,{...readModel.summary(),diagnostics:await diagnostics(),jobs:{running:jobs.filter(j=>j.status==='running').length,queued:jobs.filter(j=>j.status==='queued').length,failed:jobs.filter(j=>j.status==='failed').length},
