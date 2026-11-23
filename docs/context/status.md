@@ -1,12 +1,14 @@
 # Quiet Room 当前状态
 
-## 密室运营看板 V1 已进行本地定向验证（2026-11-23）
+## 家庭站 2026.11.23.1 与运营后台已回读（2026-11-23）
 
-看板按后台环境显式启用。查询复用现存业务元数据，覆盖密室存量、加入、发言双方、留存和可回算的功能使用。缺失历史单列，通话接通与本机隐私操作待确定采集。已通过本地聚合、鉴权和双浏览器验收。生产环境和后台启用尚待验收。[需求及验证](../requirements/2026-11-23-mijiu-room-analytics/README.md)
+`mijiu.cloud` 运行 `6d24f925f37ebfa535db869924c901f944a49d60`。固定入口返回 `DEPLOY_VERIFIED`，北京时间 **20:01:10** 独立取得 `READBACK_OK`。独立动态码后台 `https://ops.mijiu.cloud` 已启用，未登录统计接口返回 401。生产业务库只读核对通过，浏览器动态码登录和看板验收待完成。[发布记录](../../RELEASING.md#release-mijiu-room-analytics-20261123)
+
+看板覆盖密室存量、加入、发言双方、留存和可回算的功能使用。缺失历史单列，通话接通与本机隐私操作待确定采集。[口径与验收](../requirements/2026-11-23-mijiu-room-analytics/README.md)
 
 ## 家庭站 mijiu.cloud 已迁移至 Tailscale（2026-11-23）
 
-公网继续由东京提供 HTTPS，东京到家庭服务器的 FRP 改走 Tailscale 私网，家庭站应用仍为 `a591e8fa163aa4b104614811c548d5586cf90920`。并行浏览器验收通过双向消息与视频播放。切换和关闭旧公网 FRP 后，公网首页、健康和 WebSocket 均通过独立回读。后续家庭出口换 IP 时按私网隧道排查。[拓扑、回读与回退](../../DEPLOYMENT.md#mijiu-cloud-tailscale-ingress)
+公网继续由东京提供 HTTPS，东京到家庭服务器的 FRP 改走 Tailscale 私网，迁移时家庭站应用为 `a591e8fa163aa4b104614811c548d5586cf90920`。并行浏览器验收通过双向消息与视频播放。切换和关闭旧公网 FRP 后，公网首页、健康和 WebSocket 均通过独立回读。后续家庭出口换 IP 时按私网隧道排查。[拓扑、回读与回退](../../DEPLOYMENT.md#mijiu-cloud-tailscale-ingress)
 
 ## 当前生产主站为 2026.11.19.4（2026-11-19）
 
