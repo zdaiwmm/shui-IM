@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>密室运营 · Quiet Room 原型</title>
+<style>
+:root {
+  color-scheme: light;
+  --paper: #f2f5f1;
+  --surface: #fcfefa;
+  --ink: #18231c;
+  --muted: #536159;
+  --line: #dce3dc;
+  --subtle: #edf2eb;
+  --accent: #34784a;
+  --accent-soft: #e0efdf;
+  --accent-ink: #246036;
+  --waiting: #bdc9c0;
+  --none: #d6c193;
+  --creator: #b1cdb6;
+  --guest: #79a889;
+  --both: #387d4d;
+  --warn: #785716;
+  --warn-bg: #f7efdb;
+  --radius: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+  font-size: 15px;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #141214;
+  --surface: #242124;
+  --ink: #f2ebf3;
+  --muted: #c0b6c1;
+  --line: #453c45;
+  --subtle: #302a30;
+  --accent: #9fcbaa;
+  --accent-soft: #344336;
+  --accent-ink: #c1e3c5;
+  --waiting: #738277;
+  --none: #978459;
+  --creator: #64856d;
+  --guest: #7ba788;
+  --both: #a6d1af;
+  --warn: #e2c68d;
+  --warn-bg: #413622;
+}
+* { box-sizing: border-box }
+html { scroll-behavior: smooth }
+body { margin: 0; background: var(--paper); color: var(--ink); line-height: 1.5; font-variant-numeric: tabular-nums }
+button, select { font: inherit; color: inherit }
+button, summary, select { cursor: pointer }
+button:focus-visible, summary:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px }
+button { min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); white-space: nowrap }
+button:hover, summary:hover { border-color: var(--accent) }
+a { color: inherit }
+h1, h2, p { margin: 0 }
+[hidden] { display: none !important }
+.skip { position: fixed; z-index: 10; top: 8px; left: 8px; padding: 10px; background: var(--surface); transform: translateY(-150%) }
+.skip:focus { transform: translateY(0) }
+.layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 100vh }
+aside { background: var(--surface); border-right: 1px solid var(--line); padding: 27px 15px 23px; display: flex; flex-direction: column }
+.brand { display: flex; align-items: center; gap: 11px; padding: 0 9px 35px }
+.brand svg { width: 36px; height: 36px; border-radius: 11px; flex: none }
+.brand strong { display: block; font-size: 16px }
+.brand small { color: var(--muted); font-size: 12px }
+.nav-group { margin: 0 0 20px }
+.nav-title { margin: 0 0 6px 11px; font-size: 11px; letter-spacing: .06em; font-weight: 650; color: var(--muted) }
+.nav-item { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 0 11px; border-radius: 10px; text-decoration: none; font-size: 14px; font-weight: 500 }
+.nav-item[aria-current="page"] { background: var(--accent-soft); color: var(--accent-ink); font-weight: 675 }
+.nav-item[aria-disabled="true"] { color: var(--muted) }
+.nav-item svg, .theme svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; flex: none }
+.side-foot { margin-top: auto; padding: 14px 10px 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px }
+.topbar { height: 64px; padding: 0 28px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--line); background: var(--surface) }
+.crumb { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted) }
+.crumb strong { color: var(--ink); font-weight: 600 }
+.top-actions { display: flex; align-items: center; gap: 12px }
+.site { padding: 5px 9px; font-size: 12px; background: var(--subtle); border: 1px solid var(--line); border-radius: 7px; font-weight: 650 }
+.theme { width: 44px; padding: 0; display: grid; place-items: center }
+.content { max-width: 1480px; padding: 25px 28px 30px; margin: 0 auto }
+.heading { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 19px }
+h1 { font-size: 33px; font-weight: 730; letter-spacing: -.05em; line-height: 1.25 }
+.heading-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 7px; color: var(--muted); font-size: 12px }
+.demo { display: inline-block; padding: 2px 7px; border-radius: 5px; color: var(--warn); background: var(--warn-bg); font-weight: 650 }
+.controls { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 13px }
+.switch { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid var(--line); background: var(--subtle); border-radius: 11px }
+.switch button { min-height: 44px; padding: 0 12px; background: transparent; border: 1px solid transparent; border-radius: 8px; color: var(--muted) }
+.switch button[aria-pressed="true"] { background: var(--surface); border-color: var(--line); color: var(--ink); font-weight: 700 }
+.metric-guide { position: relative }
+.metric-guide summary { min-height: 44px; display: flex; align-items: center; padding: 0 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); list-style: none; font-weight: 600 }
+.metric-guide summary::-webkit-details-marker { display: none }
+.guide-body { position: absolute; z-index: 2; right: 0; top: calc(100% + 8px); width: min(380px, calc(100vw - 32px)); padding: 14px 17px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 10px 28px #18231c24 }
+.guide-body dl { margin: 0 }
+.guide-body dt { margin: 6px 0 2px; font-weight: 680 }
+.guide-body dd { margin: 0 0 8px; color: var(--muted); line-height: 1.65 }
+.overview { display: grid; grid-template-columns: 1.18fr repeat(3,minmax(0,1fr)); border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); margin-bottom: 16px }
+.metric { padding: 16px 17px 15px; min-width: 0 }
+.metric + .metric { border-left: 1px solid var(--line) }
+.metric.primary { background: var(--accent-soft); border-radius: 11px 0 0 11px }
+.metric-title { color: var(--muted); font-size: 13px; font-weight: 650 }
+.metric.primary .metric-title, .metric.primary .metric-value { color: var(--accent-ink) }
+.metric-value { font-size: 32px; font-weight: 730; letter-spacing: -.038em; line-height: 1.14; padding: 5px 0 4px }
+.metric-value.unavailable { font-size: 22px; line-height: 1.65 }
+.metric-detail { font-size: 11px; color: var(--muted); line-height: 1.6 }
+.grid { display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; gap: 16px; margin-bottom: 16px }
+.panel { min-width: 0; padding: 17px 19px 15px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface) }
+.panel-head { display: flex; align-items: start; justify-content: space-between; gap: 12px; margin-bottom: 13px }
+.panel h2 { font-size: 17px; font-weight: 720; letter-spacing: -.025em }
+.caption { margin-top: 3px; color: var(--muted); font-size: 12px }
+.count-label { color: var(--muted); font-size: 12px; white-space: nowrap; padding-top: 3px }
+.mini { flex-shrink: 0; font-size: 12px; padding: 2px }
+.mini button { min-height: 44px; padding: 0 8px }
+.funnel { display: grid; gap: 6px }
+.funnel-row { display: grid; grid-template-columns: 89px minmax(0,1fr) 48px 48px; align-items: center; gap: 8px; min-height: 32px; font-size: 13px }
+.funnel-row strong, .funnel-row .pct { text-align: right }
+.pct { color: var(--muted); font-size: 12px }
+.track { height: 14px; background: var(--subtle); border-radius: 4px; overflow: hidden }
+.track div { height: 100%; background: var(--both); border-radius: 4px }
+.funnel-row:nth-child(1) .track div { background: var(--creator) }
+.funnel-row:nth-child(2) .track div { background: var(--guest) }
+.funnel-row:nth-child(3) .track div { background: color-mix(in srgb, var(--guest) 45%, var(--both)) }
+.funnel-empty { min-height: 143px; display: grid; place-content: center; text-align: center; background: var(--subtle); border-radius: 8px; padding: 12px }
+.funnel-empty strong { font-size: 14px }
+.note { margin-top: 11px; color: var(--muted); font-size: 11px; line-height: 1.6 }
+.distribution { display: flex; gap: 2px; height: 20px; background: var(--subtle); overflow: hidden; border-radius: 5px; margin-bottom: 9px }
+.distribution b { min-width: 2px }
+.state-row { display: grid; grid-template-columns: 11px minmax(0,1fr) 58px 53px; gap: 7px; align-items: center; min-height: 23px; font-size: 12px }
+.state-row b, .state-row .pct { text-align: right }
+.swatch { width: 8px; height: 8px; border-radius: 2px }
+.report-grid { grid-template-columns: .88fr 1.12fr }
+.table-scroll { overflow-x: auto }
+table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left }
+th, td { border-bottom: 1px solid var(--line); padding: 8px 5px; vertical-align: middle }
+th { color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap }
+tbody tr:last-child td { border-bottom: 0 }
+.retention-table th:not(:first-child), .retention-table td:not(:first-child) { text-align: right }
+.retention-table td, .retention-table th { white-space: nowrap }
+.retention-table td:first-child, .retention-table th:first-child { padding-left: 0 }
+.rate { display: inline-block; text-align: center; min-width: 47px; padding: 2px 4px; border-radius: 4px; color: var(--accent-ink); background: var(--accent-soft); font-weight: 680 }
+.rate-low { background: var(--subtle); color: var(--ink) }
+.pending { color: var(--muted); font-size: 11px }
+.feature { font-weight: 660; white-space: nowrap }
+.feature-result { color: var(--muted); padding-inline: 9px; line-height: 1.55 }
+.availability { display: inline-block; padding: 2px 6px; border-radius: 5px; color: var(--accent-ink); background: var(--accent-soft); white-space: nowrap; font-size: 10px; font-weight: 680 }
+.availability.future { color: var(--warn); background: var(--warn-bg) }
+.availability.review { color: var(--muted); background: var(--subtle) }
+.trend-panel { margin-bottom: 16px }
+.trend-key { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 12px }
+.trend-key .swatch { display: inline-block; margin-right: 4px }
+.trend { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 10px; min-width: 0 }
+.trend-group { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0 }
+.trend-bars { display: flex; justify-content: center; align-items: end; gap: 4px; height: 74px; width: 100%; border-bottom: 1px solid var(--line) }
+.trend-bars span { width: min(24%, 26px); background: var(--both); border-radius: 4px 4px 0 0 }
+.trend-bars span + span { background: var(--waiting) }
+.trend-label { color: var(--muted); font-size: 11px; white-space: nowrap }
+.trend-value { font-size: 11px; font-weight: 620 }
+.footer { border-top: 1px solid var(--line); padding-top: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; font-size: 11px; color: var(--muted) }
+.footer strong { color: var(--ink); font-weight: 620 }
+@media (max-width: 1120px) {
+  .layout { grid-template-columns: 185px minmax(0,1fr) }
+  .content, .topbar { padding-inline: 18px }
+  .grid { gap: 12px }
+  .panel { padding-inline: 12px }
+  .panel-head { flex-wrap: wrap }
+}
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr }
+  aside { padding: 10px 15px; border-right: 0; border-bottom: 1px solid var(--line); display: flex; flex-direction: row; align-items: center; justify-content: space-between; flex-wrap: wrap }
+  .brand { padding: 0 }
+  aside nav, .side-foot { display: none }
+  .topbar { height: 54px }
+  .report-grid { grid-template-columns: 1fr }
+}
+@media (max-width: 650px) {
+  .content { padding: 17px 13px 24px }
+  .topbar { padding-inline: 13px }
+  h1 { font-size: 28px }
+  .overview { grid-template-columns: 1fr 1fr }
+  .metric { padding: 11px 12px }
+  .metric:nth-child(3) { border-left: 0 }
+  .metric:nth-child(n+3) { border-top: 1px solid var(--line) }
+  .metric.primary { border-radius: 11px 0 0 0 }
+  .metric-value { font-size: 26px }
+  .grid { grid-template-columns: 1fr }
+  .panel-head { flex-wrap: nowrap }
+  .funnel-row { grid-template-columns: 76px minmax(0,1fr) 38px 43px; gap: 5px }
+  .metric-guide { position: static }
+  .guide-body { top: auto; right: 13px; margin-top: 7px }
+  .feature-result { padding-inline: 6px }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto } }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">跳至密室运营</a>
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+  <symbol id="grid-icon" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+  <symbol id="chart-icon" viewBox="0 0 24 24"><path d="M3 3v18h18M8 16v-4m5 4V7m5 9v-7"/></symbol>
+  <symbol id="room-icon" viewBox="0 0 24 24"><path d="M8 21h12a2 2 0 0 0 2-2V9M4 17a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H7l-4 3z"/></symbol>
+  <symbol id="archive-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="4" rx="1"/><path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8m-9 5h4"/></symbol>
+  <symbol id="smile-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 14a4 4 0 0 0 8 0M9 9h.01M15 9h.01"/></symbol>
+  <symbol id="mail-icon" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></symbol>
+  <symbol id="pulse-icon" viewBox="0 0 24 24"><path d="M2 12h5l3-7 4 14 3-7h5"/></symbol>
+  <symbol id="shield-icon" viewBox="0 0 24 24"><path d="M12 22s7-3 7-9.5V5l-7-3-7 3v7.5C5 19 12 22 12 22Z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="theme-icon" viewBox="0 0 24 24"><path d="M20.9 13.4A9 9 0 0 1 10.6 3.1 9 9 0 1 0 20.9 13.4Z"/></symbol>
+</svg>
+<div class="layout">
+  <aside aria-label="管理后台">
+    <div class="brand">
+      <svg viewBox="0 0 100 100" aria-hidden="true"><rect width="100" height="100" rx="22" fill="#17181b"/><g color="#f5f7fa"><rect x="21" y="24" width="58" height="52" rx="13" fill="none" stroke="currentColor" stroke-width="3.4"/><path d="M37.2 38.5h7.6a3.2 3.2 0 0 1 3.2 3.2v22.4l-5.4-5.4h-5.4a3.2 3.2 0 0 1-3.2-3.2V41.7a3.2 3.2 0 0 1 3.2-3.2ZM62.8 38.5h-7.6a3.2 3.2 0 0 0-3.2 3.2v22.4l5.4-5.4h5.4a3.2 3.2 0 0 0 3.2-3.2V41.7a3.2 3.2 0 0 0-3.2-3.2Z" fill="currentColor"/></g></svg>
+      <div><strong>Quiet Room</strong><small>会话管理</small></div>
+    </div>
+    <nav aria-label="后台导航">
+      <div class="nav-group">
+        <p class="nav-title">工作区</p>
+        <span class="nav-item" aria-disabled="true"><svg aria-hidden="true"><use href="#grid-icon"/></svg>总览</span>
+        <a class="nav-item" href="#main" aria-current="page"><svg aria-hidden="true"><use href="#chart-icon"/></svg>密室运营</a>
+        <span class="nav-item" aria-disabled="true"><svg aria-hidden="true"><use href="#room-icon"/></svg>密室管理</span>
+        <span class="nav-item" aria-disabled="true"><svg aria-hidden="true"><use href="#archive-icon"/></svg>归档与备份</span>
+      </div>
+      <div class="nav-group">
+        <p class="nav-title">管理</p>
+        <span class="nav-item" aria-disabled="true"><svg aria-hidden="true"><use href="#smile-icon"/></svg>表情资源</span>
+        <span class="nav-item" aria-disabled="true"><svg aria-hidden="true"><use href="#mail-icon"/></svg>反馈管理</span>
+        <span class="nav-item" aria-disabled="true"><svg aria-hidden="true"><use href="#pulse-icon"/></svg>运维诊断</span>
+        <span class="nav-item" aria-disabled="true"><svg aria-hidden="true"><use href="#shield-icon"/></svg>安全与审计</span>
+      </div>
+    </nav>
+    <p class="side-foot">运营原型 V1</p>
+  </aside>
+  <main id="main">
+    <header class="topbar">
+      <div class="crumb" aria-label="当前位置"><span>工作区</span><span aria-hidden="true">/</span><strong>密室运营</strong></div>
+      <div class="top-actions">
+        <span class="site">mijiu.cloud</span>
+        <button class="theme" type="button" id="theme" aria-pressed="false" aria-label="切换深色模式" title="切换深色模式"><svg aria-hidden="true"><use href="#theme-icon"/></svg></button>
+      </div>
+    </header>
+    <div class="content">
+      <header class="heading">
+        <div>
+          <h1>密室运营</h1>
+          <p class="heading-meta"><span class="demo">示例数据</span><span id="dates">10.24–11.22</span><span>·</span><span>北京时间</span></p>
+        </div>
+        <div class="controls">
+          <div id="date-switch" class="switch" role="group" aria-label="统计日期">
+            <button type="button" data-period="7" aria-pressed="false">近 7 天</button>
+            <button type="button" data-period="30" aria-pressed="true">近 30 天</button>
+            <button type="button" data-period="90" aria-pressed="false">近 90 天</button>
+          </div>
+          <details class="metric-guide">
+            <summary>指标口径</summary>
+            <div class="guide-body">
+              <dl>
+                <dt>真实加入</dt><dd>受邀方完成加入后计一席，每间密室一次。设备接入和恢复单独统计。</dd>
+                <dt>7 天双向率</dt><dd>分母是所选日期内创建、已满 7 天的密室。分子是创建后 7 天内，双方都至少有一条普通聊天消息被服务端接收。</dd>
+                <dt>消息留存</dt><dd>双方已加入后的首次成功发送为第 0 天。只纳入已满对应观察天数的密室。</dd>
+                <dt>历史覆盖</dt><dd>消息滚动清理前缺失的记录归为历史未知。在聊天状态里可单独查看这类密室。</dd>
+              </dl>
+            </div>
+          </details>
+        </div>
+      </header>
+      <section class="overview" aria-label="关键指标">
+        <div class="metric primary"><p class="metric-title">新建密室 7 天双向率</p><p class="metric-value" id="kpi-bilateral">37.4%</p><p class="metric-detail" id="kpi-bilateral-note">116 / 310 间已满 7 天</p></div>
+        <div class="metric"><p class="metric-title">密室存量</p><p class="metric-value">1,284</p><p class="metric-detail">等待 296 · 已加入 876 · 关闭 112</p></div>
+        <div class="metric"><p class="metric-title">受邀方成功加入</p><p class="metric-value" id="kpi-joins">268</p><p class="metric-detail" id="kpi-join-note">期间新增 412 间 · 24 小时加入率 63.2%</p></div>
+        <div class="metric"><p class="metric-title">消息活跃密室</p><p class="metric-value" id="kpi-active">392</p><p class="metric-detail" id="kpi-active-note">期间有成功发送 · 双方均发过 246 间</p></div>
+      </section>
+      <div class="grid">
+        <section class="panel" aria-labelledby="funnel-title">
+          <header class="panel-head"><div><h2 id="funnel-title">新建密室转化</h2><p class="caption">创建后 7 天内完成各步骤</p></div><span id="funnel-base" class="count-label"></span></header>
+          <div id="funnel" class="funnel" aria-live="polite"></div>
+          <p class="note" id="funnel-note"></p>
+        </section>
+        <section class="panel" aria-labelledby="state-title">
+          <header class="panel-head">
+            <div><h2 id="state-title">聊天状态</h2><p class="caption" id="state-context"></p></div>
+            <div class="switch mini" id="state-switch" role="group" aria-label="聊天状态范围">
+              <button type="button" data-state="stock" aria-pressed="true">当前存量</button>
+              <button type="button" data-state="cohort" aria-pressed="false">满 7 天批次</button>
+            </div>
+          </header>
+          <div id="distribution" class="distribution" aria-hidden="true"></div>
+          <div id="state-rows" aria-live="polite"></div>
+          <p class="note" id="state-note"></p>
+        </section>
+      </div>
+      <div class="grid report-grid">
+        <section class="panel" aria-labelledby="retention-title">
+          <header class="panel-head"><div><h2 id="retention-title">密室消息留存</h2><p class="caption">按首次成功发送日期分组</p></div></header>
+          <div class="table-scroll">
+            <table class="retention-table" aria-labelledby="retention-title">
+              <thead><tr><th scope="col">首次发送批次</th><th scope="col">密室</th><th scope="col">第 1 天</th><th scope="col">第 7 天</th><th scope="col">第 30 天</th></tr></thead>
+              <tbody id="retention"></tbody>
+            </table>
+          </div>
+          <p class="note">以当天至少一次成功发送为活跃。每列只计算已满该观察天数的密室。</p>
+        </section>
+        <section class="panel" aria-labelledby="feature-title">
+          <header class="panel-head"><div><h2 id="feature-title">功能使用</h2><p class="caption">按密室、参与方席位或操作结果统计</p></div></header>
+          <div class="table-scroll">
+            <table aria-labelledby="feature-title">
+              <thead><tr><th scope="col">功能</th><th scope="col">指标</th><th scope="col">数据状态</th></tr></thead>
+              <tbody id="features"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+      <section class="panel trend-panel" aria-labelledby="trend-title">
+        <header class="panel-head">
+          <div><h2 id="trend-title">新建与关闭趋势</h2><p id="trend-caption" class="caption"></p></div>
+          <div class="trend-key"><span><i class="swatch" style="background:var(--both)"></i>新建</span><span><i class="swatch" style="background:var(--waiting)"></i>关闭</span></div>
+        </header>
+        <div class="trend" id="trend"></div>
+      </section>
+      <footer class="footer"><span><strong>数据来源</strong>　密室业务服务 · 汇总展示</span><span>Lead 访客流量独立查看　·　快照 2026.11.22</span></footer>
+    </div>
+  </main>
+</div>
+<script>
+const sample = {
+  7: {
+    date: '11.16–11.22', joins: 62, created: 96, joinRate: '64.0%',
+    active: 161, bilateralActive: 92, funnel: null,
+    retention: [['11.16–11.22', 45, '46%', null, null]],
+    attachments: 61, median: '4.1 小时', trendUnit: '按日',
+    trend: [['11.16', 8, 0], ['11.17', 13, 1], ['11.18', 11, 1], ['11.19', 15, 1],
+      ['11.20', 12, 0], ['11.21', 17, 2], ['11.22', 20, 2]]
+  },
+  30: {
+    date: '10.24–11.22', joins: 268, created: 412, joinRate: '63.2%',
+    active: 392, bilateralActive: 246, funnel: [310, 223, 175, 116], state: [87, 48, 39, 20, 116, 0],
+    retention: [
+      ['10.24–10.25', 18, '50%', '28%', null],
+      ['10.26–11.01', 44, '48%', '30%', null],
+      ['11.02–11.08', 50, '52%', '32%', null],
+      ['11.09–11.15', 52, '50%', '31%', null],
+      ['11.16–11.22', 45, '46%', null, null]
+    ],
+    attachments: 206, median: '4.8 小时', trendUnit: '按周',
+    trend: [['10.24', 22, 1], ['10.26', 88, 9], ['11.02', 92, 8], ['11.09', 114, 11], ['11.16', 96, 7]]
+  },
+  90: {
+    date: '08.25–11.22', joins: 734, created: 1098, joinRate: '61.5%',
+    active: 673, bilateralActive: 404, funnel: [996, 674, 542, 363], state: [322, 132, 110, 69, 363, 0],
+    retention: [
+      ['08.25–09.13', 118, '49%', '29%', '18%'],
+      ['09.14–10.04', 127, '50%', '30%', '20%'],
+      ['10.05–10.25', 136, '49%', '29%', '19%'],
+      ['10.26–11.15', 146, '50%', '31%', null],
+      ['11.16–11.22', 45, '46%', null, null]
+    ],
+    attachments: 408, median: '5.1 小时', trendUnit: '按月',
+    trend: [['08 月', 91, 8], ['09 月', 344, 22], ['10 月', 365, 26], ['11 月', 298, 27]]
+  }
+};
+const stages = ['创建成功', '受邀方加入', '出现首条消息', '双方都发过'];
+const states = [
+  ['等待受邀方加入', 'waiting'],
+  ['双方已加入 · 零消息', 'none'],
+  ['仅创建方发过', 'creator'],
+  ['仅受邀方发过', 'guest'],
+  ['双方都发过', 'both'],
+  ['历史未知', 'muted']
+];
+const stock = [296, 140, 103, 63, 530, 40];
+const n = new Intl.NumberFormat('zh-CN');
+const byId = (id) => document.getElementById(id);
+const percent = (part, total) => (part / total * 100).toFixed(1) + '%';
+let period = '30';
+let stateMode = 'stock';
+
+function write(id, value) { byId(id).textContent = value; }
+function select(group, key, value) {
+  byId(group).querySelectorAll('button').forEach((button) => {
+    button.setAttribute('aria-pressed', button.dataset[key] === value);
+  });
+}
+function renderStates(data) {
+  select('state-switch', 'state', stateMode);
+  const isStock = stateMode === 'stock';
+  const values = isStock ? stock : data.state;
+  const graph = byId('distribution');
+  const rows = byId('state-rows');
+  graph.hidden = !values;
+  write('state-context', isStock ? '当前 1,172 间未关闭密室' : '创建后第 7 天的状态');
+  write('state-note', isStock ? '历史覆盖不足的密室单列为「历史未知」。' : '按所选日期内已满 7 天的新建密室统计。');
+  if (!values) {
+    rows.innerHTML = '<div class="funnel-empty"><strong>暂无满 7 天的批次</strong><p class="caption">切到近 30 天可查看已满观察期的密室。</p></div>';
+    return;
+  }
+  const total = values.reduce((sum, count) => sum + count, 0);
+  graph.innerHTML = states.map(([, color], i) => values[i] > 0
+    ? '<b style="flex:' + values[i] + ';background:var(--' + color + ')"></b>' : '').join('');
+  rows.innerHTML = states.map(([label, color], i) =>
+    '<div class="state-row"><span class="swatch" style="background:var(--' + color + ')"></span><span>' +
+    label + '</span><b>' + n.format(values[i]) + '</b><span class="pct">' + percent(values[i], total) + '</span></div>'
+  ).join('');
+}
+function renderFunnel(data) {
+  write('funnel-base', data.funnel ? data.funnel[0] + ' 间已满 7 天' : '');
+  write('funnel-note', '以同批创建密室为分母 · 期间加入耗时中位数 ' + data.median);
+  const funnel = byId('funnel');
+  if (!data.funnel) {
+    funnel.innerHTML = '<div class="funnel-empty"><strong>观察期未满</strong><p class="caption">切到近 30 天可查看完整转化。</p></div>';
+    return;
+  }
+  funnel.innerHTML = stages.map((stage, i) => {
+    const count = data.funnel[i];
+    const rate = percent(count, data.funnel[0]);
+    return '<div class="funnel-row"><span>' + stage + '</span><div class="track" aria-hidden="true"><div style="width:' +
+      rate + '"></div></div><strong>' + n.format(count) + '</strong><span class="pct">' + rate + '</span></div>';
+  }).join('');
+}
+function renderFeatures(data) {
+  const items = [
+    ['附件与媒体', n.format(data.attachments) + ' 间完成附件上传', '可汇总', ''],
+    ['多设备', '当前 128 个席位有至少两台授权设备', '可汇总', ''],
+    ['推送', '当前 312 个席位有有效订阅', '可汇总', ''],
+    ['备份与恢复', '当前 418 个席位已有备份 · 备份与恢复成功率待采集', '部分可汇总', ''],
+    ['语音与视频通话', '发起数、接通率 · 有通话但零消息的密室', '待采集', 'future'],
+    ['保险箱与隐私', '保险箱、收藏、遮蔽及应用锁使用', '待确认', 'review']
+  ];
+  byId('features').innerHTML = items.map(([label, value, status, tone]) =>
+    '<tr><td class="feature">' + label + '</td><td class="feature-result">' + value +
+    '</td><td><span class="availability ' + tone + '">' + status + '</span></td></tr>'
+  ).join('');
+}
+function renderTrend(data) {
+  const max = Math.max(...data.trend.map(([, created]) => created));
+  const closed = data.trend.reduce((total, row) => total + row[2], 0);
+  write('trend-caption', data.trendUnit + '统计 · 共新建 ' + n.format(data.created) + ' 间 · 关闭 ' + closed + ' 间');
+  byId('trend').innerHTML = data.trend.map(([label, created, ended]) =>
+    '<div class="trend-group" aria-label="' + label + ' 新建 ' + created + ' 间，关闭 ' + ended + ' 间">' +
+    '<div class="trend-bars" aria-hidden="true"><span style="height:' + percent(created, max) + '"></span>' +
+    '<span style="height:' + percent(ended, max) + '"></span></div>' +
+    '<b class="trend-value" aria-hidden="true">' + created + ' / ' + ended + '</b><span class="trend-label">' + label + '</span></div>'
+  ).join('');
+}
+function render() {
+  const data = sample[period];
+  select('date-switch', 'period', period);
+  write('dates', data.date);
+  write('kpi-bilateral', data.funnel ? percent(data.funnel[3], data.funnel[0]) : '观察中');
+  byId('kpi-bilateral').classList.toggle('unavailable', !data.funnel);
+  write('kpi-bilateral-note', data.funnel ? data.funnel[3] + ' / ' + data.funnel[0] + ' 间已满 7 天' : '当前日期内的新建批次未满 7 天');
+  write('kpi-joins', n.format(data.joins));
+  write('kpi-join-note', '期间新建 ' + data.created + ' 间 · 24 小时加入率 ' + data.joinRate);
+  write('kpi-active', n.format(data.active));
+  write('kpi-active-note', '期间有成功发送 · 双方均发过 ' + data.bilateralActive + ' 间');
+  renderFunnel(data);
+  renderStates(data);
+  byId('retention').innerHTML = data.retention.map(([week, count, ...rates]) =>
+    '<tr><td>' + week + '</td><td>' + count + '</td>' + rates.map((rate, i) =>
+      '<td>' + (rate ? '<span class="rate ' + (i ? 'rate-low' : '') + '">' + rate + '</span>'
+        : '<span class="pending">观察中</span>') + '</td>').join('') + '</tr>'
+  ).join('');
+  renderFeatures(data);
+  renderTrend(data);
+}
+byId('date-switch').querySelectorAll('button').forEach((button) => {
+  button.addEventListener('click', () => { period = button.dataset.period; render(); });
+});
+byId('state-switch').querySelectorAll('button').forEach((button) => {
+  button.addEventListener('click', () => { stateMode = button.dataset.state; renderStates(sample[period]); });
+});
+byId('theme').addEventListener('click', () => {
+  const dark = document.documentElement.dataset.theme !== 'dark';
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  byId('theme').setAttribute('aria-pressed', String(dark));
+  byId('theme').setAttribute('aria-label', dark ? '切换浅色模式' : '切换深色模式');
+  byId('theme').title = byId('theme').getAttribute('aria-label');
+});
+const guide = document.querySelector('.metric-guide');
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && guide.open) {
+    guide.open = false;
+    guide.querySelector('summary').focus();
+  }
+});
+document.addEventListener('pointerdown', (event) => {
+  if (guide.open && !guide.contains(event.target)) guide.open = false;
+});
+render();
+</script>
+</body>
+</html>

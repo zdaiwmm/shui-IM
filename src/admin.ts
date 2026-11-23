@@ -3,7 +3,7 @@ import './appearance.css';
 import { mountAppearance } from './lib/appearance';
 import { bindTooltips } from './lib/tooltips';
 import { bindControlFeedback } from './lib/control-feedback';
-import { createElement, Pencil, Trash2, ArrowLeft, LayoutDashboard, Images, RefreshCw, LogOut, Upload, Save, X, Download, Menu, MoreHorizontal, MessageSquare, Archive, Activity, ShieldCheck } from 'lucide';
+import { createElement, Pencil, Trash2, ArrowLeft, LayoutDashboard, Images, RefreshCw, LogOut, Upload, Save, X, Download, Menu, MoreHorizontal, MessageSquare, Archive, Activity, ShieldCheck, ChartNoAxesColumnIncreasing } from 'lucide';
 import { AdminWorkspace } from './admin/workspace';
 import { chamberMark } from './lib/entry-art';
 import { table, row, badge, iconButton, pageToolbar, loadingState, emptyState, errorState, pagination } from './admin/ui';
@@ -12,7 +12,9 @@ const root = document.querySelector<HTMLElement>('#admin')!;
 mountAppearance();
 bindTooltips(root);
 bindControlFeedback(root);
+type AdminSession = { csrf: string; roomAnalytics?: true };
 let csrf = '';
+let roomAnalyticsEnabled = false;
 let view = 0;
 let viewRequests = new AbortController();
 let previewCleanup: (() => void)[] = [];
@@ -111,7 +113,7 @@ for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
 function frame(title: string) {
   leaveView(); view += 1;
   const resourceTitles = ['表情管理', '资源详情', '表情采集', '采集任务', '内置动画'];
-  const keys: Record<string,string> = {'用户反馈':'feedback','总览':'overview','密室管理':'rooms','密室详情':'rooms','归档与备份':'archives','归档详情':'archives','运维诊断':'diagnostics','安全与审计':'security','表情管理':'expressions','资源详情':'expressions','表情采集':'collection','采集任务':'collection-jobs','内置动画':'bundled'};
+  const keys: Record<string,string> = {'用户反馈':'feedback','总览':'overview','密室运营':'room-analytics','密室管理':'rooms','密室详情':'rooms','归档与备份':'archives','归档详情':'archives','运维诊断':'diagnostics','安全与审计':'security','表情管理':'expressions','资源详情':'expressions','表情采集':'collection','采集任务':'collection-jobs','内置动画':'bundled'};
   const key = keys[title] ?? 'overview';
   try { sessionStorage.setItem('quiet-admin-view', key); } catch { /* Optional navigation memory. */ }
   root.innerHTML = `<a class="admin-skip-link" href="#content">跳至主要内容</a><div class="admin-shell tabler-shell"><aside class="admin-sidebar"><div class="brand"><span class="brand-mark">${chamberMark()}</span><div><strong>Chamber</strong><small>管理工作区</small></div><button class="admin-mobile-menu" id="admin-menu" type="button" aria-label="打开后台导航" aria-expanded="false" aria-controls="admin-nav"></button></div>
@@ -124,9 +126,10 @@ function frame(title: string) {
   mobileMenu.addEventListener('click',()=>{const open=mobileMenu.getAttribute('aria-expanded')!=='true';mobileMenu.setAttribute('aria-expanded',String(open));mobileMenu.setAttribute('aria-label',open?'关闭后台导航':'打开后台导航');root.querySelector('.admin-sidebar')!.classList.toggle('navigation-open',open);});
   document.addEventListener('keydown',event=>{if(event.key==='Escape'&&mobileMenu.getAttribute('aria-expanded')==='true'){mobileMenu.click();mobileMenu.focus();}},{signal:viewRequests.signal});
   const nav=root.querySelector('#admin-nav')!;
-  const entries=[['overview','总览',LayoutDashboard,()=>void workspace.overview()],['rooms','密室管理',MessageSquare,()=>void rooms()],['archives','归档与备份',Archive,()=>void workspace.archives()],['expressions','表情资源',Images,()=>void expressions()],['feedback','用户反馈',MessageSquare,()=>void workspace.feedback()],['diagnostics','运维诊断',Activity,()=>void workspace.diagnostics()],['security','安全与审计',ShieldCheck,()=>void workspace.security()]] as const;
-  entries.forEach(([id,label,icon,run],index)=>{
-    if(index===5){const group=document.createElement('p');group.className='admin-nav-label';group.textContent='管理';nav.append(group);}
+  const entries=[['overview','总览',LayoutDashboard,()=>void workspace.overview()],['room-analytics','密室运营',ChartNoAxesColumnIncreasing,()=>void workspace.roomAnalytics()],['rooms','密室管理',MessageSquare,()=>void rooms()],['archives','归档与备份',Archive,()=>void workspace.archives()],['expressions','表情资源',Images,()=>void expressions()],['feedback','用户反馈',MessageSquare,()=>void workspace.feedback()],['diagnostics','运维诊断',Activity,()=>void workspace.diagnostics()],['security','安全与审计',ShieldCheck,()=>void workspace.security()]] as const;
+  entries.forEach(([id,label,icon,run])=>{
+    if (id === 'room-analytics' && !roomAnalyticsEnabled) return;
+    if (id === 'diagnostics') {const group=document.createElement('p');group.className='admin-nav-label';group.textContent='管理';nav.append(group);}
     const button=document.createElement('button');button.type='button';button.id=`${id}-nav`;button.className='nav-item';const graphic=createElement(icon);graphic.setAttribute('aria-hidden','true');const text=document.createElement('span');text.textContent=label;button.append(graphic,text);
     if(key===id||(id==='expressions'&&resourceTitles.includes(title)))button.setAttribute('aria-current','page');button.addEventListener('click',run);nav.append(button);
   });
@@ -152,6 +155,7 @@ function login() {
   sessionGeneration += 1; window.clearInterval(sessionTimer); sessionTimer = undefined; sessionActivity = 0;
   view += 1;
   try { sessionStorage.removeItem('quiet-admin-view'); } catch { /* Storage may be unavailable. */ } csrf = '';
+  roomAnalyticsEnabled = false;
   expressionPage = 1; expressionStatus = 'all';
   root.innerHTML = `<div class="login"><div class="login-brand">${chamberMark()}</div><p class="eyebrow">CHAMBER / ADMIN</p><h1>登录管理工作区</h1>
     <form>
@@ -165,7 +169,7 @@ function login() {
     const values = new FormData(form);
     const body = { code: String(values.get('code')) };
     form.reset();
-    try { const result = await api<{ csrf: string }>('/login', 'POST', body); if (!form.isConnected) return; csrf = result.csrf; startSessionRenewal(); await workspace.overview(); }
+    try { const result = await api<AdminSession>('/login', 'POST', body); if (!form.isConnected) return; csrf = result.csrf; roomAnalyticsEnabled = result.roomAnalytics === true; startSessionRenewal(); await workspace.overview(); }
     catch (error) { if (form.isConnected) report(error); }
     finally { body.code = ''; if (button.isConnected) button.disabled = false; }
   });
@@ -544,9 +548,10 @@ async function editExpression(id: string) {
 }
 
 root.textContent = '正在验证后台会话…';
-void api<{ csrf: string }>('/session').then(result => {
-  csrf = result.csrf; startSessionRenewal();
+void api<AdminSession>('/session').then(result => {
+  csrf = result.csrf; roomAnalyticsEnabled = result.roomAnalytics === true; startSessionRenewal();
   let previous = ''; try { previous = sessionStorage.getItem('quiet-admin-view') || ''; } catch { /* Use the default view. */ }
   const destinations:Record<string,()=>Promise<unknown>|void>={feedback:()=>workspace.feedback(),overview:workspace.overview,rooms,archives:()=>workspace.archives(),expressions,collection,'collection-jobs':collectionJobs,diagnostics:workspace.diagnostics,security:workspace.security,bundled};
+  if (previous === 'room-analytics' && roomAnalyticsEnabled) return workspace.roomAnalytics();
   return (destinations[previous]??workspace.overview)();
 }).catch(login);

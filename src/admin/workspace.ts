@@ -1,5 +1,7 @@
 import { createElement, ArrowRight, RefreshCw, CircleAlert, Copy, Check } from 'lucide';
 import { badge, table, row, pageToolbar, loadingState, emptyState, errorState, pagination, type Tone } from './ui';
+import { renderRoomAnalytics, type RoomAnalyticsPeriod, type RoomAnalyticsReport, type RoomAnalyticsScope } from './room-analytics';
+
 type Api = <T>(route: string, method?: string, body?: unknown) => Promise<T>;
 type Context = {
     root: HTMLElement;
@@ -229,6 +231,12 @@ export class AdminWorkspace {
                 host.replaceChildren(errorState(error, retry));
         }
     }
+    roomAnalytics = (period: RoomAnalyticsPeriod = 30, scope: RoomAnalyticsScope = 'stock') => this.load<RoomAnalyticsReport>(
+        '密室运营',
+        `/room-analytics?period=${period}`,
+        (host, data) => renderRoomAnalytics(host, data, (next, view) => { void this.roomAnalytics(next, view); }, scope),
+        () => { void this.roomAnalytics(period, scope); },
+    );
     feedback = (offset=0,status='all') => this.load<{total:number;offset:number;limit:number;counts:Record<string,number>;items:{id:string;email:string;preview:string;createdAt:string;readAt:string|null}[]}>('用户反馈',`/feedback?offset=${offset}&status=${status}`,(host,data)=>{
         const epoch=this.c.epoch();
         host.append(tabs(['all','unread','read'].map((value,index)=>({label:`${['全部','未读','已读'][index]} ${data.counts[value]??0}`,active:status===value,run:()=>void this.feedback(0,value)}))));

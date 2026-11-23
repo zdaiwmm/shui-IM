@@ -17,7 +17,7 @@ try {
   if(screenshots)await mkdir(screenshots,{recursive:true});
   const reservation=createNetServer();await new Promise(resolve=>reservation.listen(0,'127.0.0.1',resolve));const port=reservation.address().port;await new Promise(resolve=>reservation.close(resolve));
   const config=await makeAdminConfig();
-  service=await startServer({port,host:'127.0.0.1',dataDir:directory,adminConfig:config,adminOrigin:`http://localhost:${port}`,quiet:true});
+  service=await startServer({port,host:'127.0.0.1',dataDir:directory,adminConfig:config,adminOrigin:`http://localhost:${port}`,adminRoomAnalytics:true,quiet:true});
   for(let i=0;i<26;i++)service.store.feedback.submit({id:randomUUID(),email:'reader@example.com',message:`Synthetic feedback ${i}`});
   service.store.feedback.submit({id:randomUUID(),email:'sender@example.com',message:'<img src=x onerror=alert(1)> Feedback remains plain text'});
   const owner={deviceId:randomUUID(),encryptionKey:{kty:'EC'},signingKey:{kty:'EC'}};
@@ -34,6 +34,7 @@ try {
   const page=await browser.newPage({ locale: 'zh-CN',viewport:{width:1440,height:1000}});page.setDefaultTimeout(20_000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
   const capture=async name=>{if(screenshots)await page.screenshot({path:path.join(screenshots,`${name}.png`),fullPage:true,animations:'disabled'});};
   const nav=async name=>{const b=page.locator('#admin-nav').getByRole('button',{name,exact:true});if(!await b.isVisible())await page.getByRole('button',{name:'打开后台导航',exact:true}).click();await b.click();await page.getByRole('heading',{name:name==='表情资源'?'表情管理':name,exact:true}).waitFor();};
+  assert.equal((await page.request.get(`http://localhost:${port}/admin-api/room-analytics`)).status(),401);
   await page.goto(`http://localhost:${port}`);await page.getByRole('heading',{name:'登录管理工作区'}).waitFor();await capture('login');
   assert.equal(await page.locator('form input').count(),1);assert.equal(await page.locator('[name=password]').count(),0);
   await page.setViewportSize({width:390,height:844});await capture('login-mobile');
@@ -46,7 +47,11 @@ try {
   await page.getByText('动态验证码不正确或已使用，请输入新的 6 位动态码',{exact:true}).waitFor();
   assert.equal(await page.locator('[name=code]').inputValue(),'');await capture('login-error');
   await page.locator('[name=code]').fill(totp(config.totpSecret));await page.getByRole('button',{name:'验证并登录'}).click();await page.getByRole('heading',{name:'总览',exact:true}).waitFor();await page.getByText('灾备状态尚未接入',{exact:true}).waitFor();
-  assert.equal(await page.locator('#admin-nav .nav-item').count(),7);await capture('overview-desktop');await auditP1Surface(page,'admin-v1-overview','#admin');
+  const initialAnalytics=await page.request.get(`http://localhost:${port}/admin-api/room-analytics`);
+  assert.equal(initialAnalytics.status(),200);
+  assert.equal(initialAnalytics.headers()['cache-control'],'no-store');
+  assert.deepEqual((await initialAnalytics.json()).stock,{waiting:1,joined:0,closed:0});
+  assert.equal(await page.locator('#admin-nav .nav-item').count(),8);await capture('overview-desktop');await auditP1Surface(page,'admin-v1-overview','#admin');
   for(const scheme of ['light','dark'])for(const theme of ['blue','green','purple','apricot','sea','rose','terracotta','lemon','graphite']){
     await page.emulateMedia({colorScheme:scheme});
     await page.evaluate(theme=>{localStorage.setItem('quiet-room:appearance',theme);window.dispatchEvent(new StorageEvent('storage',{key:'quiet-room:appearance'}));},theme);
@@ -97,5 +102,36 @@ try {
   assert.equal(service.store.roomState(room.roomId),null);await nav('归档与备份');await page.getByRole('button',{name:'本人归档',exact:true}).click();await page.getByRole('button',{name:descriptor.id,exact:true}).waitFor();await page.getByText('来源密室已移除，归档保留',{exact:true}).waitFor();await capture('retained-archive');
   await page.route('**/admin-api/archives?*',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'合成读取失败'})}));await page.getByRole('button',{name:'刷新归档列表',exact:true}).click();await page.getByText('合成读取失败',{exact:true}).waitFor();await page.unroute('**/admin-api/archives?*');await page.getByRole('button',{name:'重试',exact:true}).click();await page.getByRole('button',{name:descriptor.id,exact:true}).waitFor();
   await page.reload();await page.getByRole('heading',{name:'归档与备份',exact:true}).waitFor();await page.getByRole('button',{name:descriptor.id,exact:true}).waitFor();
-  assert.deepEqual(errors,[]);console.log(browser.browserType().name()+' admin workspace passed: real authentication, seven entries including feedback, format filters, metadata boundaries, protected deletion, retained archives, retry, refresh, responsive navigation and rendered states.');
+  await nav('密室运营');
+  await page.getByRole('heading',{name:'新建密室转化',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'聊天状态',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'密室消息留存',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'功能使用',exact:true}).waitFor();
+  const report=await page.request.get(`http://localhost:${port}/admin-api/room-analytics?period=30`);
+  assert.equal(report.status(),200);
+  assert.deepEqual((await report.json()).stock,{waiting:0,joined:0,closed:0});
+  assert.equal((await page.request.get(`http://localhost:${port}/admin-api/room-analytics?period=365`)).status(),400);
+  await page.getByRole('button',{name:'满 7 天批次',exact:true}).click();
+  const periodResponse=page.waitForResponse(response=>response.url().endsWith('/admin-api/room-analytics?period=7'));
+  await page.getByRole('button',{name:'近 7 天',exact:true}).click();
+  assert.equal((await periodResponse).status(),200);
+  await page.getByRole('heading',{name:'功能使用',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'满 7 天批次',exact:true}).getAttribute('aria-pressed'),'true');
+  await page.route('**/admin-api/room-analytics?period=90',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'统计暂不可用，请重试'})}));
+  await page.getByRole('button',{name:'近 90 天',exact:true}).click();
+  await page.getByText('统计暂不可用，请重试',{exact:true}).waitFor();
+  await page.unroute('**/admin-api/room-analytics?period=90');
+  await page.getByRole('button',{name:'重试',exact:true}).click();
+  await page.getByRole('heading',{name:'功能使用',exact:true}).waitFor();
+  assert.equal(await page.getByRole('button',{name:'近 90 天',exact:true}).getAttribute('aria-pressed'),'true');
+  await page.setViewportSize({width:390,height:844});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true);
+  await capture('room-analytics-mobile-dark');
+  await page.setViewportSize({width:1440,height:1000});await page.emulateMedia({colorScheme:'light'});
+  await capture('room-analytics-desktop');
+  await page.reload();
+  await page.getByRole('heading',{name:'密室运营',exact:true}).waitFor();
+  await page.getByRole('heading',{name:'功能使用',exact:true}).waitFor();
+  assert.deepEqual(errors,[]);
+  console.log(browser.browserType().name()+' admin workspace passed: real authentication, room analytics, format filters, protected deletion, retained archives, retry, refresh and responsive navigation.');
 }finally{await browser?.close();await service?.close();await rm(directory,{recursive:true,force:true});}

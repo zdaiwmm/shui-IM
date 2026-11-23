@@ -4,6 +4,7 @@ services:
     environment:
       ADMIN_ORIGIN: ${ADMIN_ORIGIN:-https://admin.mijiu.cloud}
       ADMIN_CONFIG_FILE: /run/quiet-room-admin.json
+      ADMIN_ROOM_ANALYTICS: ${ADMIN_ROOM_ANALYTICS:-0}
     volumes:
       - type: bind
         source: ${QUIET_ROOM_ADMIN_CONFIG:?Set the protected absolute administrator config path}
