@@ -2,19 +2,6 @@
 
 This service can preserve confidentiality when storage is disclosed, but availability and recovery still depend on ordinary operations. A backup that has never been restored is not a recovery plan.
 
-## mijiu.cloud 的 Tailscale 隧道
-<a id="mijiu-cloud-tailscale-ingress"></a>
-
-自 2026-11-23 起，`mijiu.cloud` 的公网 DNS 和 HTTPS 入口继续在东京。Nginx 通过回环端口 `18886` 将首页、API 和 WebSocket 转给独立 FRP 服务。东京的 `quiet-room-frps-tailnet.service` 仅监听其 Tailscale IPv4 的 `27448/TCP`。东京由 UFW 在 `tailscale0` 上仅允许家庭节点访问该端口，拒绝该接口上的其他主动入站。FRP 继续使用双向 TLS。Lightsail 和 UFW 已移除旧的公网 FRP `27445/TCP` 放行，新的 FRP 端口未在 Lightsail 开放。
-
-家庭端 `quiet-room-frpc-tailnet.service` 通过 `quiet-room-tailnet-frp-dial.socket` 使用现有的私网节点，转发给 `quiet-room-home-gateway.service` 的回环端口 `18085`。两端的 FRP 服务、家庭端拨号 socket 和东京的 Tailscale 服务均已设置开机启动。家庭私网守护进程由家庭机既有的用户 systemd 单元管理。节点失效或认证到期时，在同一私网重新认证，并核对设备标识和地址是否仍匹配东京防火墙及家庭端拨号配置。
-
-排查 502 时，先从公网检查 `/api/health` 和 `/ws`，再检查东京回环端口 `18886` 的上游健康、两端 FRP 登录及 Tailscale 节点状态，最后检查家庭回环网关。访问正式站点继续使用 `https://mijiu.cloud`。只有私网节点负责连接东京和家庭机。
-
-回退用的东京虚拟主机副本保存在 `/etc/quiet-room-frp/mijiu.cloud.pre-tailnet.conf`。确需回退时，先核对并恢复旧隧道的两层单一来源规则、两端服务和旧上游健康，再校验并重载东京 Nginx，最后独立回查公网 HTTPS 与 WebSocket。旧的公网 FRP 服务配置留在两端供回退，服务已停止且取消开机启动。
-
-迁移验收先在并行入口使用正式主机名与证书，由两个独立 Chromium 会话在同版本空库中完成邀请加入、双向消息、视频上传和接收端播放。切换后，普通公网浏览器打开首页，HTTPS 首页与健康返回 200，数据库及存储健康，新建 WebSocket 返回 101。关闭旧公网 FRP 后再次独立回读通过。家庭站应用提交保持为 `a591e8fa163aa4b104614811c548d5586cf90920`。
-
 ## Trusted proxy rollout
 
 The public nginx configuration replaces X-Forwarded-For with `$remote_addr`, matching the administrator origin. The application accepts one valid forwarded IP only when the immediate socket peer is in TRUSTED_PROXY_ADDRESSES; chains or malformed values fall back to that peer. Canonical IPv6 and IPv4-mapped IPv6 share the corresponding bucket. Preserve the existing request/connection edge limits. See the [application contract](SECURITY.md#current-scope-and-abuse-control-contract).
