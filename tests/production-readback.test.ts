@@ -1,10 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 // @ts-expect-error Operational Node script intentionally has no TS declarations.
-import { artifactProbe, discoverPublicArtifacts, evidenceDirectory, parseReadbackArgs, ReadbackError, runReadback, saveEvidence, stateProbe, validateServerState } from '../scripts/production-readback.mjs';
+import { artifactProbe, discoverPublicArtifacts, evidenceDirectory, parseReadbackArgs, ReadbackError, readbackOperations, runReadback, saveEvidence, stateProbe, validateServerState } from '../scripts/production-readback.mjs';
 
 const sha = 'a'.repeat(40);
 const image = `sha256:${'b'.repeat(64)}`;
@@ -70,6 +72,30 @@ describe('independent production readback', () => {
     expect(discoverPublicArtifacts(html)).toEqual(['/sw.js', '/assets/app-a.css', '/assets/app-b.js']);
     expect(() => discoverPublicArtifacts(new TextEncoder().encode('<h1>no build assets</h1>'))).toThrow('versioned asset');
     expect(() => discoverPublicArtifacts(new TextEncoder().encode('<script src="/assets/../../server/index.mjs"></script>'))).toThrow('versioned asset');
+  });
+
+  it('uses a longer download deadline only for versioned assets', async () => {
+    const bodies = new Map([
+      ['/', '<script src="/assets/app.js"></script>'],
+      ['/api/health', '{"ok":true,"database":true,"storage":true}'],
+      ['/sw.js', 'service worker'],
+      ['/assets/app.js', 'app code'],
+    ]);
+    const server = createServer((request, response) => response.end(bodies.get(request.url ?? '')));
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    try {
+      const address = server.address();
+      if (!address || typeof address === 'string') throw new Error('Missing test server address');
+      const operations = readbackOperations(`http://127.0.0.1:${address.port}`);
+      await expect(operations.inspectHealth()).resolves.toEqual({ ok: true, database: true, storage: true });
+      expect(Object.keys(await operations.inspectPublicArtifacts())).toEqual(['/', '/sw.js', '/assets/app.js']);
+      expect(timeout.mock.calls).toEqual([[10_000], [10_000], [10_000], [60_000]]);
+    } finally {
+      timeout.mockRestore();
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    }
   });
 
   it('runs every independent stage, records timings, and writes a private structured receipt', async () => {

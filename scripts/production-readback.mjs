@@ -156,7 +156,8 @@ export function validateServerState(state, expectedSha, expectedOrigin) {
 }
 
 async function fetchBytes(publicPath, origin = 'https://ai.shui.click') {
-  const response = await fetch(`${origin}${publicPath}`, { redirect: 'error', signal: AbortSignal.timeout(10000) });
+  const timeoutMs = publicPath.startsWith('/assets/') ? 60_000 : 10_000;
+  const response = await fetch(`${origin}${publicPath}`, { redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
   if (response.status !== 200 || response.url !== `${origin}${publicPath}`) throw new Error(`HTTP ${response.status}`);
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (bytes.byteLength > 10 * 1024 * 1024) throw new Error('Response exceeds readback limit');
