@@ -1,5 +1,9 @@
 # Quiet Room 当前状态
 
+## 家庭站 mijiu.cloud 已迁移至 Tailscale（2026-11-23）
+
+公网继续由东京提供 HTTPS，东京到家庭服务器的 FRP 改走 Tailscale 私网，家庭站应用仍为 `a591e8fa163aa4b104614811c548d5586cf90920`。并行浏览器验收通过双向消息与视频播放。切换和关闭旧公网 FRP 后，公网首页、健康和 WebSocket 均通过独立回读。后续家庭出口换 IP 时按私网隧道排查。[拓扑、回读与回退](../../DEPLOYMENT.md#mijiu-cloud-tailscale-ingress)
+
 ## 当前生产主站为 2026.11.19.4（2026-11-19）
 
 `ai.shui.click` 与 mijiu-server 的独立 AIX 均运行 `85de8c0bbee1cee0a97b7037f78f4ca6ceb47cea`（`2026.11.19.4`）。精确 main 全量 CI 通过。主站固定入口完成一次切换并返回 `DEPLOY_VERIFIED`，北京时间 **22:36:46** 独立取得 `READBACK_OK`。AIX 运行中模块摘要已核对，回环及公网健康均返回 204。YouTube 上线暂缓。[本批发布记录](../../RELEASING.md#release-x-article-reader-20261119-4)
