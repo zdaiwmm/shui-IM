@@ -4,6 +4,17 @@
 
 跨设备操作见[GitHub 双站发布与独立回读](docs/requirements/2026-11-09-cross-device-release/README.md)。
 
+## 密室运营看板已发布到家庭站（2026-11-23）
+<a id="release-mijiu-room-analytics-20261123"></a>
+
+用户确认将 `6d24f925f37ebfa535db869924c901f944a49d60`（`2026.11.23.1`）发布到 `home-frp`（mijiu.cloud），并开启独立动态码后台 `https://ops.mijiu.cloud`。本批包含密室转化、发言、留存和功能使用看板，以及从家庭站旧版起累计的视频、链接卡片和 X 长文阅读更新。[看板 #563](https://github.com/zdaiwmm/shui-IM/pull/563) · [发布准备 #564](https://github.com/zdaiwmm/shui-IM/pull/564)
+
+精确 main 全量 CI 第三轮通过，前两轮分别记录浏览器用例失败。使用同轮 `linux/amd64` 产物 `14812474968`，镜像 `sha256:f2d480b98dcca7b2885f4d54ff4c6c488c256a197f18942dcbc95b632538810b`，归档摘要 `91c63686fabae43040108a5831882911c940ff32e062c3aac50936c76cee6856`。[精确 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/45160387635/attempts/3)
+
+固定本机入口从 `a591e8fa163aa4b104614811c548d5586cf90920` 切换一次，批次 `20261123T115853Z`。新后台域名解析、HTTPS 和家庭网关均已核验。独立证书的 HTTP-01 模拟续期及 Nginx 重载钩子验收通过。固定发布验证了访客及后台维护门和冷备份，取得 `DEPLOY_VERIFIED`，外层耗时 117810 毫秒。独立回读首轮因 SSH 超时结束，仅重试回读，20:01:10 取得 `READBACK_OK`（24714 毫秒）。应用和备份均健康，维护门已解除，家庭站通话覆盖关闭。公开版本、数据库与存储健康、六份公开与容器资源摘要及新建 WebSocket 一致。[只读回读工具 #565](https://github.com/zdaiwmm/shui-IM/pull/565)
+
+后台首页返回 200，未登录统计接口返回 401，访客域名访问该接口返回 404。生产容器内对同一 SQLite 快照做只读核对，30 天看板存量与房间记录一致，有实际房间记录。浏览器动态码登录和看板验收待完成。实体 iPhone 未在本批验证。看板口径及历史缺口见[需求记录](docs/requirements/2026-11-23-mijiu-room-analytics/README.md)。
+
 ## X 长文阅读与封面已发布到主站（2026-11-19）
 <a id="release-x-article-reader-20261119-4"></a>
 
