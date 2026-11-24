@@ -4,6 +4,17 @@
 
 跨设备操作见[GitHub 双站发布与独立回读](docs/requirements/2026-11-09-cross-device-release/README.md)。
 
+## 密室运营转化与留存修复已发布到家庭站（2026-11-24）
+<a id="release-mijiu-live-conversion-20261124"></a>
+
+用户确认将 `8ac2a9eb21974333625c0fa630e9e5ef15296382`（`2026.11.24.1`）发布到 `home-frp`，覆盖 `mijiu.cloud` 和 `ops.mijiu.cloud`。新建转化和 24 小时加入率在达成时计入，仍在观察的密室单列。D1、D7、D30 回访单列当日进度，正式留存在当天结束后结算。[看板修复 #567](https://github.com/zdaiwmm/shui-IM/pull/567) · [发布准备 #568](https://github.com/zdaiwmm/shui-IM/pull/568)
+
+[精确 main 全量 CI 第 2 轮](https://github.com/zdaiwmm/shui-IM/actions/runs/45350680066/attempts/2) 通过。采用同轮 `linux/amd64` 产物 `14902830303`，镜像 `sha256:0b8c5b74abb8f53ff0cd1b634cb06f5f1ca3a856d99f9583f35a35e2480e8125`，归档摘要 `97c932c7894e235619e46d7821ef42508bfcd97581b08145e3bf4b7245910e4a`。上一轮 SSH 公钥认证成功，受限发布入口因许可仍绑定旧版三项值而返回 `64`。17:22 独立回读确认旧版 `6d24f925f37ebfa535db869924c901f944a49d60` 健康运行、维护门已解除。按本次授权原子更新三项许可并回读确认后，发布机重新通过预检。
+
+固定本机入口实际切换一次，批次 `20261124T093619Z`。镜像导入完成后关闭访客及后台流量并校验冷备份。北京时间 **18:11:54** 取得 `DEPLOY_VERIFIED`，固定入口共耗时 2341526 毫秒。北京时间 **18:12:17** 独立取得同一提交的 `READBACK_OK`。应用和备份均健康，维护门已解除，HTTPS、数据库、存储、6 份公开与容器资源摘要及新 WebSocket 均通过。
+
+公网版本为 `2026.11.24.1`。后台登录页返回 200，未登录统计接口返回 401，访客域名的同一路径返回 404。本批未执行后台动态码登录后的浏览器验收或物理 iPhone 验收。两份脱敏回执及首轮失败证据保存在本机 Git 公共目录的 `quiet-room-deliveries/evidence/mijiu-live-conversion-home-frp-20261124/`。
+
 ## 密室运营看板已发布到家庭站（2026-11-23）
 <a id="release-mijiu-room-analytics-20261123"></a>
 

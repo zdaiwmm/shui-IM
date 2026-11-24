@@ -1,10 +1,10 @@
 # Quiet Room 当前状态
 
-## 家庭站 2026.11.23.1 与运营后台已回读（2026-11-23）
+## 家庭站 2026.11.24.1 与运营后台已回读（2026-11-24）
 
-`mijiu.cloud` 运行 `6d24f925f37ebfa535db869924c901f944a49d60`。固定入口返回 `DEPLOY_VERIFIED`，北京时间 **20:01:10** 独立取得 `READBACK_OK`。独立动态码后台 `https://ops.mijiu.cloud` 已启用，未登录统计接口返回 401。生产业务库只读核对通过，浏览器动态码登录和看板验收待完成。[发布记录](../../RELEASING.md#release-mijiu-room-analytics-20261123)
+`mijiu.cloud` 运行 `8ac2a9eb21974333625c0fa630e9e5ef15296382`。固定入口在批次 `20261124T093619Z` 返回 `DEPLOY_VERIFIED`，北京时间 **18:12:17** 独立取得 `READBACK_OK`。应用和备份健康，维护门已解除。独立运营后台 `https://ops.mijiu.cloud` 登录页正常，未登录统计返回 401。[本批发布记录](../../RELEASING.md#release-mijiu-live-conversion-20261124)
 
-看板覆盖密室存量、加入、发言双方、留存和可回算的功能使用。缺失历史单列，通话接通与本机隐私操作待确定采集。[口径与验收](../requirements/2026-11-23-mijiu-room-analytics/README.md)
+看板在达成时计入新建转化和 24 小时加入率，仍在观察的密室单列。D1、D7、D30 单列当天回访进度。生产动态码登录后的浏览器验收待完成。[口径与验收](../requirements/2026-11-23-mijiu-room-analytics/README.md) · [11 月 23 日首次启用记录](../../RELEASING.md#release-mijiu-room-analytics-20261123)
 
 ## 家庭站 mijiu.cloud 已迁移至 Tailscale（2026-11-23）
 
