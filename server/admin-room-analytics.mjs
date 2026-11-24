@@ -31,7 +31,7 @@ function reportBuckets(start, end, period) {
   return { byDay, retention, trend };
 }
 
-const counts = () => ({ eligible: 0, returned: 0 });
+const counts = () => ({ eligible: 0, returned: 0, todayDue: 0, todayReturned: 0 });
 const stateCounts = () => ({ waiting: 0, none: 0, creator: 0, guest: 0, both: 0, unknown: 0 });
 
 function chatState(creator, guest, missingHistory) {
@@ -62,7 +62,7 @@ export function createRoomAnalytics(db) {
         MAX(CASE WHEN msg.accepted_at >= ?1 AND msg.accepted_at < ?2 AND sender.role = 'creator' THEN 1 ELSE 0 END) AS creator_active,
         MAX(CASE WHEN msg.accepted_at >= ?1 AND msg.accepted_at < ?2 AND sender.role = 'joiner' THEN 1 ELSE 0 END) AS guest_active,
         GROUP_CONCAT(DISTINCT CASE WHEN r.next_seq = r.message_count
-          AND msg.accepted_at >= ?1 AND msg.accepted_at < ?2 AND msg.accepted_at >= r.sealed_at
+          AND msg.accepted_at >= ?1 AND msg.accepted_at >= r.sealed_at
           THEN date(msg.accepted_at, '+8 hours') END) AS days_active
       FROM messages msg
       JOIN rooms r ON r.room_id = msg.room_id
@@ -109,7 +109,8 @@ export function createRoomAnalytics(db) {
 
   return (period, now = new Date()) => {
     if (![7, 30, 90].includes(period)) throw new Error('INVALID_ADMIN_FILTER');
-    const lastDay = localDay(now.getTime());
+    const observedAt = now.getTime();
+    const lastDay = localDay(observedAt);
     const firstDay = lastDay - period;
     const start = startOfDay(firstDay);
     const end = startOfDay(lastDay);
@@ -118,9 +119,9 @@ export function createRoomAnalytics(db) {
     const { byDay, retention, trend } = reportBuckets(firstDay, lastDay, period);
     const stock = { waiting: 0, joined: 0, closed: 0 };
     const activity = { created: 0, joined: 0, active: 0, bilateralActive: 0, partial: false };
-    const join24 = { eligible: 0, joined: 0 };
+    const join24 = { joined: 0, pending: 0 };
     const joinTimes = [];
-    const funnel = { eligible: 0, joined: 0, firstMessage: 0, bilateral: 0, unknown: 0 };
+    const funnel = { created: 0, joined: 0, firstMessage: 0, bilateral: 0, pending: 0, unknown: 0 };
     const states = { stock: stateCounts(), cohort: stateCounts() };
 
     for (const room of roomFacts.iterate(...range, at)) {
@@ -140,25 +141,25 @@ export function createRoomAnalytics(db) {
       if (createdBucket) {
         createdBucket.changes.created += 1;
         activity.created += 1;
-        if (created + dayMs <= end) {
-          join24.eligible += 1;
-          if (joined < created + dayMs) join24.joined += 1;
-        }
+        funnel.created += 1;
+        const joinedBySnapshot = joined <= observedAt;
+        const joinDeadline = created + dayMs;
+        if (joinedBySnapshot && joined < joinDeadline) join24.joined += 1;
+        else if (observedAt < joinDeadline) join24.pending += 1;
+
         const deadline = created + 7 * dayMs;
-        if (deadline <= end) {
-          funnel.eligible += 1;
-          let status = 'waiting';
-          if (joined < deadline) {
-            funnel.joined += 1;
-            const creator = Date.parse(room.first_creator) < deadline;
-            const guest = Date.parse(room.first_guest) < deadline;
-            if (creator || guest) funnel.firstMessage += 1;
-            status = chatState(creator, guest, room.missing_history);
-            if (status === 'both') funnel.bilateral += 1;
-            if (status === 'unknown') funnel.unknown += 1;
-          }
-          states.cohort[status] += 1;
+        let status = 'waiting';
+        if (joinedBySnapshot && joined < deadline) {
+          funnel.joined += 1;
+          const creator = Date.parse(room.first_creator) < deadline;
+          const guest = Date.parse(room.first_guest) < deadline;
+          if (creator || guest) funnel.firstMessage += 1;
+          status = chatState(creator, guest, room.missing_history);
         }
+        if (status === 'both') funnel.bilateral += 1;
+        else if (status === 'unknown') funnel.unknown += 1;
+        else if (observedAt < deadline) funnel.pending += 1;
+        if (deadline <= observedAt) states.cohort[status] += 1;
       }
       if (joined >= start && joined < end) {
         activity.joined += 1;
@@ -180,9 +181,16 @@ export function createRoomAnalytics(db) {
       const activeDays = new Set(room.days_active?.split(','));
       for (const [key, days] of Object.entries(followUpDays)) {
         const target = activationDay + days;
-        if (target >= lastDay) continue;
-        cohort[key].eligible += 1;
-        if (activeDays.has(dayLabel(target))) cohort[key].returned += 1;
+        if (target > lastDay) continue;
+        const rate = cohort[key];
+        const returned = activeDays.has(dayLabel(target));
+        if (target === lastDay) {
+          rate.todayDue += 1;
+          if (returned) rate.todayReturned += 1;
+        } else {
+          rate.eligible += 1;
+          if (returned) rate.returned += 1;
+        }
       }
     }
 

@@ -54,7 +54,7 @@ const now = new Date('2026-11-23T04:00:00.000Z');
 const utc = (date: string) => `${date}Z`;
 
 describe('room operations projections', () => {
-  it('separates current stock, retained message activity and matured creation cohorts', async () => {
+  it('separates current stock, period activity, conversion progress and completed creation cohorts', async () => {
     const f = await fixture();
     const created = utc('2026-11-01T05:00:00.000');
     const joined = utc('2026-11-01T06:00:00.000');
@@ -92,17 +92,44 @@ describe('room operations projections', () => {
       period: 30, start: '2026-10-24', end: '2026-11-22', at: now.toISOString(),
       stock: { waiting: 3, joined: 8, closed: 1 },
       activity: { created: 11, joined: 9, active: 5, bilateralActive: 3, partial: true },
-      join24: { eligible: 10, joined: 8 }, medianJoinMinutes: 60,
-      funnel: { eligible: 10, joined: 8, firstMessage: 4, bilateral: 2, unknown: 1 },
+      join24: { joined: 8, pending: 1 }, medianJoinMinutes: 60,
+      funnel: { created: 11, joined: 8, firstMessage: 4, bilateral: 2, pending: 1, unknown: 1 },
       states: {
         stock: { waiting: 3, none: 2, creator: 1, guest: 1, both: 3, unknown: 1 },
         cohort: { waiting: 2, none: 3, creator: 1, guest: 1, both: 2, unknown: 1 },
       },
     });
     expect(data.trend.find(bucket => bucket.start === '2026-11-16')?.closed).toBe(1);
-    expect(f.report(7, now).funnel.eligible).toBe(0);
+    expect(f.report(7, now).funnel).toEqual({ created: 1, joined: 0, firstMessage: 0, bilateral: 0, pending: 1, unknown: 0 });
     expect(JSON.stringify(data)).not.toMatch(/both-room|only-guest-room|private-synthetic-envelope|device_id|room_id/);
     expect(() => f.report(8, now)).toThrow('INVALID_ADMIN_FILTER');
+  });
+
+  it('counts known conversions as of the snapshot within their deadlines, even on a seven-day report', async () => {
+    const f = await fixture();
+    f.addRoom('day-two', utc('2026-11-22T08:00:00.000'), utc('2026-11-23T02:00:00.000'));
+    f.send('day-two', 'creator', utc('2026-11-22T08:30:00.000'));
+    f.send('day-two', 'joiner', utc('2026-11-23T02:01:00.000'));
+    f.send('day-two', 'creator', utc('2026-11-23T03:00:00.000'));
+    f.addRoom('still-pending', utc('2026-11-22T09:00:00.000'));
+    f.addRoom('deadline', utc('2026-11-16T03:00:00.000'), utc('2026-11-17T03:00:00.000'));
+    f.send('deadline', 'creator', utc('2026-11-23T02:59:59.999'));
+    f.send('deadline', 'joiner', utc('2026-11-23T03:00:00.000'));
+    f.addRoom('created-today', utc('2026-11-22T16:00:00.000'));
+
+    const beforeJoining = f.report(7, new Date('2026-11-23T01:59:59.999Z'));
+    expect(beforeJoining.funnel).toEqual({ created: 3, joined: 1, firstMessage: 0, bilateral: 0, pending: 3, unknown: 0 });
+    expect(beforeJoining.join24).toEqual({ joined: 0, pending: 2 });
+
+    const atJoining = f.report(7, new Date('2026-11-23T02:00:00.000Z'));
+    expect(atJoining.funnel.joined).toBe(2);
+    expect(atJoining.join24).toEqual({ joined: 1, pending: 1 });
+
+    const atDeadline = f.report(7, new Date('2026-11-23T03:00:00.000Z'));
+    expect(atDeadline.funnel).toEqual({ created: 3, joined: 2, firstMessage: 2, bilateral: 1, pending: 1, unknown: 0 });
+    expect(atDeadline.states.cohort).toEqual({ waiting: 0, none: 0, creator: 1, guest: 0, both: 0, unknown: 0 });
+    expect(atDeadline.activity).toMatchObject({ created: 3, joined: 1, bilateralActive: 0 });
+    expect(f.report(7, new Date('2026-11-23T09:00:00.000Z')).join24).toEqual({ joined: 1, pending: 0 });
   });
 
   it('deduplicates follow-ups within exact Beijing calendar days and uses maturity-specific denominators', async () => {
@@ -130,11 +157,19 @@ describe('room operations projections', () => {
     const data = f.report(90, now);
     expect(data.retention.find(bucket => bucket.start === '2026-09-01')).toEqual({
       start: '2026-09-01', end: '2026-09-30', activated: 2,
-      d1: { eligible: 2, returned: 1 }, d7: { eligible: 2, returned: 1 }, d30: { eligible: 2, returned: 1 },
+      d1: { eligible: 2, returned: 1, todayDue: 0, todayReturned: 0 },
+      d7: { eligible: 2, returned: 1, todayDue: 0, todayReturned: 0 },
+      d30: { eligible: 2, returned: 1, todayDue: 0, todayReturned: 0 },
     });
     expect(data.retention.find(bucket => bucket.start === '2026-11-01')).toMatchObject({
-      activated: 1, d1: { eligible: 0, returned: 0 }, d7: { eligible: 0, returned: 0 }, d30: { eligible: 0, returned: 0 },
+      activated: 1,
+      d1: { eligible: 0, returned: 0, todayDue: 1, todayReturned: 1 },
+      d7: { eligible: 0, returned: 0, todayDue: 0, todayReturned: 0 },
+      d30: { eligible: 0, returned: 0, todayDue: 0, todayReturned: 0 },
     });
+    const nextDay = f.report(90, new Date('2026-11-23T16:00:00.000Z'));
+    expect(nextDay.retention.find(bucket => bucket.start === '2026-11-01')?.d1)
+      .toEqual({ eligible: 1, returned: 1, todayDue: 0, todayReturned: 0 });
     expect(data.activity).toMatchObject({ active: 4, bilateralActive: 1, partial: true });
   });
 
