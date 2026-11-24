@@ -12,15 +12,15 @@ type StateCounts = {
   unknown: number;
 };
 type DateRange = { start: string; end: string };
-type RetentionRate = { eligible: number; returned: number };
+type RetentionRate = { eligible: number; returned: number; todayDue: number; todayReturned: number };
 export type RoomAnalyticsReport = DateRange & {
   period: RoomAnalyticsPeriod;
   at: string;
   stock: { waiting: number; joined: number; closed: number };
   activity: { created: number; joined: number; active: number; bilateralActive: number; partial: boolean };
-  join24: { eligible: number; joined: number };
+  join24: { joined: number; pending: number };
   medianJoinMinutes: number | null;
-  funnel: { eligible: number; joined: number; firstMessage: number; bilateral: number; unknown: number };
+  funnel: { created: number; joined: number; firstMessage: number; bilateral: number; pending: number; unknown: number };
   states: { stock: StateCounts; cohort: StateCounts };
   retention: Array<DateRange & { activated: number; d1: RetentionRate; d7: RetentionRate; d30: RetentionRate }>;
   trend: Array<DateRange & { created: number; closed: number }>;
@@ -98,8 +98,9 @@ function definitions() {
   const terms = node('dl');
   const rows = [
     ['真实加入', '每间密室完成首次受邀加入时计一个席位。多设备接入和恢复另计。'],
-    ['7 天双向率', '只纳入创建已满 7 天的密室。双方均在创建后 7 天内、受邀方加入后成功发送过聊天消息，计为双向。'],
-    ['活跃和留存', '按北京时间统计。以受邀方加入后的首次成功发送为第 0 天，每列仅纳入已满对应观察天数的密室。'],
+    ['新建密室转化', '以所选日期内的全部新建密室为分母，进度截至查询快照。双方在受邀方加入后均成功发过消息，且发生在创建后 7 天内，计为双向。'],
+    ['24 小时加入率', '以同批新建密室为分母，在创建后 24 小时内首次加入即计入。观察期内尚未达成的密室单列。'],
+    ['活跃和留存', '按北京时间统计。以受邀方加入后的首次成功发送为第 0 天，回访日结束后计入正式留存率。回访日为今天时单独展示进度。'],
     ['历史覆盖', '消息以服务端已接收的聊天记录计数。同一发送的重试只计一次。缺少早期记录时，聊天状态可能显示历史未知。'],
   ];
   for (const [term, detail] of rows) terms.append(node('dt', '', term), node('dd', '', detail));
@@ -114,20 +115,26 @@ function definitions() {
 }
 
 function overview(report: RoomAnalyticsReport) {
-  const { stock, activity, join24, funnel } = report;
+  const { stock, activity, join24, funnel, medianJoinMinutes } = report;
   const totals = node('dl', 'analytics-overview');
   totals.setAttribute('aria-label', '关键指标');
   const partial = activity.partial ? '≥ ' : '';
-  const bilateral = funnel.eligible === 0 ? '观察中'
-    : funnel.unknown > 0 ? '历史不完整' : percent(funnel.bilateral, funnel.eligible);
-  const bilateralNote = funnel.eligible === 0 ? '尚无创建满 7 天的密室'
-    : funnel.unknown > 0 ? `${number(funnel.unknown)} 间的聊天状态未知`
-      : `${number(funnel.bilateral)} / ${number(funnel.eligible)} 间已满 7 天`;
-  const joinRate = join24.eligible ? percent(join24.joined, join24.eligible) : '观察中';
+  const lowerBound = funnel.unknown ? '≥ ' : '';
+  const bilateral = funnel.created ? `${lowerBound}${percent(funnel.bilateral, funnel.created)}` : '—';
+  const bilateralNote = funnel.created ? [
+    `已双向 ${lowerBound}${number(funnel.bilateral)} / ${number(funnel.created)} 间`,
+    funnel.pending ? `${number(funnel.pending)} 间观察中` : '',
+    funnel.unknown ? `${number(funnel.unknown)} 间历史未知` : '',
+  ].filter(Boolean).join(' · ') : '所选日期内暂无新建密室';
+  const joinDetails = [
+    funnel.created ? `24 小时加入率 ${percent(join24.joined, funnel.created)}` : '暂无新建密室可计算 24 小时加入率',
+    join24.pending ? `${number(join24.pending)} 间观察中` : '',
+    medianJoinMinutes === null ? '' : `期间加入耗时中位数 ${number(medianJoinMinutes)} 分钟`,
+  ].filter(Boolean).join(' · ');
   const metrics = [
     ['新建密室 7 天双向率', bilateral, bilateralNote],
     ['密室存量', number(stock.waiting + stock.joined + stock.closed), `等待 ${number(stock.waiting)} · 已加入 ${number(stock.joined)} · 关闭 ${number(stock.closed)}`],
-    ['受邀方成功加入', number(activity.joined), `期间新建 ${number(activity.created)} 间 · 24 小时加入率 ${joinRate}`],
+    ['期间受邀方成功加入', number(activity.joined), joinDetails],
     ['消息活跃密室', `${partial}${number(activity.active)}`, `期间有成功发送 · 双方均发过 ${partial}${number(activity.bilateralActive)} 间${activity.partial ? ' · 仅计可核实记录' : ''}`],
   ];
   for (const [title, value, detail] of metrics) {
@@ -140,13 +147,13 @@ function overview(report: RoomAnalyticsReport) {
 
 function funnelPanel(report: RoomAnalyticsReport) {
   const { funnel } = report;
-  const { section } = panel('新建密室转化', '创建后 7 天内完成各步骤');
-  if (!funnel.eligible) {
-    section.append(emptyState('暂无满 7 天的新建批次'));
+  const { section } = panel('新建密室转化', '所选日期内新建 · 截至快照统计 7 天内达成进度');
+  if (!funnel.created) {
+    section.append(emptyState('所选日期内暂无新建密室'));
   } else {
     const list = node('ol', 'analytics-funnel');
     const steps = [
-      { label: '创建成功', count: funnel.eligible, partial: false },
+      { label: '创建成功', count: funnel.created, partial: false },
       { label: '受邀方加入', count: funnel.joined, partial: false },
       { label: '出现首条消息', count: funnel.firstMessage, partial: funnel.unknown > 0 },
       { label: '双方都发过', count: funnel.bilateral, partial: funnel.unknown > 0 },
@@ -156,21 +163,20 @@ function funnelPanel(report: RoomAnalyticsReport) {
       const track = node('span', 'analytics-track');
       track.setAttribute('aria-hidden', 'true');
       const fill = node('span');
-      fill.style.width = `${count / funnel.eligible * 100}%`;
+      fill.style.width = `${count / funnel.created * 100}%`;
       track.append(fill);
       const prefix = partial ? '≥ ' : '';
       item.append(node('span', '', label), track,
         node('strong', '', `${prefix}${number(count)}`),
-        node('span', 'analytics-note', `${prefix}${percent(count, funnel.eligible)}`));
+        node('span', 'analytics-note', `${prefix}${percent(count, funnel.created)}`));
       list.append(item);
     }
     section.append(list);
+    if (funnel.pending) {
+      section.append(node('p', 'analytics-note', `${number(funnel.pending)} 间尚未双向，仍在 7 天观察期内。`));
+    }
     if (funnel.unknown) section.append(node('p', 'analytics-note', '消息步骤仅展示可核实的下限。'));
   }
-  const median = report.medianJoinMinutes;
-  const joinTime = median === null ? '期间无可计的加入耗时'
-    : `期间加入耗时中位数 ${number(median)} 分钟`;
-  section.append(node('p', 'analytics-note', `以同批创建密室为分母 · ${joinTime}`));
   return section;
 }
 
@@ -224,7 +230,7 @@ function statePanel(report: RoomAnalyticsReport, initialScope: RoomAnalyticsScop
 
 function retentionPanel(report: RoomAnalyticsReport) {
   const { section } = panel('密室消息留存', '按所选期间内受邀方加入后的首次成功发送日期分组');
-  const coverage = node('p', 'analytics-note', '每列仅统计已满观察天数的密室。消息历史不完整的密室不计入。');
+  const coverage = node('p', 'analytics-note', '回访日结束后计入正式留存率。今天的回访进度单列。统计限于可核实的消息历史。');
   const cohorts = report.retention.filter(item => item.activated > 0);
   if (!cohorts.length) {
     section.append(emptyState('所选期间暂无可核实的首次发送批次'), coverage);
@@ -235,12 +241,20 @@ function retentionPanel(report: RoomAnalyticsReport) {
   for (const item of cohorts) {
     const range = node('span', '', shortRange(item));
     range.title = dateRange(item);
-    const metrics = [item.d1, item.d7, item.d30].map(({ eligible, returned }) => {
-      if (!eligible) return node('span', 'analytics-note', '观察中');
-      const cell = node('span', 'analytics-rate', percent(returned, eligible));
-      cell.title = `${number(returned)} / ${number(eligible)} 间`;
-      cell.setAttribute('aria-label', `${cell.textContent}，${cell.title}`);
-      return cell;
+    const metrics = [item.d1, item.d7, item.d30].map(({ eligible, returned, todayDue, todayReturned }) => {
+      const result = node('div');
+      if (eligible) {
+        const rate = node('span', 'analytics-rate', percent(returned, eligible));
+        rate.title = `${number(returned)} / ${number(eligible)} 间`;
+        rate.setAttribute('aria-label', `${rate.textContent}，${rate.title}`);
+        result.append(rate);
+      } else if (!todayDue) {
+        result.append(node('span', 'analytics-note', '观察中'));
+      }
+      if (todayDue) {
+        result.append(node('p', 'analytics-note', `今日回访 ${number(todayReturned)} / ${number(todayDue)}`));
+      }
+      return result;
     });
     row(body, [range, number(item.activated), ...metrics]);
   }

@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createServer as createNetServer } from 'node:net';
+import { DatabaseSync } from 'node:sqlite';
 import { chromium, webkit } from 'playwright';
 import { startServer } from '../server/index.mjs';
 import { makeAdminConfig, totp } from '../server/admin-auth.mjs';
@@ -109,13 +110,42 @@ try {
   await page.getByRole('heading',{name:'功能使用',exact:true}).waitFor();
   const report=await page.request.get(`http://localhost:${port}/admin-api/room-analytics?period=30`);
   assert.equal(report.status(),200);
-  assert.deepEqual((await report.json()).stock,{waiting:0,joined:0,closed:0});
+  const emptyReport = await report.json();
+  assert.deepEqual(emptyReport.stock,{waiting:0,joined:0,closed:0});
+  await page.getByText('所选日期内暂无新建密室',{exact:true}).first().waitFor();
   assert.equal((await page.request.get(`http://localhost:${port}/admin-api/room-analytics?period=365`)).status(),400);
+
+  const yesterday = Date.parse(`${emptyReport.end}T00:00:00+08:00`);
+  const yesterdayAt = hour => new Date(yesterday + hour * 3_600_000).toISOString();
+  const analyticsDb = new DatabaseSync(path.join(directory,'quiet-room.sqlite'));
+  try {
+    const converted = randomUUID();
+    const addRoom = analyticsDb.prepare("INSERT INTO rooms(room_id,access_hash,created_at,sealed_at,next_seq,message_count) VALUES(?,X'00',?,?,?,?)");
+    addRoom.run(converted,yesterdayAt(9),yesterdayAt(10),3,3);
+    addRoom.run(randomUUID(),yesterdayAt(9),null,0,0);
+    const addMember = analyticsDb.prepare(`INSERT INTO members(room_id,device_id,role,encryption_jwk,signing_jwk,access_hash,created_at,status)
+      VALUES(?,?,?,'synthetic','synthetic',X'00',?,'active')`);
+    const send = analyticsDb.prepare(`INSERT INTO messages(room_id,server_seq,client_msg_id,sender_device_id,envelope,accepted_at,count_unread)
+      VALUES(?,?,?,?,'synthetic',?,1)`);
+    const creator = randomUUID(), joiner = randomUUID();
+    addMember.run(converted,creator,'creator',yesterdayAt(9));
+    addMember.run(converted,joiner,'joiner',yesterdayAt(10));
+    send.run(converted,1,randomUUID(),creator,yesterdayAt(11));
+    send.run(converted,2,randomUUID(),joiner,yesterdayAt(12));
+    send.run(converted,3,randomUUID(),creator,yesterdayAt(24));
+  } finally {
+    analyticsDb.close();
+  }
   await page.getByRole('button',{name:'满 7 天批次',exact:true}).click();
   const periodResponse=page.waitForResponse(response=>response.url().endsWith('/admin-api/room-analytics?period=7'));
   await page.getByRole('button',{name:'近 7 天',exact:true}).click();
   assert.equal((await periodResponse).status(),200);
   await page.getByRole('heading',{name:'功能使用',exact:true}).waitFor();
+  await page.getByText('已双向 1 / 2 间 · 1 间观察中',{exact:true}).waitFor();
+  await page.getByText('1 间尚未双向，仍在 7 天观察期内。',{exact:true}).waitFor();
+  await page.getByText(/24 小时加入率 50%/).waitFor();
+  await page.getByText('今日回访 1 / 1',{exact:true}).waitFor();
+  assert.deepEqual(await page.locator('.analytics-funnel strong').allTextContents(),['2','1','1','1']);
   assert.equal(await page.getByRole('button',{name:'满 7 天批次',exact:true}).getAttribute('aria-pressed'),'true');
   await page.route('**/admin-api/room-analytics?period=90',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'统计暂不可用，请重试'})}));
   await page.getByRole('button',{name:'近 90 天',exact:true}).click();
